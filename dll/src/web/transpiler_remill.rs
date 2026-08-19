@@ -2950,6 +2950,43 @@ impl RemillTranspiler {
                 ir.push_str(&format!("declare ptr @sub_{:x}(ptr, i64, ptr)\n", c));
             }
         }
+        // IAT imports. The import address table is mirrored into guest memory
+        // with its LOAD-TIME resolved addresses, which point into KERNEL32 /
+        // ntdll / VCRUNTIME140 — modules the symbol table does not track, so
+        // `native_to_synth` returns None and the pointer is left raw. Lifted
+        // code that loads a slot into a register and calls through it therefore
+        // arrives here with a `0x7ffd…` value, matches nothing, and the default
+        // arm returns as if the call had succeeded. (`rewrite_iat_calls` covers
+        // the direct `call [rip+iat]` form; this is the other one.)
+        //
+        // Dropped silently, that is a wrong answer rather than a crash: a
+        // no-op `memcmp` makes serde's field-name matching answer wrongly,
+        // which is what turned AzWriter's state deserializer into an
+        // `unwrap_failed`. See doc/web-iat-import-dispatch.md.
+        //
+        // These resolve in OUR OWN process, so the addresses match the mirrored
+        // IAT exactly, and the dispatcher object is rebuilt every run (it is not
+        // object-cached), so ASLR cannot make them stale.
+        let import_cases = intercepted_import_labels(cases);
+        for (label, kind, name) in &import_cases {
+            eprintln!(
+                "[azul-web]   M12.7: IAT import {} → 0x{:x} routed to the {} helper",
+                name,
+                label,
+                kind.helper_name(),
+            );
+        }
+        if !import_cases.is_empty() {
+            // `memcmp` walks bytes one at a time through the guest memory
+            // intrinsic rather than importing a host `memcmp`: adding a new env
+            // import would make every probe script that zero-stubs unknown
+            // imports fail in a way that looks exactly like a mis-lift (the
+            // __multi3 / __udivti3 artifact, which cost a full false diagnosis).
+            ir.push_str("declare i8 @__remill_read_memory_8(ptr, i64)\n");
+            ir.push_str("declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
+            ir.push_str("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
+            ir.push_str("declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)\n");
+        }
         // WEB-LIFT FIX (2026-06-02): mask %pc to low 32 bits before the switch. Tail-jump
         // (`br`) PCs arrive TAGGED in the high bits (e.g. 0x8_00f70ebc / 0x9_00f6dfc4 — a
         // missing-block/region marker the lift OR's in), but the csynth case labels are the
@@ -2962,10 +2999,16 @@ impl RemillTranspiler {
         for (label, _c) in cases {
             ir.push_str(&format!("    i64 {}, label %c{:x}\n", label, label));
         }
+        for (label, _kind, _name) in &import_cases {
+            ir.push_str(&format!("    i64 {}, label %imp{:x}\n", label, label));
+        }
         if tlv_tls_base.is_some() {
             ir.push_str(&format!("    i64 {}, label %tlv\n", AZ_TLV_MAGIC_PC));
         }
         ir.push_str("  ]\n");
+        for (label, kind, _name) in &import_cases {
+            ir.push_str(&kind.emit_case_block(*label));
+        }
         // TLV getter (macOS thread-locals, see AZ_TLV_MAGIC_PC): the
         // caller did `adrp x0,<descriptor>; ldr x8,[x0]; blr x8` with
         // the mirrored thunk rewritten to the magic PC. Emulate
@@ -4077,6 +4120,280 @@ fn inject_user_binary_data_segments(
 /// `RandomState`'s KEYS in `HashSet::new()` post-rebase).
 #[cfg(feature = "web-transpiler")]
 const AZ_TLV_MAGIC_PC: u64 = 0xA271_C0DE;
+
+/// Opaque non-zero value handed back for `GetProcessHeap`. Nothing in the
+/// lifted world dereferences a heap handle — the only consumers are the
+/// Heap{Alloc,Free,ReAlloc} intercepts below, which ignore it — so any
+/// non-zero token works. A distinctive one makes it obvious in a memory dump
+/// that this came from here rather than being a real pointer.
+#[cfg(feature = "web-transpiler")]
+const AZ_FAKE_HEAP_HANDLE: u64 = 0x00A2_0000;
+
+/// How an intercepted Win32 import is emulated inside the dispatcher.
+///
+/// The shapes are Win64 ABI, NOT the Rust wrapper shapes: `HeapAlloc(hHeap,
+/// dwFlags, dwBytes)` puts the size in ARG[2], not ARG[0]. Getting that wrong
+/// is silent — it reads a heap handle as a length — which is exactly how the
+/// earlier `process_heap_alloc` misclassification produced zero-byte
+/// allocations. Each arm below states which argument it reads.
+#[cfg(feature = "web-transpiler")]
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ImportIntercept {
+    /// `GetProcessHeap()` → a fixed non-zero token.
+    ProcessHeap,
+    /// `HeapAlloc(hHeap, dwFlags, dwBytes)` / `RtlAllocateHeap` — size ARG[2].
+    HeapAlloc,
+    /// `HeapFree(hHeap, dwFlags, lpMem)` / `RtlFreeHeap` — bump never frees.
+    HeapFree,
+    /// `HeapReAlloc(hHeap, dwFlags, lpMem, dwBytes)` / `RtlReAllocateHeap`
+    /// — old pointer ARG[2], new size ARG[3].
+    HeapReAlloc,
+    /// `memcmp(a, b, n)`.
+    Memcmp,
+    /// `memcpy` / `memmove(dst, src, n)`.
+    Memmove,
+    /// `memset(dst, c, n)`.
+    Memset,
+}
+
+#[cfg(feature = "web-transpiler")]
+impl ImportIntercept {
+    fn helper_name(self) -> &'static str {
+        match self {
+            ImportIntercept::ProcessHeap => "fixed-heap-handle",
+            ImportIntercept::HeapAlloc => "bump-alloc",
+            ImportIntercept::HeapFree => "bump-dealloc (no-op)",
+            ImportIntercept::HeapReAlloc => "bump-realloc",
+            ImportIntercept::Memcmp => "memcmp",
+            ImportIntercept::Memmove => "memmove",
+            ImportIntercept::Memset => "memset",
+        }
+    }
+
+    /// The dispatcher switch-case block. Emitted inline rather than as a
+    /// separate `define` so the whole intercept stays inside the one module
+    /// the dispatcher already builds and links.
+    fn emit_case_block(self, label: u64) -> String {
+        let l = format!("{:x}", label);
+        let (a0, a1, a2, a3) = (pcs::ARG[0], pcs::ARG[1], pcs::ARG[2], pcs::ARG[3]);
+        let ret = pcs::RET;
+        // Bump-heap runtime slots, matching the BumpAlloc helper bodies:
+        // cursor u32 @0x40020 (262176), last-size @0x40030, count @0x40038.
+        const CURSOR: u64 = 262176;
+        match self {
+            ImportIntercept::ProcessHeap => format!(
+                "imp{l}:\n  %hp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n  \
+                 store i64 {handle}, ptr %hp{l}, align 8\n  ret ptr %memory\n",
+                l = l, ret = ret, handle = AZ_FAKE_HEAP_HANDLE,
+            ),
+            ImportIntercept::HeapFree => format!(
+                // Bump-only: never reuses a region, so a free is a no-op.
+                // HeapFree returns BOOL; a zero would read as failure.
+                "imp{l}:\n  %fp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n  \
+                 store i64 1, ptr %fp{l}, align 8\n  ret ptr %memory\n",
+                l = l, ret = ret,
+            ),
+            ImportIntercept::HeapAlloc => format!(
+                "imp{l}:\n\
+                 \x20 %szp{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
+                 \x20 %sz{l} = load i64, ptr %szp{l}, align 8\n\
+                 \x20 %sza{l} = add i64 %sz{l}, 7\n\
+                 \x20 %szal{l} = and i64 %sza{l}, -8\n\
+                 \x20 %old{l} = load i32, ptr inttoptr (i64 {cur} to ptr), align 4\n\
+                 \x20 %old64{l} = zext i32 %old{l} to i64\n\
+                 \x20 %new64{l} = add i64 %old64{l}, %szal{l}\n\
+                 \x20 %new{l} = trunc i64 %new64{l} to i32\n\
+                 \x20 store i32 %new{l}, ptr inttoptr (i64 {cur} to ptr), align 4\n\
+                 \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                 \x20 store i64 %old64{l}, ptr %rp{l}, align 8\n\
+                 \x20 %dst{l} = inttoptr i32 %old{l} to ptr\n\
+                 \x20 call void @llvm.memset.p0.i64(ptr %dst{l}, i8 0, i64 %szal{l}, i1 false)\n\
+                 \x20 ret ptr %memory\n",
+                l = l, a2 = a2, cur = CURSOR, ret = ret,
+            ),
+            ImportIntercept::HeapReAlloc => format!(
+                // Copy `new_size` bytes from the old block. The old size is not
+                // an argument and cannot be recovered, but realloc leaves bytes
+                // past the old length indeterminate, so copying the new length
+                // is conforming: the prefix that mattered is exact, and the
+                // tail reads bump memory the guest may not treat as defined
+                // anyway. A null old pointer means "behave like alloc".
+                "imp{l}:\n\
+                 \x20 %opp{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
+                 \x20 %op{l} = load i64, ptr %opp{l}, align 8\n\
+                 \x20 %szp{l} = getelementptr inbounds i8, ptr %state, i64 {a3}\n\
+                 \x20 %sz{l} = load i64, ptr %szp{l}, align 8\n\
+                 \x20 %sza{l} = add i64 %sz{l}, 7\n\
+                 \x20 %szal{l} = and i64 %sza{l}, -8\n\
+                 \x20 %old{l} = load i32, ptr inttoptr (i64 {cur} to ptr), align 4\n\
+                 \x20 %old64{l} = zext i32 %old{l} to i64\n\
+                 \x20 %new64{l} = add i64 %old64{l}, %szal{l}\n\
+                 \x20 %new{l} = trunc i64 %new64{l} to i32\n\
+                 \x20 store i32 %new{l}, ptr inttoptr (i64 {cur} to ptr), align 4\n\
+                 \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                 \x20 store i64 %old64{l}, ptr %rp{l}, align 8\n\
+                 \x20 %dst{l} = inttoptr i32 %old{l} to ptr\n\
+                 \x20 %isnull{l} = icmp eq i64 %op{l}, 0\n\
+                 \x20 br i1 %isnull{l}, label %impz{l}, label %impc{l}\n\
+                 impc{l}:\n\
+                 \x20 %op32{l} = trunc i64 %op{l} to i32\n\
+                 \x20 %src{l} = inttoptr i32 %op32{l} to ptr\n\
+                 \x20 call void @llvm.memmove.p0.p0.i64(ptr %dst{l}, ptr %src{l}, i64 %szal{l}, i1 false)\n\
+                 \x20 ret ptr %memory\n\
+                 impz{l}:\n\
+                 \x20 call void @llvm.memset.p0.i64(ptr %dst{l}, i8 0, i64 %szal{l}, i1 false)\n\
+                 \x20 ret ptr %memory\n",
+                l = l, a2 = a2, a3 = a3, cur = CURSOR, ret = ret,
+            ),
+            ImportIntercept::Memmove | ImportIntercept::Memset => {
+                let is_set = self == ImportIntercept::Memset;
+                let mid = if is_set {
+                    format!(
+                        "\x20 %c{l} = load i64, ptr %bp{l}, align 8\n\
+                         \x20 %c8{l} = trunc i64 %c{l} to i8\n\
+                         \x20 call void @llvm.memset.p0.i64(ptr %dst{l}, i8 %c8{l}, i64 %n{l}, i1 false)\n",
+                        l = l,
+                    )
+                } else {
+                    format!(
+                        "\x20 %b32{l} = load i64, ptr %bp{l}, align 8\n\
+                         \x20 %b32t{l} = trunc i64 %b32{l} to i32\n\
+                         \x20 %src{l} = inttoptr i32 %b32t{l} to ptr\n\
+                         \x20 call void @llvm.memmove.p0.p0.i64(ptr %dst{l}, ptr %src{l}, i64 %n{l}, i1 false)\n",
+                        l = l,
+                    )
+                };
+                format!(
+                    "imp{l}:\n\
+                     \x20 %ap{l} = getelementptr inbounds i8, ptr %state, i64 {a0}\n\
+                     \x20 %a{l} = load i64, ptr %ap{l}, align 8\n\
+                     \x20 %a32{l} = trunc i64 %a{l} to i32\n\
+                     \x20 %dst{l} = inttoptr i32 %a32{l} to ptr\n\
+                     \x20 %bp{l} = getelementptr inbounds i8, ptr %state, i64 {a1}\n\
+                     \x20 %np{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
+                     \x20 %n{l} = load i64, ptr %np{l}, align 8\n\
+                     {mid}\
+                     \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                     \x20 store i64 %a{l}, ptr %rp{l}, align 8\n\
+                     \x20 ret ptr %memory\n",
+                    l = l, a0 = a0, a1 = a1, a2 = a2, ret = ret, mid = mid,
+                )
+            }
+            ImportIntercept::Memcmp => format!(
+                // Byte loop through the guest memory intrinsic. Importing a
+                // host memcmp would add an env symbol every probe harness has
+                // to know about; a missing one zero-stubs and then looks
+                // exactly like a mis-lift.
+                "imp{l}:\n\
+                 \x20 %ap{l} = getelementptr inbounds i8, ptr %state, i64 {a0}\n\
+                 \x20 %a{l} = load i64, ptr %ap{l}, align 8\n\
+                 \x20 %bp{l} = getelementptr inbounds i8, ptr %state, i64 {a1}\n\
+                 \x20 %b{l} = load i64, ptr %bp{l}, align 8\n\
+                 \x20 %np{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
+                 \x20 %n{l} = load i64, ptr %np{l}, align 8\n\
+                 \x20 br label %impl{l}\n\
+                 impl{l}:\n\
+                 \x20 %i{l} = phi i64 [ 0, %imp{l} ], [ %i1{l}, %impn{l} ]\n\
+                 \x20 %done{l} = icmp uge i64 %i{l}, %n{l}\n\
+                 \x20 br i1 %done{l}, label %impe{l}, label %impb{l}\n\
+                 impb{l}:\n\
+                 \x20 %aa{l} = add i64 %a{l}, %i{l}\n\
+                 \x20 %ba{l} = add i64 %b{l}, %i{l}\n\
+                 \x20 %va{l} = call i8 @__remill_read_memory_8(ptr %memory, i64 %aa{l})\n\
+                 \x20 %vb{l} = call i8 @__remill_read_memory_8(ptr %memory, i64 %ba{l})\n\
+                 \x20 %same{l} = icmp eq i8 %va{l}, %vb{l}\n\
+                 \x20 br i1 %same{l}, label %impn{l}, label %impd{l}\n\
+                 impn{l}:\n\
+                 \x20 %i1{l} = add i64 %i{l}, 1\n\
+                 \x20 br label %impl{l}\n\
+                 impd{l}:\n\
+                 \x20 %za{l} = zext i8 %va{l} to i32\n\
+                 \x20 %zb{l} = zext i8 %vb{l} to i32\n\
+                 \x20 %d{l} = sub i32 %za{l}, %zb{l}\n\
+                 \x20 br label %imps{l}\n\
+                 impe{l}:\n\
+                 \x20 br label %imps{l}\n\
+                 imps{l}:\n\
+                 \x20 %res{l} = phi i32 [ %d{l}, %impd{l} ], [ 0, %impe{l} ]\n\
+                 \x20 %res64{l} = sext i32 %res{l} to i64\n\
+                 \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                 \x20 store i64 %res64{l}, ptr %rp{l}, align 8\n\
+                 \x20 ret ptr %memory\n",
+                l = l, a0 = a0, a1 = a1, a2 = a2, ret = ret,
+            ),
+        }
+    }
+}
+
+/// Resolve the Win32 imports worth intercepting to their live addresses,
+/// masked to 32 bits the way the dispatcher masks an incoming PC.
+///
+/// Resolution happens in OUR OWN process, which is also the process whose IAT
+/// was mirrored into guest memory, so the values match by construction. Labels
+/// that collide with an existing case, or that land inside the synth band, are
+/// dropped — mis-routing a real lifted function would be far worse than
+/// leaving one import undispatched.
+#[cfg(all(feature = "web-transpiler", target_os = "windows"))]
+fn intercepted_import_labels(cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept, String)> {
+    extern "system" {
+        fn GetModuleHandleA(name: *const u8) -> *mut core::ffi::c_void;
+        fn GetProcAddress(
+            module: *mut core::ffi::c_void,
+            name: *const u8,
+        ) -> *mut core::ffi::c_void;
+    }
+    const WANTED: &[(&str, &str, ImportIntercept)] = &[
+        ("KERNEL32.DLL\0", "GetProcessHeap\0", ImportIntercept::ProcessHeap),
+        ("KERNEL32.DLL\0", "HeapAlloc\0", ImportIntercept::HeapAlloc),
+        ("KERNEL32.DLL\0", "HeapFree\0", ImportIntercept::HeapFree),
+        ("KERNEL32.DLL\0", "HeapReAlloc\0", ImportIntercept::HeapReAlloc),
+        ("ntdll.dll\0", "RtlAllocateHeap\0", ImportIntercept::HeapAlloc),
+        ("ntdll.dll\0", "RtlFreeHeap\0", ImportIntercept::HeapFree),
+        ("ntdll.dll\0", "RtlReAllocateHeap\0", ImportIntercept::HeapReAlloc),
+        ("VCRUNTIME140.dll\0", "memcmp\0", ImportIntercept::Memcmp),
+        ("VCRUNTIME140.dll\0", "memcpy\0", ImportIntercept::Memmove),
+        ("VCRUNTIME140.dll\0", "memmove\0", ImportIntercept::Memmove),
+        ("VCRUNTIME140.dll\0", "memset\0", ImportIntercept::Memset),
+    ];
+    let table = symbol_table::get();
+    let mut used: HashSet<u64> = cases.iter().map(|(l, _)| *l).collect();
+    let mut out = Vec::new();
+    for (dll, func, kind) in WANTED {
+        // SAFETY: both strings are NUL-terminated literals; a module that is
+        // not loaded yields a null handle, which GetProcAddress rejects.
+        let addr = unsafe {
+            let m = GetModuleHandleA(dll.as_ptr());
+            if m.is_null() {
+                continue;
+            }
+            GetProcAddress(m, func.as_ptr())
+        };
+        if addr.is_null() {
+            continue;
+        }
+        let label = (addr as usize as u64) & 0xFFFF_FFFF;
+        if label == 0 || !used.insert(label) {
+            continue;
+        }
+        if table
+            .map(|t| t.is_synth_in_image_span(label as usize))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        out.push((
+            label,
+            *kind,
+            format!("{}!{}", dll.trim_end_matches('\0'), func.trim_end_matches('\0')),
+        ));
+    }
+    out
+}
+
+#[cfg(all(feature = "web-transpiler", not(target_os = "windows")))]
+fn intercepted_import_labels(_cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept, String)> {
+    Vec::new()
+}
 
 /// Seed the data mirror with every image's full `__thread_vars`
 /// (descriptors — the translation pass rewrites their thunk slots to
