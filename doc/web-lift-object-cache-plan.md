@@ -52,6 +52,21 @@ the wrapper's callee name, and the indirect-call dispatcher — the
 dispatcher keeps mapping *runtime PC values* (build-specific, and it is
 regenerated per build anyway) to those stable names.
 
+**Feasibility — checked, and it is the cheap kind.** The rename has to
+resolve forward references: function A's IR contains `declare @sub_B`, so
+naming it needs B's identity before B is lifted. That is fine, because
+`reloc_canonicalize` (`transpiler_remill.rs:7006`) is a *pure byte-level*
+pass — iced-decode the bytes, mask the extra-function relocatable fields,
+hash — with no lift, no subprocess and no dependency on B having been
+visited. B's address and size are already in the symbol table, so an
+identity is a byte read plus a decode. Nothing here needs the dual-lift
+templating, which is what makes populating a template expensive.
+
+The one ordering constraint: the rename must run **after** dep discovery,
+which parses `sub_<hex>` tokens to recover callee addresses. Renaming
+earlier removes the very addresses the walk needs. So it belongs in the
+final patched IR, immediately before `obj_cache_path` is keyed on it.
+
 ### Stage 2 — numeric slots become linker-resolved loads
 
 Replace each template slot constant with a load from an external global:
