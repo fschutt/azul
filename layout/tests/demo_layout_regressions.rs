@@ -396,7 +396,8 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
                 child_dom_id: child_dom,
                 bounds: rect(8.0, 78.0, 624.0, 402.0),
                 clip_rect: rect(8.0, 78.0, 624.0, 402.0),
-            },
+            content_offset: Default::default(),
+        },
             DisplayListItem::PopClip,
         ],
         ..Default::default()

@@ -3942,6 +3942,7 @@ mod autotest_generated {
             child_dom_id: dom,
             bounds: wlr(5.0, 6.0, 40.0, 30.0),
             clip_rect: wlr(5.0, 6.0, 40.0, 30.0),
+            content_offset: Default::default(),
         }]);
         let shared = Arc::new(dlist(vec![opaque_rect(0.0, 0.0, 10.0, 10.0)]));
         let equal_but_distinct = Arc::new(dlist(vec![opaque_rect(0.0, 0.0, 10.0, 10.0)]));

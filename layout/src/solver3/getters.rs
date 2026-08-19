@@ -2464,10 +2464,29 @@ fn get_inline_border_info(
 pub struct SelectionStyle {
     /// Background color of the selection highlight
     pub bg_color: ColorU,
-    /// Text color when selected (overrides normal text color)
+    /// Text color when selected (overrides normal text color).
+    ///
+    /// `None` means "no authority said anything" — neither
+    /// `-azul-selection-color` nor the system style — and the painter must then
+    /// leave the glyph's normal colour alone. Use [`Self::text_color_or`]
+    /// rather than testing this field, so that rule lives in one place.
     pub text_color: Option<ColorU>,
     /// Border radius for selection rectangles
     pub radius: f32,
+}
+
+impl SelectionStyle {
+    /// The colour to paint a glyph that falls INSIDE the selection, given the
+    /// colour it would otherwise have.
+    ///
+    /// The selection painter draws `bg_color` behind the glyphs, so with an
+    /// opaque system highlight the unrecoloured glyphs are dark-on-dark; the
+    /// text pass has to apply this to every glyph covered by a selection rect
+    /// (see `HANDOFF-text-fix.md` — `paint_inline_content`).
+    #[must_use]
+    pub fn text_color_or(&self, normal: ColorU) -> ColorU {
+        self.text_color.unwrap_or(normal)
+    }
 }
 
 /// Get selection style for a node
@@ -8515,6 +8534,57 @@ mod autotest_generated {
             get_caret_style(&sd, child).animation_duration,
             CssDuration::from_millis(1000)
         );
+    }
+
+    /// `text_color` is the `::selection` colour the text pass must paint
+    /// selected glyphs in. Both authorities have to arrive intact — a stylesheet
+    /// `-azul-selection-color`, and the OS highlight colour when the stylesheet
+    /// is silent — because the alternative (leaving glyphs their normal colour
+    /// under an OPAQUE highlight) is dark-on-dark.
+    #[test]
+    fn selection_style_carries_the_css_text_colour_and_the_system_fallback() {
+        let child = Some(NodeId::new(1));
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let green = ColorU { r: 0, g: 255, b: 0, a: 255 };
+
+        let sd = body_with_divs(
+            1,
+            "div { -azul-selection-color: #ff0000; -azul-selection-background-color: #00ff00; }",
+        );
+        let sel = get_selection_style(&sd, child, None);
+        assert_eq!(sel.text_color, Some(red), "the stylesheet is the top authority");
+        assert_eq!(sel.bg_color, green);
+        assert_eq!(sel.text_color_or(ColorU::BLACK), red);
+
+        // No stylesheet opinion: the system style answers for BOTH halves.
+        let system = std::sync::Arc::new(azul_css::system::defaults::windows_11_light());
+        let sd = body_with_divs(1, "");
+        let sel = get_selection_style(&sd, child, Some(&system));
+        assert_eq!(
+            sel.text_color,
+            Some(ColorU::new_rgb(255, 255, 255)),
+            "the OS highlight text colour"
+        );
+        assert_eq!(sel.bg_color, ColorU::new_rgb(0, 120, 215));
+
+        // The stylesheet still wins over the system style.
+        let sd = body_with_divs(1, "div { -azul-selection-color: #ff0000; }");
+        assert_eq!(
+            get_selection_style(&sd, child, Some(&system)).text_color,
+            Some(red)
+        );
+    }
+
+    /// No authority at all ⇒ `None`, and the painter must leave the glyph's own
+    /// colour untouched rather than substituting a default.
+    #[test]
+    fn selection_style_without_any_text_colour_keeps_the_normal_glyph_colour() {
+        let sd = body_with_divs(1, "");
+        let sel = get_selection_style(&sd, Some(NodeId::new(1)), None);
+        assert_eq!(sel.text_color, None);
+
+        let normal = ColorU { r: 17, g: 34, b: 51, a: 255 };
+        assert_eq!(sel.text_color_or(normal), normal);
     }
 
     #[test]

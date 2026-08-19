@@ -2048,6 +2048,35 @@ impl LayoutWindow {
         })
     }
 
+    /// Where a `VirtualView`'s materialized content sits inside its box:
+    /// `materialized_window_origin - current_scroll_offset`, both in virtual
+    /// space.
+    ///
+    /// THE one definition of VirtualView placement — the display-list builder,
+    /// the scroll-only rebuild and the fallback path all call this, so they
+    /// cannot drift. Note what it does NOT read: the virtual document size.
+    /// That is what lets background pagination refine the estimate (growing or
+    /// shrinking the scrollbar) without moving a single pixel of content.
+    #[must_use]
+    pub fn virtual_view_content_offset(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> LogicalPosition {
+        let window_origin = self
+            .virtual_view_manager
+            .materialized_window_origin(dom_id, node_id)
+            .unwrap_or_else(LogicalPosition::zero);
+        let current_offset = self
+            .scroll_manager
+            .get_current_offset(dom_id, node_id)
+            .unwrap_or_else(LogicalPosition::zero);
+        LogicalPosition::new(
+            window_origin.x - current_offset.x,
+            window_origin.y - current_offset.y,
+        )
+    }
+
     /// The nearest self-or-ancestor node with `contenteditable` (the editing
     /// host), if any.
     #[must_use]
@@ -4189,10 +4218,19 @@ impl LayoutWindow {
                                     node_id.index(), placeholder_bounds.inner(), bounds
                                 );
                             }
+                            // Place the materialized window: it begins at
+                            // `window_origin` in virtual space and the view is
+                            // scrolled to `current_offset`, so the content sits
+                            // `window_origin - current_offset` inside the box.
+                            // Reads neither the virtual document size nor the
+                            // container position — refining the estimate must
+                            // not move a pixel.
                             *item = solver3::display_list::DisplayListItem::VirtualView {
                                 child_dom_id,
                                 bounds: *placeholder_bounds,
                                 clip_rect: *placeholder_clip,
+                                content_offset: self
+                                    .virtual_view_content_offset(dom_id, node_id),
                             };
                             replaced = true;
                             break;
@@ -4208,6 +4246,7 @@ impl LayoutWindow {
                             child_dom_id,
                             bounds: bounds.into(),
                             clip_rect: bounds.into(),
+                            content_offset: self.virtual_view_content_offset(dom_id, node_id),
                         });
                 }
             }
@@ -5093,6 +5132,9 @@ impl LayoutWindow {
         let (declared_scroll, declared_virtual) = self
             .virtual_view_manager
             .get_declared_sizes(parent_dom_id, node_id);
+        let declared_origin = self
+            .virtual_view_manager
+            .materialized_window_origin(parent_dom_id, node_id);
 
         // Create VirtualViewCallbackInfo with the most up-to-date state
         let mut callback_info = azul_core::callbacks::VirtualViewCallbackInfo::new(
@@ -5104,10 +5146,21 @@ impl LayoutWindow {
                 logical_size: bounds.size,
                 hidpi_factor,
             },
-            declared_scroll.unwrap_or(bounds.size),
+            // RECT 2: what the previous invoke materialized, WITH its origin
+            // (the piece that used to be dropped).
+            LogicalRect::new(
+                declared_origin.unwrap_or_else(LogicalPosition::zero),
+                declared_scroll.unwrap_or(bounds.size),
+            ),
+            // RECT 3: the document extent the scrollbar currently represents.
+            LogicalRect::new(
+                LogicalPosition::zero(),
+                declared_virtual.unwrap_or(bounds.size),
+            ),
+            // Where the user is looking. Previously this was passed as a
+            // hardcoded zero in the `virtual_scroll_offset` slot, so an app
+            // deriving a page index from it always rendered page 0.
             scroll_offset,
-            declared_virtual.unwrap_or(bounds.size),
-            LogicalPosition::zero(),
         );
         // Inject the headless-measure hook so the VirtualView callback can
         // size item DOMs (VirtualViewCallbackInfo::measure_dom → the
@@ -5148,15 +5201,16 @@ impl LayoutWindow {
                     self.virtual_view_manager.update_virtual_view_info(
                         parent_dom_id,
                         node_id,
-                        callback_return.scroll_size,
-                        callback_return.virtual_scroll_size,
+                        callback_return.materialized.origin,
+                        callback_return.materialized.size,
+                        callback_return.virtual_rect.size,
                     );
                     // Propagate virtual scroll bounds to ScrollManager
                     self.scroll_manager.update_virtual_scroll_bounds(
                         parent_dom_id,
                         node_id,
-                        callback_return.virtual_scroll_size,
-                        Some(callback_return.scroll_offset),
+                        callback_return.virtual_rect.size,
+                        Some(callback_return.materialized.origin),
                     );
                     return self
                         .virtual_view_manager
@@ -5175,15 +5229,16 @@ impl LayoutWindow {
         self.virtual_view_manager.update_virtual_view_info(
             parent_dom_id,
             node_id,
-            callback_return.scroll_size,
-            callback_return.virtual_scroll_size,
+            callback_return.materialized.origin,
+            callback_return.materialized.size,
+            callback_return.virtual_rect.size,
         );
         // Propagate virtual scroll bounds to ScrollManager
         self.scroll_manager.update_virtual_scroll_bounds(
             parent_dom_id,
             node_id,
-            callback_return.virtual_scroll_size,
-            Some(callback_return.scroll_offset),
+            callback_return.virtual_rect.size,
+            Some(callback_return.materialized.origin),
         );
 
         // **RECURSIVE LAYOUT STEP**
@@ -12209,10 +12264,16 @@ impl LayoutWindow {
                             .get_nested_dom_id(dom_id, *placeholder_nid)
                         {
                             if self.layout_results.contains_key(&child_dom_id) {
+                                // Display-list-only regeneration — the path a
+                                // plain SCROLL takes. Recomputing the offset
+                                // here is what makes the content follow the
+                                // wheel without re-invoking the callback.
                                 *item = solver3::display_list::DisplayListItem::VirtualView {
                                     child_dom_id,
                                     bounds: *placeholder_bounds,
                                     clip_rect: *placeholder_clip,
+                                    content_offset: self
+                                        .virtual_view_content_offset(dom_id, *placeholder_nid),
                                 };
                             }
                         }

@@ -68,7 +68,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     model.captured_signal = Some((
         info.scroll_offset.y,
         info.bounds.get_logical_size().height,
-        info.virtual_scroll_size.height,
+        info.virtual_rect.size.height,
     ));
 
     let mut root = Dom::create_div().with_css("display: block;");
@@ -86,10 +86,14 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     let window_len = model.window.len() as f32;
     VirtualViewReturn {
         dom: OptionDom::Some(root),
-        scroll_size: LogicalSize::new(600.0, window_len * 100.0),
-        scroll_offset: LogicalPosition::new(0.0, model.window.start as f32 * 100.0),
-        virtual_scroll_size: LogicalSize::new(600.0, PAGE_COUNT as f32 * 100.0),
-        virtual_scroll_offset: LogicalPosition::zero(),
+        materialized: azul_core::geom::LogicalRect::new(
+            LogicalPosition::new(0.0, model.window.start as f32 * 100.0),
+            LogicalSize::new(600.0, window_len * 100.0),
+        ),
+        virtual_rect: azul_core::geom::LogicalRect::new(
+            LogicalPosition::zero(),
+            LogicalSize::new(600.0, PAGE_COUNT as f32 * 100.0),
+        ),
     }
 }
 
@@ -372,7 +376,7 @@ fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
         );
         let _ = lw
             .virtual_view_manager
-            .update_virtual_view_info(DomId::ROOT_ID, vv_node, eff_scroll, eff_virtual);
+            .update_virtual_view_info(DomId::ROOT_ID, vv_node, azul_core::geom::LogicalPosition::zero(), eff_scroll, eff_virtual);
         lw.scroll_manager
             .update_virtual_scroll_bounds(DomId::ROOT_ID, vv_node, eff_virtual, None);
         lw.scroll_manager.calculate_scrollbar_states();
@@ -396,7 +400,7 @@ fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
         let eff_scroll = Some(phase2_scroll).or(kept_scroll).unwrap_or(eff_virtual);
         let _ = lw
             .virtual_view_manager
-            .update_virtual_view_info(DomId::ROOT_ID, vv_node, eff_scroll, eff_virtual);
+            .update_virtual_view_info(DomId::ROOT_ID, vv_node, azul_core::geom::LogicalPosition::zero(), eff_scroll, eff_virtual);
         lw.scroll_manager
             .update_virtual_scroll_bounds(DomId::ROOT_ID, vv_node, eff_virtual, None);
         lw.scroll_manager.calculate_scrollbar_states();

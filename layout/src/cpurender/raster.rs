@@ -2084,6 +2084,7 @@ pub fn render_single_item(
             child_dom_id,
             bounds,
             clip_rect,
+            content_offset,
         } => {
             let _ = clip_rect;
             // Composite the VirtualView's child DOM (a separate LayoutResult the
@@ -2119,7 +2120,15 @@ pub fn render_single_item(
                     real_clip_stack.last().copied().flatten(),
                     logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor),
                 ));
-                scroll_offset_stack.push((scroll_dx - vv_origin.x, scroll_dy - vv_origin.y));
+                // The renderer draws at `pos - accumulated_scroll`, so
+                // subtracting the VirtualView origin places the 0-relative
+                // child at the box, and subtracting `content_offset` on top
+                // shifts the materialized window by
+                // `window_origin - scroll_offset` — which IS the scroll.
+                scroll_offset_stack.push((
+                    scroll_dx - vv_origin.x - content_offset.x,
+                    scroll_dy - vv_origin.y - content_offset.y,
+                ));
                 for (child_idx, child_item) in child_dl.items.iter().enumerate() {
                     render_single_item(
                         child_item,

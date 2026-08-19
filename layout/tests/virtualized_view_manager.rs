@@ -84,6 +84,7 @@ fn test_virtual_view_manager_bounds_expanded() {
     virtual_view_mgr.update_virtual_view_info(
         parent_dom,
         node_id,
+        azul_core::geom::LogicalPosition::zero(),
         LogicalSize::new(400.0, 300.0),
         LogicalSize::new(400.0, 300.0),
     );
@@ -136,6 +137,7 @@ fn test_virtual_view_manager_edge_scrolled_bottom() {
     virtual_view_mgr.update_virtual_view_info(
         parent_dom,
         node_id,
+        azul_core::geom::LogicalPosition::zero(),
         LogicalSize::new(800.0, 2000.0), // Content is taller than container
         LogicalSize::new(800.0, 2000.0),
     );
@@ -207,6 +209,7 @@ fn test_virtual_view_manager_edge_scrolled_right() {
     virtual_view_mgr.update_virtual_view_info(
         parent_dom,
         node_id,
+        azul_core::geom::LogicalPosition::zero(),
         LogicalSize::new(3000.0, 600.0), // Content is wider than container
         LogicalSize::new(3000.0, 600.0),
     );

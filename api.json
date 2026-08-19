@@ -3681,7 +3681,7 @@
                     "racket": "racket/hello-world.rkt",
                     "red": "red/hello-world.red",
                     "ruby": "ruby/hello-world.rb",
-                    "scala": "// examples/scala/HelloWorld.scala — Python-quality Scala port.\n//\n// Rides on the Java codegen's `com.azul.*` JNA bindings. The smart\n// `WindowCreateOptions.create(LAYOUT_INVOKER)` factory hides the\n// host-invoker plumbing; user code never has to touch `getByteArray`\n// or splice bytes through `Pointer.write`. Builds at ~50 LOC.\n//\n// Build:  scalac -cp ../java/target/classes:$JNA_JAR HelloWorld.scala -d HelloWorld.jar\n// Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \\\n//             -cp HelloWorld.jar:../java/target/classes:$JNA_JAR:$SCALA_LIB:$SCALA3_LIB \\\n//             com.azul.HelloWorld\n//\n// macOS requires `-XstartOnFirstThread` (Cocoa main-thread rule).\n\npackage com.azul\n\nimport com.sun.jna.{Pointer, Structure}\n\nobject HelloWorld {\n\n  class MyDataModel(var counter: Int)\n  private val MODEL = new MyDataModel(5)\n\n  private val ON_CLICK: AzulNativeManaged.ButtonOnClickCallbackInvokerCallback =\n    new AzulNativeManaged.ButtonOnClickCallbackInvokerCallback {\n      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =\n        AzulHostInvoker.refanyGet(dataPtr) match {\n          case m: MyDataModel =>\n            m.counter += 1\n            outPtr.setInt(0, AzUpdate.RefreshDom.value)\n          case _ =>\n            outPtr.setInt(0, AzUpdate.DoNothing.value)\n        }\n    }\n\n  private def writeDom(outPtr: Pointer, dom: Dom): Unit = {\n    val raw = Structure.newInstance(classOf[AzDom.ByValue], dom.rawPointer())\n    raw.read()\n    outPtr.write(0, raw.getPointer().getByteArray(0, raw.size()), 0, raw.size())\n  }\n\n  private val LAYOUT: AzulNativeManaged.LayoutCallbackInvokerCallback =\n    new AzulNativeManaged.LayoutCallbackInvokerCallback {\n      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =\n        AzulHostInvoker.refanyGet(dataPtr) match {\n          case m: MyDataModel =>\n            val label = Dom.createDiv()\n              .withCss(\"font-size: 32px;\")\n              .withChild(Dom.createText(String.valueOf(m.counter)))\n            val buttonDom = new Dom(\n              Button.create(\"Increase counter\")\n                .withButtonType(AzButtonType.Primary.value)\n                .onClick(m, ON_CLICK)\n                .dom()\n                .rawPointer())\n            writeDom(outPtr, Dom.createBody().withChild(label).withChild(buttonDom))\n          case _ =>\n            writeDom(outPtr, Dom.createBody())\n        }\n    }\n\n  def main(args: Array[String]): Unit = {\n    // Smart factory: hides the host-invoker register + bytes-splice\n    // (compare with the pre-rewrite version's ~6 lines of boilerplate).\n    val wco = WindowCreateOptions.create(LAYOUT)\n    val rawWco = Structure.newInstance(classOf[AzWindowCreateOptions.ByValue], wco.rawPointer())\n    rawWco.read()\n    val app = AzulNativeApp.AzApp_create(AzulHostInvoker.refanyCreate(MODEL), AzulNativeApp.AzAppConfig_create())\n    app.write()\n    AzulNativeApp.AzApp_run(app.getPointer(), rawWco)\n  }\n}\n",
+                    "scala": "// examples/scala/HelloWorld.scala — Python-quality Scala port.\n//\n// Rides on the Java codegen's `com.azul.*` JNA bindings. The smart\n// `WindowCreateOptions.create(LAYOUT_INVOKER)` factory hides the\n// host-invoker plumbing; user code never has to touch `getByteArray`\n// or splice bytes through `Pointer.write`. Builds at ~50 LOC.\n//\n// Build:  scalac -cp ../java/target/classes:$JNA_JAR HelloWorld.scala -d HelloWorld.jar\n// Run:    DYLD_LIBRARY_PATH=. java -XstartOnFirstThread -Djna.library.path=. \\\n//             -cp HelloWorld.jar:../java/target/classes:$JNA_JAR:$SCALA_LIB:$SCALA3_LIB \\\n//             com.azul.HelloWorld\n//\n// macOS requires `-XstartOnFirstThread` (Cocoa main-thread rule).\n\npackage com.azul\n\nimport com.sun.jna.{Pointer, Structure}\n\nobject HelloWorld {\n\n  class MyDataModel(var counter: Int)\n  private val MODEL = new MyDataModel(5)\n\n  private val ON_CLICK: AzulNativeManaged.ButtonOnClickCallbackInvokerCallback =\n    new AzulNativeManaged.ButtonOnClickCallbackInvokerCallback {\n      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =\n        AzulHostInvoker.refanyGet(dataPtr) match {\n          case m: MyDataModel =>\n            m.counter += 1\n            outPtr.setInt(0, AzUpdate.RefreshDom.value)\n          case _ =>\n            outPtr.setInt(0, AzUpdate.DoNothing.value)\n        }\n    }\n\n  private def writeDom(outPtr: Pointer, dom: Dom): Unit = {\n    val raw = Structure.newInstance(classOf[AzDom.ByValue], dom.rawPointer())\n    raw.read()\n    outPtr.write(0, raw.getPointer().getByteArray(0, raw.size()), 0, raw.size())\n  }\n\n  private val LAYOUT: AzulNativeManaged.LayoutCallbackInvokerCallback =\n    new AzulNativeManaged.LayoutCallbackInvokerCallback {\n      override def invoke(id: Long, dataPtr: Pointer, infoPtr: Pointer, outPtr: Pointer): Unit =\n        AzulHostInvoker.refanyGet(dataPtr) match {\n          case m: MyDataModel =>\n            val label = Dom.createDiv()\n              .withCss(\"font-size: 32px;\")\n              .withChild(Dom.createTextDoNotUseWithoutBlockLevelWrapper(String.valueOf(m.counter)))\n            val buttonDom = new Dom(\n              Button.create(\"Increase counter\")\n                .withButtonType(AzButtonType.Primary.value)\n                .onClick(m, ON_CLICK)\n                .dom()\n                .rawPointer())\n            writeDom(outPtr, Dom.createBody().withChild(label).withChild(buttonDom))\n          case _ =>\n            writeDom(outPtr, Dom.createBody())\n        }\n    }\n\n  def main(args: Array[String]): Unit = {\n    // Smart factory: hides the host-invoker register + bytes-splice\n    // (compare with the pre-rewrite version's ~6 lines of boilerplate).\n    val wco = WindowCreateOptions.create(LAYOUT)\n    val rawWco = Structure.newInstance(classOf[AzWindowCreateOptions.ByValue], wco.rawPointer())\n    rawWco.read()\n    val app = AzulNativeApp.AzApp_create(AzulHostInvoker.refanyCreate(MODEL), AzulNativeApp.AzAppConfig_create())\n    app.write()\n    AzulNativeApp.AzApp_run(app.getPointer(), rawWco)\n  }\n}\n",
                     "smalltalk": "smalltalk/HelloWorld.st",
                     "swift": "swift/hello-world.swift",
                     "v": "v/hello-world.v",
@@ -7423,16 +7423,13 @@
                                 "bounds": {
                                     "type": "HidpiAdjustedBounds"
                                 },
-                                "scroll_size": {
-                                    "type": "LogicalSize"
+                                "materialized": {
+                                    "type": "LogicalRect"
+                                },
+                                "virtual_rect": {
+                                    "type": "LogicalRect"
                                 },
                                 "scroll_offset": {
-                                    "type": "LogicalPosition"
-                                },
-                                "virtual_scroll_size": {
-                                    "type": "LogicalSize"
-                                },
-                                "virtual_scroll_offset": {
                                     "type": "LogicalPosition"
                                 },
                                 "callable_ptr": {
@@ -12609,19 +12606,13 @@
                                         "node_id": "DomNodeId"
                                     },
                                     {
-                                        "scroll_size": "OptionLogicalSize"
+                                        "materialized": "OptionLogicalRect"
                                     },
                                     {
-                                        "scroll_offset": "OptionLogicalPosition"
-                                    },
-                                    {
-                                        "virtual_scroll_size": "OptionLogicalSize"
-                                    },
-                                    {
-                                        "virtual_scroll_offset": "OptionLogicalPosition"
+                                        "virtual_rect": "OptionLogicalRect"
                                     }
                                 ],
-                                "fn_body": "object.update_virtual_view(node_id, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                                "fn_body": "azul_layout::callbacks::CallbackInfo::update_virtual_view(callbackinfo, node_id, materialized, virtual_rect)"
                             },
                             "get_animation_momentum": {
                                 "doc": [
@@ -14195,7 +14186,14 @@
                     },
                     "VirtualViewReturn": {
                         "doc": [
-                            "Return value for a VirtualView rendering callback. # Dual Size Model VirtualView callbacks return two size/offset pairs that enable lazy loading and virtualization: ## Actual Content (`scroll_size` + `scroll_offset`) The size and position of content that has **actually been rendered**. This is the content currently present in the returned DOM. **Example**: A table view might render only 20 visible rows out of 1000 total rows. ## Virtual Content (`virtual_scroll_size` + `virtual_scroll_offset`) The size and position of content that the VirtualView **pretends to have**. This is used for scrollbar sizing and positioning, allowing the scrollbar to represent the full dataset even when only a subset is rendered. **Example**: The same table might pretend to have all 1000 rows for scrollbar sizing. # Conditional Re-invocation The VirtualView callback will be re-invoked **only when necessary** to avoid performance overhead: 1. **Initial render** - First time the VirtualView appears in the layout 2. **Parent DOM recreated** - The parent DOM was rebuilt from scratch (not just re-laid-out) 3. **Window resize (expansion only)** - Window grows and VirtualView bounds exceed `scroll_size` - [OK] Only triggers **ONCE** per expansion (when bounds become uncovered) - Does **NOT** trigger when window shrinks (content is clipped, not re-rendered) - Does **NOT** trigger if expanded area is still within existing `scroll_size` 4. **Scroll near edge** - User scrolls within threshold (default 200px) of content edge - [OK] Only triggers **ONCE** per edge approach (prevents repeated calls) - Flag resets when: scroll moves away from edge, or callback returns expanded content 5. **Programmatic scroll** - `set_scroll_position()` scrolls beyond rendered `scroll_size` - Same constraints as rule #4 (threshold and once-per-edge) ## Window Resize Example ```text Frame 0: VirtualView bounds = 800x600, scroll_size = 800x600 (perfectly covered) Frame 1: Window resizes to 1000x700 (larger) -> VirtualView bounds = 1000x700 -> Bounds no longer fully covered by scroll_size (800x600) -> [OK] RE-INVOKE callback once Frame 2: Window resizes to 1100x800 (even larger) -> If callback returned scroll_size = 1100x800, fully covered again -> Do NOT re-invoke (content covers new bounds) -> If callback returned scroll_size = 1000x700, not fully covered -> [OK] RE-INVOKE again (new uncovered area) Frame 3: Window resizes to 900x650 (smaller) -> Bounds now smaller than scroll_size -> Do NOT re-invoke (content is just clipped by scrollbars) ``` ## Scroll Near Edge Example ```text scroll_size = 1000x2000 (width x height) Container = 800x600 Threshold = 200px Current scroll_offset = 0x0 User scrolls to scroll_offset = 0x1500: -> Bottom edge at 1500 + 600 = 2100 -> Within 200px of scroll_size.height (2000) -> Distance from edge: 2100 - 2000 = 100px < 200px -> [OK] RE-INVOKE callback to load more content Callback returns: -> New scroll_size = 1000x4000 (doubled) -> Flag reset (edge no longer near) -> User continues scrolling without re-invoke until near new edge ``` # Optimization: Returning None If the callback determines that no new content is needed (e.g., sufficient content has already been rendered ahead of the scroll position), it can return `OptionDom::None` for the `dom` field. This signals the layout engine to keep using the current DOM and only update the scroll bounds. ```rust,ignore fn my_virtual_view_callback(data: &mut MyData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let current_scroll = info.scroll_offset; // Check if we've already rendered content that covers this scroll position if data.already_rendered_area_covers(current_scroll, info.bounds.size) { return VirtualViewReturn { dom: OptionDom::None, // Keep current DOM scroll_size: data.current_scroll_size, scroll_offset: data.current_scroll_offset, virtual_scroll_size: data.virtual_size, virtual_scroll_offset: LogicalPosition::zero(), }; } // Otherwise, render new content let new_dom = data.render_more_content(...); VirtualViewReturn { dom: OptionDom::Some(new_dom), ... } } ``` # Example: Basic VirtualView ```rust,ignore fn my_virtual_view_callback(data: &mut MyData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let dom = Dom::body() .with_child(Dom::text(\"Hello from VirtualView!\")); let styled_dom = dom; VirtualViewReturn { // The rendered content dom: OptionDom::Some(styled_dom), // Size of actual rendered content (matches container) scroll_size: info.bounds.size, // Content starts at top-left scroll_offset: LogicalPosition::zero(), // Virtual size same as actual (no virtualization needed) virtual_scroll_size: info.bounds.size, virtual_scroll_offset: LogicalPosition::zero(), } } ``` # Example: Virtualized Table (Lazy Loading) ```rust,ignore struct TableData { total_rows: usize, // 1000 rows in full dataset row_height: f32, // 30px per row visible_rows: Vec<Row>, // Currently rendered rows (e.g., rows 0-29) first_visible_row: usize, // Index of first rendered row } fn table_virtual_view_callback(data: &mut TableData, info: &mut VirtualViewCallbackInfo) -> VirtualViewReturn { let container_height = info.bounds.size.height; let scroll_y = info.scroll_offset.y; // Calculate which rows should be visible based on scroll position let first_row = (scroll_y / data.row_height) as usize; let visible_count = (container_height / data.row_height).ceil() as usize + 2; // +2 for buffer // Fetch and render only the visible rows data.visible_rows = data.fetch_rows(first_row, visible_count); data.first_visible_row = first_row; let dom = Dom::body() .with_children( data.visible_rows.iter().map(|row| { Dom::div() .with_child(Dom::text(row.text.clone())) .with_inline_css_props(css_property_vec![ (\"height\", format!(\"{}px\", data.row_height)), ]) }).collect() ); VirtualViewReturn { dom: OptionDom::Some(dom), // ACTUAL: Size of the ~30 rendered rows (e.g., 900px tall) scroll_size: LogicalSize::new( info.bounds.size.width, data.visible_rows.len() as f32 * data.row_height, ), // ACTUAL: Where these rows start in virtual space (e.g., y=300 if showing rows 10-30) scroll_offset: LogicalPosition::new( 0.0, first_row as f32 * data.row_height, ), // VIRTUAL: Size if all 1000 rows were rendered (30,000px tall) virtual_scroll_size: LogicalSize::new( info.bounds.size.width, data.total_rows as f32 * data.row_height, ), // VIRTUAL: Usually starts at origin virtual_scroll_offset: LogicalPosition::zero(), } } ``` In this example: - Only 20-30 rows are rendered at a time (~600-900px of DOM nodes) - The scrollbar represents all 1000 rows (30,000px virtual height) - When user scrolls near the bottom of rendered content, callback is re-invoked - New rows are rendered, and `scroll_size`/`scroll_offset` are updated - User experiences seamless scrolling through the full dataset # How the Layout Engine Uses These Values ## For Rendering - Uses `scroll_size` to determine the actual size of the VirtualView's content box - Uses `scroll_offset` to position the content within the virtual space - Clips rendering to the visible viewport ## For Scrollbars - Uses `virtual_scroll_size` to calculate scrollbar thumb size and track length - Uses `virtual_scroll_offset` as the base for scroll position calculations - User sees scrollbar representing full virtual size, not just rendered content ## For Re-invocation Checks - Compares viewport bounds against `scroll_size` to detect edge proximity - Compares current scroll position against `scroll_offset + scroll_size` bounds - Triggers callback when user scrolls beyond the rendered content threshold"
+                            "Return value for a VirtualView rendering callback.",
+                            "",
+                            "THREE RECTS, kept in sync by the engine:",
+                            "1. the container (the VirtualView's on-screen box) - the engine owns this;",
+                            "2. `materialized` - what you just rendered, and WHERE it sits in the document;",
+                            "3. `virtual_rect` - how big the document is (your best current estimate).",
+                            "",
+                            "Content is placed from `materialized` and the live scroll offset only, so refining `virtual_rect` moves the scrollbar and nothing else. The callback is re-invoked when the visible window comes near an edge of `materialized` and the document extends past it."
                         ],
                         "external": "azul_core::callbacks::VirtualViewReturn",
                         "custom_impls": [
@@ -14217,34 +14215,18 @@
                                 }
                             },
                             {
-                                "scroll_size": {
-                                    "type": "LogicalSize",
+                                "materialized": {
+                                    "type": "LogicalRect",
                                     "doc": [
-                                        "Size of the actual rendered content rectangle. This is the size of the content in the `dom` field (if Some). It may be smaller than `virtual_scroll_size` if only a subset of content is rendered (virtualization). **Example**: For a table showing rows 10-30, this might be 600px tall (20 rows x 30px each)."
+                                        "WHAT THIS CALLBACK MATERIALIZED, in VIRTUAL space. `origin` = where this window of content begins in the document; `size` = how much of the document it covers. One rect, not a loose offset + size: they are a single fact about a single window, and storing them apart is how the origin came to be dropped (content could not be placed, so a VirtualView could never actually scroll). The engine places content at `container.origin + (materialized.origin - current_scroll_offset)`. Example: a table showing rows 10-30 at 30px each reports origin.y = 300, size.height = 600."
                                     ]
                                 }
                             },
                             {
-                                "scroll_offset": {
-                                    "type": "LogicalPosition",
+                                "virtual_rect": {
+                                    "type": "LogicalRect",
                                     "doc": [
-                                        "Offset of the actual rendered content within the virtual coordinate space. This positions the rendered content within the larger virtual space. For virtualized content, this will be non-zero to indicate where the rendered \"window\" starts. **Example**: For a table showing rows 10-30, this might be y=300 (row 10 starts 300px from the top)."
-                                    ]
-                                }
-                            },
-                            {
-                                "virtual_scroll_size": {
-                                    "type": "LogicalSize",
-                                    "doc": [
-                                        "Size of the virtual content rectangle (for scrollbar sizing). This is the size the scrollbar will represent. It can be much larger than `scroll_size` to enable lazy loading and virtualization. **Example**: For a 1000-row table, this might be 30,000px tall (1000 rows x 30px each), even though only 20 rows are actually rendered."
-                                    ]
-                                }
-                            },
-                            {
-                                "virtual_scroll_offset": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Offset of the virtual content (usually zero). This is typically `(0, 0)` since the virtual space usually starts at the origin. Advanced use cases might use this for complex virtualization scenarios."
+                                        "THE WHOLE DOCUMENT, in VIRTUAL space - what the scrollbar represents. `origin` is normally zero; `size` is your current best estimate and MAY change as work completes (e.g. a background pagination pass refining a page count). Refining it is cheap and safe: ONLY the scrollbar reads this, so the thumb resizes and no content moves. Example: a 1000-row table reports size.height = 30000 even though `materialized` covers 600px of it."
                                     ]
                                 }
                             }
@@ -14268,19 +14250,13 @@
                                         "dom": "Dom"
                                     },
                                     {
-                                        "scroll_size": "LogicalSize"
+                                        "materialized": "LogicalRect"
                                     },
                                     {
-                                        "scroll_offset": "LogicalPosition"
-                                    },
-                                    {
-                                        "virtual_scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "virtual_scroll_offset": "LogicalPosition"
+                                        "virtual_rect": "LogicalRect"
                                     }
                                 ],
-                                "fn_body": "azul_core::callbacks::VirtualViewReturn::with_dom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                                "fn_body": "azul_core::callbacks::VirtualViewReturn::with_dom(dom, materialized, virtual_rect)"
                             },
                             "keep_current": {
                                 "doc": [
@@ -14298,19 +14274,13 @@
                                 ],
                                 "fn_args": [
                                     {
-                                        "scroll_size": "LogicalSize"
+                                        "materialized": "LogicalRect"
                                     },
                                     {
-                                        "scroll_offset": "LogicalPosition"
-                                    },
-                                    {
-                                        "virtual_scroll_size": "LogicalSize"
-                                    },
-                                    {
-                                        "virtual_scroll_offset": "LogicalPosition"
+                                        "virtual_rect": "LogicalRect"
                                     }
                                 ],
-                                "fn_body": "azul_core::callbacks::VirtualViewReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+                                "fn_body": "azul_core::callbacks::VirtualViewReturn::keep_current(materialized, virtual_rect)"
                             }
                         },
                         "repr": "C"

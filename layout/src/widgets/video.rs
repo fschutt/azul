@@ -245,10 +245,8 @@ extern "C" fn video_widget_render(
     };
     VirtualViewReturn {
         dom,
-        scroll_size: bounds,
-        scroll_offset: LogicalPosition::zero(),
-        virtual_scroll_size: bounds,
-        virtual_scroll_offset: LogicalPosition::zero(),
+        materialized: azul_core::geom::LogicalRect::new(LogicalPosition::zero(), bounds),
+        virtual_rect: azul_core::geom::LogicalRect::new(LogicalPosition::zero(), bounds),
     }
 }
 
@@ -910,9 +908,8 @@ mod autotest_generated {
                 logical_size: size,
                 hidpi_factor: DpiScaleFactor::new(1.0),
             },
-            size,
-            LogicalPosition::zero(),
-            size,
+            azul_core::geom::LogicalRect::new(LogicalPosition::zero(), size),
+            azul_core::geom::LogicalRect::new(LogicalPosition::zero(), size),
             LogicalPosition::zero(),
         );
         f(info)
@@ -1496,13 +1493,13 @@ mod autotest_generated {
         let ret =
             with_virtual_view_info(640.0, 480.0, |info| video_widget_render(dataset.clone(), info));
 
-        assert_eq!(ret.scroll_size.width, 640.0);
-        assert_eq!(ret.scroll_size.height, 480.0);
-        assert_eq!(ret.virtual_scroll_size.width, 640.0);
-        assert_eq!(ret.virtual_scroll_size.height, 480.0);
-        assert_eq!((ret.scroll_offset.x, ret.scroll_offset.y), (0.0, 0.0));
+        assert_eq!(ret.materialized.size.width, 640.0);
+        assert_eq!(ret.materialized.size.height, 480.0);
+        assert_eq!(ret.virtual_rect.size.width, 640.0);
+        assert_eq!(ret.virtual_rect.size.height, 480.0);
+        assert_eq!((ret.materialized.origin.x, ret.materialized.origin.y), (0.0, 0.0));
         assert_eq!(
-            (ret.virtual_scroll_offset.x, ret.virtual_scroll_offset.y),
+            (ret.virtual_rect.origin.x, ret.virtual_rect.origin.y),
             (0.0, 0.0)
         );
     }
@@ -1516,8 +1513,8 @@ mod autotest_generated {
             video_widget_render(dataset.clone(), info)
         });
         assert!(rendered_nothing(&ret));
-        assert!(ret.scroll_size.width.is_nan());
-        assert_eq!(ret.scroll_size.height, 480.0);
+        assert!(ret.materialized.size.width.is_nan());
+        assert_eq!(ret.materialized.size.height, 480.0);
     }
 
     #[test]

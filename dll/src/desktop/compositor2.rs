@@ -1407,6 +1407,7 @@ pub fn translate_displaylist_to_wr(
                 child_dom_id,
                 bounds,
                 clip_rect,
+                content_offset,
             } => {
                 // VirtualView rendering implementation:
                 // 1. Create PipelineId from child_dom_id

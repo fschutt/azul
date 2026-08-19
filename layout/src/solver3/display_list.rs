@@ -1136,6 +1136,16 @@ pub enum DisplayListItem {
         bounds: WindowLogicalRect,
         /// The clip rect for the `VirtualView` content
         clip_rect: WindowLogicalRect,
+        /// How far to shift the child content inside `bounds`, in logical px:
+        /// `materialized_window_origin - current_scroll_offset`.
+        ///
+        /// This is what makes a `VirtualView` SCROLL rather than merely
+        /// re-materialize. It is deliberately derived from the materialized
+        /// window's origin and the live scroll offset ONLY — never from the
+        /// virtual document size — so refining the document estimate (as
+        /// background pagination lands) resizes the scrollbar and moves
+        /// nothing on screen.
+        content_offset: LogicalPosition,
     },
 
     /// Placeholder emitted during display list generation for `VirtualView` nodes.
@@ -1493,8 +1503,8 @@ impl DisplayListItem {
             // VirtualView: the item only carries WHERE the child renders; the
             // child DOM's content changes are detected by
             // compute_virtual_view_damage (child display-list diff).
-            (Self::VirtualView { child_dom_id: d1, bounds: b1, clip_rect: c1 },
-             Self::VirtualView { child_dom_id: d2, bounds: b2, clip_rect: c2 }) => {
+            (Self::VirtualView { child_dom_id: d1, bounds: b1, clip_rect: c1, .. },
+             Self::VirtualView { child_dom_id: d2, bounds: b2, clip_rect: c2, .. }) => {
                 d1 == d2 && b1 == b2 && c1 == c2
             }
             (Self::VirtualViewPlaceholder { bounds: b1, .. },
@@ -6753,7 +6763,8 @@ fn clip_and_offset_display_item(
             child_dom_id,
             bounds,
             clip_rect,
-        } => clip_virtual_view_item(*child_dom_id, bounds.into_inner(), clip_rect.into_inner(), page_top, page_bottom),
+            content_offset,
+        } => clip_virtual_view_item(*child_dom_id, bounds.into_inner(), clip_rect.into_inner(), *content_offset, page_top, page_bottom),
 
         // ScrollBarStyled - clip based on overall bounds
         DisplayListItem::ScrollBarStyled { info } => {
@@ -7274,6 +7285,7 @@ fn clip_virtual_view_item(
     child_dom_id: DomId,
     bounds: LogicalRect,
     clip_rect: LogicalRect,
+    content_offset: LogicalPosition,
     page_top: f32,
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
@@ -7281,6 +7293,8 @@ fn clip_virtual_view_item(
         child_dom_id,
         bounds: clipped.into(),
         clip_rect: offset_rect_y(clip_rect, -page_top).into(),
+        // A page break moves the BOX, not the window the content sits in.
+        content_offset,
     })
 }
 
@@ -8137,10 +8151,14 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
             child_dom_id,
             bounds,
             clip_rect,
+            content_offset,
         } => DisplayListItem::VirtualView {
             child_dom_id: *child_dom_id,
             bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
             clip_rect: offset_rect_y(clip_rect.into_inner(), y_offset).into(),
+            // Paginating shifts the box down the page; the content's position
+            // WITHIN its window is unrelated and must not move.
+            content_offset: *content_offset,
         },
         DisplayListItem::VirtualViewPlaceholder {
             node_id,
@@ -9800,8 +9818,9 @@ mod autotest_generated {
         assert!(clip_image_item(off, test_image(), BorderRadius::default(), top, bottom).is_none());
         assert!(clip_image_item(on, test_image(), BorderRadius::default(), top, bottom).is_some());
 
-        assert!(clip_virtual_view_item(DomId::ROOT_ID, off, off, top, bottom).is_none());
-        assert!(clip_virtual_view_item(DomId::ROOT_ID, on, on, top, bottom).is_some());
+        let no_shift = LogicalPosition::zero();
+        assert!(clip_virtual_view_item(DomId::ROOT_ID, off, off, no_shift, top, bottom).is_none());
+        assert!(clip_virtual_view_item(DomId::ROOT_ID, on, on, no_shift, top, bottom).is_some());
     }
 
     #[test]

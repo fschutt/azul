@@ -83,10 +83,8 @@ struct A {}
 extern "C" fn render_virtual_view(_: &mut RefAny, _: &mut VirtualViewCallbackInfo) -> VirtualViewReturn {
     VirtualViewReturn {
         dom: OptionDom::None,
-        scroll_size: LogicalSize::zero(),
-        scroll_offset: LogicalPosition::zero(),
-        virtual_scroll_size: LogicalSize::zero(),
-        virtual_scroll_offset: LogicalPosition::zero(),
+        materialized: azul_core::geom::LogicalRect::new(LogicalPosition::zero(), LogicalSize::zero()),
+        virtual_rect: azul_core::geom::LogicalRect::new(LogicalPosition::zero(), LogicalSize::zero()),
     }
 }
 

@@ -1372,6 +1372,7 @@ mod autotest_generated {
             child_dom_id: dom(child),
             bounds: WindowLogicalRect::new(bounds.origin, bounds.size),
             clip_rect: WindowLogicalRect::new(bounds.origin, bounds.size),
+            content_offset: Default::default(),
         }
     }
 

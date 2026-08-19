@@ -176,7 +176,7 @@ extern "C" fn pages_virtual_view(
 ) -> azul_core::callbacks::VirtualViewReturn {
     use azul_core::callbacks::VirtualViewReturn;
     use azul_core::dom::OptionDom;
-    use azul_core::geom::{LogicalPosition, LogicalSize};
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
     // RefAny downcasts take `&mut self` (borrow bookkeeping), so clone the
     // handles out of the payload borrow first (refcount bumps only).
@@ -204,7 +204,10 @@ extern "C" fn pages_virtual_view(
         let total = payload_total;
 
         let viewport_h = info.bounds.get_logical_size().height;
-        let first_visible = (info.virtual_scroll_offset.y.max(0.0) / stride) as usize;
+        // Where the user is looking. This used to read `virtual_scroll_offset`,
+        // which the engine hardcoded to zero — so `first` was always 0 and the
+        // same first pages were materialized no matter how far you scrolled.
+        let first_visible = (info.scroll_offset.y.max(0.0) / stride) as usize;
         let first = first_visible.saturating_sub(1);
         let visible = (viewport_h / stride).ceil() as usize + 2;
         let count = visible.max(3).min(total.saturating_sub(first));
@@ -256,10 +259,20 @@ extern "C" fn pages_virtual_view(
 
     VirtualViewReturn {
         dom: OptionDom::Some(col),
-        scroll_size: LogicalSize::new(page_w + 2.0, count as f32 * stride),
-        scroll_offset: LogicalPosition::new(0.0, first as f32 * stride),
-        virtual_scroll_size: LogicalSize::new(page_w + 2.0, total as f32 * stride),
-        virtual_scroll_offset: info.virtual_scroll_offset,
+        // What we just materialized, and WHERE it sits in the document: pages
+        // `first..first+count`, so the window starts at `first * stride`. The
+        // engine places it at `window_origin - scroll_offset`.
+        materialized: LogicalRect::new(
+            LogicalPosition::new(0.0, first as f32 * stride),
+            LogicalSize::new(page_w + 2.0, count as f32 * stride),
+        ),
+        // The whole document — scrollbar geometry only. A background exact
+        // pagination pass may refine `total` later; that re-scales the bar
+        // without moving the page under the cursor.
+        virtual_rect: LogicalRect::new(
+            LogicalPosition::zero(),
+            LogicalSize::new(page_w + 2.0, total as f32 * stride),
+        ),
     }
 }
 

@@ -1323,10 +1323,8 @@ extern "C" fn map_widget_render(
         }
         return VirtualViewReturn {
             dom: OptionDom::None,
-            scroll_size: bounds_logical,
-            scroll_offset: azul_core::geom::LogicalPosition::zero(),
-            virtual_scroll_size: bounds_logical,
-            virtual_scroll_offset: azul_core::geom::LogicalPosition::zero(),
+            materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+            virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
         };
     }
 
@@ -1335,10 +1333,8 @@ extern "C" fn map_widget_render(
         None => {
             return VirtualViewReturn {
                 dom: OptionDom::None,
-                scroll_size: bounds_logical,
-                scroll_offset: azul_core::geom::LogicalPosition::zero(),
-                virtual_scroll_size: bounds_logical,
-                virtual_scroll_offset: azul_core::geom::LogicalPosition::zero(),
+                materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+                virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
             };
         }
     };
@@ -1546,10 +1542,8 @@ extern "C" fn map_widget_render(
 
     VirtualViewReturn {
         dom: OptionDom::Some(grid),
-        scroll_size: bounds_logical,
-        scroll_offset: azul_core::geom::LogicalPosition::zero(),
-        virtual_scroll_size: bounds_logical,
-        virtual_scroll_offset: azul_core::geom::LogicalPosition::zero(),
+        materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+        virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
     }
 }
 
@@ -2071,9 +2065,8 @@ mod autotest_generated {
                 logical_size: size,
                 hidpi_factor: DpiScaleFactor::new(1.0),
             },
-            size,
-            LogicalPosition::zero(),
-            size,
+            azul_core::geom::LogicalRect::new(LogicalPosition::zero(), size),
+            azul_core::geom::LogicalRect::new(LogicalPosition::zero(), size),
             LogicalPosition::zero(),
         );
         f(info)
@@ -3903,13 +3896,13 @@ mod autotest_generated {
         let dataset = RefAny::new(cache_at(0.0, 0.0, 2.0));
         let ret =
             with_virtual_view_info(640.0, 480.0, |info| map_widget_render(dataset.clone(), info));
-        assert_eq!(ret.scroll_size.width, 640.0);
-        assert_eq!(ret.scroll_size.height, 480.0);
-        assert_eq!(ret.virtual_scroll_size.width, 640.0);
-        assert_eq!(ret.virtual_scroll_size.height, 480.0);
-        assert_eq!((ret.scroll_offset.x, ret.scroll_offset.y), (0.0, 0.0));
+        assert_eq!(ret.materialized.size.width, 640.0);
+        assert_eq!(ret.materialized.size.height, 480.0);
+        assert_eq!(ret.virtual_rect.size.width, 640.0);
+        assert_eq!(ret.virtual_rect.size.height, 480.0);
+        assert_eq!((ret.materialized.origin.x, ret.materialized.origin.y), (0.0, 0.0));
         assert_eq!(
-            (ret.virtual_scroll_offset.x, ret.virtual_scroll_offset.y),
+            (ret.virtual_rect.origin.x, ret.virtual_rect.origin.y),
             (0.0, 0.0)
         );
     }

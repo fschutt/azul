@@ -237,7 +237,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     let header = Dom::create_div()
         .with_css(HEADER)
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(header_text.as_str()))
+        .with_child(Dom::create_div_with_text(header_text.as_str()))
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row;")

@@ -19,7 +19,7 @@ use azul_core::{
     resources::UpdateImageType,
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
     dom::{AccessibilityAction, DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
-    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionLogicalSize, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionLogicalRect, OptionLogicalSize, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},
     gl::OptionGlContextPtr,
     gpu::GpuValueCache,
     hit_test::ScrollPosition,
@@ -427,16 +427,18 @@ pub enum CallbackChange {
         dom_id: DomId,
         /// The `VirtualView` node in its parent DOM.
         node_id: NodeHierarchyItemId,
-        /// The ENTIRE geometry is reconfigurable (USER design; see
-        /// doc/guide/en/dom/virtual-views.md): `scroll_size`/`scroll_offset`
-        /// describe the actual rendered content window,
-        /// `virtual_scroll_size` is what the scrollbar represents,
-        /// `virtual_scroll_offset` is usually zero. Each field: `Some` =
+        /// The geometry is reconfigurable as the same two rects the callback
+        /// returns (USER design; see doc/guide/en/dom/virtual-views.md):
+        /// `materialized` is the rendered window and where it sits,
+        /// `virtual_rect` is what the scrollbar represents. Each: `Some` =
         /// set, `None` = keep the current value.
-        scroll_size: OptionLogicalSize,
-        scroll_offset: OptionLogicalPosition,
-        virtual_scroll_size: OptionLogicalSize,
-        virtual_scroll_offset: OptionLogicalPosition,
+        ///
+        /// The streaming case this exists for — a background exact-pagination
+        /// pass correcting the document extent — sets `virtual_rect` only, so
+        /// the scrollbar re-scales while the materialized window, and every
+        /// pixel on screen, stays exactly where it is.
+        materialized: OptionLogicalRect,
+        virtual_rect: OptionLogicalRect,
     },
     /// Scroll a node into view (W3C scrollIntoView API)
     /// The scroll adjustments are calculated and applied when the change is processed
@@ -1125,18 +1127,14 @@ impl CallbackInfo {
     pub fn update_virtual_view(
         &mut self,
         node_id: DomNodeId,
-        scroll_size: OptionLogicalSize,
-        scroll_offset: OptionLogicalPosition,
-        virtual_scroll_size: OptionLogicalSize,
-        virtual_scroll_offset: OptionLogicalPosition,
+        materialized: OptionLogicalRect,
+        virtual_rect: OptionLogicalRect,
     ) {
         self.push_change(CallbackChange::SetVirtualViewGeometry {
             dom_id: node_id.dom,
             node_id: node_id.node,
-            scroll_size,
-            scroll_offset,
-            virtual_scroll_size,
-            virtual_scroll_offset,
+            materialized,
+            virtual_rect,
         });
     }
 

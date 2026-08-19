@@ -323,15 +323,16 @@ extern "C" fn pagination_writeback(
     if let Some(vv) = vv_node {
         let stride = editor_ui::page_stride(zoom);
         let width = (editor_ui::page_sheet_w() * zoom).round() + 2.0;
+        // `materialized: None` = keep the rendered window exactly as it is.
+        // Only the document estimate changes, and placement never reads it —
+        // so the bar re-scales and not one pixel of the page moves.
         info.update_virtual_view(
             vv,
-            azul_core::geom::OptionLogicalSize::None,
-            azul_core::geom::OptionLogicalPosition::None,
-            azul_core::geom::OptionLogicalSize::Some(azul_core::geom::LogicalSize::new(
-                width,
-                pages as f32 * stride,
+            azul_core::geom::OptionLogicalRect::None,
+            azul_core::geom::OptionLogicalRect::Some(azul_core::geom::LogicalRect::new(
+                azul_core::geom::LogicalPosition::zero(),
+                azul_core::geom::LogicalSize::new(width, pages as f32 * stride),
             )),
-            azul_core::geom::OptionLogicalPosition::None,
         );
     }
 

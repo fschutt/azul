@@ -344,8 +344,17 @@ pub extern "C" fn default_caret_tween(_data: RefAny, info: CaretTweenInfo) -> Lo
 }
 
 /// Default selection tween: trapezoidal-velocity lerp, rectangles paired by
-/// index. Rectangles with no past counterpart (selection grew) appear at
-/// their final geometry immediately.
+/// the LINE they sit on — not by their position in the list.
+///
+/// Index pairing broke every UPWARD extension: growing the selection upward
+/// prepends a rect, which shifts every later rect one slot, so each line lerped
+/// from the geometry of the line ABOVE it and the whole band visibly slid.
+/// Geometric pairing is stable under insertion at either end.
+///
+/// Rectangles with no counterpart on their line (a line the selection did not
+/// cover before) appear at their final geometry immediately. Each past
+/// rectangle is consumed at most once, so a line that bidi splits into several
+/// rectangles still pairs one-to-one.
 #[must_use]
 pub extern "C" fn default_selection_tween(
     _data: RefAny,
@@ -353,14 +362,51 @@ pub extern "C" fn default_selection_tween(
 ) -> LogicalRectVec {
     let e = trapezoid_ease(info.t);
     let past = info.past.as_ref();
+    let mut taken = alloc::vec![false; past.len()];
     let out: Vec<LogicalRect> = info
         .current
         .as_ref()
         .iter()
-        .enumerate()
-        .map(|(i, cur)| past.get(i).map_or(*cur, |p| lerp_rect(*p, *cur, e)))
+        .map(|cur| {
+            take_same_line_rect(past, &mut taken, *cur).map_or(*cur, |p| lerp_rect(p, *cur, e))
+        })
         .collect();
     out.into()
+}
+
+/// The not-yet-consumed `past` rectangle sitting on the same line as `cur` —
+/// the closest one vertically, ties to the earlier one — marked consumed.
+/// `None` when no past rectangle shares that line.
+///
+/// "Same line" means the vertical CENTRES are within half the shorter
+/// rectangle's height of each other: a line that shifted by a fraction of its
+/// own height is still recognised (and glides there), a different line never
+/// is. The test is a positive comparison, which NaN fails, so garbage geometry
+/// pops instead of pairing wrongly.
+fn take_same_line_rect(
+    past: &[LogicalRect],
+    taken: &mut [bool],
+    cur: LogicalRect,
+) -> Option<LogicalRect> {
+    let cur_centre = cur.origin.y + cur.size.height / 2.0;
+    let mut best: Option<(usize, f32)> = None;
+
+    for (i, p) in past.iter().enumerate() {
+        if taken.get(i).copied().unwrap_or(true) {
+            continue;
+        }
+        let dy = (p.origin.y + p.size.height / 2.0 - cur_centre).abs();
+        let tolerance = p.size.height.min(cur.size.height) / 2.0;
+        if dy <= tolerance && best.is_none_or(|(_, best_dy)| dy < best_dy) {
+            best = Some((i, dy));
+        }
+    }
+
+    let (idx, _) = best?;
+    if let Some(slot) = taken.get_mut(idx) {
+        *slot = true;
+    }
+    past.get(idx).copied()
 }
 
 /// Reason why a `VirtualView` callback is being invoked.
@@ -398,11 +444,25 @@ pub struct VirtualViewCallbackInfo {
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
     pub window_theme: WindowTheme,
+    /// RECT 1 - THE CONTAINER: the `VirtualView`'s on-screen box, computed by
+    /// the framework from the outer DOM. You do not set this; you render into
+    /// it.
     pub bounds: HidpiAdjustedBounds,
-    pub scroll_size: LogicalSize,
+    /// RECT 2 - WHAT IS CURRENTLY MATERIALIZED, in VIRTUAL space: the window
+    /// you returned last time (`origin` = where it starts in the document,
+    /// `size` = its extent). Zero-sized on the first invoke.
+    pub materialized: LogicalRect,
+    /// RECT 3 - THE DOCUMENT, in VIRTUAL space: the extent you last declared,
+    /// which is what the scrollbar currently represents.
+    pub virtual_rect: LogicalRect,
+    /// WHERE THE USER IS LOOKING: the live scroll offset in virtual space.
+    ///
+    /// This is the input your "which slice do I render?" math keys off. It was
+    /// previously spelled `virtual_scroll_offset` and the engine hardcoded
+    /// that to zero, so apps computing a page index from it always rendered
+    /// the first page — one of the two reasons a `VirtualView` could not
+    /// scroll.
     pub scroll_offset: LogicalPosition,
-    pub virtual_scroll_size: LogicalSize,
-    pub virtual_scroll_offset: LogicalPosition,
     /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
     /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
     callable_ptr: *const OptionRefAny,
@@ -431,10 +491,9 @@ impl Clone for VirtualViewCallbackInfo {
             image_cache: self.image_cache,
             window_theme: self.window_theme,
             bounds: self.bounds,
-            scroll_size: self.scroll_size,
+            materialized: self.materialized,
+            virtual_rect: self.virtual_rect,
             scroll_offset: self.scroll_offset,
-            virtual_scroll_size: self.virtual_scroll_size,
-            virtual_scroll_offset: self.virtual_scroll_offset,
             callable_ptr: self.callable_ptr,
             measure_dom_fn: self.measure_dom_fn,
             measure_dom_ctx: self.measure_dom_ctx,
@@ -450,10 +509,9 @@ impl VirtualViewCallbackInfo {
         image_cache: &'a ImageCache,
         window_theme: WindowTheme,
         bounds: HidpiAdjustedBounds,
-        scroll_size: LogicalSize,
+        materialized: LogicalRect,
+        virtual_rect: LogicalRect,
         scroll_offset: LogicalPosition,
-        virtual_scroll_size: LogicalSize,
-        virtual_scroll_offset: LogicalPosition,
     ) -> Self {
         Self {
             reason,
@@ -461,10 +519,9 @@ impl VirtualViewCallbackInfo {
             image_cache: core::ptr::from_ref::<ImageCache>(image_cache),
             window_theme,
             bounds,
-            scroll_size,
+            materialized,
+            virtual_rect,
             scroll_offset,
-            virtual_scroll_size,
-            virtual_scroll_offset,
             callable_ptr: core::ptr::null(),
             measure_dom_fn: core::ptr::null(),
             measure_dom_ctx: core::ptr::null_mut(),
@@ -551,49 +608,41 @@ pub struct VirtualViewReturn {
     /// current content is sufficient (e.g., already rendered ahead of scroll position).
     pub dom: OptionDom,
 
-    /// Size of the actual rendered content rectangle.
+    /// WHAT THIS CALLBACK MATERIALIZED, in VIRTUAL space.
     ///
-    /// This is the size of the content in the `dom` field (if Some). It may be smaller than
-    /// `virtual_scroll_size` if only a subset of content is rendered (virtualization).
+    /// `origin` = where this window of content begins in the document;
+    /// `size` = how much of the document it covers.
     ///
-    /// **Example**: For a table showing rows 10-30, this might be 600px tall
-    /// (20 rows x 30px each).
-    pub scroll_size: LogicalSize,
+    /// One rect, not a loose offset + size: they are a single fact about a
+    /// single window, and storing them apart is exactly how the origin came
+    /// to be dropped on the floor (content could not be placed, so a
+    /// VirtualView could never actually scroll).
+    ///
+    /// The engine places the content at
+    /// `container.origin + (materialized.origin - current_scroll_offset)`.
+    ///
+    /// **Example**: a table showing rows 10-30 at 30px each reports
+    /// `origin.y = 300`, `size.height = 600`.
+    pub materialized: LogicalRect,
 
-    /// Offset of the actual rendered content within the virtual coordinate space.
+    /// THE WHOLE DOCUMENT, in VIRTUAL space — what the scrollbar represents.
     ///
-    /// This positions the rendered content within the larger virtual space. For
-    /// virtualized content, this will be non-zero to indicate where the rendered
-    /// "window" starts.
+    /// `origin` is normally zero; `size` is your current best estimate and MAY
+    /// change as work completes (e.g. a background pagination pass refining a
+    /// page count). Refining it is cheap and safe: **only the scrollbar reads
+    /// this**, so the thumb resizes and no content moves.
     ///
-    /// **Example**: For a table showing rows 10-30, this might be y=300
-    /// (row 10 starts 300px from the top).
-    pub scroll_offset: LogicalPosition,
-
-    /// Size of the virtual content rectangle (for scrollbar sizing).
-    ///
-    /// This is the size the scrollbar will represent. It can be much larger than
-    /// `scroll_size` to enable lazy loading and virtualization.
-    ///
-    /// **Example**: For a 1000-row table, this might be 30,000px tall
-    /// (1000 rows x 30px each), even though only 20 rows are actually rendered.
-    pub virtual_scroll_size: LogicalSize,
-
-    /// Offset of the virtual content (usually zero).
-    ///
-    /// This is typically `(0, 0)` since the virtual space usually starts at the origin.
-    /// Advanced use cases might use this for complex virtualization scenarios.
-    pub virtual_scroll_offset: LogicalPosition,
+    /// **Example**: a 1000-row table reports `size.height = 30_000` even
+    /// though `materialized` covers 600px of it.
+    pub virtual_rect: LogicalRect,
 }
 
 impl Default for VirtualViewReturn {
     fn default() -> Self {
         Self {
             dom: OptionDom::None,
-            scroll_size: LogicalSize::zero(),
-            scroll_offset: LogicalPosition::zero(),
-            virtual_scroll_size: LogicalSize::zero(),
-            virtual_scroll_offset: LogicalPosition::zero(),
+            materialized: LogicalRect::zero(),
+            virtual_rect: LogicalRect::zero(),
         }
     }
 }
@@ -605,23 +654,17 @@ impl VirtualViewReturn {
     ///
     /// # Arguments
     /// - `dom` - The new DOM to render
-    /// - `scroll_size` - Size of the actual rendered content
-    /// - `scroll_offset` - Position of rendered content in virtual space
-    /// - `virtual_scroll_size` - Size for scrollbar representation
-    /// - `virtual_scroll_offset` - Usually `LogicalPosition::zero()`
+    /// - `materialized` - what you rendered, and where it sits in the document
+    /// - `virtual_rect` - how big the document is (scrollbar sizing)
     #[must_use] pub const fn with_dom(
         dom: Dom,
-        scroll_size: LogicalSize,
-        scroll_offset: LogicalPosition,
-        virtual_scroll_size: LogicalSize,
-        virtual_scroll_offset: LogicalPosition,
+        materialized: LogicalRect,
+        virtual_rect: LogicalRect,
     ) -> Self {
         Self {
             dom: OptionDom::Some(dom),
-            scroll_size,
-            scroll_offset,
-            virtual_scroll_size,
-            virtual_scroll_offset,
+            materialized,
+            virtual_rect,
         }
     }
 
@@ -632,22 +675,16 @@ impl VirtualViewReturn {
     /// This is an optimization to avoid rebuilding the DOM unnecessarily.
     ///
     /// # Arguments
-    /// - `scroll_size` - Size of the current rendered content
-    /// - `scroll_offset` - Position of current content in virtual space
-    /// - `virtual_scroll_size` - Size for scrollbar representation
-    /// - `virtual_scroll_offset` - Usually `LogicalPosition::zero()`
+    /// - `materialized` - the window currently rendered, and where it sits
+    /// - `virtual_rect` - how big the document is (scrollbar sizing)
     #[must_use] pub const fn keep_current(
-        scroll_size: LogicalSize,
-        scroll_offset: LogicalPosition,
-        virtual_scroll_size: LogicalSize,
-        virtual_scroll_offset: LogicalPosition,
+        materialized: LogicalRect,
+        virtual_rect: LogicalRect,
     ) -> Self {
         Self {
             dom: OptionDom::None,
-            scroll_size,
-            scroll_offset,
-            virtual_scroll_size,
-            virtual_scroll_offset,
+            materialized,
+            virtual_rect,
         }
     }
 
@@ -1579,9 +1616,11 @@ mod autotest_generated {
             images,
             WindowTheme::LightMode,
             bounds,
-            LogicalSize::new(100.0, 200.0),
-            LogicalPosition::new(1.0, 2.0),
-            LogicalSize::new(1000.0, 2000.0),
+            // materialized: a window at y=2 covering 100x200 of the document
+            LogicalRect::new(LogicalPosition::new(1.0, 2.0), LogicalSize::new(100.0, 200.0)),
+            // virtual_rect: the whole document
+            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(1000.0, 2000.0)),
+            // where the user is looking
             LogicalPosition::new(3.0, 4.0),
         )
     }
@@ -1711,12 +1750,7 @@ mod autotest_generated {
     // ---- VirtualViewCallback ------------------------------------------------
 
     extern "C" fn vv_keep_current_cb(_: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
-        VirtualViewReturn::keep_current(
-            info.scroll_size,
-            info.scroll_offset,
-            info.virtual_scroll_size,
-            info.virtual_scroll_offset,
-        )
+        VirtualViewReturn::keep_current(info.materialized, info.virtual_rect)
     }
 
     #[test]
@@ -1730,10 +1764,10 @@ mod autotest_generated {
 
         let ret = (cb.cb)(RefAny::new(0u8), info);
         assert!(ret.dom.is_none());
-        assert_eq!(ret.scroll_size, LogicalSize::new(100.0, 200.0));
-        assert_eq!(ret.scroll_offset, LogicalPosition::new(1.0, 2.0));
-        assert_eq!(ret.virtual_scroll_size, LogicalSize::new(1000.0, 2000.0));
-        assert_eq!(ret.virtual_scroll_offset, LogicalPosition::new(3.0, 4.0));
+        assert_eq!(ret.materialized.size, LogicalSize::new(100.0, 200.0));
+        assert_eq!(ret.materialized.origin, LogicalPosition::new(1.0, 2.0));
+        assert_eq!(ret.virtual_rect.size, LogicalSize::new(1000.0, 2000.0));
+        assert_eq!(ret.virtual_rect.origin, LogicalPosition::zero());
     }
 
     // ---- VirtualViewCallbackInfo -------------------------------------------
@@ -1752,7 +1786,7 @@ mod autotest_generated {
         assert_eq!(info.window_theme, WindowTheme::LightMode);
         assert_eq!(info.get_bounds().get_logical_size(), LogicalSize::new(800.0, 600.0));
         assert_eq!(info.get_bounds().get_hidpi_factor(), DpiScaleFactor::new(2.0));
-        assert_eq!(info.scroll_size, LogicalSize::new(100.0, 200.0));
+        assert_eq!(info.materialized.size, LogicalSize::new(100.0, 200.0));
 
         // the raw pointers must alias the borrows we handed in
         assert!(core::ptr::eq(info.internal_get_system_fonts(), &fonts));
@@ -1785,17 +1819,25 @@ mod autotest_generated {
                 LayoutSize::new(isize::MAX, isize::MIN),
                 DpiScaleFactor::new(f32::NAN),
             ),
-            LogicalSize::new(f32::NAN, f32::INFINITY),
-            LogicalPosition::new(f32::NEG_INFINITY, f32::MAX),
-            LogicalSize::new(f32::MIN, 0.0),
+            LogicalRect::new(
+                LogicalPosition::new(f32::NEG_INFINITY, f32::MAX),
+                LogicalSize::new(f32::NAN, f32::INFINITY),
+            ),
+            LogicalRect::new(
+                LogicalPosition::new(-0.0, f32::EPSILON),
+                LogicalSize::new(f32::MIN, 0.0),
+            ),
             LogicalPosition::new(-0.0, f32::EPSILON),
         );
 
         // extreme values are stored verbatim, not silently clamped
-        assert!(info.scroll_size.width.is_nan());
-        assert!(info.scroll_size.height.is_infinite());
-        assert!(info.scroll_offset.x.is_infinite() && info.scroll_offset.x.is_sign_negative());
-        assert_eq!(info.virtual_scroll_size.width, f32::MIN);
+        assert!(info.materialized.size.width.is_nan());
+        assert!(info.materialized.size.height.is_infinite());
+        assert!(
+            info.materialized.origin.x.is_infinite()
+                && info.materialized.origin.x.is_sign_negative()
+        );
+        assert_eq!(info.virtual_rect.size.width, f32::MIN);
         assert_eq!(info.reason, VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom));
 
         // and none of the getters panic on that instance
@@ -1951,25 +1993,27 @@ mod autotest_generated {
 
     #[test]
     fn virtual_view_return_with_dom_and_keep_current_hold_their_fields() {
-        let ss = LogicalSize::new(600.0, 30.0);
-        let so = LogicalPosition::new(0.0, 300.0);
-        let vss = LogicalSize::new(600.0, 30_000.0);
-        let vso = LogicalPosition::zero();
+        // the window the callback rendered: 30px tall, sitting 300px down the document
+        let mat = LogicalRect::new(
+            LogicalPosition::new(0.0, 300.0),
+            LogicalSize::new(600.0, 30.0),
+        );
+        // the whole document estimate
+        let virt = LogicalRect::new(
+            LogicalPosition::zero(),
+            LogicalSize::new(600.0, 30_000.0),
+        );
 
-        let with = VirtualViewReturn::with_dom(Dom::create_body(), ss, so, vss, vso);
+        let with = VirtualViewReturn::with_dom(Dom::create_body(), mat, virt);
         assert!(with.dom.is_some(), "with_dom must produce OptionDom::Some");
-        assert_eq!(with.scroll_size, ss);
-        assert_eq!(with.scroll_offset, so);
-        assert_eq!(with.virtual_scroll_size, vss);
-        assert_eq!(with.virtual_scroll_offset, vso);
+        assert_eq!(with.materialized, mat);
+        assert_eq!(with.virtual_rect, virt);
         assert_eq!(with.dom, OptionDom::Some(Dom::create_body()));
 
-        let keep = VirtualViewReturn::keep_current(ss, so, vss, vso);
+        let keep = VirtualViewReturn::keep_current(mat, virt);
         assert!(keep.dom.is_none(), "keep_current must produce OptionDom::None");
-        assert_eq!(keep.scroll_size, ss);
-        assert_eq!(keep.scroll_offset, so);
-        assert_eq!(keep.virtual_scroll_size, vss);
-        assert_eq!(keep.virtual_scroll_offset, vso);
+        assert_eq!(keep.materialized, mat);
+        assert_eq!(keep.virtual_rect, virt);
 
         // the two constructors differ *only* in the dom field
         assert_ne!(with, keep);
@@ -1978,53 +2022,57 @@ mod autotest_generated {
         let d = VirtualViewReturn::default();
         assert_eq!(
             d,
-            VirtualViewReturn::keep_current(
-                LogicalSize::zero(),
-                LogicalPosition::zero(),
-                LogicalSize::zero(),
-                LogicalPosition::zero()
-            )
+            VirtualViewReturn::keep_current(LogicalRect::zero(), LogicalRect::zero())
         );
     }
 
     #[test]
     fn virtual_view_return_keep_current_passes_extreme_values_through_unclamped() {
         // zero
-        let z = VirtualViewReturn::keep_current(
-            LogicalSize::zero(),
-            LogicalPosition::zero(),
-            LogicalSize::zero(),
-            LogicalPosition::zero(),
-        );
-        assert_eq!(z.scroll_size, LogicalSize::zero());
-        assert_eq!(z.virtual_scroll_size, LogicalSize::zero());
+        let z = VirtualViewReturn::keep_current(LogicalRect::zero(), LogicalRect::zero());
+        assert_eq!(z.materialized.size, LogicalSize::zero());
+        assert_eq!(z.virtual_rect.size, LogicalSize::zero());
 
         // negative + f32 limits: stored verbatim (no saturation, no panic)
         let n = VirtualViewReturn::keep_current(
-            LogicalSize::new(-1.0, -0.0),
-            LogicalPosition::new(f32::MIN, f32::MAX),
-            LogicalSize::new(f32::MAX, f32::MIN_POSITIVE),
-            LogicalPosition::new(-f32::EPSILON, 0.0),
+            LogicalRect::new(
+                LogicalPosition::new(f32::MIN, f32::MAX),
+                LogicalSize::new(-1.0, -0.0),
+            ),
+            LogicalRect::new(
+                LogicalPosition::new(-f32::EPSILON, 0.0),
+                LogicalSize::new(f32::MAX, f32::MIN_POSITIVE),
+            ),
         );
-        assert_eq!(n.scroll_size.width, -1.0);
-        assert_eq!(n.scroll_offset.x, f32::MIN);
-        assert_eq!(n.scroll_offset.y, f32::MAX);
-        assert_eq!(n.virtual_scroll_size.width, f32::MAX);
-        assert_eq!(n.virtual_scroll_size.height, f32::MIN_POSITIVE);
+        assert_eq!(n.materialized.size.width, -1.0);
+        assert_eq!(n.materialized.origin.x, f32::MIN);
+        assert_eq!(n.materialized.origin.y, f32::MAX);
+        assert_eq!(n.virtual_rect.size.width, f32::MAX);
+        assert_eq!(n.virtual_rect.size.height, f32::MIN_POSITIVE);
 
         // NaN / inf: stored verbatim; NaN makes the struct unequal to itself
         // under PartialEq, so probe the fields directly.
         let x = VirtualViewReturn::keep_current(
-            LogicalSize::new(f32::NAN, f32::INFINITY),
-            LogicalPosition::new(f32::NEG_INFINITY, f32::NAN),
-            LogicalSize::new(f32::INFINITY, f32::NAN),
-            LogicalPosition::new(f32::NAN, f32::NEG_INFINITY),
+            LogicalRect::new(
+                LogicalPosition::new(f32::NEG_INFINITY, f32::NAN),
+                LogicalSize::new(f32::NAN, f32::INFINITY),
+            ),
+            LogicalRect::new(
+                LogicalPosition::new(f32::NAN, f32::NEG_INFINITY),
+                LogicalSize::new(f32::INFINITY, f32::NAN),
+            ),
         );
-        assert!(x.scroll_size.width.is_nan());
-        assert!(x.scroll_size.height.is_infinite() && x.scroll_size.height.is_sign_positive());
-        assert!(x.scroll_offset.x.is_infinite() && x.scroll_offset.x.is_sign_negative());
-        assert!(x.scroll_offset.y.is_nan());
-        assert!(x.virtual_scroll_offset.y.is_infinite());
+        assert!(x.materialized.size.width.is_nan());
+        assert!(
+            x.materialized.size.height.is_infinite()
+                && x.materialized.size.height.is_sign_positive()
+        );
+        assert!(
+            x.materialized.origin.x.is_infinite()
+                && x.materialized.origin.x.is_sign_negative()
+        );
+        assert!(x.materialized.origin.y.is_nan());
+        assert!(x.virtual_rect.origin.y.is_infinite());
         assert!(x.dom.is_none());
     }
 

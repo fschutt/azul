@@ -42,10 +42,24 @@ pub struct VirtualViewManager {
 /// to determine when the `VirtualView` callback needs to be re-invoked.
 #[derive(Debug, Clone)]
 struct VirtualViewState {
-    /// Content size reported by `VirtualView` callback (actual rendered size)
-    virtual_view_scroll_size: Option<LogicalSize>,
-    /// Virtual scroll size for infinite scroll scenarios
-    virtual_view_virtual_scroll_size: Option<LogicalSize>,
+    /// WHAT IS MATERIALIZED RIGHT NOW, in VIRTUAL space.
+    ///
+    /// `origin` = where this window of content begins in the document (the
+    /// `scroll_offset` the callback reported); `size` = how much it covers.
+    /// This is the rect the content is PLACED by:
+    /// `content is drawn at container.origin + (materialized.origin - scroll_offset)`.
+    ///
+    /// Deliberately a rect, not a loose position + size: the origin and the
+    /// extent are one fact about one window and drift apart the moment they
+    /// are stored separately (which is how the offset ended up write-only).
+    materialized: Option<LogicalRect>,
+    /// THE WHOLE DOCUMENT, in VIRTUAL space — the app's current best estimate
+    /// (`virtual_scroll_size`), which background pagination refines over time.
+    ///
+    /// ONLY the scrollbar reads this. Placement above does not, which is the
+    /// property that lets the estimate change without the content jumping:
+    /// the user sees the thumb resize and nothing else move.
+    virtual_rect: Option<LogicalRect>,
     /// Whether the `VirtualView` has ever been invoked
     virtual_view_was_invoked: bool,
     /// Whether invoked for current container expansion
@@ -56,8 +70,9 @@ struct VirtualViewState {
     last_edge_triggered: EdgeFlags,
     /// Unique DOM ID assigned to this `VirtualView`'s content
     nested_dom_id: DomId,
-    /// Last known layout bounds of the `VirtualView` container
-    last_bounds: LogicalRect,
+    /// The `VirtualView`'s own on-screen box (the viewport), window coords.
+    /// `size` is the scrollport the other two rects are compared against.
+    container: LogicalRect,
     /// Scroll offset captured at `InitialRender`. Edge-scroll callbacks only fire
     /// once the user has scrolled away from this resting position — being at an
     /// edge from the very start (e.g. the top/left edge at offset 0) is the
@@ -159,29 +174,59 @@ impl VirtualViewManager {
         self.states
             .get(&(dom_id, node_id))
             .map_or((None, None), |s| {
-                (s.virtual_view_scroll_size, s.virtual_view_virtual_scroll_size)
+                (
+                    s.materialized.map(|m| m.size),
+                    s.virtual_rect.map(|v| v.size),
+                )
             })
     }
 
+    /// Record what the callback just materialized, as RECTS in virtual space.
+    ///
+    /// `window_origin` is where this window of content begins in the document
+    /// (the callback's `scroll_offset`) — the piece that used to be dropped,
+    /// which is why content could never be placed and the view never scrolled.
     pub fn update_virtual_view_info(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
+        window_origin: LogicalPosition,
         scroll_size: LogicalSize,
         virtual_scroll_size: LogicalSize,
     ) -> Option<()> {
         let state = self.states.get_mut(&(dom_id, node_id))?;
 
-        // Reset expansion flag if content grew
-        if let Some(old_size) = state.virtual_view_scroll_size {
-            if scroll_size.width > old_size.width || scroll_size.height > old_size.height {
+        // Reset expansion flag if the materialized window grew
+        if let Some(old) = state.materialized {
+            if scroll_size.width > old.size.width || scroll_size.height > old.size.height {
                 state.invoked_for_current_expansion = false;
             }
         }
-        state.virtual_view_scroll_size = Some(scroll_size);
-        state.virtual_view_virtual_scroll_size = Some(virtual_scroll_size);
+        state.materialized = Some(LogicalRect::new(window_origin, scroll_size));
+        // The document estimate lives at the virtual origin; only its SIZE is
+        // the app's (refinable) claim. Changing it must move the scrollbar and
+        // nothing else — placement reads `materialized`, never this.
+        state.virtual_rect = Some(LogicalRect::new(
+            LogicalPosition::zero(),
+            virtual_scroll_size,
+        ));
 
         Some(())
+    }
+
+    /// Where the materialized window sits in virtual space, if anything is
+    /// materialized. The renderer places content at
+    /// `container.origin + (window_origin - scroll_offset)`.
+    #[must_use]
+    pub fn materialized_window_origin(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<LogicalPosition> {
+        self.states
+            .get(&(dom_id, node_id))
+            .and_then(|s| s.materialized)
+            .map(|m| m.origin)
     }
 
     /// Marks a `VirtualView` as invoked for a specific reason
@@ -295,12 +340,12 @@ impl VirtualViewManager {
         }
 
         // Check for bounds expansion
-        if layout_bounds.size.width > state.last_bounds.size.width
-            || layout_bounds.size.height > state.last_bounds.size.height
+        if layout_bounds.size.width > state.container.size.width
+            || layout_bounds.size.height > state.container.size.height
         {
             state.invoked_for_current_expansion = false;
         }
-        state.last_bounds = layout_bounds;
+        state.container = layout_bounds;
 
         let scroll_offset = scroll_manager
             .get_current_offset(dom_id, node_id)
@@ -320,15 +365,15 @@ impl VirtualViewManager {
                 parent_dom_id: dom_id.inner,
                 parent_node_id: node_id.index(),
                 nested_dom_id: state.nested_dom_id.inner,
-                scroll_size_width: state.virtual_view_scroll_size.map(|s| s.width),
-                scroll_size_height: state.virtual_view_scroll_size.map(|s| s.height),
-                virtual_scroll_size_width: state.virtual_view_virtual_scroll_size.map(|s| s.width),
-                virtual_scroll_size_height: state.virtual_view_virtual_scroll_size.map(|s| s.height),
+                scroll_size_width: state.materialized.map(|m| m.size.width),
+                scroll_size_height: state.materialized.map(|m| m.size.height),
+                virtual_scroll_size_width: state.virtual_rect.map(|v| v.size.width),
+                virtual_scroll_size_height: state.virtual_rect.map(|v| v.size.height),
                 was_invoked: state.virtual_view_was_invoked,
-                last_bounds_x: state.last_bounds.origin.x,
-                last_bounds_y: state.last_bounds.origin.y,
-                last_bounds_width: state.last_bounds.size.width,
-                last_bounds_height: state.last_bounds.size.height,
+                last_bounds_x: state.container.origin.x,
+                last_bounds_y: state.container.origin.y,
+                last_bounds_width: state.container.size.width,
+                last_bounds_height: state.container.size.height,
             })
             .collect()
     }
@@ -355,14 +400,14 @@ impl VirtualViewState {
     /// Creates a new `VirtualViewState` with the given nested DOM ID
     fn new(nested_dom_id: DomId) -> Self {
         Self {
-            virtual_view_scroll_size: None,
-            virtual_view_virtual_scroll_size: None,
+            materialized: None,
+            virtual_rect: None,
             virtual_view_was_invoked: false,
             invoked_for_current_expansion: false,
             invoked_for_current_edge: false,
             last_edge_triggered: EdgeFlags::default(),
             nested_dom_id,
-            last_bounds: LogicalRect::zero(),
+            container: LogicalRect::zero(),
             initial_scroll_offset: LogicalPosition::zero(),
         }
     }
@@ -378,31 +423,57 @@ impl VirtualViewState {
         current_offset: LogicalPosition,
         container_size: LogicalSize,
     ) -> Option<VirtualViewCallbackReason> {
-        // Need scroll_size to determine if we can scroll at all
-        let scroll_size = self.virtual_view_scroll_size?;
+        // Nothing is materialized yet — nothing to be near the edge OF.
+        let materialized = self.materialized?;
+        // The document estimate; falls back to the materialized window when
+        // the app reports no virtual extent (a VirtualView used as a plain
+        // windowed view: then materialized IS the document).
+        let virtual_rect = self.virtual_rect.unwrap_or(materialized);
 
-        // Check 1: Container grew larger than content - need more content
+        // Check 1: Container grew larger than the materialized content — the
+        // window no longer fills the viewport, so ask for more.
         if !self.invoked_for_current_expansion
-            && (container_size.width > scroll_size.width
-                || container_size.height > scroll_size.height)
+            && (container_size.width > materialized.size.width
+                || container_size.height > materialized.size.height)
         {
             return Some(VirtualViewCallbackReason::BoundsExpanded);
         }
 
-        // Check 2: Edge-based lazy loading
-        // Determine if scrolling is possible in each direction
-        let scrollable_width = scroll_size.width > container_size.width;
-        let scrollable_height = scroll_size.height > container_size.height;
+        // Check 2: the user scrolled near an edge of WHAT IS MATERIALIZED.
+        //
+        // This is the rule that makes a VirtualView scrollable rather than
+        // merely lazy-loadable. The old test compared a VIRTUAL-space offset
+        // against the MATERIALIZED window's size — two different spaces — so
+        // it only ever fired at the absolute top/bottom of the document, and
+        // a document scrolled in the middle never re-materialized at all.
+        //
+        // Both rects are in virtual space, so the comparison is honest: the
+        // visible window is `[current_offset, current_offset + container]`,
+        // and we re-invoke when it comes within EDGE_THRESHOLD of the edge of
+        // `materialized` — but only when the document actually extends past
+        // that edge, otherwise we would spin at the ends forever.
+        let vis_min_x = current_offset.x;
+        let vis_min_y = current_offset.y;
+        let vis_max_x = current_offset.x + container_size.width;
+        let vis_max_y = current_offset.y + container_size.height;
 
-        // Calculate which edges the user is currently near
+        let mat_min_x = materialized.origin.x;
+        let mat_min_y = materialized.origin.y;
+        let mat_max_x = materialized.origin.x + materialized.size.width;
+        let mat_max_y = materialized.origin.y + materialized.size.height;
+
+        let doc_min_x = virtual_rect.origin.x;
+        let doc_min_y = virtual_rect.origin.y;
+        let doc_max_x = virtual_rect.origin.x + virtual_rect.size.width;
+        let doc_max_y = virtual_rect.origin.y + virtual_rect.size.height;
+
         let current_edges = EdgeFlags {
-            top: scrollable_height && current_offset.y <= EDGE_THRESHOLD,
-            bottom: scrollable_height
-                && (scroll_size.height - container_size.height - current_offset.y)
-                    <= EDGE_THRESHOLD,
-            left: scrollable_width && current_offset.x <= EDGE_THRESHOLD,
-            right: scrollable_width
-                && (scroll_size.width - container_size.width - current_offset.x) <= EDGE_THRESHOLD,
+            // More document above what we materialized, and the view is near
+            // the materialized window's top.
+            top: mat_min_y > doc_min_y && (vis_min_y - mat_min_y) <= EDGE_THRESHOLD,
+            bottom: mat_max_y < doc_max_y && (mat_max_y - vis_max_y) <= EDGE_THRESHOLD,
+            left: mat_min_x > doc_min_x && (vis_min_x - mat_min_x) <= EDGE_THRESHOLD,
+            right: mat_max_x < doc_max_x && (mat_max_x - vis_max_x) <= EDGE_THRESHOLD,
         };
 
         // Only treat an edge as "scrolled to" once the user has actually moved
@@ -555,7 +626,18 @@ mod autotest_generated {
         m.states.get(&(dom, node)).expect("state must exist")
     }
 
-    /// Steady state: view `(DOM, n(1))` created, invoked once, content size known.
+    /// How much document the manager-level fixture leaves UNMATERIALIZED below
+    /// its window. A view whose materialized window IS the whole document is
+    /// fully loaded, and by the edge rule nothing may fire for it — so a
+    /// fixture that wants to observe an edge has to leave something to load.
+    const FIXTURE_DOC_TAIL: f32 = 1000.0;
+
+    /// Steady state: view `(DOM, n(1))` created, invoked once, `scroll`
+    /// materialized at the document's top-left corner — with the document
+    /// estimate `FIXTURE_DOC_TAIL` px taller than what is materialized, i.e. a
+    /// real virtual view that still has content to load BELOW the window (and,
+    /// deliberately, none above it and none to either side: the window spans
+    /// the document's full width, as a vertically-scrolling list does).
     /// `initial_scroll_offset` stays at the (0, 0) default, so any nonzero offset
     /// counts as "the user has scrolled".
     fn ready_view(scroll: LogicalSize) -> VirtualViewManager {
@@ -563,18 +645,86 @@ mod autotest_generated {
         m.get_or_create_nested_dom_id(DOM, n(1));
         m.mark_invoked(DOM, n(1), VirtualViewCallbackReason::InitialRender)
             .expect("view exists");
-        m.update_virtual_view_info(DOM, n(1), scroll, scroll)
-            .expect("view exists");
+        m.update_virtual_view_info(
+            DOM,
+            n(1),
+            LogicalPosition::zero(),
+            scroll,
+            sz(scroll.width, scroll.height + FIXTURE_DOC_TAIL),
+        )
+        .expect("view exists");
         m
     }
 
-    /// A bare invoked `VirtualViewState` with a known content size, for driving
-    /// the private `check_reinvoke_condition` directly.
-    fn invoked_state(scroll: LogicalSize) -> VirtualViewState {
+    /// The general fixture for driving the private `check_reinvoke_condition`
+    /// directly: an already-invoked state whose materialized window is `mat`
+    /// and whose document estimate is `doc`, BOTH in virtual space. Spelling
+    /// the two rects out is the point — the rule is entirely about where the
+    /// window sits inside the document, and every "why did/didn't this fire?"
+    /// answer is read off these two rects.
+    fn windowed_state(mat: LogicalRect, doc: LogicalRect) -> VirtualViewState {
         let mut s = VirtualViewState::new(DomId { inner: 7 });
         s.virtual_view_was_invoked = true;
-        s.virtual_view_scroll_size = Some(scroll);
+        s.materialized = Some(mat);
+        s.virtual_rect = Some(doc);
         s
+    }
+
+    /// How far into the document the fixture's materialized window starts.
+    /// The document extends this far ABOVE and BELOW it, so both the top and
+    /// the bottom edge of the window have more document past them — which is
+    /// what the edge rule is about. `vpos` maps a window-relative y (what the
+    /// tests reason in) into virtual space.
+    const FIXTURE_WINDOW_ORIGIN_Y: f32 = 1000.0;
+
+    /// Same, for the x axis of the both-axes fixture `invoked_state_2d`.
+    const FIXTURE_WINDOW_ORIGIN_X: f32 = 1000.0;
+
+    fn vpos(y: f32) -> LogicalPosition {
+        pos(0.0, y + FIXTURE_WINDOW_ORIGIN_Y)
+    }
+
+    /// A view windowed on the Y AXIS ONLY: a `scroll`-sized window parked
+    /// 1000 px down a document that is 1000 px taller than the window at each
+    /// end, and exactly as WIDE as the window.
+    ///
+    /// HORIZONTAL JUDGEMENT (deliberate, not an oversight): left/right can
+    /// never fire on this fixture, because `mat_min_x == doc_min_x` and
+    /// `mat_max_x == doc_max_x` — there is no document to either side, so
+    /// there is nothing to load and silence is the correct answer. That is the
+    /// shape a VirtualView actually ships in (a vertically-scrolling list),
+    /// and it keeps the vertical assertions free of cross-axis noise: any edge
+    /// these tests observe is unambiguously the one they aimed at.
+    /// `invoked_state_2d` is the both-axes fixture, used wherever left/right is
+    /// itself the property under test.
+    fn invoked_state(scroll: LogicalSize) -> VirtualViewState {
+        windowed_state(
+            LogicalRect::new(pos(0.0, FIXTURE_WINDOW_ORIGIN_Y), scroll),
+            LogicalRect::new(
+                LogicalPosition::zero(),
+                sz(scroll.width, FIXTURE_WINDOW_ORIGIN_Y * 2.0 + scroll.height),
+            ),
+        )
+    }
+
+    /// The same idea on BOTH axes: a `scroll`-sized window parked 1000 px into
+    /// a document that extends 1000 px past it on all four sides. Left/right
+    /// are exactly symmetric with top/bottom here, which is what makes edge
+    /// priority and the horizontal threshold observable at all.
+    fn invoked_state_2d(scroll: LogicalSize) -> VirtualViewState {
+        windowed_state(
+            LogicalRect::new(
+                pos(FIXTURE_WINDOW_ORIGIN_X, FIXTURE_WINDOW_ORIGIN_Y),
+                scroll,
+            ),
+            LogicalRect::new(
+                LogicalPosition::zero(),
+                sz(
+                    FIXTURE_WINDOW_ORIGIN_X * 2.0 + scroll.width,
+                    FIXTURE_WINDOW_ORIGIN_Y * 2.0 + scroll.height,
+                ),
+            ),
+        )
     }
 
     // `Option`-returning mutators (the crate denies `unused_must_use`): these
@@ -590,7 +740,7 @@ mod autotest_generated {
         scroll: LogicalSize,
         virt: LogicalSize,
     ) {
-        m.update_virtual_view_info(dom, node, scroll, virt)
+        m.update_virtual_view_info(dom, node, LogicalPosition::zero(), scroll, virt)
             .expect("view exists");
     }
 
@@ -636,14 +786,14 @@ mod autotest_generated {
         let s = VirtualViewState::new(DomId { inner: usize::MAX });
 
         assert_eq!(s.nested_dom_id.inner, usize::MAX);
-        assert!(s.virtual_view_scroll_size.is_none());
-        assert!(s.virtual_view_virtual_scroll_size.is_none());
+        assert!(s.materialized.is_none());
+        assert!(s.virtual_rect.is_none());
         assert!(!s.virtual_view_was_invoked);
         assert!(!s.invoked_for_current_expansion);
         assert!(!s.invoked_for_current_edge);
         assert_eq!(s.last_edge_triggered, EdgeFlags::default());
         assert!(!s.last_edge_triggered.any());
-        assert_eq!(s.last_bounds, LogicalRect::zero());
+        assert_eq!(s.container, LogicalRect::zero());
         assert_eq!(s.initial_scroll_offset, LogicalPosition::zero());
 
         // A brand-new state has no content size, so it can never ask to be
@@ -723,7 +873,7 @@ mod autotest_generated {
         let mut m = VirtualViewManager::new();
 
         assert_eq!(
-            m.update_virtual_view_info(DOM, n(3), sz(1.0, 1.0), sz(1.0, 1.0)),
+            m.update_virtual_view_info(DOM, n(3), LogicalPosition::zero(), sz(1.0, 1.0), sz(1.0, 1.0)),
             None
         );
         assert_eq!(
@@ -732,7 +882,7 @@ mod autotest_generated {
         );
         assert_eq!(m.force_reinvoke(DOM, n(3)), None);
         assert_eq!(
-            m.update_virtual_view_info(DOM_MAX, n(usize::MAX), sz(0.0, 0.0), sz(0.0, 0.0)),
+            m.update_virtual_view_info(DOM_MAX, n(usize::MAX), LogicalPosition::zero(), sz(0.0, 0.0), sz(0.0, 0.0)),
             None
         );
 
@@ -833,23 +983,23 @@ mod autotest_generated {
             sz(f32::MIN_POSITIVE, f32::EPSILON),
         ] {
             assert_eq!(
-                m.update_virtual_view_info(DOM, n(1), size, size),
+                m.update_virtual_view_info(DOM, n(1), LogicalPosition::zero(), size, size),
                 Some(()),
                 "size {size:?} must be recorded without panicking"
             );
-            assert_eq!(st(&m, DOM, n(1)).virtual_view_scroll_size, Some(size));
+            assert_eq!(st(&m, DOM, n(1)).materialized.map(|r| r.size), Some(size));
             assert_eq!(
-                st(&m, DOM, n(1)).virtual_view_virtual_scroll_size,
+                st(&m, DOM, n(1)).virtual_rect.map(|r| r.size),
                 Some(size)
             );
         }
 
         // NaN is stored verbatim (no normalization, no panic).
         assert_eq!(
-            m.update_virtual_view_info(DOM, n(1), sz(f32::NAN, f32::NAN), sz(f32::NAN, 1.0)),
+            m.update_virtual_view_info(DOM, n(1), LogicalPosition::zero(), sz(f32::NAN, f32::NAN), sz(f32::NAN, 1.0)),
             Some(())
         );
-        let stored = st(&m, DOM, n(1)).virtual_view_scroll_size.unwrap();
+        let stored = st(&m, DOM, n(1)).materialized.map(|r| r.size).unwrap();
         assert!(stored.width.is_nan() && stored.height.is_nan());
     }
 
@@ -1026,8 +1176,8 @@ mod autotest_generated {
         // Identity, content size and bounds survive — only the flags reset.
         let s = st(&m, DOM, n(1));
         assert_eq!(s.nested_dom_id, nested);
-        assert_eq!(s.virtual_view_scroll_size, Some(sz(100.0, 1000.0)));
-        assert_eq!(s.last_bounds, rect(100.0, 100.0));
+        assert_eq!(s.materialized.map(|r| r.size), Some(sz(100.0, 1000.0)));
+        assert_eq!(s.container, rect(100.0, 100.0));
         assert_eq!(m.debug_counts(), 2);
         assert_eq!(m.reason_overrides.len(), 1);
     }
@@ -1132,7 +1282,7 @@ mod autotest_generated {
             m.check_reinvoke(DOM, n(1), &sm, rect(300.0, 300.0)),
             Some(VirtualViewCallbackReason::BoundsExpanded)
         );
-        assert_eq!(st(&m, DOM, n(1)).last_bounds, rect(300.0, 300.0));
+        assert_eq!(st(&m, DOM, n(1)).container, rect(300.0, 300.0));
     }
 
     #[test]
@@ -1184,6 +1334,13 @@ mod autotest_generated {
         // the first page. reset_all_invocation_flags (which does clear the edge
         // memory) re-arms it; the two halves below are identical except for that
         // one call, which isolates the stale flag as the cause.
+        //
+        // Geometry (`ready_view`): the 100x1000 window is materialized at the
+        // document's ORIGIN, and the document is 2000 px tall — so offsets here
+        // are already virtual-space offsets and `vpos` (which is for the
+        // 1000-px-down `invoked_state` window) must NOT be applied to them.
+        // Scrolling to y=900 puts the viewport's bottom flush against the
+        // window's bottom edge, with 1000 px of document still to load below.
         let bottom = scrolled(DOM, n(1), 0.0, 900.0);
         let middle = scrolled(DOM, n(1), 0.0, 400.0);
         let bounds = rect(100.0, 100.0);
@@ -1271,33 +1428,70 @@ mod autotest_generated {
     fn edge_threshold_is_exactly_200_px_and_inclusive() {
         assert_eq!(EDGE_THRESHOLD, 200.0);
 
-        let s = invoked_state(sz(100.0, 1000.0));
-        let container = sz(100.0, 100.0); // max scroll = 900
+        // Every distance below is measured between the VISIBLE window
+        // (`[offset, offset + container]`) and the MATERIALIZED window's edge —
+        // never the document's. The document only decides whether an edge is
+        // allowed to fire at all (is there anything left to load past it?).
+        let s = invoked_state(sz(100.0, 1000.0)); // window y 1000..2000 of a 0..3000 doc
+        let container = sz(100.0, 100.0);
 
-        // Bottom edge: distance == EDGE_THRESHOLD → inclusive hit.
+        // Bottom edge: mat_max_y - vis_max_y == 2000 - 1800 == 200 → inclusive hit.
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, 700.0), container),
+            s.check_reinvoke_condition(vpos(700.0), container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
         );
         // One px further from the bottom (201) and not near the top → quiet.
-        assert_eq!(s.check_reinvoke_condition(pos(0.0, 699.0), container), None);
+        assert_eq!(s.check_reinvoke_condition(vpos(699.0), container), None);
 
-        // Top edge: offset == EDGE_THRESHOLD → inclusive hit.
+        // Top edge: vis_min_y - mat_min_y == 1200 - 1000 == 200 → inclusive hit.
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, 200.0), container),
+            s.check_reinvoke_condition(vpos(200.0), container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
         );
         // Just past it, and still 699 px from the bottom → quiet.
-        assert_eq!(s.check_reinvoke_condition(pos(0.0, 201.0), container), None);
+        assert_eq!(s.check_reinvoke_condition(vpos(201.0), container), None);
+
+        // The horizontal axis uses the identical threshold with identical
+        // inclusivity. It needs the both-axes fixture: on `invoked_state` the
+        // window spans the document's full width, so left/right have nothing to
+        // load and correctly never fire whatever the distance.
+        let s2 = invoked_state_2d(sz(1000.0, 1000.0)); // window 1000..2000 of a 0..3000 doc, both axes
+        // y is parked dead centre of the window (450 px from either vertical
+        // edge) so that only the x axis can speak.
+        let quiet_y = FIXTURE_WINDOW_ORIGIN_Y + 450.0;
+
+        // Left edge: vis_min_x - mat_min_x == 1200 - 1000 == 200 → inclusive hit.
+        assert_eq!(
+            s2.check_reinvoke_condition(pos(1200.0, quiet_y), container),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Left))
+        );
+        assert_eq!(
+            s2.check_reinvoke_condition(pos(1201.0, quiet_y), container),
+            None
+        );
+
+        // Right edge: mat_max_x - vis_max_x == 2000 - 1800 == 200 → inclusive hit.
+        assert_eq!(
+            s2.check_reinvoke_condition(pos(1700.0, quiet_y), container),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right))
+        );
+        assert_eq!(
+            s2.check_reinvoke_condition(pos(1699.0, quiet_y), container),
+            None
+        );
     }
 
     #[test]
     fn edge_priority_is_bottom_right_top_left_and_drains() {
-        // A container smaller than the content in both axes, parked 100 px in:
-        // every one of the four edges is within EDGE_THRESHOLD at once.
-        let mut s = invoked_state(sz(1000.0, 1000.0));
+        // Several edges have to be near AT ONCE for priority to mean anything,
+        // which takes a small viewport inside a window that has document past
+        // it on all four sides — hence the both-axes fixture. A 900 px viewport
+        // sitting on the top-left corner of the 1000x1000 window is 0 px from
+        // its top and left edges and 100 px from its bottom and right ones, so
+        // all four are inside EDGE_THRESHOLD simultaneously.
+        let mut s = invoked_state_2d(sz(1000.0, 1000.0));
         let container = sz(900.0, 900.0);
-        let offset = pos(100.0, 100.0);
+        let offset = pos(FIXTURE_WINDOW_ORIGIN_X, FIXTURE_WINDOW_ORIGIN_Y);
 
         assert_eq!(
             s.check_reinvoke_condition(offset, container),
@@ -1329,8 +1523,9 @@ mod autotest_generated {
 
     #[test]
     fn check_reinvoke_condition_at_zero_is_quiet() {
-        // Zero content, zero container, zero offset: nothing is scrollable and
-        // 0 > 0 is false, so there is nothing to report.
+        // Zero content, zero container, zero offset: `0 > 0` is false so there
+        // is no expansion, and the offset is exactly the resting
+        // `initial_scroll_offset`, so no edge may fire either.
         let s = invoked_state(sz(0.0, 0.0));
         assert_eq!(s.check_reinvoke_condition(pos(0.0, 0.0), sz(0.0, 0.0)), None);
 
@@ -1345,18 +1540,54 @@ mod autotest_generated {
     fn check_reinvoke_condition_handles_nan_offset_and_nan_sizes() {
         let nan = f32::NAN;
 
-        // NaN content size: no expansion (NaN comparisons are false), nothing
-        // scrollable, no edges → None, and crucially no panic.
+        // JUDGEMENT (NaN). The rule is four independent comparisons, and every
+        // comparison against NaN is false — so NaN does NOT poison the whole
+        // decision, it silences exactly the edges whose arithmetic touches it
+        // while the others still answer. Which edges those are depends on where
+        // the NaN is, so each case is verified in both directions (the edge
+        // that survives fires; the edge that was poisoned stays quiet) rather
+        // than asserted wholesale as `None`. Nothing here may panic.
+
+        // (1) NaN materialized/document SIZES. `bottom`/`right` are derived
+        // from those sizes → NaN → false. `top`/`left` are derived from ORIGINS
+        // only, so they are NaN-free: parked on the window's top edge with
+        // 1000 px of document above it, Top still fires.
         let s = invoked_state(sz(nan, nan));
-        assert_eq!(s.check_reinvoke_condition(pos(0.0, 0.0), sz(100.0, 100.0)), None);
+        assert_eq!(
+            s.check_reinvoke_condition(vpos(0.0), sz(100.0, 100.0)),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top)),
+            "the top edge is computed from origins alone, so a NaN size cannot silence it"
+        );
+        // Far below the top, where only the (NaN-poisoned) bottom edge could
+        // have fired — proof that the NaN really did silence it.
+        assert_eq!(
+            s.check_reinvoke_condition(vpos(5_000.0), sz(100.0, 100.0)),
+            None
+        );
+
+        // (2) NaN offset AND NaN sizes: nothing is left that can compare true.
         assert_eq!(s.check_reinvoke_condition(pos(nan, nan), sz(nan, nan)), None);
 
-        // NaN container size against a real content size.
+        // (3) NaN CONTAINER size against real content. The container size only
+        // enters the bottom/right distances, so Top survives again...
         let s = invoked_state(sz(100.0, 1000.0));
-        assert_eq!(s.check_reinvoke_condition(pos(0.0, 0.0), sz(nan, nan)), None);
+        assert_eq!(
+            s.check_reinvoke_condition(vpos(0.0), sz(nan, nan)),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
+        );
+        // ...and the bottom edge is the one that goes quiet, at an offset that
+        // would otherwise be a dead-on bottom hit.
+        assert_eq!(s.check_reinvoke_condition(vpos(900.0), sz(nan, nan)), None);
 
-        // NaN scroll offset: every edge predicate is false, so no edge fires
-        // even though `has_scrolled` is true (NaN != 0 under the quantized Eq).
+        // (4) NaN scroll OFFSET. It appears in all four distances, so every
+        // edge predicate is false and NO edge fires — verified, not assumed —
+        // even though `has_scrolled` is true: NaN quantizes to the dedicated
+        // i64::MIN sentinel, which is != the quantized 0 of the resting offset.
+        assert_ne!(
+            pos(nan, nan),
+            LogicalPosition::zero(),
+            "a NaN offset counts as 'has scrolled', so the edge block IS entered"
+        );
         assert_eq!(
             s.check_reinvoke_condition(pos(nan, nan), sz(100.0, 100.0)),
             None
@@ -1368,10 +1599,11 @@ mod autotest_generated {
         let s = invoked_state(sz(100.0, 1000.0));
         let container = sz(100.0, 100.0);
 
-        // Rubber-band overscroll far above the top: deterministically the top edge
-        // (the bottom is ~1e9 px away, and the x axis is not scrollable).
+        // Rubber-band overscroll far above the materialized top: the top edge
+        // fires, because this window has 1000 px of document above it. (The
+        // bottom is ~1e9 px away, and the fixture is not windowed on x.)
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, -1.0e9), container),
+            s.check_reinvoke_condition(vpos(-1.0e9), container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
         );
         assert_eq!(
@@ -1379,78 +1611,241 @@ mod autotest_generated {
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
         );
 
+        // JUDGEMENT: a negative offset is not a top-edge event by ITSELF — the
+        // sign of the offset is irrelevant, what matters is whether there is
+        // document above the materialized window. With the window flush against
+        // the document's top there is nothing left to load up there, so the
+        // very same rubber-band overscroll is silence, not a reload loop
+        // (which is precisely what a rubber-band bounce would otherwise cause,
+        // once per frame, for the whole duration of the bounce).
+        let at_doc_top = windowed_state(
+            LogicalRect::new(LogicalPosition::zero(), sz(100.0, 1000.0)),
+            LogicalRect::new(LogicalPosition::zero(), sz(100.0, 3000.0)),
+        );
+        assert_eq!(
+            at_doc_top.check_reinvoke_condition(pos(0.0, -1.0e9), container),
+            None
+        );
+        assert_eq!(
+            at_doc_top.check_reinvoke_condition(pos(-1.0e9, -1.0e9), container),
+            None
+        );
+
         // Overscrolled past the bottom: still the bottom edge, no panic.
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, 1.0e9), container),
+            s.check_reinvoke_condition(vpos(1.0e9), container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
         );
 
-        // Negative container/content sizes must not panic either.
+        // JUDGEMENT: negative container/content sizes are nonsense input — an
+        // INVERTED rect, whose max lies below its min. The rule stays total on
+        // them (no panic, no NaN, a deterministic answer), but it cannot be
+        // *meaningful*, and pinning `None` here would pretend the inversion is
+        // detected when it is not. What actually happens: the inverted window's
+        // "bottom" (y=900) sits 100 px short of the inverted document's
+        // (y=1900), so the bottom edge reports. Totality is the guarantee; the
+        // particular edge is an artefact of the garbage, recorded so a future
+        // change to it is noticed rather than silently absorbed.
         let s = invoked_state(sz(-100.0, -100.0));
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, 0.0), sz(-200.0, -200.0)),
-            None
+            s.check_reinvoke_condition(vpos(0.0), sz(-200.0, -200.0)),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
         );
     }
 
     #[test]
     fn check_reinvoke_condition_saturates_at_f32_extremes() {
-        // MAX content in a zero container, scrolled to the far end: the bottom
-        // distance is MAX - 0 - MAX == 0, so this is a bottom-edge hit, not an
-        // overflow panic.
+        // JUDGEMENT (extremes): the requirement is that saturated arithmetic
+        // neither panics NOR invents an edge. The second half is the subtle
+        // one — at f32::MAX the distances collapse to 0 and *look* like a
+        // permanent edge hit, and the only thing standing between that and an
+        // infinite re-materialize loop is the "does the document actually
+        // extend past this edge?" guard. Both halves are pinned below.
+
+        // A MAX-sized window inside a document that saturates to the SAME MAX
+        // (`1000 + MAX == MAX` and `2000 + MAX == MAX` in f32): the window
+        // covers everything there is. Scrolled to the far end the bottom
+        // distance is MAX - MAX == 0 — inside the threshold — yet nothing
+        // fires, because there is nothing beyond the window to load.
         let s = invoked_state(sz(f32::MAX, f32::MAX));
         assert_eq!(
             s.check_reinvoke_condition(pos(f32::MAX, f32::MAX), sz(0.0, 0.0)),
-            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+            None,
+            "a saturated distance of 0 must not fake an edge when the window covers the document"
         );
 
-        // The mirrored extreme: -MAX offset puts the bottom/right distance at
-        // +inf, so the top edge wins.
+        // The mirrored extreme: -MAX is far above the window, and the 1000 px
+        // of document above it survive saturation (the window's ORIGIN is
+        // still 1000, the document's still 0), so the top edge does fire.
         assert_eq!(
             s.check_reinvoke_condition(pos(-f32::MAX, -f32::MAX), sz(0.0, 0.0)),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
         );
 
-        // MAX content in a MAX container: nothing grew, nothing is scrollable.
+        // MAX container over MAX content: `>` is strict, so nothing grew and
+        // there is no BoundsExpanded — but the viewport starts exactly on the
+        // window's top edge, which has document above it, so this is a Top.
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, 0.0), sz(f32::MAX, f32::MAX)),
+            s.check_reinvoke_condition(vpos(0.0), sz(f32::MAX, f32::MAX)),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
+        );
+
+        // Saturation where the document genuinely DOES extend past the window:
+        // a MAX/2 window at the document's origin inside a MAX-tall document.
+        // The bottom distance underflows to -MAX/2 (the viewport is absurdly
+        // far past the window) — still <= EDGE_THRESHOLD, so the bottom edge
+        // reports instead of overflowing.
+        let huge = windowed_state(
+            LogicalRect::new(
+                LogicalPosition::zero(),
+                sz(f32::MAX / 2.0, f32::MAX / 2.0),
+            ),
+            LogicalRect::new(LogicalPosition::zero(), sz(f32::MAX, f32::MAX)),
+        );
+        assert_eq!(
+            huge.check_reinvoke_condition(pos(f32::MAX, f32::MAX), sz(0.0, 0.0)),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+        );
+        // Mirrored: that window is flush with the document's top, so an -MAX
+        // offset has nothing to load above it. The bottom distance
+        // (MAX/2 + MAX) overflows to +inf, which reads as "very far away" —
+        // not as a panic and not as an edge.
+        assert_eq!(
+            huge.check_reinvoke_condition(pos(-f32::MAX, -f32::MAX), sz(0.0, 0.0)),
             None
         );
 
         // Infinite container over finite content is an expansion...
         let s = invoked_state(sz(100.0, 100.0));
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, 0.0), sz(f32::INFINITY, f32::INFINITY)),
+            s.check_reinvoke_condition(vpos(0.0), sz(f32::INFINITY, f32::INFINITY)),
             Some(VirtualViewCallbackReason::BoundsExpanded)
         );
-        // ...and once that expansion has been served, an infinite container makes
-        // nothing scrollable, so it goes quiet instead of looping.
+        // ...and once that expansion has been served, an infinite viewport is
+        // "at" every edge at once (`mat_max - inf == -inf <= 200`), so priority
+        // answers Bottom. Absurd, but deterministic and bounded: the document
+        // guard is still the thing that decides, as the next case shows.
         let mut s = invoked_state(sz(100.0, 100.0));
         s.invoked_for_current_expansion = true;
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, 0.0), sz(f32::INFINITY, f32::INFINITY)),
+            s.check_reinvoke_condition(vpos(0.0), sz(f32::INFINITY, f32::INFINITY)),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+        );
+
+        // Same infinite viewport over a FULLY materialized view: every edge is
+        // 0/-inf away and every one of them is vetoed, so it goes quiet instead
+        // of looping.
+        let mut covered = windowed_state(
+            LogicalRect::new(LogicalPosition::zero(), sz(100.0, 100.0)),
+            LogicalRect::new(LogicalPosition::zero(), sz(100.0, 100.0)),
+        );
+        covered.invoked_for_current_expansion = true;
+        assert_eq!(
+            covered.check_reinvoke_condition(pos(0.0, 50.0), sz(f32::INFINITY, f32::INFINITY)),
             None
         );
     }
 
     #[test]
     fn check_reinvoke_condition_needs_a_real_scroll_before_any_edge_fires() {
+        // The view is re-invoked while the user sits at the BOTTOM of the
+        // materialized window, so the resting position is itself an edge: the
+        // bottom distance is 0 from the very first check. Only movement away
+        // from that resting position may fire.
         let mut s = invoked_state(sz(100.0, 1000.0));
-        s.initial_scroll_offset = pos(0.0, 900.0);
+        s.initial_scroll_offset = vpos(900.0);
         let container = sz(100.0, 100.0);
 
-        // Parked exactly where it started (the bottom): not a scroll-to-edge.
-        assert_eq!(s.check_reinvoke_condition(pos(0.0, 900.0), container), None);
+        // Parked exactly where it started (on the window's bottom edge, with
+        // 1000 px of document still below it): not a scroll-to-edge.
+        assert_eq!(s.check_reinvoke_condition(vpos(900.0), container), None);
 
         // One pixel of real movement, still within the bottom threshold → fires.
         assert_eq!(
-            s.check_reinvoke_condition(pos(0.0, 899.0), container),
+            s.check_reinvoke_condition(vpos(899.0), container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
         );
 
         // Already invoked for this edge event → quiet regardless of movement.
         s.invoked_for_current_edge = true;
-        assert_eq!(s.check_reinvoke_condition(pos(0.0, 899.0), container), None);
+        assert_eq!(s.check_reinvoke_condition(vpos(899.0), container), None);
+    }
+
+    #[test]
+    fn a_window_scrolled_in_the_middle_of_a_document_rematerializes_at_its_edges() {
+        // THE REGRESSION THIS RULE EXISTS FOR. The old rule compared a
+        // VIRTUAL-space scroll offset against the MATERIALIZED window's SIZE —
+        // two different coordinate spaces — so an edge could only ever fire at
+        // the absolute top or bottom of the DOCUMENT, and a view parked in the
+        // middle of one never asked for more content: a VirtualView could not
+        // scroll. The edges that matter belong to the materialized WINDOW, and
+        // they sit in the middle of the document, which is exactly what this
+        // pins.
+        let s = invoked_state(sz(100.0, 1000.0)); // window y 1000..2000 of a 0..3000 doc
+        let container = sz(100.0, 100.0);
+
+        // Dead centre of the window — 450 px from either of its edges, and also
+        // the middle of the document: nothing to do.
+        assert_eq!(s.check_reinvoke_condition(vpos(450.0), container), None);
+
+        // On the window's BOTTOM edge while still 1100 px short of the
+        // document's end. Under the old rule this was "not at the bottom" and
+        // nothing loaded; the view could never grow downwards.
+        assert_eq!(
+            s.check_reinvoke_condition(vpos(900.0), container),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+        );
+
+        // Symmetrically on the window's TOP edge, 1000 px INTO the document
+        // rather than at its start — the case a paginated document hits every
+        // time the user scrolls back up.
+        assert_eq!(
+            s.check_reinvoke_condition(vpos(0.0), container),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
+        );
+    }
+
+    #[test]
+    fn no_edge_fires_when_the_materialized_window_already_covers_that_side() {
+        // The other half of the rule: proximity alone is not enough, the
+        // document has to actually extend past that edge. Without this the
+        // ends of every document would re-materialize once per frame forever.
+        let container = sz(100.0, 100.0);
+
+        // Window flush against the document's TOP: its top edge has nothing
+        // behind it, so resting on it is silence — while the BOTTOM edge of the
+        // very same window, which does have document behind it, still fires.
+        // (Same fixture, same offsets: the only difference is which side has
+        // content left.)
+        let head = windowed_state(
+            LogicalRect::new(LogicalPosition::zero(), sz(100.0, 1000.0)),
+            LogicalRect::new(LogicalPosition::zero(), sz(100.0, 3000.0)),
+        );
+        assert_eq!(head.check_reinvoke_condition(pos(0.0, 1.0), container), None);
+        assert_eq!(
+            head.check_reinvoke_condition(pos(0.0, 900.0), container),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+        );
+
+        // Fully materialized (window == document): nothing is left to load on
+        // ANY side, so no offset can produce an edge — including the corners,
+        // where all four distances are 0 and every edge "looks" reachable.
+        let whole = windowed_state(
+            LogicalRect::new(LogicalPosition::zero(), sz(1000.0, 1000.0)),
+            LogicalRect::new(LogicalPosition::zero(), sz(1000.0, 1000.0)),
+        );
+        for offset in [
+            pos(0.0, 1.0),
+            pos(1.0, 0.0),
+            pos(900.0, 900.0),
+            pos(500.0, 500.0),
+        ] {
+            assert_eq!(
+                whole.check_reinvoke_condition(offset, container),
+                None,
+                "fully materialized: nothing to load at {offset:?}"
+            );
+        }
     }
 
     // ------------------------------------------------------- getters / predicates
