@@ -728,17 +728,39 @@ jobs:
         shell: bash
         run: |
           # Permanent store: an asset on the `rust9x-toolchain` release. Absent
-          # => build it below. `|| true` so a missing tag/asset is not fatal.
+          # => build it below.
+          #
+          # The asset is ~350 MB, so the download is the flakiest step in this
+          # job, and "flaky" here is expensive: one dropped transfer used to
+          # send the job straight into the 90-minute inline toolchain build,
+          # which then dies on the runner for want of cl.exe -- and because
+          # deploy_pages `needs:` this job, that takes the website release
+          # with it. Retry before concluding the asset is gone, and KEEP the
+          # error: piping the only diagnostic to /dev/null made a network
+          # blip, an auth failure and a genuinely missing asset all print the
+          # same "not found" line.
           mkdir -p dist
-          if gh release download "$RUST9X_TAG" \
-               --repo "$GITHUB_REPOSITORY" \
-               --pattern "$RUST9X_ASSET" \
-               --dir dist 2>/dev/null && [ -f "dist/$RUST9X_ASSET" ]; then
+          found=false
+          for attempt in 1 2 3; do
+            if err=$(gh release download "$RUST9X_TAG" \
+                       --repo "$GITHUB_REPOSITORY" \
+                       --pattern "$RUST9X_ASSET" \
+                       --clobber \
+                       --dir dist 2>&1) && [ -s "dist/$RUST9X_ASSET" ]; then
+              found=true
+              echo "rust9x toolchain asset downloaded from release $RUST9X_TAG (attempt $attempt)"
+              break
+            fi
+            echo "::warning::rust9x asset download attempt $attempt/3 failed: ${err:-<no output>}"
+            # A partial file would otherwise make the next attempt look done.
+            rm -f "dist/$RUST9X_ASSET"
+            sleep $((attempt * 15))
+          done
+          if [ "$found" = true ]; then
             echo "found=true" >> "$GITHUB_OUTPUT"
-            echo "rust9x toolchain asset downloaded from release $RUST9X_TAG"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::rust9x toolchain asset not found on release '$RUST9X_TAG' — building it inline (~90 min) and publishing it."
+            echo "::warning::rust9x toolchain asset not found on release '$RUST9X_TAG' after 3 attempts — building it inline (~90 min) and publishing it."
           fi
 
       - name: Install Python (for x.py)
