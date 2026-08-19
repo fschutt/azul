@@ -1415,6 +1415,7 @@ pub fn write_page_clean_url(
 mod stylesheet_contract {
     const FLORA: &str = include_str!("../../templates/flora.css");
     const DOCS: &str = include_str!("../../templates/azul-docs.css");
+    const GUIDE: &str = include_str!("../../templates/docs-guide.css");
     const LANDING: &str = include_str!("../../templates/ui-landing.css");
     const SEARCH: &str = include_str!("../../templates/azul-search.css");
 
@@ -1446,7 +1447,14 @@ mod stylesheet_contract {
 
     const DOCS_REQUIRED: &[&str] = &[
         "body.docs", ".docs-hero", ".docs-content p,", ".docs-content pre",
+        ".docs-card {",
         ".docs-card {", ".docs-list-item {", ".docs-layout",
+    ];
+
+    /// docs-guide.css - the guide index's cards live here.
+    const GUIDE_REQUIRED: &[&str] = &[
+        ".guide-grid", ".guide-card", ".guide-links", "a.guide-link",
+        ".guide-link-lead", ".azul-window", ".markdown-alert-warning", "@media print",
     ];
 
     const LANDING_REQUIRED: &[&str] = &[
@@ -1508,6 +1516,7 @@ mod stylesheet_contract {
     fn stylesheets_keep_their_sections() {
         check("flora.css", FLORA, FLORA_REQUIRED);
         check("azul-docs.css", DOCS, DOCS_REQUIRED);
+        check("docs-guide.css", GUIDE, GUIDE_REQUIRED);
         check("ui-landing.css", LANDING, LANDING_REQUIRED);
         check("azul-search.css", SEARCH, SEARCH_REQUIRED);
     }

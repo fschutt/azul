@@ -201,9 +201,11 @@
 }
 
 /* ---- Version selector cards (api.html): mono version numbers ---- */
-.api-version-grid h4 {
+/* The version is a version string, so it keeps the mono face even though it
+   sits in a display-face card. */
+.api-version-grid .guide-link-lead {
     font-family: var(--font-mono);
-    font-size: 18px;
+    font-size: 19px;
     font-variant: normal;
     letter-spacing: 0;
 }

@@ -543,7 +543,7 @@ fn render_tree(pages: &[&Guide]) -> String {
     }
 
     let mut s = String::new();
-    s.push_str("<div class=\"docs-list\">\n");
+    s.push_str("<div class=\"guide-grid\">\n");
     for g in &top_level {
         s.push_str(&render_list_item(g, &children));
     }
@@ -552,12 +552,12 @@ fn render_tree(pages: &[&Guide]) -> String {
         let label = group_slug.rsplit('/').next().unwrap_or(group_slug);
         let label_titled = title_case(label);
         s.push_str(&format!(
-            "<div class=\"docs-list-item\">\n<h3>{label_titled}</h3>\n<ul class=\"docs-sublist\">\n"
+            "<div class=\"guide-card\">\n<h3>{label_titled}</h3>\n<div class=\"guide-links\">\n"
         ));
         for k in kids {
             s.push_str(&render_sub_li(k, &children));
         }
-        s.push_str("</ul>\n</div>\n");
+        s.push_str("</div>\n</div>\n");
     }
     s.push_str("</div>\n");
     s
@@ -569,27 +569,49 @@ fn render_list_item(
     g: &Guide,
     children: &std::collections::BTreeMap<String, Vec<&Guide>>,
 ) -> String {
-    let mut s = format!(
-        "<div class=\"docs-list-item\">\n<h3><a href=\"{HTML_ROOT}/guide/{}\">{}</a></h3>\n",
-        g.file_name,
-        transform_german_quotes(&g.title),
-    );
+    let kids: &[&Guide] = children
+        .get(g.file_name.as_str())
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+
+    // The heading is the card's link ONLY when the card has nothing else to
+    // link to. As soon as a chapter has sub-articles, its own page becomes
+    // the first button ("Introduction") and the heading goes back to being a
+    // heading - otherwise the card has two kinds of target, a quiet one in
+    // the title and loud ones below it, and the reader has to work out that
+    // the title was clickable at all.
+    let title = transform_german_quotes(&g.title);
+    let head = if kids.is_empty() {
+        format!(
+            "<h3><a class=\"guide-link guide-link-lead\" href=\"{HTML_ROOT}/guide/{}\">{title}</a></h3>\n",
+            g.file_name,
+        )
+    } else {
+        format!("<h3>{title}</h3>\n")
+    };
+
+    // A card with a lot of articles (Hello World carries one per language)
+    // takes the full row. In a column it wraps into a tower and leaves the
+    // card beside it floating in whitespace.
+    let wide = if kids.len() > 8 { " guide-card-wide" } else { "" };
+    let mut s = format!("<div class=\"guide-card{wide}\">\n{head}");
     if let Some(desc) = &g.description {
         s.push_str(&format!(
             "<p>{}</p>\n",
             transform_german_quotes(&html_escape(desc)),
         ));
     }
-    if let Some(kids) = children.get(g.file_name.as_str()) {
-        s.push_str("<ul class=\"docs-sublist\">\n");
+    if !kids.is_empty() {
+        s.push_str("<div class=\"guide-links\">\n");
+        s.push_str(&format!(
+            "<a class=\"guide-link\" href=\"{HTML_ROOT}/guide/{}\">Introduction</a>\n",
+            g.file_name,
+        ));
         for k in kids {
             s.push_str(&render_sub_li(k, children));
         }
-        s.push_str("</ul>\n");
+        s.push_str("</div>\n");
     }
-    // No "Read chapter" link: the chapter's own title above is that link, and
-    // pointing at the same page twice from one card is the duplication this
-    // index is meant to avoid.
     s.push_str("</div>\n");
     s
 }
@@ -597,28 +619,16 @@ fn render_list_item(
 /// Sub-chapter bullet (nested pages like `hello-world/rust`).
 fn render_sub_li(
     g: &Guide,
-    children: &std::collections::BTreeMap<String, Vec<&Guide>>,
+    _children: &std::collections::BTreeMap<String, Vec<&Guide>>,
 ) -> String {
-    let mut s = format!(
-        "<li><a href=\"{HTML_ROOT}/guide/{}\">{}</a>",
+    // One button per article. The one-line description is dropped: the card's
+    // own blurb already says what the group covers, and repeating a sentence
+    // under every button is the prose this index is meant to be free of.
+    format!(
+        "<a class=\"guide-link\" href=\"{HTML_ROOT}/guide/{}\">{}</a>\n",
         g.file_name,
         transform_german_quotes(&g.title),
-    );
-    if let Some(desc) = &g.description {
-        s.push_str(&format!(
-            " <span class=\"docs-sub-desc\">&mdash; {}</span>",
-            transform_german_quotes(&html_escape(desc)),
-        ));
-    }
-    if let Some(kids) = children.get(g.file_name.as_str()) {
-        s.push_str("\n<ul class=\"docs-sublist\">\n");
-        for k in kids {
-            s.push_str(&render_sub_li(k, children));
-        }
-        s.push_str("</ul>\n");
-    }
-    s.push_str("</li>\n");
-    s
+    )
 }
 
 fn html_escape(s: &str) -> String {

@@ -185,7 +185,8 @@
 .azul-search[data-mode="floating"] .azs-toggle {
   position: fixed;
   z-index: 9000;
-  top: 16px;
+  /* below the nav strip and its socket, which overhang the top-right corner */
+  top: 62px;
   right: 16px;
   display: inline-flex;
   align-items: center;
@@ -225,7 +226,7 @@
 .azul-search[data-mode="floating"] .azs-panel {
   position: fixed;
   z-index: 9001;
-  top: 16px;
+  top: 62px;
   right: 16px;
   width: 380px;
   max-height: calc(100vh - 32px);
