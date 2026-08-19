@@ -133,7 +133,14 @@ const check = (name, got, want) => {
 // probe files them next to GetProcessHeap and they end up with a single
 // "non-zero" assertion instead of being tested at all.
 const PROBE_DST = 0x48000, PROBE_SRC = 0x48100;
+const XMM0 = 16;   // Win64 float arg/return, State offset (see pcs::XMM)
 const classify = (l) => {
+    // 0. Does it transform XMM0? Only the f64 CRT math intercepts do, and they
+    //    touch nothing else — so a return-value probe would file them next to
+    //    GetProcessHeap exactly as it did the mem functions.
+    dv().setFloat64(STATE + XMM0, -3.75, true);
+    dispatch(l);
+    if (dv().getFloat64(STATE + XMM0, true) !== -3.75) return 'f64unary';
     // 1. Does it move the bump cursor?
     setCursor(0x20000);
     bytes().set([0xC1, 0xC2, 0xC3, 0xC4], PROBE_DST);          // canary
@@ -203,6 +210,28 @@ for (const [l, kind] of kinds) {
             dispatch(l);
             check('zeroes the returned block', bytes()[0x30000], 0);
         }
+    } else if (kind === 'f64unary') {
+        // Identify WHICH function by its answers, then assert them. The signs
+        // are the discriminator: trunc(-3.75) = -3 but floor(-3.75) = -4, and
+        // getting that backwards is a silent numeric wrong-answer, not a crash.
+        const call = (x) => {
+            dv().setFloat64(STATE + XMM0, x, true);
+            dispatch(l);
+            return dv().getFloat64(STATE + XMM0, true);
+        };
+        const neg = call(-3.75), pos = call(3.75);
+        let name = 'unknown';
+        if (neg === -3 && pos === 3) name = 'trunc';
+        else if (neg === -4 && pos === 3) name = 'floor';
+        else if (neg === -3 && pos === 4) name = 'ceil';
+        else if (neg === 3.75 && pos === 3.75) name = 'fabs';
+        else if (Number.isNaN(neg) && Math.abs(pos - Math.sqrt(3.75)) < 1e-12) name = 'sqrt';
+        console.log(`f64 CRT math: ${name}`);
+        check('negative input', neg, name === 'trunc' ? -3 : name === 'floor' ? -4
+            : name === 'ceil' ? -3 : name === 'fabs' ? 3.75 : neg);
+        check('positive input', pos, name === 'trunc' ? 3 : name === 'floor' ? 3
+            : name === 'ceil' ? 4 : name === 'fabs' ? 3.75 : pos);
+        check('identified', name !== 'unknown', true);
     } else if (kind === 'memcmp') {
         console.log('memcmp(a, b, n)');
         const A = 0x45000, B = 0x45100;

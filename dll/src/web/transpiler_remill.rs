@@ -117,6 +117,12 @@ pub(crate) mod pcs {
     pub const RET_HI: u64 = 2264; // RDX (Rust-internal ScalarPair second word)
     #[cfg(target_arch = "x86_64")]
     pub const SRET: u64 = 2248; // RCX — hidden first arg carries the dest ptr
+    /// Win64 float arg/return registers XMM0..XMM3. Offsets computed from the
+    /// real `%struct.X86State` by constant-folding a getelementptr through it
+    /// (`[32 x VectorReg]` is field 1, 64 bytes apart), not by guessing — the
+    /// same derivation yields RAX = 2216, which matches [`RET`] above.
+    #[cfg(target_arch = "x86_64")]
+    pub const XMM: [u64; 4] = [16, 80, 144, 208];
     #[cfg(target_arch = "x86_64")]
     pub const SP: u64 = 2312; // RSP
     #[cfg(target_arch = "x86_64")]
@@ -2986,6 +2992,9 @@ impl RemillTranspiler {
             ir.push_str("declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
             ir.push_str("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
             ir.push_str("declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)\n");
+            for intrin in ["trunc", "floor", "ceil", "fabs", "sqrt"] {
+                ir.push_str(&format!("declare double @llvm.{intrin}.f64(double)\n"));
+            }
         }
         // WEB-LIFT FIX (2026-06-02): mask %pc to low 32 bits before the switch. Tail-jump
         // (`br`) PCs arrive TAGGED in the high bits (e.g. 0x8_00f70ebc / 0x9_00f6dfc4 — a
@@ -4182,6 +4191,14 @@ enum ImportIntercept {
     Memmove,
     /// `memset(dst, c, n)`.
     Memset,
+    /// A one-argument `double -> double` CRT math call whose LLVM intrinsic
+    /// lowers to a single wasm instruction, so it needs no env import: the
+    /// argument arrives in XMM0 and the result goes back to XMM0.
+    ///
+    /// These come from ucrtbase, which the first pass of import routing did not
+    /// cover at all — `Display for Json`'s Number arm reaches `ucrtbase!trunc`
+    /// through `f64_as_i64` and silently gets a no-op.
+    F64Unary(&'static str),
 }
 
 #[cfg(feature = "web-transpiler")]
@@ -4195,6 +4212,7 @@ impl ImportIntercept {
             ImportIntercept::Memcmp => "memcmp",
             ImportIntercept::Memmove => "memmove",
             ImportIntercept::Memset => "memset",
+            ImportIntercept::F64Unary(n) => n,
         }
     }
 
@@ -4307,6 +4325,19 @@ impl ImportIntercept {
                     l = l, a0 = a0, a1 = a1, a2 = a2, ret = ret, mid = mid,
                 )
             }
+            ImportIntercept::F64Unary(intrin) => format!(
+                // Argument and result both live in XMM0. llvm.trunc/floor/ceil/
+                // fabs/sqrt.f64 each lower to a single wasm instruction, so this
+                // stays self-contained — no new env symbol that a probe harness
+                // could zero-stub and make look like a mis-lift.
+                "imp{l}:\n\
+                 \x20 %xp{l} = getelementptr inbounds i8, ptr %state, i64 {x0}\n\
+                 \x20 %xv{l} = load double, ptr %xp{l}, align 8\n\
+                 \x20 %xr{l} = call double @llvm.{intrin}.f64(double %xv{l})\n\
+                 \x20 store double %xr{l}, ptr %xp{l}, align 8\n\
+                 \x20 ret ptr %memory\n",
+                l = l, x0 = pcs::XMM[0], intrin = intrin,
+            ),
             ImportIntercept::Memcmp => format!(
                 // Byte loop through the guest memory intrinsic. Importing a
                 // host memcmp would add an env symbol every probe harness has
@@ -4382,6 +4413,20 @@ fn intercepted_import_labels(cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept,
         ("VCRUNTIME140.dll\0", "memcpy\0", ImportIntercept::Memmove),
         ("VCRUNTIME140.dll\0", "memmove\0", ImportIntercept::Memmove),
         ("VCRUNTIME140.dll\0", "memset\0", ImportIntercept::Memset),
+        // ucrtbase: the C runtime. Rust's float formatting calls straight into
+        // it, and the first pass of import routing did not cover this module at
+        // all — `Display for Json`'s Number arm reaches `trunc` via `f64_as_i64`
+        // and silently gets a no-op.
+        //
+        // Only shapes whose intrinsic is a single wasm instruction are routed.
+        // Anything needing a real libm (pow/exp/log/fmod) is left out rather
+        // than approximated, and `round` too: its half-away-from-zero rule is
+        // NOT wasm's f64.nearest, which rounds half to even.
+        ("ucrtbase.dll\0", "trunc\0", ImportIntercept::F64Unary("trunc")),
+        ("ucrtbase.dll\0", "floor\0", ImportIntercept::F64Unary("floor")),
+        ("ucrtbase.dll\0", "ceil\0", ImportIntercept::F64Unary("ceil")),
+        ("ucrtbase.dll\0", "fabs\0", ImportIntercept::F64Unary("fabs")),
+        ("ucrtbase.dll\0", "sqrt\0", ImportIntercept::F64Unary("sqrt")),
     ];
     let table = symbol_table::get();
     let mut used: HashSet<u64> = cases.iter().map(|(l, _)| *l).collect();
