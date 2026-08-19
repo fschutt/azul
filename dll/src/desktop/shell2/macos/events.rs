@@ -34,6 +34,9 @@ pub use crate::desktop::shell2::common::event::HitTestNode;
 use crate::desktop::shell2::common::event::{
     PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_RIGHT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
 };
+// The keycode table lives in `common` so it is tested on every host: nothing in
+// CI compiles this module, so a test next to the table would never run.
+use crate::desktop::shell2::common::event::macos_keycode_to_virtual_key as convert_keycode;
 
 // macOS hardware keycodes for modifier keys
 const MACOS_KEYCODE_LSHIFT: u16 = 0x38;
@@ -60,17 +63,6 @@ const NX_DEVICE_RWIN: usize = 0x0000_0010;
 const NX_DEVICE_LALT: usize = 0x0000_0020;
 const NX_DEVICE_RALT: usize = 0x0000_0040;
 const NX_DEVICE_RCONTROL: usize = 0x0000_2000;
-
-/// Pixels per line for a scroll delta that is NOT precise (a ratcheting mouse
-/// wheel: `hasPreciseScrollingDeltas() == false`, so AppKit reports LINE units,
-/// ~±1 per notch). The engine's raw-delta chokepoint takes pixels — X11 scales
-/// its ±1 button-4/5 ticks by `X11_SCROLL_TICK_PIXELS` and Win32 its
-/// `WHEEL_DELTA` quotient by the same 20 — so passing the line count through
-/// unscaled made a physical wheel crawl ~20x slower on macOS than everywhere
-/// else. Precise (trackpad) deltas are already pixels and pass through raw.
-#[allow(clippy::cast_lossless)]
-const MACOS_SCROLL_LINE_PIXELS: f64 =
-    crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE as f64;
 
 fn button_to_flags(button: MouseButton) -> u8 {
     match button {
@@ -447,16 +439,10 @@ impl MacOSWindow {
         };
 
         // Trackpad/precise deltas are already pixels; a ratcheting wheel (and the
-        // pre-10.7 fallback) reports LINES and must be scaled to match X11/Win32
-        // (see MACOS_SCROLL_LINE_PIXELS).
-        let (delta_x, delta_y) = if has_precise {
-            (raw_delta_x, raw_delta_y)
-        } else {
-            (
-                raw_delta_x * MACOS_SCROLL_LINE_PIXELS,
-                raw_delta_y * MACOS_SCROLL_LINE_PIXELS,
-            )
-        };
+        // pre-10.7 fallback) reports LINES and must be scaled to match X11/Win32.
+        use crate::desktop::shell2::common::event::discrete_scroll_delta_to_pixels;
+        let delta_x = discrete_scroll_delta_to_pixels(raw_delta_x, has_precise);
+        let delta_y = discrete_scroll_delta_to_pixels(raw_delta_y, has_precise);
 
         let location = unsafe { event.locationInWindow() };
         let window_height = self.common.current_window_state.size.dimensions.height;
@@ -1073,121 +1059,6 @@ impl MacOSWindow {
     }
 }
 
-fn convert_keycode(keycode: u16) -> Option<VirtualKeyCode> {
-    // macOS keycodes: https://eastmanreference.com/complete-list-of-applescript-key-codes
-    match keycode {
-        0x00 => Some(VirtualKeyCode::A),
-        0x01 => Some(VirtualKeyCode::S),
-        0x02 => Some(VirtualKeyCode::D),
-        0x03 => Some(VirtualKeyCode::F),
-        0x04 => Some(VirtualKeyCode::H),
-        0x05 => Some(VirtualKeyCode::G),
-        0x06 => Some(VirtualKeyCode::Z),
-        0x07 => Some(VirtualKeyCode::X),
-        0x08 => Some(VirtualKeyCode::C),
-        0x09 => Some(VirtualKeyCode::V),
-        0x0B => Some(VirtualKeyCode::B),
-        0x0C => Some(VirtualKeyCode::Q),
-        0x0D => Some(VirtualKeyCode::W),
-        0x0E => Some(VirtualKeyCode::E),
-        0x0F => Some(VirtualKeyCode::R),
-        0x10 => Some(VirtualKeyCode::Y),
-        0x11 => Some(VirtualKeyCode::T),
-        0x12 => Some(VirtualKeyCode::Key1),
-        0x13 => Some(VirtualKeyCode::Key2),
-        0x14 => Some(VirtualKeyCode::Key3),
-        0x15 => Some(VirtualKeyCode::Key4),
-        0x16 => Some(VirtualKeyCode::Key6),
-        0x17 => Some(VirtualKeyCode::Key5),
-        0x18 => Some(VirtualKeyCode::Equals),
-        0x19 => Some(VirtualKeyCode::Key9),
-        0x1A => Some(VirtualKeyCode::Key7),
-        0x1B => Some(VirtualKeyCode::Minus),
-        0x1C => Some(VirtualKeyCode::Key8),
-        0x1D => Some(VirtualKeyCode::Key0),
-        0x1E => Some(VirtualKeyCode::RBracket),
-        0x1F => Some(VirtualKeyCode::O),
-        0x20 => Some(VirtualKeyCode::U),
-        0x21 => Some(VirtualKeyCode::LBracket),
-        0x22 => Some(VirtualKeyCode::I),
-        0x23 => Some(VirtualKeyCode::P),
-        0x24 => Some(VirtualKeyCode::Return),
-        0x25 => Some(VirtualKeyCode::L),
-        0x26 => Some(VirtualKeyCode::J),
-        0x27 => Some(VirtualKeyCode::Apostrophe),
-        0x28 => Some(VirtualKeyCode::K),
-        0x29 => Some(VirtualKeyCode::Semicolon),
-        0x2A => Some(VirtualKeyCode::Backslash),
-        0x2B => Some(VirtualKeyCode::Comma),
-        0x2C => Some(VirtualKeyCode::Slash),
-        0x2D => Some(VirtualKeyCode::N),
-        0x2E => Some(VirtualKeyCode::M),
-        0x2F => Some(VirtualKeyCode::Period),
-        0x30 => Some(VirtualKeyCode::Tab),
-        0x31 => Some(VirtualKeyCode::Space),
-        0x32 => Some(VirtualKeyCode::Grave),
-        0x33 => Some(VirtualKeyCode::Back),
-        0x35 => Some(VirtualKeyCode::Escape),
-        0x37 => Some(VirtualKeyCode::LWin), // Command
-        0x38 => Some(VirtualKeyCode::LShift),
-        0x39 => Some(VirtualKeyCode::Capital), // Caps Lock
-        0x3A => Some(VirtualKeyCode::LAlt),    // Option
-        0x3B => Some(VirtualKeyCode::LControl),
-        0x36 => Some(VirtualKeyCode::RWin), // Right Command
-        0x3C => Some(VirtualKeyCode::RShift),
-        0x3D => Some(VirtualKeyCode::RAlt),
-        0x3E => Some(VirtualKeyCode::RControl),
-        // Keypad. Its digits/operators also produce ordinary characters, so the
-        // text-insert path in handle_key_down keeps working; these entries are
-        // what gives them a VirtualKeyDown as well.
-        0x41 => Some(VirtualKeyCode::NumpadDecimal),
-        0x43 => Some(VirtualKeyCode::NumpadMultiply),
-        0x45 => Some(VirtualKeyCode::NumpadAdd),
-        0x47 => Some(VirtualKeyCode::Numlock), // Keypad Clear sits in the NumLock position
-        0x4B => Some(VirtualKeyCode::NumpadDivide),
-        0x4C => Some(VirtualKeyCode::NumpadEnter),
-        0x4E => Some(VirtualKeyCode::NumpadSubtract),
-        0x51 => Some(VirtualKeyCode::NumpadEquals),
-        0x52 => Some(VirtualKeyCode::Numpad0),
-        0x53 => Some(VirtualKeyCode::Numpad1),
-        0x54 => Some(VirtualKeyCode::Numpad2),
-        0x55 => Some(VirtualKeyCode::Numpad3),
-        0x56 => Some(VirtualKeyCode::Numpad4),
-        0x57 => Some(VirtualKeyCode::Numpad5),
-        0x58 => Some(VirtualKeyCode::Numpad6),
-        0x59 => Some(VirtualKeyCode::Numpad7),
-        0x5B => Some(VirtualKeyCode::Numpad8),
-        0x5C => Some(VirtualKeyCode::Numpad9),
-        // Function row. macOS orders these by hardware position, not by number.
-        0x60 => Some(VirtualKeyCode::F5),
-        0x61 => Some(VirtualKeyCode::F6),
-        0x62 => Some(VirtualKeyCode::F7),
-        0x63 => Some(VirtualKeyCode::F3),
-        0x64 => Some(VirtualKeyCode::F8),
-        0x65 => Some(VirtualKeyCode::F9),
-        0x67 => Some(VirtualKeyCode::F11),
-        0x6D => Some(VirtualKeyCode::F10),
-        0x6E => Some(VirtualKeyCode::Apps), // PC "Menu" / contextual-menu key
-        0x6F => Some(VirtualKeyCode::F12),
-        0x76 => Some(VirtualKeyCode::F4),
-        0x78 => Some(VirtualKeyCode::F2),
-        0x7A => Some(VirtualKeyCode::F1),
-        // Navigation cluster. These emit Private-Use-Area characters
-        // (U+F700..U+F7FF), which handle_key_down correctly refuses to insert as
-        // text — so without an entry here they produced no engine event AT ALL.
-        0x73 => Some(VirtualKeyCode::Home),
-        0x74 => Some(VirtualKeyCode::PageUp),
-        0x75 => Some(VirtualKeyCode::Delete), // ForwardDelete (Back = 0x33 is Backspace)
-        0x77 => Some(VirtualKeyCode::End),
-        0x79 => Some(VirtualKeyCode::PageDown),
-        0x7B => Some(VirtualKeyCode::Left),
-        0x7C => Some(VirtualKeyCode::Right),
-        0x7D => Some(VirtualKeyCode::Down),
-        0x7E => Some(VirtualKeyCode::Up),
-        _ => None,
-    }
-}
-
 impl MacOSWindow {
     /// Update keyboard state from event.
     fn update_keyboard_state(
@@ -1522,77 +1393,4 @@ impl MacOSWindow {
     // - dispatch_events_propagated() - W3C Capture→Target→Bubble dispatch
     // - apply_user_change() - Result handling
     // This eliminates ~336 lines of platform-specific duplicated code.
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_keycode_conversion() {
-        assert_eq!(Some(VirtualKeyCode::A), convert_keycode(0x00));
-        assert_eq!(Some(VirtualKeyCode::Return), convert_keycode(0x24));
-        assert_eq!(Some(VirtualKeyCode::Space), convert_keycode(0x31));
-        assert_eq!(Some(VirtualKeyCode::LShift), convert_keycode(0x38));
-        assert_eq!(Some(VirtualKeyCode::LControl), convert_keycode(0x3B));
-        assert_eq!(Some(VirtualKeyCode::LAlt), convert_keycode(0x3A));
-        assert_eq!(Some(VirtualKeyCode::LWin), convert_keycode(0x37));
-        assert_eq!(None, convert_keycode(0xFF));
-    }
-
-    /// The navigation cluster emits Private-Use-Area characters that the
-    /// text-input filter (correctly) refuses to insert, so a missing entry here
-    /// means the key produces NO engine event whatsoever.
-    #[test]
-    fn test_keycode_conversion_navigation() {
-        assert_eq!(Some(VirtualKeyCode::Home), convert_keycode(0x73));
-        assert_eq!(Some(VirtualKeyCode::End), convert_keycode(0x77));
-        assert_eq!(Some(VirtualKeyCode::PageUp), convert_keycode(0x74));
-        assert_eq!(Some(VirtualKeyCode::PageDown), convert_keycode(0x79));
-        // ForwardDelete, NOT Backspace (0x33 = Back).
-        assert_eq!(Some(VirtualKeyCode::Delete), convert_keycode(0x75));
-        assert_eq!(Some(VirtualKeyCode::Back), convert_keycode(0x33));
-        assert_eq!(Some(VirtualKeyCode::Left), convert_keycode(0x7B));
-        assert_eq!(Some(VirtualKeyCode::Up), convert_keycode(0x7E));
-    }
-
-    /// macOS orders the function row by hardware position, not by number — the
-    /// table is easy to transpose, so pin every entry.
-    #[test]
-    fn test_keycode_conversion_function_row() {
-        assert_eq!(Some(VirtualKeyCode::F1), convert_keycode(0x7A));
-        assert_eq!(Some(VirtualKeyCode::F2), convert_keycode(0x78));
-        assert_eq!(Some(VirtualKeyCode::F3), convert_keycode(0x63));
-        assert_eq!(Some(VirtualKeyCode::F4), convert_keycode(0x76));
-        assert_eq!(Some(VirtualKeyCode::F5), convert_keycode(0x60));
-        assert_eq!(Some(VirtualKeyCode::F6), convert_keycode(0x61));
-        assert_eq!(Some(VirtualKeyCode::F7), convert_keycode(0x62));
-        assert_eq!(Some(VirtualKeyCode::F8), convert_keycode(0x64));
-        assert_eq!(Some(VirtualKeyCode::F9), convert_keycode(0x65));
-        assert_eq!(Some(VirtualKeyCode::F10), convert_keycode(0x6D));
-        assert_eq!(Some(VirtualKeyCode::F11), convert_keycode(0x67));
-        assert_eq!(Some(VirtualKeyCode::F12), convert_keycode(0x6F));
-    }
-
-    #[test]
-    fn test_keycode_conversion_keypad_and_right_modifiers() {
-        assert_eq!(Some(VirtualKeyCode::Numpad0), convert_keycode(0x52));
-        assert_eq!(Some(VirtualKeyCode::Numpad7), convert_keycode(0x59));
-        assert_eq!(Some(VirtualKeyCode::Numpad8), convert_keycode(0x5B));
-        assert_eq!(Some(VirtualKeyCode::Numpad9), convert_keycode(0x5C));
-        assert_eq!(Some(VirtualKeyCode::NumpadEnter), convert_keycode(0x4C));
-        assert_eq!(Some(VirtualKeyCode::NumpadDecimal), convert_keycode(0x41));
-        assert_eq!(Some(VirtualKeyCode::NumpadAdd), convert_keycode(0x45));
-        assert_eq!(Some(VirtualKeyCode::NumpadSubtract), convert_keycode(0x4E));
-        assert_eq!(Some(VirtualKeyCode::NumpadMultiply), convert_keycode(0x43));
-        assert_eq!(Some(VirtualKeyCode::NumpadDivide), convert_keycode(0x4B));
-
-        // Right-hand modifiers must NOT collapse onto their left twins.
-        assert_eq!(Some(VirtualKeyCode::RWin), convert_keycode(0x36));
-        assert_eq!(Some(VirtualKeyCode::RShift), convert_keycode(0x3C));
-        assert_eq!(Some(VirtualKeyCode::RAlt), convert_keycode(0x3D));
-        assert_eq!(Some(VirtualKeyCode::RControl), convert_keycode(0x3E));
-        assert_eq!(Some(VirtualKeyCode::Capital), convert_keycode(0x39));
-        assert_eq!(Some(VirtualKeyCode::Apps), convert_keycode(0x6E));
-    }
 }

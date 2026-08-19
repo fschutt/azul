@@ -90,3 +90,76 @@ pub fn stop_timerfd(
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{start_timerfd, stop_timerfd};
+
+    /// Wait up to `budget_ms` for `fd` to become readable, i.e. for the timer
+    /// to have fired at least once.
+    fn fired_within(fd: i32, budget_ms: i32) -> bool {
+        let mut pfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        unsafe { libc::poll(&mut pfd, 1, budget_ms) == 1 && (pfd.revents & libc::POLLIN) != 0 }
+    }
+
+    /// `Timer::tick_millis` legitimately returns 0 for a sub-millisecond / "as
+    /// fast as possible" timer. A timerfd armed with `it_value == {0, 0}` is
+    /// DISARMED, not "fire immediately and repeatedly", so those timers worked
+    /// headlessly and silently never fired on Linux — animation and polling
+    /// timers on both Linux backends.
+    ///
+    /// NEGATIVE CONTROL: revert the arming value to the raw milliseconds —
+    /// `let secs = (interval_ms / 1000) as libc::time_t;` /
+    /// `let nsecs = ((interval_ms % 1000) * 1_000_000) as libc::c_long;` — and
+    /// the fd never becomes readable, so this fails.
+    #[test]
+    fn a_zero_millisecond_timer_is_armed_not_disarmed() {
+        let mut fds = BTreeMap::new();
+        start_timerfd(&mut fds, 1, 0, "test");
+
+        let fd = *fds.get(&1).expect("timerfd_create/settime must succeed");
+        assert!(
+            fired_within(fd, 1000),
+            "a 0 ms timer must tick as fast as the kernel allows, not never"
+        );
+
+        stop_timerfd(&mut fds, 1, "test");
+        assert!(fds.is_empty());
+    }
+
+    /// An ordinary interval keeps working: the ns widening only reshapes the
+    /// existing ms → (s, ns) split, so a 20 ms timer must still tick.
+    #[test]
+    fn an_ordinary_interval_still_fires() {
+        let mut fds = BTreeMap::new();
+        start_timerfd(&mut fds, 7, 20, "test");
+        let fd = *fds.get(&7).expect("timerfd_create/settime must succeed");
+
+        assert!(fired_within(fd, 2000), "a 20 ms timer must fire");
+
+        stop_timerfd(&mut fds, 7, "test");
+        assert!(fds.is_empty());
+    }
+
+    /// Re-arming a live timer must replace, not duplicate, its entry — every
+    /// `set_timer` on the same id would otherwise leak a descriptor.
+    #[test]
+    fn restarting_a_timer_replaces_its_entry() {
+        let mut fds = BTreeMap::new();
+        start_timerfd(&mut fds, 3, 50, "test");
+        let first = *fds.get(&3).unwrap();
+        start_timerfd(&mut fds, 3, 50, "test");
+        let second = *fds.get(&3).unwrap();
+
+        assert_eq!(fds.len(), 1);
+        assert_ne!(first, second, "the old descriptor must have been released");
+
+        stop_timerfd(&mut fds, 3, "test");
+    }
+}

@@ -302,65 +302,71 @@ impl ImeManager {
 
     /// Translates a key event into a character and a keysym, considering the IME.
     pub(super) fn lookup_string(&self, event: &mut XKeyEvent) -> (Option<String>, Option<KeySym>) {
-        let mut keysym: KeySym = 0;
-        let mut status: i32 = 0;
-        let mut stack: [c_char; 32] = [0; 32];
-
-        let mut count = unsafe {
-            // Xutf8LookupString (not XmbLookupString): the committed bytes are
-            // guaranteed UTF-8 regardless of the locale codeset, so accented and
-            // CJK commit strings decode correctly even under a non-UTF-8 locale.
-            // (X11 API audit, finding 6.)
-            (self.xlib.Xutf8LookupString)(
-                self.xic,
-                event,
-                stack.as_mut_ptr(),
-                stack.len() as i32,
-                &mut keysym,
-                &mut status,
-            )
-        };
-
-        // XBufferOverflow: NOTHING was written and the return value is the
-        // buffer size the commit needs. The fixed 32-byte buffer overflows on
-        // any commit past ~11 CJK characters — an ordinary phrase — and the
-        // untested status left the caller seeing count <= 0, so the whole
-        // composed sentence vanished. Re-run into a heap buffer of the
-        // requested size.
-        let mut heap: Vec<c_char> = Vec::new();
-        if status == XBufferOverflow && count > 0 {
-            heap = vec![0; count as usize];
-            count = unsafe {
-                (self.xlib.Xutf8LookupString)(
-                    self.xic,
-                    event,
-                    heap.as_mut_ptr(),
-                    heap.len() as i32,
-                    &mut keysym,
-                    &mut status,
-                )
-            };
-        }
-
-        // XLookupNone / XLookupKeySym leave the buffer untouched (count == 0);
-        // a second overflow would mean the IM lied about the size.
-        let has_text =
-            count > 0 && !matches!(status, XBufferOverflow | XLookupNone | XLookupKeySym);
-        let chars = if has_text {
-            // Use count to slice the buffer rather than CStr::from_ptr, which would
-            // read past the buffer if X11 fills it with no null terminator.
-            let src: &[c_char] = if heap.is_empty() { &stack } else { &heap };
-            let end = (count as usize).min(src.len());
-            let bytes: Vec<u8> = src[..end].iter().map(|b| *b as u8).collect();
-            Some(String::from_utf8_lossy(&bytes).into_owned())
-        } else {
-            None
-        };
-
-        let keysym = if keysym != 0 { Some(keysym) } else { None };
-
-        (chars, keysym)
+        // Xutf8LookupString (not XmbLookupString): the committed bytes are
+        // guaranteed UTF-8 regardless of the locale codeset, so accented and
+        // CJK commit strings decode correctly even under a non-UTF-8 locale.
+        // (X11 API audit, finding 6.)
+        let lookup = self.xlib.Xutf8LookupString;
+        let xic = self.xic;
+        let event: *mut XKeyEvent = event;
+        lookup_string_with(|buf, len, keysym, status| unsafe {
+            (lookup)(xic, event, buf, len, keysym, status)
+        })
     }
+}
+
+/// The overflow-retry protocol of the `X*LookupString` family, with the Xlib
+/// call itself injected so it can be exercised without an input method.
+///
+/// `XBufferOverflow` means NOTHING was written and the return value is the
+/// buffer size the commit needs. The fixed 32-byte stack buffer overflows on
+/// any commit past ~11 CJK characters — an ordinary phrase — and leaving the
+/// status untested made the caller see a `count` it could not use, so the whole
+/// composed sentence silently vanished. On overflow the lookup is repeated into
+/// a heap buffer of exactly the requested size.
+pub(super) fn lookup_string_with<F>(mut lookup: F) -> (Option<String>, Option<KeySym>)
+where
+    F: FnMut(*mut c_char, i32, *mut KeySym, *mut i32) -> i32,
+{
+    let mut keysym: KeySym = 0;
+    let mut status: i32 = 0;
+    let mut stack: [c_char; 32] = [0; 32];
+
+    let mut count = lookup(
+        stack.as_mut_ptr(),
+        stack.len() as i32,
+        &mut keysym as *mut KeySym,
+        &mut status as *mut i32,
+    );
+
+    let mut heap: Vec<c_char> = Vec::new();
+    if status == XBufferOverflow && count > 0 {
+        heap = vec![0; count as usize];
+        count = lookup(
+            heap.as_mut_ptr(),
+            heap.len() as i32,
+            &mut keysym as *mut KeySym,
+            &mut status as *mut i32,
+        );
+    }
+
+    // XLookupNone / XLookupKeySym leave the buffer untouched (count == 0);
+    // a second overflow would mean the IM lied about the size.
+    let has_text = count > 0 && !matches!(status, XBufferOverflow | XLookupNone | XLookupKeySym);
+    let chars = if has_text {
+        // Use count to slice the buffer rather than CStr::from_ptr, which would
+        // read past the buffer if X11 fills it with no null terminator.
+        let src: &[c_char] = if heap.is_empty() { &stack } else { &heap };
+        let end = (count as usize).min(src.len());
+        let bytes: Vec<u8> = src[..end].iter().map(|b| *b as u8).collect();
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        None
+    };
+
+    let keysym = if keysym != 0 { Some(keysym) } else { None };
+
+    (chars, keysym)
 }
 
 // XIM preedit callbacks — invoked synchronously from `XFilterEvent` on the
@@ -1044,37 +1050,13 @@ impl X11Window {
         }
 
         // Update keyboard state with virtual key and scancode
-        if let Some(vk) = vk_pressed {
-            if is_down {
-                self.common.current_window_state
-                    .keyboard_state
-                    .pressed_virtual_keycodes
-                    .insert_hm_item(vk);
-                self.common.current_window_state
-                    .keyboard_state
-                    .current_virtual_keycode = Some(vk).into();
-
-                // Track scancode (X11 keycode is the scancode)
-                self.common.current_window_state
-                    .keyboard_state
-                    .pressed_scancodes
-                    .insert_hm_item(event.keycode as u32);
-            } else {
-                self.common.current_window_state
-                    .keyboard_state
-                    .pressed_virtual_keycodes
-                    .remove_hm_item(&vk);
-                self.common.current_window_state
-                    .keyboard_state
-                    .current_virtual_keycode = None.into();
-
-                // Remove scancode
-                self.common.current_window_state
-                    .keyboard_state
-                    .pressed_scancodes
-                    .remove_hm_item(&(event.keycode as u32));
-            }
-        }
+        apply_key_state_change(
+            &mut self.common.current_window_state.keyboard_state,
+            &mut self.pressed_key_vks,
+            event.keycode as u32,
+            vk_pressed,
+            is_down,
+        );
 
         // Character input is now handled by V2 event system
         // current_char field has been removed from KeyboardState
@@ -1096,66 +1078,12 @@ impl X11Window {
     /// hardcoded Mod1/Mod4 defaults, which are wrong on any remapped keyboard
     /// and never carried AltGr at all.
     pub(super) fn update_modifiers_from_x11_state(&mut self, state: std::ffi::c_uint) {
-        use azul_core::window::VirtualKeyCode;
-
         let masks = self.modifier_masks;
-        let keyboard_state = &mut self.common.current_window_state.keyboard_state;
-
-        // The `state` bits say WHETHER a modifier is held, never WHICH side —
-        // so only synthesize the left key when neither side is already
-        // recorded. Unconditionally inserting the left one left a phantom
-        // LShift/LControl behind whenever the user actually held the right key
-        // and released it (the keysym path removed RShift, this one had just
-        // re-added LShift).
-        let alt_down = masks.alt != 0 && (state & masks.alt) != 0;
-        {
-            let mut sync = |down: bool, left: VirtualKeyCode, right: VirtualKeyCode| {
-                let already =
-                    keyboard_state.is_key_down(left) || keyboard_state.is_key_down(right);
-                if down {
-                    if !already {
-                        keyboard_state.pressed_virtual_keycodes.insert_hm_item(left);
-                    }
-                } else {
-                    keyboard_state.pressed_virtual_keycodes.remove_hm_item(&left);
-                    keyboard_state.pressed_virtual_keycodes.remove_hm_item(&right);
-                }
-            };
-
-            sync(
-                (state & SHIFT_MASK) != 0,
-                VirtualKeyCode::LShift,
-                VirtualKeyCode::RShift,
-            );
-            sync(
-                (state & CONTROL_MASK) != 0,
-                VirtualKeyCode::LControl,
-                VirtualKeyCode::RControl,
-            );
-            sync(alt_down, VirtualKeyCode::LAlt, VirtualKeyCode::RAlt);
-            sync(
-                masks.super_key != 0 && (state & masks.super_key) != 0,
-                VirtualKeyCode::LWin,
-                VirtualKeyCode::RWin,
-            );
-        }
-
-        // AltGr (ISO_Level3_Shift) lives on its own modifier bit (usually
-        // Mod5) and was invisible here, so AltGr-composed accelerators saw no
-        // modifier at all. It shares RAlt with plain right-Alt (as everywhere
-        // else in the engine), so only touch it when Alt itself is not the
-        // source of that key.
-        if masks.altgr != 0 && (state & masks.altgr) != 0 {
-            if !keyboard_state.is_key_down(VirtualKeyCode::RAlt) {
-                keyboard_state
-                    .pressed_virtual_keycodes
-                    .insert_hm_item(VirtualKeyCode::RAlt);
-            }
-        } else if !alt_down {
-            keyboard_state
-                .pressed_virtual_keycodes
-                .remove_hm_item(&VirtualKeyCode::RAlt);
-        }
+        apply_modifier_mask_state(
+            &mut self.common.current_window_state.keyboard_state,
+            masks,
+            state,
+        );
     }
 
     /// Drop every key the window still believes is held.
@@ -1173,6 +1101,10 @@ impl X11Window {
         keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
         keyboard_state.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
         keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
+        // The press→code record mirrors the lists above and has to die with
+        // them: an entry that outlived its list would make a much later release
+        // of the same physical key remove a code nobody pressed.
+        self.pressed_key_vks.clear();
     }
 
     /// The group-0 / level-0 keysym of a physical keycode — the key's
@@ -1241,6 +1173,9 @@ impl X11Window {
                     .keyboard_state
                     .pressed_virtual_keycodes
                     .insert_hm_item(vk);
+                // Record what was seeded, so the release the server has not sent
+                // yet removes exactly this code.
+                self.pressed_key_vks.insert(keycode, vk);
             }
         }
 
@@ -1467,6 +1402,112 @@ impl X11Window {
     }
 }
 
+// Pressed-key bookkeeping
+
+/// Apply one KeyPress/KeyRelease to the pressed-key lists, keyed by the
+/// PHYSICAL keycode.
+///
+/// A press records the code it inserted in `pressed_key_vks`; the release
+/// removes THAT code rather than re-translating its own keysym, because the two
+/// halves of one physical key do not have to agree on a keysym (see the field's
+/// doc on `X11Window`). `.or(vk)` covers a key whose press this window never
+/// saw — held across a focus change, or pressed before the map existed.
+///
+/// A keycode that resolves to no `VirtualKeyCode` inserts nothing and therefore
+/// needs nothing removed, which is also why the scancode is tracked inside the
+/// same branch: the release of an unresolvable key must not delete state the
+/// press never wrote.
+/// Fold the `state` bitmask every X event carries into the engine's held-key
+/// list, using the modifier bits THIS keyboard actually maps.
+///
+/// `Mod1 = Alt` / `Mod4 = Super` are only the common case and AltGr had no
+/// default at all, so the masks come from `XGetModifierMapping`
+/// (`query_modifier_masks`) and are refreshed on `MappingNotify`.
+///
+/// The `state` bits say WHETHER a modifier is held, never WHICH side — so the
+/// left key is only synthesized when neither side is already recorded.
+/// Inserting it unconditionally left a phantom `LShift`/`LControl` behind
+/// whenever the user actually held the RIGHT key and released it: the keysym
+/// path removed `RShift`, and this one had just re-added `LShift`.
+fn apply_modifier_mask_state(
+    keyboard_state: &mut azul_core::window::KeyboardState,
+    masks: super::ModifierMasks,
+    state: std::ffi::c_uint,
+) {
+    let alt_down = masks.alt != 0 && (state & masks.alt) != 0;
+    {
+        let mut sync = |down: bool, left: VirtualKeyCode, right: VirtualKeyCode| {
+            let already = keyboard_state.is_key_down(left) || keyboard_state.is_key_down(right);
+            if down {
+                if !already {
+                    keyboard_state.pressed_virtual_keycodes.insert_hm_item(left);
+                }
+            } else {
+                keyboard_state.pressed_virtual_keycodes.remove_hm_item(&left);
+                keyboard_state.pressed_virtual_keycodes.remove_hm_item(&right);
+            }
+        };
+
+        sync(
+            (state & SHIFT_MASK) != 0,
+            VirtualKeyCode::LShift,
+            VirtualKeyCode::RShift,
+        );
+        sync(
+            (state & CONTROL_MASK) != 0,
+            VirtualKeyCode::LControl,
+            VirtualKeyCode::RControl,
+        );
+        sync(alt_down, VirtualKeyCode::LAlt, VirtualKeyCode::RAlt);
+        sync(
+            masks.super_key != 0 && (state & masks.super_key) != 0,
+            VirtualKeyCode::LWin,
+            VirtualKeyCode::RWin,
+        );
+    }
+
+    // AltGr (ISO_Level3_Shift) lives on its own modifier bit (usually Mod5) and
+    // was invisible here, so AltGr-composed accelerators saw no modifier at
+    // all. It shares RAlt with plain right-Alt (as everywhere else in the
+    // engine), so only touch it when Alt itself is not the source of that key.
+    if masks.altgr != 0 && (state & masks.altgr) != 0 {
+        if !keyboard_state.is_key_down(VirtualKeyCode::RAlt) {
+            keyboard_state
+                .pressed_virtual_keycodes
+                .insert_hm_item(VirtualKeyCode::RAlt);
+        }
+    } else if !alt_down {
+        keyboard_state
+            .pressed_virtual_keycodes
+            .remove_hm_item(&VirtualKeyCode::RAlt);
+    }
+}
+
+pub(super) fn apply_key_state_change(
+    keyboard_state: &mut azul_core::window::KeyboardState,
+    pressed_key_vks: &mut std::collections::BTreeMap<u32, VirtualKeyCode>,
+    keycode: u32,
+    vk: Option<VirtualKeyCode>,
+    is_down: bool,
+) {
+    if is_down {
+        if let Some(vk) = vk {
+            keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
+            keyboard_state.current_virtual_keycode = Some(vk).into();
+
+            // Track scancode (X11 keycode is the scancode)
+            keyboard_state.pressed_scancodes.insert_hm_item(keycode);
+            pressed_key_vks.insert(keycode, vk);
+        }
+    } else if let Some(vk) = pressed_key_vks.remove(&keycode).or(vk) {
+        keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
+        keyboard_state.current_virtual_keycode = None.into();
+
+        // Remove scancode
+        keyboard_state.pressed_scancodes.remove_hm_item(&keycode);
+    }
+}
+
 // Keycode Conversion
 
 pub fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
@@ -1600,5 +1641,443 @@ pub fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
         XK_KP_Space => Some(VirtualKeyCode::Space),
         XK_KP_Tab => Some(VirtualKeyCode::Tab),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use azul_core::window::KeyboardState;
+
+    use super::*;
+
+    type PressedKeyVks = std::collections::BTreeMap<u32, VirtualKeyCode>;
+
+    fn press(state: &mut KeyboardState, map: &mut PressedKeyVks, keycode: u32, keysym: u32) {
+        apply_key_state_change(
+            state,
+            map,
+            keycode,
+            keysym_to_virtual_keycode(keysym as KeySym),
+            true,
+        );
+    }
+
+    fn release(state: &mut KeyboardState, map: &mut PressedKeyVks, keycode: u32, keysym: u32) {
+        apply_key_state_change(
+            state,
+            map,
+            keycode,
+            keysym_to_virtual_keycode(keysym as KeySym),
+            false,
+        );
+    }
+
+    /// The premise of everything below: one physical key legitimately reports
+    /// two unrelated keysyms, which the table maps to two unrelated codes.
+    /// `XLookupString` returns the EFFECTIVE symbol, so German AltGr+Q is
+    /// `XK_at` while AltGr is down and `XK_q` after it comes up — and the
+    /// folding that rescues Shift+digit (`XK_1`/`XK_exclam` → one code) cannot
+    /// help here, because `XK_at` is already folded onto the digit row.
+    #[test]
+    fn one_physical_key_can_report_two_different_codes() {
+        assert_eq!(
+            keysym_to_virtual_keycode(XK_at as KeySym),
+            Some(VirtualKeyCode::Key2)
+        );
+        assert_eq!(
+            keysym_to_virtual_keycode(XK_q as KeySym),
+            Some(VirtualKeyCode::Q)
+        );
+        assert_eq!(
+            keysym_to_virtual_keycode(XK_1 as KeySym),
+            keysym_to_virtual_keycode(XK_exclam as KeySym),
+            "the shifted digit row folds onto one code, which is why the digit \
+             case never needed the press→code map"
+        );
+    }
+
+    /// AltGr+Q pressed, AltGr released first, Q released: the release must undo
+    /// the press even though the two keysyms disagree.
+    ///
+    /// NEGATIVE CONTROL: resolving the release from its own keysym
+    /// (`apply_key_state_change`'s `pressed_key_vks.remove(&keycode).or(vk)`
+    /// reduced to `vk`) removes Q — which was never pressed — and leaves Key2
+    /// latched for the life of the window.
+    #[test]
+    fn a_level_three_press_and_release_cancel_out() {
+        // German keycode 24 = the Q key.
+        const Q_KEYCODE: u32 = 24;
+        let mut state = KeyboardState::default();
+        let mut map = std::collections::BTreeMap::new();
+
+        press(&mut state, &mut map, Q_KEYCODE, XK_at);
+        assert!(state.is_key_down(VirtualKeyCode::Key2));
+
+        release(&mut state, &mut map, Q_KEYCODE, XK_q);
+        assert!(
+            state.pressed_virtual_keycodes.as_ref().is_empty(),
+            "the release must remove the code the PRESS inserted, not the one \
+             its own keysym resolves to: {:?}",
+            state.pressed_virtual_keycodes.as_ref()
+        );
+        assert!(state.pressed_scancodes.as_ref().is_empty());
+        assert!(map.is_empty(), "the record must not outlive the key");
+    }
+
+    /// The harm the asymmetry does: engine modifiers are DERIVED from
+    /// `pressed_virtual_keycodes`, so a modifier that is never removed makes the
+    /// whole app behave as if it were held down forever.
+    ///
+    /// NEGATIVE CONTROL: same reduction as above — the release resolves to no
+    /// code at all, removes nothing, and `ctrl_down()` stays true.
+    #[test]
+    fn a_release_that_resolves_to_nothing_still_lifts_the_modifier() {
+        const CONTROL_KEYCODE: u32 = 37;
+        let mut state = KeyboardState::default();
+        let mut map = std::collections::BTreeMap::new();
+
+        press(&mut state, &mut map, CONTROL_KEYCODE, XK_Control_L);
+        assert!(state.ctrl_down());
+
+        // A remapped/unbound level on the same physical key: no keysym the
+        // table knows.
+        release(&mut state, &mut map, CONTROL_KEYCODE, 0);
+        assert!(
+            !state.ctrl_down(),
+            "Ctrl must come up when its physical key does — a latched modifier \
+             rewrites every subsequent click and keystroke"
+        );
+    }
+
+    /// Two physical keys held at once are tracked independently: releasing one
+    /// must not disturb the other, whatever keysym either release carries.
+    ///
+    /// NEGATIVE CONTROL: same reduction as above — the `1` release resolves to
+    /// Key1 and the `q` release to Q, so Key2 survives both.
+    #[test]
+    fn two_keys_held_at_once_are_tracked_per_keycode() {
+        const Q_KEYCODE: u32 = 24;
+        const ONE_KEYCODE: u32 = 10;
+        let mut state = KeyboardState::default();
+        let mut map = std::collections::BTreeMap::new();
+
+        press(&mut state, &mut map, Q_KEYCODE, XK_at);
+        press(&mut state, &mut map, ONE_KEYCODE, XK_exclam);
+        assert_eq!(state.pressed_virtual_keycodes.as_ref().len(), 2);
+
+        release(&mut state, &mut map, ONE_KEYCODE, XK_1);
+        assert!(state.is_key_down(VirtualKeyCode::Key2));
+        assert!(!state.is_key_down(VirtualKeyCode::Key1));
+
+        release(&mut state, &mut map, Q_KEYCODE, XK_q);
+        assert!(state.pressed_virtual_keycodes.as_ref().is_empty());
+    }
+
+    /// A keysym with no `VirtualKeyCode` (`ö`, a dead key, F13 on a keyboard
+    /// that has one) must not invent state on the press, and must therefore
+    /// find nothing to undo on the release — including the scancode, which the
+    /// press never wrote either.
+    #[test]
+    fn an_unresolvable_key_writes_nothing_and_undoes_nothing() {
+        const SPARE_KEYCODE: u32 = 47;
+        let mut state = KeyboardState::default();
+        let mut map = std::collections::BTreeMap::new();
+
+        press(&mut state, &mut map, SPARE_KEYCODE, 0);
+        assert!(state.pressed_virtual_keycodes.as_ref().is_empty());
+        assert!(state.pressed_scancodes.as_ref().is_empty());
+        assert!(map.is_empty());
+
+        // A live key held alongside it must survive the unresolvable release.
+        press(&mut state, &mut map, 24, XK_q);
+        release(&mut state, &mut map, SPARE_KEYCODE, 0);
+        assert!(state.is_key_down(VirtualKeyCode::Q));
+    }
+
+    /// A key whose press this window never saw — held across a focus change, or
+    /// down before `resync_keyboard_state_from_vector` seeded the map — still
+    /// has to be removable, so the release falls back to its own keysym when
+    /// the map has no entry.
+    #[test]
+    fn a_release_without_a_recorded_press_falls_back_to_its_keysym() {
+        let mut state = KeyboardState::default();
+        let mut map = std::collections::BTreeMap::new();
+
+        state
+            .pressed_virtual_keycodes
+            .insert_hm_item(VirtualKeyCode::LShift);
+        release(&mut state, &mut map, 50, XK_Shift_L);
+        assert!(!state.is_key_down(VirtualKeyCode::LShift));
+    }
+
+    fn vk(keysym: u32) -> Option<VirtualKeyCode> {
+        keysym_to_virtual_keycode(keysym as KeySym)
+    }
+
+    /// Punctuation carries the accelerators users actually press: `Ctrl+-` /
+    /// `Ctrl+=` (zoom), `Ctrl+,` (preferences), `Ctrl+/` (comment). With the
+    /// row unmapped, `VirtualKeyDown` never fired for any of them on X11 while
+    /// the same shortcut passed headlessly.
+    ///
+    /// NEGATIVE CONTROL: delete the `XK_minus | XK_underscore =>` arm (or any
+    /// other single arm named here) — that pair resolves to `None` and this
+    /// fails.
+    #[test]
+    fn the_punctuation_row_is_mapped() {
+        assert_eq!(vk(XK_minus), Some(VirtualKeyCode::Minus));
+        assert_eq!(vk(XK_equal), Some(VirtualKeyCode::Equals));
+        assert_eq!(vk(XK_comma), Some(VirtualKeyCode::Comma));
+        assert_eq!(vk(XK_period), Some(VirtualKeyCode::Period));
+        assert_eq!(vk(XK_semicolon), Some(VirtualKeyCode::Semicolon));
+        assert_eq!(vk(XK_apostrophe), Some(VirtualKeyCode::Apostrophe));
+        assert_eq!(vk(XK_grave), Some(VirtualKeyCode::Grave));
+        assert_eq!(vk(XK_bracketleft), Some(VirtualKeyCode::LBracket));
+        assert_eq!(vk(XK_bracketright), Some(VirtualKeyCode::RBracket));
+        assert_eq!(vk(XK_backslash), Some(VirtualKeyCode::Backslash));
+        assert_eq!(vk(XK_slash), Some(VirtualKeyCode::Slash));
+    }
+
+    /// X11 keysyms are shift-DEPENDENT: the press of `-` with Shift held
+    /// arrives as `XK_underscore` and its release as `XK_minus` once Shift is
+    /// up. Mapping the two forms to different codes would insert one and remove
+    /// the other, leaving the key held forever in `pressed_virtual_keycodes` —
+    /// from which the engine derives ctrl/shift/alt.
+    ///
+    /// NEGATIVE CONTROL: split any pair, e.g. `XK_plus => Some(VirtualKeyCode::Plus)`
+    /// as its own arm — the `equal`/`plus` assertion fails.
+    #[test]
+    fn every_shifted_form_folds_onto_its_unshifted_code() {
+        for (plain, shifted, name) in [
+            (XK_minus, XK_underscore, "minus/underscore"),
+            (XK_equal, XK_plus, "equal/plus"),
+            (XK_comma, XK_less, "comma/less"),
+            (XK_period, XK_greater, "period/greater"),
+            (XK_semicolon, XK_colon, "semicolon/colon"),
+            (XK_apostrophe, XK_quotedbl, "apostrophe/quotedbl"),
+            (XK_grave, XK_asciitilde, "grave/asciitilde"),
+            (XK_bracketleft, XK_braceleft, "bracketleft/braceleft"),
+            (XK_bracketright, XK_braceright, "bracketright/braceright"),
+            (XK_backslash, XK_bar, "backslash/bar"),
+            (XK_slash, XK_question, "slash/question"),
+            (XK_1, XK_exclam, "1/exclam"),
+            (XK_9, XK_parenleft, "9/parenleft"),
+        ] {
+            let (a, b) = (vk(plain), vk(shifted));
+            assert!(a.is_some(), "{name}: the unshifted form must map");
+            assert_eq!(a, b, "{name}: press and release must resolve to one code");
+        }
+    }
+
+    /// The keypad has two keysym families — the digit with Num Lock on, the
+    /// navigation function with it off — and the same press/release argument
+    /// applies, so both fold onto one code.
+    ///
+    /// NEGATIVE CONTROL: drop `| XK_KP_End` from the `XK_KP_1` arm — the
+    /// numlock-off form resolves to `None`.
+    #[test]
+    fn the_keypad_is_mapped_at_both_numlock_levels() {
+        assert_eq!(vk(XK_KP_0), Some(VirtualKeyCode::Numpad0));
+        assert_eq!(vk(XK_KP_Insert), Some(VirtualKeyCode::Numpad0));
+        assert_eq!(vk(XK_KP_1), Some(VirtualKeyCode::Numpad1));
+        assert_eq!(vk(XK_KP_End), Some(VirtualKeyCode::Numpad1));
+        assert_eq!(vk(XK_KP_5), Some(VirtualKeyCode::Numpad5));
+        assert_eq!(vk(XK_KP_Begin), Some(VirtualKeyCode::Numpad5));
+        assert_eq!(vk(XK_KP_9), Some(VirtualKeyCode::Numpad9));
+        assert_eq!(vk(XK_KP_Page_Up), Some(VirtualKeyCode::Numpad9));
+        assert_eq!(vk(XK_KP_Decimal), Some(VirtualKeyCode::NumpadDecimal));
+        assert_eq!(vk(XK_KP_Delete), Some(VirtualKeyCode::NumpadDecimal));
+        assert_eq!(vk(XK_KP_Enter), Some(VirtualKeyCode::NumpadEnter));
+        assert_eq!(vk(XK_KP_Add), Some(VirtualKeyCode::NumpadAdd));
+        assert_eq!(vk(XK_KP_Subtract), Some(VirtualKeyCode::NumpadSubtract));
+        assert_eq!(vk(XK_KP_Multiply), Some(VirtualKeyCode::NumpadMultiply));
+        assert_eq!(vk(XK_KP_Divide), Some(VirtualKeyCode::NumpadDivide));
+    }
+
+    /// AltGr is the third-level shift every non-US layout types `@`, `€` and
+    /// `\` with; X11 has no dedicated code for it, so it lands on RAlt like
+    /// everywhere else in the engine. Lock keys and Menu were likewise absent.
+    ///
+    /// NEGATIVE CONTROL: delete the
+    /// `XK_ISO_Level3_Shift | XK_Mode_switch => Some(VirtualKeyCode::RAlt)` arm.
+    #[test]
+    fn altgr_lock_keys_and_menu_are_mapped() {
+        assert_eq!(vk(XK_ISO_Level3_Shift), Some(VirtualKeyCode::RAlt));
+        assert_eq!(vk(XK_Mode_switch), Some(VirtualKeyCode::RAlt));
+        assert_eq!(vk(XK_Num_Lock), Some(VirtualKeyCode::Numlock));
+        assert_eq!(vk(XK_Caps_Lock), Some(VirtualKeyCode::Capital));
+        assert_eq!(vk(XK_Shift_Lock), Some(VirtualKeyCode::Capital));
+        assert_eq!(vk(XK_Menu), Some(VirtualKeyCode::Apps));
+        assert_eq!(vk(XK_Print), Some(VirtualKeyCode::Snapshot));
+    }
+
+    /// A keysym the table does not know must stay `None`. Wayland's deleted
+    /// copy of this table answered `Escape` instead, so every unmapped key
+    /// dismissed menus.
+    #[test]
+    fn an_unknown_keysym_is_none_not_escape() {
+        assert_eq!(vk(0), None);
+        assert_eq!(vk(0x0100_0000), None);
+    }
+
+    fn masks(alt: std::ffi::c_uint, super_key: std::ffi::c_uint, altgr: std::ffi::c_uint)
+        -> super::super::ModifierMasks
+    {
+        super::super::ModifierMasks { alt, super_key, altgr }
+    }
+
+    /// The `state` bitmask says a modifier is held, never which side. A user
+    /// holding RIGHT Shift used to end up with a phantom LShift that no release
+    /// could ever lift — the keysym path removed RShift, and the next pointer
+    /// event re-added LShift.
+    ///
+    /// NEGATIVE CONTROL: drop the `if !already` guard around the insert —
+    /// `LShift` appears and the first assertion fails.
+    #[test]
+    fn a_held_right_modifier_grows_no_phantom_left_one() {
+        let mut state = KeyboardState::default();
+        state
+            .pressed_virtual_keycodes
+            .insert_hm_item(VirtualKeyCode::RShift);
+
+        apply_modifier_mask_state(&mut state, masks(MOD1_MASK, MOD4_MASK, 0), SHIFT_MASK);
+        assert!(
+            !state.is_key_down(VirtualKeyCode::LShift),
+            "the bitmask must not invent the side"
+        );
+        assert!(state.is_key_down(VirtualKeyCode::RShift));
+
+        apply_modifier_mask_state(&mut state, masks(MOD1_MASK, MOD4_MASK, 0), 0);
+        assert!(!state.shift_down(), "a cleared bit lifts BOTH sides");
+    }
+
+    /// Nothing held and the bit set: the left key stands in, so accelerators
+    /// still see the modifier.
+    #[test]
+    fn a_set_bit_with_nothing_recorded_synthesizes_the_left_key() {
+        let mut state = KeyboardState::default();
+        apply_modifier_mask_state(&mut state, masks(MOD1_MASK, MOD4_MASK, 0), CONTROL_MASK);
+        assert!(state.ctrl_down());
+        assert!(state.is_key_down(VirtualKeyCode::LControl));
+    }
+
+    /// AltGr (usually Mod5) had no mask at all, so an AltGr-composed
+    /// accelerator saw no modifier.
+    ///
+    /// NEGATIVE CONTROL: replace the `masks.altgr != 0 && (state & masks.altgr) != 0`
+    /// condition with `false` — RAlt never appears.
+    #[test]
+    fn altgr_is_read_from_its_own_modifier_bit() {
+        let m = masks(MOD1_MASK, MOD4_MASK, MOD5_MASK);
+        let mut state = KeyboardState::default();
+
+        apply_modifier_mask_state(&mut state, m, MOD5_MASK);
+        assert!(state.is_key_down(VirtualKeyCode::RAlt));
+
+        apply_modifier_mask_state(&mut state, m, 0);
+        assert!(!state.alt_down());
+    }
+
+    /// WHICH `ModN` bit carries Alt / Super is a per-keyboard mapping;
+    /// Mod1/Mod4 are only the common case. Hardcoding them made every
+    /// remapped keyboard report the wrong modifiers.
+    ///
+    /// NEGATIVE CONTROL: substitute the literal `MOD1_MASK` for `masks.alt` in
+    /// `apply_modifier_mask_state` — Mod1 is read as Alt and the first
+    /// assertion fails.
+    #[test]
+    fn alt_follows_the_keyboards_own_modifier_map() {
+        let m = masks(MOD3_MASK, MOD4_MASK, 0);
+        let mut state = KeyboardState::default();
+
+        apply_modifier_mask_state(&mut state, m, MOD1_MASK);
+        assert!(!state.alt_down(), "Mod1 is not Alt on this keyboard");
+
+        apply_modifier_mask_state(&mut state, m, MOD3_MASK);
+        assert!(state.alt_down());
+    }
+
+    /// `XBufferOverflow` writes NOTHING and returns the size the commit needs.
+    /// The fixed 32-byte buffer overflows on any phrase past ~11 CJK
+    /// characters, and the untested status left the caller with a count it
+    /// never used — the whole composed sentence vanished.
+    ///
+    /// NEGATIVE CONTROL: delete the `if status == XBufferOverflow && count > 0`
+    /// retry block — `lookup_string_with` returns `None` and this fails.
+    #[test]
+    fn an_ime_commit_larger_than_the_stack_buffer_is_not_dropped() {
+        let phrase = "\u{3053}\u{308c}\u{306f}\u{65e5}\u{672c}\u{8a9e}\u{306e}\
+                      \u{9577}\u{3044}\u{6587}\u{7ae0}\u{3067}\u{3059}";
+        let bytes = phrase.as_bytes().to_vec();
+        assert!(bytes.len() > 32, "the premise: the commit must overflow");
+
+        let mut calls = 0usize;
+        let (text, keysym) = lookup_string_with(|buf, len, ks, st| {
+            calls += 1;
+            unsafe {
+                *ks = XK_a as KeySym;
+                if (len as usize) < bytes.len() {
+                    *st = XBufferOverflow;
+                    return bytes.len() as i32;
+                }
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr() as *const c_char,
+                    buf,
+                    bytes.len(),
+                );
+                *st = XLookupChars;
+            }
+            bytes.len() as i32
+        });
+
+        assert_eq!(calls, 2, "the overflow must be retried into a heap buffer");
+        assert_eq!(text.as_deref(), Some(phrase));
+        assert_eq!(keysym, Some(XK_a as KeySym));
+    }
+
+    /// The ordinary case must not pay for the retry, and the text is sliced by
+    /// the returned count rather than by a NUL that Xlib need not write.
+    #[test]
+    fn a_short_commit_takes_one_call_and_is_sliced_by_count() {
+        let mut calls = 0usize;
+        let (text, _) = lookup_string_with(|buf, _len, ks, st| {
+            calls += 1;
+            unsafe {
+                *ks = XK_a as KeySym;
+                std::ptr::copy_nonoverlapping(b"ab".as_ptr() as *const c_char, buf, 2);
+                *st = XLookupChars;
+            }
+            2
+        });
+        assert_eq!(calls, 1);
+        assert_eq!(text.as_deref(), Some("ab"));
+    }
+
+    /// A keysym-only lookup (Escape, arrows) reports no text — taking the
+    /// untouched buffer as a string would insert tofu into the document.
+    #[test]
+    fn a_keysym_only_lookup_yields_no_text() {
+        let (text, keysym) = lookup_string_with(|_buf, _len, ks, st| {
+            unsafe {
+                *ks = XK_Escape as KeySym;
+                *st = XLookupKeySym;
+            }
+            0
+        });
+        assert_eq!(text, None);
+        assert_eq!(keysym, Some(XK_Escape as KeySym));
+    }
+
+    /// An input method that reports a second overflow lied about the size;
+    /// returning the untouched heap buffer as text would emit NUL bytes.
+    #[test]
+    fn a_lying_input_method_produces_no_text() {
+        let (text, _) = lookup_string_with(|_buf, _len, ks, st| {
+            unsafe {
+                *ks = XK_a as KeySym;
+                *st = XBufferOverflow;
+            }
+            64
+        });
+        assert_eq!(text, None);
     }
 }

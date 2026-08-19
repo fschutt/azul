@@ -232,13 +232,27 @@ fn request(kind: SelectionKind) -> Option<String> {
         let sender = worker()?;
         sender.send(ClipboardJob::Load { kind, reply }).ok()?;
     }
-    match answer.recv_timeout(PASTE_UI_DEADLINE) {
+    await_selection_reply(&answer, PASTE_UI_DEADLINE)
+}
+
+/// Wait for the worker's answer, but never longer than `deadline`.
+///
+/// This is the whole point of the worker: an X11 selection read is a round trip
+/// to ANOTHER process, and when that process is gone or wedged the read blocks
+/// for its full timeout. On the UI thread, twice, at 3 s each, an ordinary
+/// Ctrl+V froze the event loop — caret blink, tweens and rendering with it — for
+/// six seconds. Giving up costs a paste; not giving up costs the frame loop.
+fn await_selection_reply(
+    answer: &mpsc::Receiver<Option<String>>,
+    deadline: Duration,
+) -> Option<String> {
+    match answer.recv_timeout(deadline) {
         Ok(text) => text,
         Err(_) => {
             log_warn!(
                 LogCategory::Resources,
                 "[X11] selection owner did not answer within {:?} — pasting nothing",
-                PASTE_UI_DEADLINE
+                deadline
             );
             None
         }
@@ -274,5 +288,74 @@ impl std::fmt::Display for ClipboardError {
             ClipboardError::InitFailed => write!(f, "failed to initialize X11 clipboard"),
             ClipboardError::WriteFailed => write!(f, "failed to write to X11 clipboard"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::mpsc, time::Duration, time::Instant};
+
+    use super::{await_selection_reply, PASTE_UI_DEADLINE, SELECTION_LOAD_TIMEOUT};
+
+    /// A selection owner that is gone or wedged — routine the moment the app
+    /// that copied the text exits — must cost a paste, not the frame loop.
+    /// This read used to happen ON the UI thread, twice, at 3 s each.
+    ///
+    /// NEGATIVE CONTROL: `answer.recv()` in place of
+    /// `answer.recv_timeout(deadline)` — the sender is still alive, so the
+    /// call never returns and this test hangs instead of passing.
+    #[test]
+    fn a_dead_selection_owner_costs_only_the_deadline() {
+        // Run the wait on a worker so a regression fails this test instead of
+        // hanging the suite: the sender below stays alive for the whole test,
+        // so a blocking receive would never return.
+        let (keep_alive, answer) = mpsc::sync_channel::<Option<String>>(1);
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            let got = await_selection_reply(&answer, Duration::from_millis(80));
+            let _ = done_tx.send((got, started.elapsed()));
+        });
+
+        let (got, elapsed) = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("a silent selection owner must not hold the caller forever");
+        assert_eq!(got, None);
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "the UI thread waited {elapsed:?} on a silent owner"
+        );
+        drop(keep_alive);
+    }
+
+    /// An owner that IS alive answers in a few milliseconds and its text must
+    /// come through untouched.
+    #[test]
+    fn a_live_selection_owner_is_pasted() {
+        let (reply, answer) = mpsc::sync_channel(1);
+        reply.send(Some("hello".to_string())).unwrap();
+
+        assert_eq!(
+            await_selection_reply(&answer, Duration::from_secs(5)),
+            Some("hello".to_string())
+        );
+    }
+
+    /// The budget the UI thread is allowed to spend on a paste. Six seconds of
+    /// frozen event loop is what this replaced; anything approaching a second
+    /// is a visible stall, not a hitch.
+    ///
+    /// NEGATIVE CONTROL: restore `PASTE_UI_DEADLINE` to
+    /// `Duration::from_secs(3)`.
+    #[test]
+    fn the_ui_paste_budget_stays_sub_second() {
+        assert!(
+            PASTE_UI_DEADLINE <= Duration::from_millis(500),
+            "PASTE_UI_DEADLINE = {PASTE_UI_DEADLINE:?}"
+        );
+        assert!(
+            SELECTION_LOAD_TIMEOUT <= Duration::from_millis(1000),
+            "the worker must not hold the clipboard mutex for seconds"
+        );
     }
 }

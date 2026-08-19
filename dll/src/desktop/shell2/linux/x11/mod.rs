@@ -736,27 +736,46 @@ unsafe fn decode_smooth_scroll(
     let axes = *win.scroll_valuators.get(&ev.sourceid)?;
     let vert = scroll_axis_delta(win, ev, axes.vert).unwrap_or(0.0);
     let horiz = scroll_axis_delta(win, ev, axes.horiz).unwrap_or(0.0);
-    if vert == 0.0 && horiz == 0.0 {
-        return None;
-    }
+    let (dx, dy, continuous) = smooth_scroll_pixels(horiz, vert, axes.continuous)?;
 
     // A device that ever reports a fraction of a detent is a continuous
     // scroller; latch it so the classification does not flip back on the
     // occasional whole-detent event.
-    let fractional = vert.fract().abs() > 1e-3 || horiz.fract().abs() > 1e-3;
-    if fractional && !axes.continuous {
+    if continuous && !axes.continuous {
         if let Some(a) = win.scroll_valuators.get_mut(&ev.sourceid) {
             a.continuous = true;
         }
     }
 
-    // XI2 scroll valuators INCREASE downward / rightward; the canonical
-    // convention here is button 4 (up) = +1 and button 6 (left) = +1.
+    Some((dx, dy, continuous))
+}
+
+/// Turn a pair of XI2 scroll-valuator deltas, expressed in DETENTS, into pixel
+/// deltas plus the "this is a touchpad" verdict.
+///
+/// A wheel reports exactly ±1 detent per click; a touchpad reports fractions,
+/// which is the only signal XI2 gives for telling the two apart (there is no
+/// `axis_source` on X11). Quantizing a touchpad's fractions into whole 20 px
+/// wheel detents is what made two-finger scrolling jerky.
+///
+/// XI2 scroll valuators INCREASE downward / rightward; the canonical convention
+/// here is button 4 (up) = +1 and button 6 (left) = +1, so both deltas are
+/// negated. `ScrollManager` applies the natural-scroll flag centrally on top.
+fn smooth_scroll_pixels(
+    horiz_detents: f64,
+    vert_detents: f64,
+    device_is_continuous: bool,
+) -> Option<(f32, f32, bool)> {
+    if vert_detents == 0.0 && horiz_detents == 0.0 {
+        return None;
+    }
+    let fractional =
+        vert_detents.fract().abs() > 1e-3 || horiz_detents.fract().abs() > 1e-3;
     let px = f64::from(events::X11_SCROLL_TICK_PIXELS);
     Some((
-        -(horiz * px) as f32,
-        -(vert * px) as f32,
-        axes.continuous || fractional,
+        -(horiz_detents * px) as f32,
+        -(vert_detents * px) as f32,
+        device_is_continuous || fractional,
     ))
 }
 
@@ -811,6 +830,25 @@ fn x11_event_name(t: i32) -> &'static str {
         _ => "Other",
     }
 }
+
+/// The core-event mask every azul X11 window selects.
+///
+/// `KeymapStateMask` is the load-bearing member: `KeymapNotify` arrives right
+/// after every `FocusIn` and is the ONLY way to learn which keys were released
+/// while another window held focus. Without it the client keeps believing a
+/// modifier is held — the stuck-Alt-after-Alt-Tab class of bug — because the
+/// release event was delivered to whoever had focus at the time.
+const X11_WINDOW_EVENT_MASK: c_long = ExposureMask
+    | KeyPressMask
+    | KeyReleaseMask
+    | ButtonPressMask
+    | ButtonReleaseMask
+    | PointerMotionMask
+    | StructureNotifyMask
+    | EnterWindowMask
+    | LeaveWindowMask
+    | FocusChangeMask
+    | KeymapStateMask;
 
 /// Is this FocusIn/FocusOut a side effect of a GRAB rather than a real change
 /// of keyboard focus?
@@ -1276,6 +1314,20 @@ pub struct X11Window {
     /// Which `ModN` bit is Alt / Super / AltGr on the current keyboard;
     /// refreshed on `MappingNotify`.
     modifier_masks: ModifierMasks,
+    /// X11 keycode → the `VirtualKeyCode` its PRESS put into
+    /// `pressed_virtual_keycodes`.
+    ///
+    /// `unmodified_keysym` normally resolves the code from the physical key, so
+    /// press and release agree — but it needs `XkbKeycodeToKeysym`, and without
+    /// that symbol both halves fall back to `XLookupString`'s EFFECTIVE keysym,
+    /// which depends on the modifiers held at that instant. Press AltGr+Q on a
+    /// German layout and the keysym is `XK_at` (→ Key2); release AltGr first and
+    /// the release reports `XK_q` (→ Q), so the release removes a code nobody
+    /// pressed and leaves Key2 latched — which the engine reads as a modifier
+    /// that never came up. Releases consult this map instead. Only mapped keys
+    /// get an entry; an unresolvable keysym adds nothing to either structure and
+    /// so needs nothing removed.
+    pressed_key_vks: std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>,
     /// Newest motion event of the current drain batch, processed once at the
     /// batch boundary — see `flush_pending_motion`.
     pending_motion: Option<defines::XMotionEvent>,
@@ -1866,20 +1918,7 @@ impl X11Window {
         };
 
         let mut attributes: XSetWindowAttributes = unsafe { std::mem::zeroed() };
-        let event_mask = ExposureMask
-            | KeyPressMask
-            | KeyReleaseMask
-            | ButtonPressMask
-            | ButtonReleaseMask
-            | PointerMotionMask
-            | StructureNotifyMask
-            | EnterWindowMask
-            | LeaveWindowMask
-            | FocusChangeMask
-            // KeymapNotify arrives right after every FocusIn and is the only
-            // way to learn which keys were released while another window had
-            // focus (the stuck-Alt-after-Alt-Tab class of bug).
-            | KeymapStateMask;
+        let event_mask = X11_WINDOW_EVENT_MASK;
 
         // Override-redirect (a borderless, WM-unmanaged popup such as a menu/tooltip)
         // is driven by the explicit window option, NOT by decorations==None: a CSD
@@ -2307,6 +2346,7 @@ impl X11Window {
             scroll_valuators,
             scroll_last_values: std::collections::HashMap::new(),
             modifier_masks,
+            pressed_key_vks: std::collections::BTreeMap::new(),
             pending_motion: None,
             ime_sync_key: ImeSyncKey::default(),
             common: event::CommonWindowState {
@@ -6199,5 +6239,159 @@ mod error_decode_tests {
         let names: std::collections::BTreeSet<_> =
             (1u8..=17).map(x11_error_name).collect();
         assert_eq!(names.len(), 17, "core error names must be distinct");
+    }
+}
+
+#[cfg(test)]
+mod x11_seam_tests {
+    use super::{
+        defines, is_grab_focus_change, smooth_scroll_pixels, x11_event_name,
+        X11_WINDOW_EVENT_MASK,
+    };
+
+    fn focus_event(mode: std::os::raw::c_int, detail: std::os::raw::c_int)
+        -> defines::XFocusChangeEvent
+    {
+        defines::XFocusChangeEvent {
+            type_: 9,
+            serial: 0,
+            send_event: 0,
+            display: std::ptr::null_mut(),
+            window: 0,
+            mode,
+            detail,
+        }
+    }
+
+    /// X sends a FocusOut/FocusIn pair with mode `NotifyGrab`/`NotifyUngrab`
+    /// whenever ANY grab activates — including this application's own context
+    /// menus, which grab the pointer. Acting on those fired WindowFocusLost on
+    /// the parent, dropped its XIC (so the IME died) and ran a full pass plus
+    /// restyle every time a menu opened. `detail == NotifyPointer` is likewise
+    /// not a window focus change.
+    ///
+    /// NEGATIVE CONTROL: reduce `is_grab_focus_change` to `false` — the three
+    /// grab assertions fail.
+    #[test]
+    fn a_grab_is_not_a_focus_change() {
+        assert!(is_grab_focus_change(&focus_event(
+            defines::NotifyGrab,
+            defines::NotifyNormal
+        )));
+        assert!(is_grab_focus_change(&focus_event(
+            defines::NotifyUngrab,
+            defines::NotifyNormal
+        )));
+        assert!(is_grab_focus_change(&focus_event(
+            defines::NotifyNormal,
+            defines::NotifyPointer
+        )));
+    }
+
+    /// ...and a real focus change must still be acted on, or Alt-Tab stops
+    /// producing WindowFocusLost at all.
+    ///
+    /// NEGATIVE CONTROL: reduce `is_grab_focus_change` to `true`.
+    #[test]
+    fn a_real_focus_change_is_still_one() {
+        assert!(!is_grab_focus_change(&focus_event(
+            defines::NotifyNormal,
+            defines::NotifyNormal
+        )));
+    }
+
+    /// `KeymapNotify` is X11's own remedy for the stuck-key problem: the server
+    /// reports the FULL keyboard state right after every `FocusIn`, so the
+    /// client can replace its guess with the truth instead of waiting for a
+    /// release it will never receive. It is only delivered if the window
+    /// SELECTS it.
+    ///
+    /// NEGATIVE CONTROL: drop `| KeymapStateMask` from
+    /// `X11_WINDOW_EVENT_MASK` — no KeymapNotify is ever delivered and this
+    /// fails.
+    #[test]
+    fn the_window_selects_keymap_notify() {
+        assert_ne!(
+            X11_WINDOW_EVENT_MASK & defines::KeymapStateMask,
+            0,
+            "without KeymapStateMask a key released while another window had \
+             focus stays held forever"
+        );
+        // The rest of the mask is what makes the window usable at all.
+        for (bit, what) in [
+            (defines::KeyPressMask, "KeyPress"),
+            (defines::KeyReleaseMask, "KeyRelease"),
+            (defines::ButtonPressMask, "ButtonPress"),
+            (defines::ButtonReleaseMask, "ButtonRelease"),
+            (defines::PointerMotionMask, "MotionNotify"),
+            (defines::StructureNotifyMask, "ConfigureNotify"),
+            (defines::EnterWindowMask, "EnterNotify"),
+            (defines::LeaveWindowMask, "LeaveNotify"),
+            (defines::FocusChangeMask, "FocusIn/Out"),
+            (defines::ExposureMask, "Expose"),
+        ] {
+            assert_ne!(X11_WINDOW_EVENT_MASK & bit, 0, "{what} must be selected");
+        }
+    }
+
+    /// The raw-event trace has to name the event the stuck-key fix rides on.
+    #[test]
+    fn keymap_and_mapping_notify_have_names() {
+        assert_eq!(x11_event_name(11), "KeymapNotify");
+        assert_eq!(x11_event_name(34), "MappingNotify");
+    }
+
+    /// A mouse wheel reports exactly one detent per click, and one detent is
+    /// the shared 20 px everywhere in the engine.
+    ///
+    /// NEGATIVE CONTROL: drop the negation — `(vert_detents * px) as f32` —
+    /// and the wheel scrolls the wrong way (X11's canonical convention is
+    /// up = +1, while the valuator increases downward).
+    #[test]
+    fn one_wheel_detent_is_one_scroll_tick_upward() {
+        let (dx, dy, continuous) = smooth_scroll_pixels(0.0, 1.0, false).unwrap();
+        assert_eq!(dx, 0.0);
+        assert_eq!(dy, -20.0);
+        assert!(!continuous, "whole detents are a ratcheting wheel");
+
+        let (_, up, _) = smooth_scroll_pixels(0.0, -1.0, false).unwrap();
+        assert_eq!(up, 20.0);
+
+        let (left, _, _) = smooth_scroll_pixels(-1.0, 0.0, false).unwrap();
+        assert_eq!(left, 20.0, "button 6 (left) = +1");
+    }
+
+    /// A touchpad reports FRACTIONS of a detent. That fraction is the only
+    /// signal XI2 gives for telling a touchpad from a wheel (there is no
+    /// `axis_source` on X11), and it must survive as a proportionally small
+    /// pixel delta — rounding it into whole 20 px detents is what made
+    /// two-finger scrolling jerky.
+    ///
+    /// NEGATIVE CONTROL: make `fractional` `false` (or round the detents before
+    /// the multiply) — the classification flips to a discrete wheel.
+    #[test]
+    fn a_fractional_detent_is_a_touchpad_and_keeps_its_precision() {
+        let (_, dy, continuous) = smooth_scroll_pixels(0.0, 0.25, false).unwrap();
+        assert_eq!(dy, -5.0, "a quarter detent is a quarter tick, not a whole one");
+        assert!(continuous);
+    }
+
+    /// Once a device has shown itself to be continuous the classification must
+    /// not flip back on the occasional whole-detent event, or one gesture is
+    /// half trackpad physics and half wheel physics.
+    ///
+    /// NEGATIVE CONTROL: drop the `device_is_continuous ||` term.
+    #[test]
+    fn a_latched_touchpad_stays_continuous_on_a_whole_detent() {
+        let (_, _, continuous) = smooth_scroll_pixels(0.0, 1.0, true).unwrap();
+        assert!(continuous);
+    }
+
+    /// The valuator ACCUMULATES, so most motion events carry no scroll change
+    /// at all; those must produce no scroll rather than a zero-length one.
+    #[test]
+    fn no_valuator_movement_is_no_scroll() {
+        assert!(smooth_scroll_pixels(0.0, 0.0, false).is_none());
+        assert!(smooth_scroll_pixels(0.0, 0.0, true).is_none());
     }
 }

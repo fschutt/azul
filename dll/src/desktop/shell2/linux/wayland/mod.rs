@@ -777,6 +777,85 @@ fn set_mouse_button_down(
     }
 }
 
+/// Apply ONE `wl_keyboard.key` transition to the engine's keyboard state.
+///
+/// `current_virtual_keycode` MUST be cleared on release: the shared diff
+/// derives VirtualKeyUp from `previous.is_some() && current.is_none()`, and a
+/// leftover `Some(vk)` also swallows the next discrete press of the SAME key
+/// (no `Some → Some` delta) — the "Backspace only works every other tap"
+/// report.
+///
+/// An unmapped keysym (`virtual_keycode == None`) invents no code: nothing is
+/// written to `current_virtual_keycode`, nothing is added to
+/// `pressed_virtual_keycodes`, and so the release has nothing to fail to
+/// remove. The scancode list is the PHYSICAL key list and is written either
+/// way — `handle_key`'s repeat detection reads it.
+///
+/// The release removes the code the PRESS recorded for this physical key
+/// (`pressed_key_vks`), never whatever the release keysym resolves to:
+/// `xkb_state_key_get_one_sym` reports the EFFECTIVE keysym, so German AltGr+Q
+/// is `XK_at` (→ Key2) on the way down and `XK_q` (→ Q) on the way up once
+/// AltGr is released first.
+fn apply_key_state_change(
+    keyboard_state: &mut KeyboardState,
+    pressed_key_vks: &mut std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>,
+    key: u32,
+    virtual_keycode: Option<azul_core::window::VirtualKeyCode>,
+    is_pressed: bool,
+) {
+    use azul_core::window::OptionVirtualKeyCode;
+
+    if is_pressed {
+        keyboard_state.current_virtual_keycode = virtual_keycode.into();
+        if let Some(vk) = virtual_keycode {
+            keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
+            pressed_key_vks.insert(key, vk);
+        }
+        keyboard_state.pressed_scancodes.insert_hm_item(key);
+    } else {
+        keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
+        // `.or(virtual_keycode)` only covers a key whose press we never saw
+        // (held across focus-in before the keymap arrived); the recorded code
+        // wins whenever we have one.
+        if let Some(vk) = pressed_key_vks.remove(&key).or(virtual_keycode) {
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
+        }
+        keyboard_state.pressed_scancodes.remove_hm_item(&key);
+    }
+}
+
+/// Does this `wl_pointer.axis_source` describe a finger on a surface rather
+/// than a ratcheting wheel?
+///
+/// Finger and continuous sources deliver POSITION deltas; treating them as
+/// wheel ticks stacked velocity impulses and made touchpad scrolling fly.
+fn axis_source_is_trackpad(source: u32) -> bool {
+    source == WL_AXIS_SOURCE_FINGER || source == WL_AXIS_SOURCE_CONTINUOUS
+}
+
+/// The scroll distance of ONE completed `wl_pointer.frame`.
+///
+/// A ratcheting wheel detent is worth [`WHEEL_TICK_PIXELS`] on every other
+/// backend (X11 button 4/5 = ±1 × 20, Win32 = WHEEL_DELTA/120 × 20). The raw
+/// `wl_pointer.axis` value for one detent is compositor-defined (~10-15 px), so
+/// the same wheel scrolled a visibly shorter distance on Wayland.
+/// `wl_pointer.axis_discrete` carries the detent count, which is the only
+/// compositor-independent quantity available here; without it (a pre-v5
+/// compositor, or a continuous source) fall back to the raw value.
+///
+/// Trackpad deltas are already pixel distances and pass through untouched.
+fn axis_frame_delta(
+    is_trackpad: bool,
+    raw: (f32, f32),
+    discrete: (f32, f32),
+) -> (f32, f32) {
+    if !is_trackpad && (discrete.0 != 0.0 || discrete.1 != 0.0) {
+        (discrete.0 * WHEEL_TICK_PIXELS, discrete.1 * WHEEL_TICK_PIXELS)
+    } else {
+        raw
+    }
+}
+
 // XKB Keyboard Translation
 //
 // There is NO Wayland-specific keysym table. Keysyms are an X11/xkb concept
@@ -2818,40 +2897,13 @@ impl WaylandWindow {
         // shared table folds the common shifted forms onto one code, which covers
         // Shift+digit and the keypad, but it cannot cover the level-3 layouts —
         // remembering the press is what makes press/release symmetric for every key.
-        if is_pressed {
-            self.common.current_window_state
-                .keyboard_state
-                .current_virtual_keycode = virtual_keycode.into();
-            // Add key to pressed lists
-            if let Some(vk) = virtual_keycode {
-                self.common.current_window_state
-                    .keyboard_state
-                    .pressed_virtual_keycodes
-                    .insert_hm_item(vk);
-                self.pressed_key_vks.insert(key, vk);
-            }
-            self.common.current_window_state
-                .keyboard_state
-                .pressed_scancodes
-                .insert_hm_item(key);
-        } else {
-            self.common.current_window_state
-                .keyboard_state
-                .current_virtual_keycode = OptionVirtualKeyCode::None;
-            // Remove key from pressed lists. `.or(virtual_keycode)` only covers a
-            // key whose press we never saw (held across focus-in before the keymap
-            // arrived); the recorded code wins whenever we have one.
-            if let Some(vk) = self.pressed_key_vks.remove(&key).or(virtual_keycode) {
-                self.common.current_window_state
-                    .keyboard_state
-                    .pressed_virtual_keycodes
-                    .remove_hm_item(&vk);
-            }
-            self.common.current_window_state
-                .keyboard_state
-                .pressed_scancodes
-                .remove_hm_item(&key);
-        }
+        apply_key_state_change(
+            &mut self.common.current_window_state.keyboard_state,
+            &mut self.pressed_key_vks,
+            key,
+            virtual_keycode,
+            is_pressed,
+        );
 
         // Get UTF-8 character (if printable)
         if is_pressed {
@@ -3392,25 +3444,9 @@ impl WaylandWindow {
         let (raw_x, raw_y) = std::mem::replace(&mut self.pending_axis_value, (0.0, 0.0));
         let (disc_x, disc_y) = std::mem::replace(&mut self.pending_axis_discrete, (0.0, 0.0));
 
-        let is_trackpad = self.current_axis_source == WL_AXIS_SOURCE_FINGER
-            || self.current_axis_source == WL_AXIS_SOURCE_CONTINUOUS;
-
-        // MAGNITUDE: a ratcheting wheel detent is worth WHEEL_TICK_PIXELS
-        // everywhere else (X11 button 4/5 = ±1 × 20, Win32 = WHEEL_DELTA/120 ×
-        // 20). The raw wl axis value for one detent is compositor-defined
-        // (~10-15 px), so the same wheel scrolled a different distance on
-        // Wayland than on X11. axis_discrete carries the detent count, which is
-        // the only compositor-independent quantity available here; without it
-        // (older compositor, or a continuous source) fall back to the raw value.
-        let (delta_x, delta_y) = if !is_trackpad && (disc_x != 0.0 || disc_y != 0.0) {
-            (
-                disc_x * WHEEL_TICK_PIXELS,
-                disc_y * WHEEL_TICK_PIXELS,
-            )
-        } else {
-            // Trackpad deltas are already pixel distances — pass them through.
-            (raw_x, raw_y)
-        };
+        let is_trackpad = axis_source_is_trackpad(self.current_axis_source);
+        let (delta_x, delta_y) =
+            axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
 
         if delta_x == 0.0 && delta_y == 0.0 {
             return;
@@ -8106,3 +8142,268 @@ mod trim_surrounding_text_tests {
     }
 }
 
+
+#[cfg(test)]
+mod wayland_input_state_tests {
+    use azul_core::{
+        events::MouseButton,
+        window::{KeyboardState, MouseState, VirtualKeyCode},
+    };
+
+    use super::{
+        apply_key_state_change, axis_frame_delta, axis_source_is_trackpad, set_mouse_button_down,
+        WHEEL_TICK_PIXELS, WL_AXIS_SOURCE_CONTINUOUS, WL_AXIS_SOURCE_FINGER, WL_AXIS_SOURCE_WHEEL,
+    };
+
+    type PressedKeyVks = std::collections::BTreeMap<u32, VirtualKeyCode>;
+
+    /// evdev keycodes (`wl_keyboard.key` reports these raw, xkb adds 8).
+    const KEY_BACKSPACE: u32 = 14;
+    const KEY_LEFTCTRL: u32 = 29;
+    const KEY_Q: u32 = 16;
+
+    fn press(state: &mut KeyboardState, map: &mut PressedKeyVks, key: u32, vk: Option<VirtualKeyCode>) {
+        apply_key_state_change(state, map, key, vk, true);
+    }
+
+    fn release(state: &mut KeyboardState, map: &mut PressedKeyVks, key: u32, vk: Option<VirtualKeyCode>) {
+        apply_key_state_change(state, map, key, vk, false);
+    }
+
+    /// `VirtualKeyUp` is derived from `previous.is_some() && current.is_none()`,
+    /// so a release that leaves the code standing emits no KeyUp at all.
+    ///
+    /// NEGATIVE CONTROL: deleting the
+    /// `keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;`
+    /// line from the release arm leaves `Some(Back)` and fails the second
+    /// assertion.
+    #[test]
+    fn a_release_clears_the_current_keycode() {
+        let mut state = KeyboardState::default();
+        let mut map = PressedKeyVks::new();
+
+        press(&mut state, &mut map, KEY_BACKSPACE, Some(VirtualKeyCode::Back));
+        assert_eq!(
+            state.current_virtual_keycode.into_option(),
+            Some(VirtualKeyCode::Back)
+        );
+
+        release(&mut state, &mut map, KEY_BACKSPACE, Some(VirtualKeyCode::Back));
+        assert_eq!(
+            state.current_virtual_keycode.into_option(),
+            None,
+            "a stale Some(vk) makes VirtualKeyUp unreachable"
+        );
+        assert!(state.pressed_virtual_keycodes.as_ref().is_empty());
+        assert!(state.pressed_scancodes.as_ref().is_empty());
+        assert!(map.is_empty());
+    }
+
+    /// The other half of the same defect: with the code never cleared, the
+    /// SECOND discrete press of the same key produces no `None → Some` delta
+    /// and therefore no KeyDown — "backspace only works every other tap".
+    ///
+    /// NEGATIVE CONTROL: same deletion as above — the intermediate `None`
+    /// assertion goes red.
+    #[test]
+    fn tapping_one_key_twice_produces_two_separate_downs() {
+        let mut state = KeyboardState::default();
+        let mut map = PressedKeyVks::new();
+
+        for tap in 0..2 {
+            press(&mut state, &mut map, KEY_BACKSPACE, Some(VirtualKeyCode::Back));
+            assert_eq!(
+                state.current_virtual_keycode.into_option(),
+                Some(VirtualKeyCode::Back),
+                "tap {tap}"
+            );
+            release(&mut state, &mut map, KEY_BACKSPACE, Some(VirtualKeyCode::Back));
+            assert_eq!(
+                state.current_virtual_keycode.into_option(),
+                None,
+                "tap {tap} must end at None so the next press is a fresh transition"
+            );
+        }
+    }
+
+    /// A keysym the shared table does not know is NO key, never a wrong one.
+    /// The Wayland backend used to answer `VirtualKeyCode::Escape` for every
+    /// unmapped keysym, so typing `ö` dismissed menus.
+    ///
+    /// NEGATIVE CONTROL: `keyboard_state.current_virtual_keycode =
+    /// virtual_keycode.into();` changed to
+    /// `= Some(VirtualKeyCode::Escape).into();` fails the first assertion.
+    #[test]
+    fn an_unmapped_keysym_invents_no_key() {
+        let mut state = KeyboardState::default();
+        let mut map = PressedKeyVks::new();
+
+        press(&mut state, &mut map, 47, None);
+        assert_eq!(state.current_virtual_keycode.into_option(), None);
+        assert!(state.pressed_virtual_keycodes.as_ref().is_empty());
+        assert!(map.is_empty(), "nothing to undo means nothing recorded");
+        assert_eq!(
+            state.pressed_scancodes.as_ref().len(),
+            1,
+            "the PHYSICAL key list is still written — key repeat reads it"
+        );
+        assert_eq!(state.pressed_scancodes.as_ref()[0], 47);
+
+        release(&mut state, &mut map, 47, None);
+        assert!(state.pressed_scancodes.as_ref().is_empty());
+    }
+
+    /// `xkb_state_key_get_one_sym` reports the EFFECTIVE keysym, so German
+    /// AltGr+Q resolves to Key2 on the way down and Q on the way up when AltGr
+    /// is released first. The release must undo the PRESS.
+    ///
+    /// NEGATIVE CONTROL: reduce `pressed_key_vks.remove(&key).or(virtual_keycode)`
+    /// to `virtual_keycode` — Q is removed (it was never pressed) and Key2 stays
+    /// latched for the life of the window.
+    #[test]
+    fn a_release_removes_the_code_the_press_recorded() {
+        let mut state = KeyboardState::default();
+        let mut map = PressedKeyVks::new();
+
+        press(&mut state, &mut map, KEY_Q, Some(VirtualKeyCode::Key2));
+        assert!(state.is_key_down(VirtualKeyCode::Key2));
+
+        release(&mut state, &mut map, KEY_Q, Some(VirtualKeyCode::Q));
+        assert!(
+            state.pressed_virtual_keycodes.as_ref().is_empty(),
+            "left over: {:?}",
+            state.pressed_virtual_keycodes.as_ref()
+        );
+        assert!(map.is_empty());
+    }
+
+    /// Engine modifiers are DERIVED from `pressed_virtual_keycodes`, so a
+    /// modifier that is never removed rewrites every later click.
+    ///
+    /// NEGATIVE CONTROL: the same reduction to `virtual_keycode` — the release
+    /// resolves to no code, removes nothing, and `ctrl_down()` stays true.
+    #[test]
+    fn a_release_that_resolves_to_nothing_still_lifts_the_modifier() {
+        let mut state = KeyboardState::default();
+        let mut map = PressedKeyVks::new();
+
+        press(&mut state, &mut map, KEY_LEFTCTRL, Some(VirtualKeyCode::LControl));
+        assert!(state.ctrl_down());
+
+        release(&mut state, &mut map, KEY_LEFTCTRL, None);
+        assert!(!state.ctrl_down());
+    }
+
+    /// Pressing a second button must not clear the first. Broadcasting
+    /// `button == X` across all three flags turned "press Right while dragging
+    /// with Left" into a phantom LeftMouseUp, which dropped the drag and the
+    /// text selection with it.
+    ///
+    /// NEGATIVE CONTROL: `MouseButton::Right => mouse_state.right_down = down,`
+    /// changed to `MouseButton::Right => { mouse_state.right_down = down;
+    /// mouse_state.left_down = false; }` (the pre-fix broadcast) fails the
+    /// `left_down` assertion.
+    #[test]
+    fn a_press_writes_exactly_one_button_flag() {
+        let mut mouse = MouseState::default();
+
+        set_mouse_button_down(&mut mouse, MouseButton::Left, true);
+        assert!(mouse.left_down);
+
+        set_mouse_button_down(&mut mouse, MouseButton::Right, true);
+        assert!(
+            mouse.left_down,
+            "the drag in progress must survive a second button"
+        );
+        assert!(mouse.right_down);
+        assert!(!mouse.middle_down);
+
+        set_mouse_button_down(&mut mouse, MouseButton::Right, false);
+        assert!(mouse.left_down);
+        assert!(!mouse.right_down);
+
+        set_mouse_button_down(&mut mouse, MouseButton::Middle, true);
+        assert!(mouse.left_down);
+        assert!(mouse.middle_down);
+    }
+
+    /// A button with no flag of its own must leave all three alone rather than
+    /// fall into a catch-all that clears them.
+    #[test]
+    fn an_extra_button_touches_nothing() {
+        let mut mouse = MouseState::default();
+        mouse.left_down = true;
+        mouse.middle_down = true;
+
+        set_mouse_button_down(&mut mouse, MouseButton::Other(9), true);
+        assert!(mouse.left_down);
+        assert!(mouse.middle_down);
+        assert!(!mouse.right_down);
+    }
+
+    /// One wheel detent must move the same distance it moves on X11 and Win32.
+    /// The raw `wl_pointer.axis` value for a detent is compositor-defined
+    /// (~10-15 px), which made Wayland scroll 25-33 % short of every other
+    /// backend; `axis_discrete` carries the compositor-independent detent count.
+    ///
+    /// NEGATIVE CONTROL: return `raw` from the discrete arm (i.e. delete the
+    /// `!is_trackpad && (discrete...)` branch) — the frame scrolls 12 px.
+    #[test]
+    fn a_wheel_detent_is_worth_the_shared_tick_distance() {
+        assert_eq!(
+            axis_frame_delta(false, (0.0, -12.0), (0.0, -1.0)),
+            (0.0, -WHEEL_TICK_PIXELS)
+        );
+        assert_eq!(
+            axis_frame_delta(false, (0.0, -36.0), (0.0, -3.0)),
+            (0.0, -3.0 * WHEEL_TICK_PIXELS)
+        );
+        assert_eq!(WHEEL_TICK_PIXELS, 20.0, "the cross-backend detent distance");
+    }
+
+    /// A trackpad frame already carries pixel distances — multiplying its
+    /// (rounded) detent count by a tick would quantize smooth scrolling back
+    /// into jumps.
+    ///
+    /// NEGATIVE CONTROL: drop the `!is_trackpad &&` guard — the frame scrolls
+    /// 20 px instead of 7.5.
+    #[test]
+    fn a_trackpad_frame_keeps_its_pixel_deltas() {
+        assert_eq!(
+            axis_frame_delta(true, (0.0, -7.5), (0.0, -1.0)),
+            (0.0, -7.5)
+        );
+    }
+
+    /// A compositor too old for `axis_discrete` sends no detent count; the raw
+    /// value is all there is.
+    #[test]
+    fn a_frame_without_a_detent_count_falls_back_to_the_raw_value() {
+        assert_eq!(
+            axis_frame_delta(false, (0.0, -10.0), (0.0, 0.0)),
+            (0.0, -10.0)
+        );
+    }
+
+    /// Both axes of one frame are one scroll, so both must survive the flush.
+    #[test]
+    fn a_diagonal_frame_keeps_both_axes() {
+        assert_eq!(
+            axis_frame_delta(false, (-5.0, -10.0), (-1.0, -2.0)),
+            (-WHEEL_TICK_PIXELS, -2.0 * WHEEL_TICK_PIXELS)
+        );
+    }
+
+    /// Finger and continuous sources are position deltas; wheel is detents.
+    /// Misclassifying a wheel tick as a trackpad gesture stacked velocity
+    /// impulses into the scroll physics.
+    ///
+    /// NEGATIVE CONTROL: `source == WL_AXIS_SOURCE_FINGER` alone (dropping the
+    /// continuous arm) fails the CONTINUOUS assertion.
+    #[test]
+    fn only_finger_and_continuous_sources_are_trackpads() {
+        assert!(!axis_source_is_trackpad(WL_AXIS_SOURCE_WHEEL));
+        assert!(axis_source_is_trackpad(WL_AXIS_SOURCE_FINGER));
+        assert!(axis_source_is_trackpad(WL_AXIS_SOURCE_CONTINUOUS));
+    }
+}
