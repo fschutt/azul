@@ -24,8 +24,8 @@ AzVirtualViewReturn render_rows(AzRefAny data, AzVirtualViewCallbackInfo info) {
     if (!InfinityData_downcastRef(&data, &d)) {
         return AzVirtualViewReturn_withDom(
             AzDom_createBody(),
-            AzLogicalSize_zero(), AzLogicalPosition_zero(),
-            AzLogicalSize_zero(), AzLogicalPosition_zero()
+            AzLogicalRect_create(AzLogicalPosition_zero(), AzLogicalSize_zero()),
+            AzLogicalRect_create(AzLogicalPosition_zero(), AzLogicalSize_zero())
         );
     }
 
@@ -90,8 +90,13 @@ AzVirtualViewReturn render_rows(AzRefAny data, AzVirtualViewCallbackInfo info) {
     );
     AzLogicalPosition virtual_offset = AzLogicalPosition_zero();
 
+    // materialized: what was rendered and where it sits in the document;
+    // virtual_rect: how big the document is (scrollbar sizing). The size and
+    // offset used to be passed apart -- they are one rect each now.
     return AzVirtualViewReturn_withDom(
-        container, scroll_size, scroll_offset, virtual_size, virtual_offset
+        container,
+        AzLogicalRect_create(scroll_offset, scroll_size),
+        AzLogicalRect_create(virtual_offset, virtual_size)
     );
 }
 
