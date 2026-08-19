@@ -1180,15 +1180,17 @@ pub const AZLIN_TAB_SHOULDERS: &str =
      <span class=\"fl-tab-edge fl-tab-edge-r\" aria-hidden=\"true\"></span>";
 
 pub fn azlin_nav(active: &str) -> String {
+    // `code` points off-site, so it sits last: the strip reads left to
+    // right as a path through the site and the one exit belongs at the end.
     const LINKS: [(&str, &str); 8] = [
         ("overview", "https://azul.rs/ui"),
         ("releases", "https://azul.rs/ui/releases"),
-        ("code", "https://github.com/fschutt/azul"),
         ("guide", "https://azul.rs/ui/guide"),
         ("api", "https://azul.rs/ui/api"),
         ("reftests", "https://azul.rs/ui/reftest"),
         ("blog", "https://azul.rs/ui/blog"),
         ("donate", "https://azul.rs/ui/donate"),
+        ("code", "https://github.com/fschutt/azul"),
     ];
     let nav_links = LINKS
         .iter()
@@ -1238,18 +1240,34 @@ pub fn azlin_nav(active: &str) -> String {
 }
 
 /// The socket: the brand mark sunk into the nav strip at the top right,
-/// overhanging its bottom edge. It replaces BOTH the old brand link and the
-/// mobile hamburger - at every width, pressing it opens the drop panel.
+/// overhanging its bottom edge.
 ///
-/// The click handler only flips a class; the open/close motion is a CSS
-/// transition on `.mobile-menu`, so the widget port inherits the timing.
+/// TWO of them are emitted and CSS shows one. On desktop the strip already
+/// carries the whole navigation as tabs, so a second menu behind the mark
+/// would be a duplicate - there it is a plain link home. Below 900px the
+/// tabs are gone, so there it is the menu trigger and replaces the old
+/// hamburger. The click handler only flips a class; the open/close motion
+/// is a CSS transition on `.mobile-menu`, so the widget port inherits the
+/// timing.
 /// It is built out of real layers rather than one box with a shadow list -
 /// the well cut into the strip, the shadow its top lip casts down into it,
 /// the light bouncing back off the far wall, a metal collar, the domed mark,
 /// its gloss, and the reflection the well throws onto the mark's lower rim.
 /// Each is its own element so the widget port can map one to one.
 pub fn azlin_orb() -> &'static str {
-    r##"<button class="fl-orb" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
+    r##"<a href="/" class="fl-orb fl-orb-home" aria-label="Go to the homepage">
+          <span class="fl-orb-well" aria-hidden="true">
+            <span class="fl-orb-well-shadow"></span>
+            <span class="fl-orb-well-bounce"></span>
+          </span>
+          <span class="fl-orb-collar" aria-hidden="true"></span>
+          <span class="fl-orb-stone">
+            <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
+            <span class="fl-orb-gloss" aria-hidden="true"></span>
+            <span class="fl-orb-edge" aria-hidden="true"></span>
+          </span>
+        </a>
+        <button class="fl-orb fl-orb-menu" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
           onclick="var o=document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',o);">
           <span class="fl-orb-well" aria-hidden="true">
             <span class="fl-orb-well-shadow"></span>

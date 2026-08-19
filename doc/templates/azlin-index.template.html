@@ -25,9 +25,9 @@
     <nav class="navbar" role="navigation" aria-label="Main navigation">
       <div class="container">
         <div class="nav-links" role="menu">
-          <a href="/ws" role="menuitem">/WS</a>
-          <a href="/ui/" role="menuitem">/UI</a>
-          <a href="/os" role="menuitem">/OS</a>
+          <a href="/ws" role="menuitem">workspace</a>
+          <a href="/ui/" role="menuitem">ui toolkit</a>
+          <a href="/os" role="menuitem">operating system</a>
         </div>
         <div class="nav-right">
           <button class="fl-lamp" type="button" aria-label="Switch between light and dark" title="Light / dark"
@@ -35,7 +35,19 @@
           <svg class="fl-lamp-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.2 8.2 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></svg>
           <svg class="fl-lamp-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
         </button>
-          <button class="fl-orb" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
+          <a href="/" class="fl-orb fl-orb-home" aria-label="Go to the homepage">
+          <span class="fl-orb-well" aria-hidden="true">
+            <span class="fl-orb-well-shadow"></span>
+            <span class="fl-orb-well-bounce"></span>
+          </span>
+          <span class="fl-orb-collar" aria-hidden="true"></span>
+          <span class="fl-orb-stone">
+            <img src="/logo.svg" alt="Azul" class="nav-brand-logo">
+            <span class="fl-orb-gloss" aria-hidden="true"></span>
+            <span class="fl-orb-edge" aria-hidden="true"></span>
+          </span>
+        </a>
+        <button class="fl-orb fl-orb-menu" type="button" aria-label="Open site navigation" aria-expanded="false" aria-controls="site-nav-panel"
           onclick="var o=document.body.classList.toggle('nav-open');this.setAttribute('aria-expanded',o);">
           <span class="fl-orb-well" aria-hidden="true">
             <span class="fl-orb-well-shadow"></span>
@@ -54,9 +66,9 @@
     <div class="nav-overlay" aria-hidden="true" onclick="document.body.classList.remove('nav-open')"></div>
     <aside class="mobile-menu" id="site-nav-panel" aria-label="Site navigation">
     <a href="/">home</a>
-    <a href="/ws">/WS</a>
-    <a href="/ui/">/UI</a>
-    <a href="/os">/OS</a>
+    <a href="/ws">workspace</a>
+    <a href="/ui/">ui toolkit</a>
+    <a href="/os">operating system</a>
     </aside>
 
     <main id="main-content" role="main">

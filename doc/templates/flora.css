@@ -679,6 +679,18 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 /* The socket does the hamburger's job now. */
 .nav-toggle { display: none !important; }
 
+/* Two sockets, one shown. On desktop the strip already IS the navigation,
+   so a menu behind the mark would be a second copy of it - there the mark
+   is a plain link home. Below 900px the tabs are gone and the mark becomes
+   the menu. */
+.fl-orb-home { display: block; }
+.fl-orb-menu { display: none; }
+
+@media (max-width: 900px) {
+    .fl-orb-home { display: none; }
+    .fl-orb-menu { display: block; }
+}
+
 .nav-right {
     display: flex;
     align-items: center;
