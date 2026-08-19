@@ -616,7 +616,7 @@ pub struct VirtualViewReturn {
     /// One rect, not a loose offset + size: they are a single fact about a
     /// single window, and storing them apart is exactly how the origin came
     /// to be dropped on the floor (content could not be placed, so a
-    /// VirtualView could never actually scroll).
+    /// `VirtualView` could never actually scroll).
     ///
     /// The engine places the content at
     /// `container.origin + (materialized.origin - current_scroll_offset)`.
