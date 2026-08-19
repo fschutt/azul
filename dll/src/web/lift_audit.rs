@@ -49,6 +49,19 @@ pub struct WasmAudit {
     /// (count of native-range qwords, total data bytes scanned)
     pub natptr_hits: usize,
     pub data_bytes: usize,
+    /// 8-aligned qwords that look like a user-space MODULE address but fall
+    /// OUTSIDE the tracked image — i.e. raw pointers into KERNEL32 / ntdll /
+    /// VCRUNTIME and friends, which `native_to_synth` cannot translate because
+    /// those modules have no synth band.
+    ///
+    /// `natptr_hits` deliberately only counts the tracked image's own range,
+    /// so this whole class was invisible to it. That blindness is why
+    /// untranslated IAT slots reached runtime and silently no-op'd through the
+    /// dispatcher instead of being reported at build time
+    /// (doc/web-iat-import-dispatch.md).
+    pub xmodule_hits: usize,
+    /// Distinct values, capped — enough to identify them, not a dump.
+    pub xmodule_values: alloc::collections::BTreeSet<u64>,
     /// Parse failed — counted as its own loud warning, never silently ok.
     pub parse_ok: bool,
 }
@@ -163,6 +176,8 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
         unknown_imports: Vec::new(),
         natptr_hits: 0,
         data_bytes: 0,
+        xmodule_hits: 0,
+        xmodule_values: alloc::collections::BTreeSet::new(),
         parse_ok: false,
     };
     if bytes.len() < 8 || &bytes[0..4] != b"\0asm" {
@@ -260,6 +275,14 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
                                 );
                                 if v >= lo && v < hi {
                                     out.natptr_hits += 1;
+                                } else if is_module_band(v) {
+                                    // Outside the tracked image but inside the
+                                    // band Windows maps modules into: a raw
+                                    // pointer into another DLL.
+                                    out.xmodule_hits += 1;
+                                    if out.xmodule_values.len() < 32 {
+                                        out.xmodule_values.insert(v);
+                                    }
                                 }
                                 i += 8;
                             }
@@ -275,6 +298,15 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
     })();
     out.parse_ok = parse.is_some();
     out
+}
+
+/// Windows maps executable modules into `0x00007ff0_00000000 ..
+/// 0x00008000_00000000`. Both the guest exe and the system DLLs live there, so
+/// a qword in this band that is not inside the tracked image is a raw pointer
+/// into another module — never a legitimate guest value, since a translated
+/// pointer would be a small synth.
+fn is_module_band(v: u64) -> bool {
+    (0x0000_7ff0_0000_0000..0x0000_8000_0000_0000).contains(&v)
 }
 
 /// Locate the running native image containing `probe_addr`: walk 64 KiB
@@ -370,6 +402,27 @@ pub fn run(
                 a.natptr_hits, a.data_bytes,
             );
             fatal = true;
+        }
+        if a.xmodule_hits > 0 {
+            // A warning, not a fatal: these are IAT slots, and the ones we
+            // intercept are routed by masked address in the dispatcher (look
+            // for the "IAT import … routed" lines above). Only an UNROUTED one
+            // is a defect, and only if it is actually called — at which point
+            // the unmatched-dispatch recorder at 0x409B0 names it. Cross-check
+            // this list against the routed lines when a boot misbehaves.
+            let mut vals: Vec<String> = a
+                .xmodule_values
+                .iter()
+                .map(|v| format!("0x{:x}(→0x{:x})", v, v & 0xFFFF_FFFF))
+                .collect();
+            vals.truncate(8);
+            eprintln!(
+                "[azul-web][lift-audit] ⚠ W4 {label}: {} pointer(s) into modules outside the lifted image \
+                 (IAT slots; silently no-op if called and not routed): {}{}",
+                a.xmodule_hits,
+                vals.join(", "),
+                if a.xmodule_values.len() > 8 { ", …" } else { "" },
+            );
         }
     }
 
