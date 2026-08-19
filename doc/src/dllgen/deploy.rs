@@ -223,7 +223,7 @@ impl BinaryAsset {
     pub const MACOS_ASSETS: &'static [BinaryAsset] = &[
         BinaryAsset {
             filename: "libazul.dylib",
-            description: "MacOS 64-bit SO (.tar.gz, with macOS un-quarantine helper)",
+            description: "MacOS 64-bit SO",
             platform: Platform::MacOS,
         },
         BinaryAsset {
@@ -1194,19 +1194,6 @@ pub fn create_java_bindings_zip(version_dir: &Path, codegen_dir: &Path) -> Resul
 ///
 /// Moving any of these trades a size problem for a dead-link problem. If one
 /// ever has to move, update every reference above in the same commit.
-/// macOS drop-in libs that ship WITH the Gatekeeper helper beside them.
-///
-/// The bare file stays at its pinned URL (see [`PAGES_PINNED`]) because
-/// api.json and the Homebrew formula fetch it there; CI additionally
-/// publishes `<name>.tar.gz` containing the lib, `unquarantine.command` and
-/// `README-macOS.txt`, and the release page links THAT - a reader clicking a
-/// download gets the fix in the box, while the install scripts keep curling
-/// the bare file.
-///
-/// MUST stay in sync with the `for base in ...` loop in rust.yml's "Host
-/// LARGE assets" step.
-const MACOS_BUNDLED: &[&str] = &["libazul.dylib", "libazul.x86_64.dylib"];
-
 const PAGES_PINNED: &[&str] = &[
     "libazul.so",
     "libazul.dylib",
@@ -1295,12 +1282,6 @@ fn is_tarred(filename: &str) -> bool {
 /// (GitHub flattens the path: a demo at `demos/azul-maps-linux` uploads as the
 /// bare `azul-maps-linux` asset). SMALL → `https://azul.rs/ui/release/{version}/{filename}`.
 fn asset_url(version: &str, filename: &str) -> String {
-    // macOS drop-in libs are linked as their companion archive, which carries
-    // the un-quarantine helper and the README. The bare file is still served
-    // at the un-suffixed URL for api.json and Homebrew.
-    if MACOS_BUNDLED.contains(&filename) {
-        return format!("{HTML_ROOT}/release/{version}/{filename}.tar.gz");
-    }
     if is_large(filename) {
         // GitHub Release assets are flat — strip any `demos/` path prefix so the
         // link matches the uploaded asset name. Tarred assets (.a, demos) get a

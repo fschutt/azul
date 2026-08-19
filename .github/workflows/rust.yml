@@ -5148,21 +5148,11 @@ jobs:
           # 404. GitHub Release assets are flat, so nested files upload as their
           # bare basenames (matching asset_url(), which strips the path).
           # Gatekeeper blocks anything downloaded from the web until azul is
-          # notarized. Rather than telling the reader about it on the release
-          # page (where it is a wall of text next to a download button), every
-          # macOS archive carries the fix and the instructions inside it.
-          write_macos_unquarantine() {
-            printf '%s\n' \
-              '#!/bin/bash' \
-              "# Double-click me - I live next to $2. I clear the macOS" \
-              '# download quarantine on that file so macOS will open it.' \
-              'cd "$(dirname "$0")" || exit 1' \
-              "xattr -dr com.apple.quarantine \"./$2\" 2>/dev/null || true" \
-              "echo \"Un-quarantined ./$2\"" \
-              > "$1/unquarantine.command"
-            chmod +x "$1/unquarantine.command"
-          }
-
+          # notarized, and a demo is the case that actually bites: a reader
+          # double-clicks it and macOS refuses. Rather than saying so on the
+          # release page, next to a download button, every macOS DEMO archive
+          # carries the fix and the instructions inside it. The libraries do
+          # not - a developer linking a .dylib is not double-clicking it.
           write_macos_readme() {
             printf '%s\n' \
               'Running this on macOS' \
@@ -5258,18 +5248,6 @@ jobs:
                   UPLOAD+=("$f.tar.gz")
                   echo "tar.gz $bn (+ unquarantine.command + README)"
                   ;;
-                *macos*.a|*-apple-*.a)
-                  # macOS static lib: same Gatekeeper story as the demos, so it
-                  # travels with the same helper and the same README rather than
-                  # relying on a note the download page cannot carry.
-                  bn="$(basename "$f")"; dir="$(dirname "$f")"
-                  write_macos_unquarantine "$dir" "$bn"
-                  write_macos_readme "$dir" "$bn"
-                  tar -czf "$f.tar.gz" -C "$dir" "$bn" unquarantine.command README-macOS.txt
-                  rm -f "$dir/unquarantine.command" "$dir/README-macOS.txt"
-                  UPLOAD+=("$f.tar.gz")
-                  echo "tar.gz $bn (+ unquarantine.command + README)"
-                  ;;
                 *.a|*.lib|*/demos/*)
                   tar -czf "$f.tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
                   UPLOAD+=("$f.tar.gz")
@@ -5288,20 +5266,6 @@ jobs:
             rmdir "$REL/demos" "$REL/mobile-apps" 2>/dev/null || true
           fi
 
-          # ---- macOS drop-in libs: companion archive with the Gatekeeper fix.
-          # These two are PAGES_PINNED (api.json curls them by URL, Homebrew
-          # pins their sha256), so the bare files stay put and the archive is
-          # published next to them. deploy.rs links the archive.
-          for base in libazul.dylib libazul.x86_64.dylib; do
-            f="$REL/$base"
-            [ -f "$f" ] || continue
-            write_macos_unquarantine "$REL" "$base"
-            write_macos_readme "$REL" "$base"
-            tar -czf "$REL/${base}.tar.gz" -C "$REL" \
-              "$base" unquarantine.command README-macOS.txt
-            rm -f "$REL/unquarantine.command" "$REL/README-macOS.txt"
-            echo "bundled $base -> ${base}.tar.gz (+ unquarantine.command + README)"
-          done
 
           # Mobile static .a libs live at mobile/<label>/libazul.a (depth 3, so
           # the maxdepth-1 collector above misses them) and were the ~480 MB that
