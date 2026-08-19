@@ -39,12 +39,18 @@ body.ui-landing {
     height: 520%;
     transform: translate(-50%, -50%) rotate(45deg);
     background-color: var(--fl-band-fig);
-    -webkit-mask-image: var(--fl-figure);
-            mask-image: var(--fl-figure);
-    -webkit-mask-repeat: repeat;
-            mask-repeat: repeat;
-    -webkit-mask-size: 22px 22px;
-            mask-size: 22px 22px;
+    /* Two offset copies of the same tile. The tile is twice the motif's
+       size with the motif in one quarter, so laying a second layer down at
+       half a tile in each axis staggers every other row - a half-drop
+       field, not a grid. */
+    -webkit-mask-image: var(--fl-figure), var(--fl-figure);
+            mask-image: var(--fl-figure), var(--fl-figure);
+    -webkit-mask-repeat: repeat, repeat;
+            mask-repeat: repeat, repeat;
+    -webkit-mask-size: 44px 44px, 44px 44px;
+            mask-size: 44px 44px, 44px 44px;
+    -webkit-mask-position: 0 0, 22px 22px;
+            mask-position: 0 0, 22px 22px;
 }
 .ui-hero::after {
     content: "";
