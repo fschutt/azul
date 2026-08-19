@@ -204,8 +204,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "  background-color: #1e8449; "
         "} ";
     
-    AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(body, css);
+    // The layout callback returns AzDom now: the Css rides along as a field
+    // and the framework builds the StyledDom itself, because constructing it
+    // here got in the way of cascading and re-cascading.
+    return AzDom_withCss(body, AZ_STR(css_str));
 }
 
 int main() {

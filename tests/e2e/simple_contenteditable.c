@@ -61,9 +61,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Parse CSS
     AzString css_string = AZ_STR(CSS_STYLE);
-    AzCss css = AzCss_fromString(css_string);
-    
-    return AzDom_style(root, css);
+    // The layout callback returns AzDom now: the Css rides along as a field
+    // and the framework builds the StyledDom itself, because constructing it
+    // here got in the way of cascading and re-cascading.
+    return AzDom_withCss(root, css_string);
 }
 
 int main() {

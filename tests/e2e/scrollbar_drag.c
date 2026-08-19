@@ -80,7 +80,7 @@ AzDom create_item(int index) {
         bg_color);
     
     AzString style_str = AzString_copyFromBytes((uint8_t*)style, 0, style_len);
-    AzDom_setInlineStyle(&item, style_str);
+    AzDom_setCss(&item, style_str);
     
     return item;
 }
@@ -177,8 +177,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "  line-height: 1.6; "
         "} ";
     
-    AzCss css = AzCss_fromString(AZ_STR(css_str));
-    return AzDom_style(body, css);
+    // The layout callback returns AzDom now: the Css rides along as a field
+    // and the framework builds the StyledDom itself, because constructing it
+    // here got in the way of cascading and re-cascading.
+    return AzDom_withCss(body, AZ_STR(css_str));
 }
 
 int main() {

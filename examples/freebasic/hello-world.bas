@@ -38,9 +38,9 @@ Function on_click Cdecl (ByVal data As AzRefAny, ByVal info As AzCallbackInfo) A
     modelPtr = CPtr(MyDataModel Ptr, @data)
     If modelPtr <> 0 Then
         modelPtr->counter += 1
-        result.tag = AzUpdateTag_RefreshDom
+        result = AzUpdate_RefreshDom
     Else
-        result.tag = AzUpdateTag_DoNothing
+        result = AzUpdate_DoNothing
     End If
     Return result
 End Function
@@ -88,7 +88,9 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
     AzDom_addChild(@body, labelWrapper)
     AzDom_addChild(@body, buttonDom)
 
-    Return AzDom_style(body, AzCss_empty())
+    ' The layout callback returns the Dom now; the framework builds the
+    ' StyledDom itself. With no stylesheet there is nothing to attach.
+    Return body
 End Function
 
 ' ---- JSON round-trip stubs (C example uses these for state persistence) ----

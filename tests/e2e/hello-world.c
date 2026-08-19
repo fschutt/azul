@@ -39,8 +39,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, label);
     AzDom_addChild(&body, button);
 
-    AzCss css = AzCss_empty();
-    return AzDom_style(body, css);
+    // The layout callback returns AzDom now: the Css rides along as a field
+    // and the framework builds the StyledDom itself, because constructing it
+    // here got in the way of cascading and re-cascading.
+    return body;
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {

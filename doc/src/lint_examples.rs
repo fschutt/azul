@@ -78,10 +78,17 @@ static RE_CRYSTAL: LazyLock<Regex> =
 // PowerShell: [Azul.Dom]::CreateText.
 static RE_PWSH: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[Azul\.([A-Za-z0-9]+)\]::([A-Za-z0-9_]+)").unwrap());
-// C#, Pascal (TDom.), and any other object wrapper. Only trusted when the
-// class is one api.json defines.
+// C#, Pascal (TDom.), Ruby, Node, Lua and any other object wrapper. Only
+// trusted when the class is one api.json defines.
+//
+// `.` only, deliberately not `::`. A `Class::member` in a guide is Rust (or
+// C++) path syntax naming the RUST API, which is a strictly larger surface
+// than the bindings export -- `SystemStyle::ios_light()` is a real function in
+// css/src/system.rs with no FFI symbol. Matching `::` reported those as
+// missing. The managed bindings, including the C# call this lint exists to
+// catch, all use `.`.
 static RE_DOT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(T?[A-Z][A-Za-z0-9]*)(?:\.|::)([A-Za-z_][A-Za-z0-9_]*)\s*\(").unwrap()
+    Regex::new(r"\b(T?[A-Z][A-Za-z0-9]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\(").unwrap()
 });
 // Go: NewDomCreateText — no separator, so the class prefix is matched greedily.
 static RE_GO: LazyLock<Regex> =
@@ -92,6 +99,15 @@ static RE_GO: LazyLock<Regex> =
 /// not calls.
 const PLACEHOLDER_CLASSES: &[&str] =
     &["Xxx", "Yyy", "Foo", "Bar", "Baz", "MyType", "MyWidget", "MyStruct", "Example"];
+
+/// The wasm entry points live in dll/src/web and are exported by the web
+/// build, not by `codegen all`, so the generated tree never mentions them.
+/// Harvesting dll/src/web instead was tried and is worse: it scoops up Rust
+/// COMMENTS, and a comment naming a removed symbol silently revives it -- it
+/// re-armed `AzDom_createText` and made the sabotage test pass in silence.
+fn wasm_surface(symbol: &str) -> bool {
+    symbol.starts_with("AzStartup_")
+}
 
 fn placeholder(symbol: &str) -> bool {
     let Some(rest) = symbol.strip_prefix("Az") else { return false };
@@ -120,7 +136,6 @@ impl Surface {
         if !codegen.is_dir() {
             return None; // nothing to check against; stay silent
         }
-
         let mut exact = HashSet::new();
         for entry in walkdir::WalkDir::new(&codegen).into_iter().filter_map(Result::ok) {
             let path = entry.path();
@@ -163,6 +178,14 @@ impl Surface {
         self.loose.contains(&norm(member))
     }
 
+    /// `StyleFontSize.px` exists in the C surface only as
+    /// `AzStyleFontSize_px`, so the bare member name is never found on its
+    /// own. Check the qualified spelling too before calling it missing.
+    fn exports_on(&self, class: &str, member: &str) -> bool {
+        self.exports_member(member)
+            || self.loose.contains(&norm(&format!("Az{class}_{member}")))
+    }
+
     /// A rename usually extends or trims a name, so an exported spelling that
     /// shares a prefix is the useful hint.
     fn suggest(&self, name: &str) -> Option<String> {
@@ -199,7 +222,7 @@ impl Surface {
 
 fn check_line(line: &str, s: &Surface, file: &str, lineno: usize, out: &mut Vec<Finding>) {
     let mut flag = |symbol: &str, token: &str, out: &mut Vec<Finding>| {
-        if placeholder(symbol) {
+        if placeholder(symbol) || wasm_surface(symbol) {
             return;
         }
         out.push(Finding {
@@ -236,7 +259,7 @@ fn check_line(line: &str, s: &Surface, file: &str, lineno: usize, out: &mut Vec<
     }
 
     for c in RE_PWSH.captures_iter(line) {
-        if s.classes.contains(&c[1]) && !s.exports_member(&c[2]) {
+        if s.classes.contains(&c[1]) && !s.exports_on(&c[1], &c[2]) {
             flag(&c[2], c.get(0).unwrap().as_str(), out);
         }
     }
@@ -247,7 +270,7 @@ fn check_line(line: &str, s: &Surface, file: &str, lineno: usize, out: &mut Vec<
         if HOST_COLLISIONS.contains(&class) {
             continue;
         }
-        if (s.classes.contains(raw) || s.classes.contains(class)) && !s.exports_member(&c[2]) {
+        if (s.classes.contains(raw) || s.classes.contains(class)) && !s.exports_on(class, &c[2]) {
             flag(&c[2], c.get(0).unwrap().as_str().trim_end_matches('('), out);
         }
     }

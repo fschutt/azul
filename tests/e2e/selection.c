@@ -63,7 +63,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzString p1_style = AzString_copyFromBytes(
         "font-size: 28px; padding: 15px; background-color: #c0ffc0; margin: 8px;", 0, 73);
-    AzDom_setInlineStyle(&p1, p1_style);
+    AzDom_setCss(&p1, p1_style);
     AzString p1_class = AzString_copyFromBytes("paragraph paragraph-1 selectable", 0, 32);
     AzDom_addClass(&p1, p1_class);
     
@@ -74,7 +74,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&p2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(p2_text));
     AzString p2_style = AzString_copyFromBytes(
         "font-size: 28px; padding: 15px; background-color: #ffc0c0; margin: 8px; user-select: none;", 0, 92);
-    AzDom_setInlineStyle(&p2, p2_style);
+    AzDom_setCss(&p2, p2_style);
     AzString p2_class = AzString_copyFromBytes("paragraph paragraph-2 non-selectable", 0, 36);
     AzDom_addClass(&p2, p2_class);
     
@@ -85,7 +85,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&p3, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(p3_text));
     AzString p3_style = AzString_copyFromBytes(
         "font-size: 28px; padding: 15px; background-color: #c0c0ff; margin: 8px;", 0, 73);
-    AzDom_setInlineStyle(&p3, p3_style);
+    AzDom_setCss(&p3, p3_style);
     AzString p3_class = AzString_copyFromBytes("paragraph paragraph-3 selectable", 0, 32);
     AzDom_addClass(&p3, p3_class);
     
@@ -97,10 +97,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzString body_style = AzString_copyFromBytes(
         "display: flex; flex-direction: column; height: 100%; box-sizing: border-box;", 0, 76);
-    AzDom_setInlineStyle(&body, body_style);
+    AzDom_setCss(&body, body_style);
     
-    AzCss css = AzCss_empty();
-    return AzDom_style(body, css);
+    // The layout callback returns AzDom now: the Css rides along as a field
+    // and the framework builds the StyledDom itself, because constructing it
+    // here got in the way of cascading and re-cascading.
+    return body;
 }
 
 int main(int argc, char** argv) {

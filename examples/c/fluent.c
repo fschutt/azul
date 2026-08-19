@@ -301,7 +301,7 @@ void demo_language_packs(void) {
             // "Download" (simulate) and cache
             printf("  %s: Downloading and caching...", lang_packs[i].locale);
             
-            // In real app: AzHttpClient_get(url) to download
+            // In real app: AzHttpRequestConfig_httpGet(cfg, url) to download
             // Here we just use the embedded content
             AzU8Vec content_bytes = AzU8Vec_copyFromBytes(
                 (const uint8_t*)lang_packs[i].content, 

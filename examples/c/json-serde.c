@@ -8,7 +8,7 @@
  * 4. Serialize a RefAny to JSON and deserialize JSON back to a RefAny
  * 
  * Key APIs demonstrated:
- *   - AzJson_number(), AzJson_bool(), AzJson_string() - primitive constructors
+ *   - AzJson_float(), AzJson_int(), AzJson_bool(), AzJson_string() - primitive constructors
  *   - AzJsonKeyValue_create() - create key-value pairs
  *   - AzJson_object() - create JSON objects from key-value arrays
  *   - AzRefAny_serializeToJson(), AzJson_deserializeToRefany() - round-trip

@@ -234,7 +234,8 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ContentEditableDataRef_delete(&ref);
     
     // Apply CSS inline and return the Dom (the layout callback returns AzDom now;
-    // AzDom_style -> StyledDom was removed — with_css parses + attaches inline CSS).
+    // the old Dom-to-StyledDom helper was removed; with_css parses and
+    // attaches the inline CSS instead).
     return AzDom_withCss(root, AZ_STR(CSS_STYLE));
 }
 

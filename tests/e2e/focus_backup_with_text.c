@@ -102,7 +102,7 @@ AzDom create_button(const char* label, int button_num, AzCallbackType click_call
         "padding: 15px 30px; margin: 10px; background-color: #4a90d9; color: white; "
         "font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; "
         "border: 3px solid transparent; transition: all 0.2s;", 0, 203);
-    AzDom_setInlineStyle(&button, style);
+    AzDom_setCss(&button, style);
     
     return button;
 }
@@ -126,7 +126,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString header_style = AzString_copyFromBytes((const uint8_t*)
         "padding: 20px; background-color: #2c3e50; color: white; "
         "font-size: 28px; font-weight: bold; text-align: center;", 0, 111);
-    AzDom_setInlineStyle(&header, header_style);
+    AzDom_setCss(&header, header_style);
     
     // Create instructions
     AzString instructions_text = AzString_copyFromBytes((const uint8_t*)
@@ -136,14 +136,14 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString instructions_style = AzString_copyFromBytes((const uint8_t*)
         "padding: 15px; background-color: #ecf0f1; color: #2c3e50; "
         "font-size: 16px; text-align: center; border-bottom: 1px solid #bdc3c7;", 0, 126);
-    AzDom_setInlineStyle(&instructions, instructions_style);
+    AzDom_setCss(&instructions, instructions_style);
     
     // Create button container
     AzDom button_container = AzDom_createDiv();
     AzString container_style = AzString_copyFromBytes((const uint8_t*)
         "display: flex; flex-direction: row; justify-content: center; "
         "align-items: center; padding: 40px; gap: 20px;", 0, 109);
-    AzDom_setInlineStyle(&button_container, container_style);
+    AzDom_setCss(&button_container, container_style);
     
     // Create three buttons
     AzDom btn1 = create_button("Button 1", 1, on_button1_click, data);
@@ -171,7 +171,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString status_style = AzString_copyFromBytes((const uint8_t*)
         "padding: 20px; background-color: #34495e; color: #ecf0f1; "
         "font-size: 16px; text-align: center; font-family: monospace;", 0, 120);
-    AzDom_setInlineStyle(&status, status_style);
+    AzDom_setCss(&status, status_style);
     
     // Build body
     AzDom body = AzDom_createBody();
@@ -184,7 +184,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString body_style = AzString_copyFromBytes((const uint8_t*)
         "display: flex; flex-direction: column; height: 100%; "
         "font-family: 'Segoe UI', sans-serif;", 0, 90);
-    AzDom_setInlineStyle(&body, body_style);
+    AzDom_setCss(&body, body_style);
     
     // CSS for :focus pseudo-class
     // When an element is focused, it gets a bright yellow border
@@ -193,9 +193,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "box-shadow: 0 0 10px #f1c40f; background-color: #3498db !important; }";
     
     AzString css_str = AzString_copyFromBytes((const uint8_t*)focus_css, 0, strlen(focus_css));
-    AzCss css = AzCss_fromString(css_str);
-    
-    return AzDom_style(body, css);
+    // The layout callback returns AzDom now: the Css rides along as a field
+    // and the framework builds the StyledDom itself, because constructing it
+    // here got in the way of cascading and re-cascading.
+    return AzDom_withCss(body, css_str);
 }
 
 int main(int argc, char** argv) {

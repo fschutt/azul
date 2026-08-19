@@ -45,8 +45,6 @@ Public Declare Sub AzDom_addChild Lib "azul" Alias "AzDom_addChild" _
     (ByVal parent As Long, ByVal child As Long)
 Public Declare Sub AzDom_addCssProperty Lib "azul" Alias "AzDom_addCssProperty" _
     (ByVal d As Long, ByVal prop As Long)
-Public Declare Function AzDom_style Lib "azul" Alias "AzDom_style" _
-    (ByVal d As Long, ByVal css As Long) As Long
 
 Public Declare Function AzButton_create Lib "azul" Alias "AzButton_create" _
     (ByVal s As Long) As Long
@@ -162,7 +160,9 @@ Public Function layout(ByVal data As Long, ByVal info As Long) As Long
     AzDom_addChild body, labelWrapper
     AzDom_addChild body, buttonDom
 
-    layout = AzDom_style(body, AzCss_empty())
+    ' The layout callback returns the Dom now; the framework builds the
+    ' StyledDom itself. With no stylesheet there is nothing to attach.
+    layout = body
 End Function
 
 ' ---- Main ------------------------------------------------------------------
