@@ -136,6 +136,8 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         if (epcL || epcH) console.error('POST-TRAP: __remill_error faulting guest PC = 0x' + (epcH>>>0).toString(16) + (epcL>>>0).toString(16).padStart(8,'0') + ' → otool -tV libazul @ this static addr for the unlifted op');
         const mbL = mini.AzStartup_peekU32(0x400F8), mbH = mini.AzStartup_peekU32(0x400FC);
         if (mbL || mbH) console.error('POST-TRAP: __remill_MISSING_BLOCK guest PC = 0x' + (mbH>>>0).toString(16) + (mbL>>>0).toString(16).padStart(8,'0') + ' → a computed-branch/jump-table target the lifter could not resolve');
+        const cmb = mini.AzStartup_peekU32(0x40108);
+        if (cmb) console.error('POST-TRAP: calc_used_size HOT missing_block target = 0x' + (cmb>>>0).toString(16) + ' → CONFIRMS calc_used_size diverges at an unresolved jump-table (br x10); the STACK above names the fn');
         // 0x40060 = AZ_FUEL tripped flag (1 = an instrumented loop exceeded AZ_FUEL_LIMIT → see STACK for the looping fn).
         if (mini.AzStartup_peekU32(0x40060) === 1) console.error('POST-TRAP: FUEL TRIPPED — infinite loop; the STACK above names the looping fn; looping_block_id=' + mini.AzStartup_peekU32(0x40070) + ' (map to Nth `call @__az_fuel(i32 N)` in <stem>.fuel.ll)');
         // 0x40078 = AZ_LOG_SELFLOOP_VAL: the i64 `v` (icmp eq v,0 operand) that routed into the live opt-folded self-loop (should be 0).
@@ -207,6 +209,17 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
     }
     console.log('[2] solveLayoutReal rc=0 (real taffy positioning ran in wasm)');
     {   // M12.7 diag (always): where did layout_document go?
+        // M12.7 BULLETPROOF calc_used_size readout (unconditional, first thing):
+        try {
+            const _e = mini.AzStartup_peekU32(0x4010C) >>> 0;
+            const _f = mini.AzStartup_peekU32(0x400C8) >>> 0;
+            const _g = mini.AzStartup_peekU32(0x400D4) >>> 0;
+            console.error('  >>> calc_used_size: ENTERED(0x4010C)=0x' + _e.toString(16)
+                + ' finalOk(0x400C8)=0x' + _f.toString(16)
+                + ' earlyOk(0x400D4)=0x' + _g.toString(16)
+                + ' — ' + (_e === 0xF1 ? 'ENTERED' : 'NOT-entered')
+                + ' / ' + (_f === 0xCA000001 || _g === 0xCA000002 ? 'REACHED-Ok-return (devirt WORKED)' : 'NO-Ok-return (still diverges)'));
+        } catch (_x) { console.error('  >>> calc_used_size marker read threw: ' + _x); }
         const step = mini.AzStartup_peekU32(0x400A4);
         const rbr = mini.AzStartup_peekU32(0x400A8);
         const rok = mini.AzStartup_peekU32(0x400AC);
@@ -235,6 +248,13 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
         if ((clstep & 0xff) === 0x60) console.error('  prepare_layout_context: NOT entered past tree.get/warm → tree.get/warm(node_index)=None → Err(InvalidTree) (node_index garbage / Vec-len mis-lift)');
         if ((clstep & 0xff) === 0x70) console.error('  prepare_layout_context: got node+warm (0x70), no 0x72 → calculate_used_size_for_node returns Err');
         if ((clstep & 0xff) === 0x72) console.error('  prepare_layout_context: calculate_used_size_for_node OK (0x72) → diverges in prepare Phase 2+ (writing-mode/inner-size)');
+        // M12.7: was calc_used_size even ENTERED? (0x4010C=0xF1 set at its source entry)
+        const cusEntered = mini.AzStartup_peekU32(0x4010C);
+        console.error('  calc_used_size ENTERED (0x4010C)=0x' + (cusEntered>>>0).toString(16) + (cusEntered === 0xF1 ? ' → YES, entered; diverges INSIDE calc_used_size (resolved-wrong jump-table/value mis-lift)' : ' → NO, never entered; diverges in prepare_layout_context BEFORE the calc_used_size call (arg setup)'));
+        // M12.7: did calc_used_size REACH its Ok return? (0x400C8 final, 0x400D4 early)
+        const cusFinal = mini.AzStartup_peekU32(0x400C8), cusEarly = mini.AzStartup_peekU32(0x400D4);
+        console.error('  calc_used_size returns: final-Ok(0x400C8)=0x' + (cusFinal>>>0).toString(16) + ' early-Ok(0x400D4)=0x' + (cusEarly>>>0).toString(16) +
+            ((cusFinal === 0xCA000001 || cusEarly === 0xCA000002) ? ' → REACHED an Ok return; the Err is the lifted return-ABI corrupting the Result<LogicalSize,LayoutError> disc' : ' → did NOT reach any Ok return; diverges mid-fn (hot missing_block/value before return)'));
         const nlr = mini.AzStartup_peekU32(0x400E4);
         if (((nlr>>>16)&0xff)===0x01) console.error('  body get_node_layout_rect=Some, width=' + (nlr&0xffff) + ' (0 → layout computed 0-wide; >0 → extraction issue)');
         else if (((nlr>>>16)&0xff)===0xff) console.error('  body get_node_layout_rect=None (no calculated position → positioning did not write node 0)');

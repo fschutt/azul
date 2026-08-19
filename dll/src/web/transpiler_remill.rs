@@ -5517,17 +5517,27 @@ define linkonce_odr ptr @__remill_jump(ptr %state, i64 %pc, ptr %memory) alwaysi
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_missing_block(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
-  ; NOTE: must RETURN (not trap) — the cascade/hydration path has hot missing_blocks
-  ; (unresolved computed branches) that return-and-continue; trapping here breaks the
-  ; cascade (hit-test + layout-real both trapped in AzStartup_hydrateStyledDom).
+  ; NOTE: must RETURN (not trap) in general — the cascade/hydration path has hot
+  ; missing_blocks (unresolved computed branches) that return-and-continue; a global trap
+  ; breaks the cascade. M12.7 diag (TEMPORARY, cascade-safe): trap ONLY when the target is
+  ; while the calc_used_size SCOPE FLAG (0x4010C==0xF1, set at its source entry) is set —
+  ; catches a hot missing_block ANYWHERE in calc_used_size + callees (regardless of target),
+  ; localizing the mid-fn divergence. Cascade-safe (flag=0 there → returns).
+  %mb_f = call i32 @__remill_read_memory_32(ptr %memory, i64 262412)
+  %mb_in = icmp eq i32 %mb_f, 241
+  br i1 %mb_in, label %mb_trap, label %mb_ret
+mb_trap:
+  %mb_p = trunc i64 %pc to i32
+  %mb_m = call ptr @__remill_write_memory_32(ptr %memory, i64 262344, i32 %mb_p)
+  unreachable
+mb_ret:
   ret ptr %memory
 }}
 define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
-  ; NOTE: returns (not traps). A hot __remill_error here silently corrupts the lifted fn's
-  ; return value (Result→Err, rc=0). The layout hits one (the cascade does not — baselines
-  ; stay green when this traps), but PC-capture of %pc proved unreliable for pinpointing
-  ; (it lands on clean-lifting fns). See memory m12_cascade_neon_blocker.md.
-  ret ptr %memory
+  ; M12.7 diag (TEMPORARY): TRAP so the wasm BACKTRACE (gate prints e.stack) names the
+  ; lifted fn that hit the hot __remill_error — reliable, unlike %pc capture. Cascade-safe
+  ; (baselines stay green; only the layout traps). Revert to `ret ptr %memory` after.
+  unreachable
 }}
 ; M10-B1.a alias-scope metadata for guest memory ops.
 ;

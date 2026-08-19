@@ -1193,6 +1193,11 @@ pub fn calculate_used_size_for_node(
     _box_props: &BoxProps,
     viewport_size: LogicalSize,
 ) -> Result<LogicalSize> {
+    // M12.7 diag: set the calc_used_size scope flag (0x4010C) at entry. __remill_missing_block
+    // traps ONLY while this flag is set → catches a hot missing_block ANYWHERE in calc_used_size
+    // + its callees (regardless of target), to localize the mid-fn divergence. Cascade-safe
+    // (flag=0 default there). For v5 the body calls this once + diverges, so no reset needed.
+    unsafe { core::ptr::write_volatile(0x4010C as *mut u32, 0xF1u32); }
     let Some(id) = dom_id else {
         // Anonymous boxes:
         // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit from their enclosing box.
@@ -1203,6 +1208,7 @@ pub fn calculate_used_size_for_node(
         //
         // Since anonymous boxes don't have a DOM node, we default to horizontal-tb.
         // The parent's writing mode is already reflected in containing_block_size.
+        unsafe { core::ptr::write_volatile(0x400D4 as *mut u32, 0xCA00_0002u32); }
         return Ok(LogicalSize::new(
             containing_block_size.width,
             if intrinsic.max_content_height > 0.0 {
@@ -1782,6 +1788,10 @@ pub fn calculate_used_size_for_node(
     let result =
         LogicalSize::from_main_cross(main_size, cross_size, writing_mode.unwrap_or_default());
 
+    // M12.7 diag: mark reaching the final Ok return. If this fires but prepare's 0x72
+    // marker doesn't, calc_used_size reached its Ok return and the Result<LogicalSize,
+    // LayoutError> disc is being corrupted by the lifted return-ABI (register/sret).
+    unsafe { core::ptr::write_volatile(0x400C8 as *mut u32, 0xCA00_0001u32); }
     Ok(result)
 }
 
