@@ -5193,12 +5193,9 @@ impl MacOSWindow {
     /// Process close event: save state, set flag, run callbacks, handle result.
     /// Returns true if the close was confirmed (callback did not clear the flag).
     fn process_close_event(&mut self) -> bool {
-        self.snapshot_window_state_baseline("macos.process_close_event");
-        self.common.current_window_state.flags.close_requested = true;
+        let outcome = self.request_window_close("macos.process_close_event");
 
-        let result = self.process_window_events(0);
-
-        match result {
+        match outcome.result {
             azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                 if let Err(e) = self.regenerate_layout() {
                     log_warn!(
@@ -5228,7 +5225,7 @@ impl MacOSWindow {
             _ => {}
         }
 
-        self.common.current_window_state.flags.close_requested
+        outcome.confirmed
     }
 
     /// Take the context menu the last right-click resolved, if any.

@@ -484,6 +484,7 @@ mod label_convention {
             label::Label,
             list_view::ListView,
             map::{MapTileLayer, MapWidget},
+            menubar::build_menubar_dom,
             modal::Modal,
             number_input::NumberInput,
             pagination::Pagination,
@@ -561,6 +562,19 @@ mod label_convention {
             ("label", Label::create(AzString::from("A label")).dom()),
             ("list_view", ListView::create(labels(&["Name", "Size"])).dom()),
             ("map", MapWidget::create(MapTileLayer::default()).dom()),
+            (
+                "menubar",
+                build_menubar_dom(&azul_core::menu::Menu::create(
+                    azul_core::menu::MenuItemVec::from_vec(vec![
+                        azul_core::menu::MenuItem::String(
+                            azul_core::menu::StringMenuItem::create("File".into()),
+                        ),
+                        azul_core::menu::MenuItem::String(
+                            azul_core::menu::StringMenuItem::create("Edit".into()),
+                        ),
+                    ]),
+                )),
+            ),
             (
                 "modal",
                 Modal::create(user_content())

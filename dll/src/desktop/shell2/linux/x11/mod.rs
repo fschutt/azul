@@ -3147,10 +3147,30 @@ impl X11Window {
                 if msg_atom == self.wm_delete_window_atom {
                     log_info!(
                         LogCategory::Window,
-                        "[X11] handle_event: WM_DELETE_WINDOW - closing window"
+                        "[X11] handle_event: WM_DELETE_WINDOW - close requested"
                     );
-                    self.is_open = false;
-                    ProcessEventResult::DoNothing
+                    // WM_DELETE_WINDOW is a REQUEST. Clearing `is_open` here
+                    // dropped the window without the app's close callback ever
+                    // running, so the title-bar X discarded unsaved work
+                    // silently and nothing could veto it — X11 was the only
+                    // backend with no close protocol at all. Same shape as
+                    // Wayland's xdg_toplevel.close and Win32's WM_CLOSE: flip
+                    // the flag false -> true and run a pass so
+                    // EventType::WindowClose fires; a callback that clears the
+                    // flag cancels the close.
+                    let outcome = self.request_window_close("x11.wm_delete_window");
+                    if outcome.confirmed {
+                        self.is_open = false;
+                    } else {
+                        log_debug!(
+                            LogCategory::Window,
+                            "[X11] WM_DELETE_WINDOW cancelled by callback"
+                        );
+                    }
+                    // Returned so a close callback that restyles (an "unsaved
+                    // changes" prompt) still gets its relayout/repaint. If the
+                    // close proceeds, the extra work is harmless.
+                    outcome.result
                 } else if mtype == self.xdnd.enter
                     || mtype == self.xdnd.position
                     || mtype == self.xdnd.leave
