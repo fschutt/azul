@@ -1165,10 +1165,24 @@ impl RemillTranspiler {
             args.push(&extra_data);
         }
         run_tool(tools.remill_lift, &args, fn_name)?;
-        std::fs::read_to_string(lifted_ir_path).map_err(|e| TranspileError {
+        let ir = std::fs::read_to_string(lifted_ir_path).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
             reason: format!("read lifted IR: {e}"),
-        })
+        })?;
+        // x87 -> double before anything downstream sees the IR (llc asserts
+        // on fp80 memory ops). The on-disk copy is rewritten too so scratch
+        // artifacts and cache templates match what actually compiles.
+        match demote_x86_fp80(&ir) {
+            Some(demoted) => {
+                eprintln!(
+                    "[azul-web]   x87 demotion: {} — x86_fp80 -> double (wasm has no 80-bit float)",
+                    fn_name,
+                );
+                let _ = std::fs::write(lifted_ir_path, &demoted);
+                Ok(demoted)
+            }
+            None => Ok(ir),
+        }
     }
 
     /// Post-lift pipeline: takes a `raw_lifted_ir` (from `lift_fn` for
@@ -6450,7 +6464,7 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 8;
+const LIFT_CACHE_VERSION: u32 = 9;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -10731,6 +10745,37 @@ fn parse_sub_hex_as_addr(sym_name: &str) -> Option<usize> {
 /// `.N`). Tokens with non-hex bodies are left intact (rare; some
 /// helper-IR names like `@__remill_*` start with `@` but the
 /// `sub_` prefix discriminator keeps them out of the match).
+/// Demote x87 80-bit floats to `double` in lifted IR.
+///
+/// wasm has no 80-bit float type, and LLVM's wasm backend asserts in
+/// `WebAssemblySetP2AlignOperands` ("Default p2align value should be
+/// natural") the moment an `x86_fp80` load/store reaches it — a hard llc
+/// crash that costs the whole function a Leaf stub (returns 0, silent
+/// corruption). Guest code reaches x87 through compiler-outlined int->float
+/// helpers and old CRT paths (`sitofp iN to x86_fp80` = FILD, `store
+/// x86_fp80` = FSTP m80).
+///
+/// `double` is the widest float wasm has, so demoting is the closest
+/// faithful lowering available. It IS an approximation: the 64-bit mantissa
+/// and extended exponent range are lost, and an 80-bit store now writes 8
+/// bytes instead of 10 (a later FLD m80 of that slot reads 2 stale bytes).
+/// Both are strictly better than a stub that returns 0.
+///
+/// Only forms that stay type-consistent under a uniform token swap are
+/// rewritten; anything else returns `None`, leaving the IR untouched so the
+/// crash-stub path and the startup audit's F2 finding still fire loudly.
+fn demote_x86_fp80(ir: &str) -> Option<String> {
+    if !ir.contains("x86_fp80") {
+        return None;
+    }
+    for bad in ["fptrunc x86_fp80", "fpext x86_fp80", "call x86_fp80", "x86_fp80 @"] {
+        if ir.contains(bad) {
+            return None;
+        }
+    }
+    Some(ir.replace("x86_fp80", "double"))
+}
+
 fn rewrite_sub_names_to_canonical(
     ir: &str,
     table: &symbol_table::SymbolTable,
