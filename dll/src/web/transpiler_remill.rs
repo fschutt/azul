@@ -2560,6 +2560,66 @@ impl RemillTranspiler {
                 exports.push(export_as);
             }
 
+            // Data-resident FUNCTION POINTERS. rustc puts constant
+            // `fmt::Arguments` (and vtables, jump tables, callback tables)
+            // in .rdata, so the formatter fn-ptrs they carry are reachable
+            // ONLY by loading them at runtime — no call site names them, so
+            // the byte-scan below never sees them and they get no dispatcher
+            // case. The indirect call then finds no case, returns garbage,
+            // and the caller reads it as a bogus Err (AzWriter's
+            // `Json::to_string` failing) or walks off memory.
+            //
+            // The regions a function actually references are already known
+            // (they are what `build_extra_data` hands to remill), so scan
+            // exactly those for 8-aligned values that resolve to a function
+            // entry and enqueue them like any other dep. Bounded by the
+            // referenced regions, and it converges: each newly lifted
+            // function contributes its own.
+            if let Some(table) = symbol_table::get() {
+                let fn_bytes = unsafe {
+                    core::slice::from_raw_parts(addr as *const u8, size)
+                };
+                let mut data_fnptrs = 0usize;
+                for (raddr, rlen) in scan_guest_data_accesses(fn_bytes, addr) {
+                    if rlen == 0 || rlen > 65536 {
+                        continue;
+                    }
+                    // SAFETY: same provenance as build_extra_data's read —
+                    // an adrp/lea-referenced range inside the live image.
+                    let data = unsafe {
+                        core::slice::from_raw_parts(raddr as *const u8, rlen)
+                    };
+                    let start = (8 - (raddr % 8)) % 8;
+                    let mut i = start;
+                    while i + 8 <= data.len() {
+                        let v = u64::from_le_bytes(data[i..i + 8].try_into().unwrap()) as usize;
+                        i += 8;
+                        if v < 0x1000 {
+                            continue;
+                        }
+                        let Some(e) = table.resolve(v) else { continue };
+                        if e.canonical_addr != v || !e.classification.is_recursable() {
+                            continue;
+                        }
+                        if visited.contains(&e.canonical_addr) {
+                            continue;
+                        }
+                        queue.push_back(TransitiveLiftTarget::Dep {
+                            name: e.canonical_name.clone(),
+                            addr: e.canonical_addr,
+                            size: if e.size > 0 { e.size } else { super::LIFT_READ_WINDOW },
+                        });
+                        data_fnptrs += 1;
+                    }
+                }
+                if data_fnptrs > 0 {
+                    eprintln!(
+                        "[azul-web]     data fn-ptrs: {} target(s) enqueued from {}'s referenced .rdata",
+                        data_fnptrs, name,
+                    );
+                }
+            }
+
             // Parse this lift's branch externs + enqueue deps.
             // The IR comes from the lift we JUST ran, in memory. Reading it
             // back from `<fn_name>.lifted.ll` made dep discovery depend on
