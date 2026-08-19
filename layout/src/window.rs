@@ -121,6 +121,11 @@ pub enum CursorBlinkTimerAction {
     Start(Timer),
     /// Stop the cursor blink timer
     Stop,
+    /// Rebuild the blink timer: it is running, but with the PREVIOUS node's
+    /// interval. `Timer` bakes its interval at construction, so a changed
+    /// `caret-animation-duration` only takes effect through a fresh timer.
+    /// The platform layer must stop the old OS timer and start this one.
+    Restart(Timer),
     /// No change needed (timer already in correct state)
     NoChange,
 }
@@ -2428,16 +2433,18 @@ impl LayoutWindow {
         let Some(first_end) = self.node_text_end_cursor(dom_id, first) else {
             return false;
         };
+        // A cross-block selection contributes exactly ONE range per node; the
+        // list carrier exists for the multi-cursor sessions of the other path.
         let mut affected = BTreeMap::new();
-        affected.insert(first, SelectionRange { start: first_cursor, end: first_end });
+        affected.insert(first, vec![SelectionRange { start: first_cursor, end: first_end }]);
         for &m in &middles {
             // Text-less middles (images, rules) contribute a zero-width range
             // at their start: they are INSIDE the selection (deleted by
             // delete_cross_block_selection) but have no text to highlight.
             let end = self.node_text_end_cursor(dom_id, m).unwrap_or_else(|| node_start(m));
-            affected.insert(m, SelectionRange { start: node_start(m), end });
+            affected.insert(m, vec![SelectionRange { start: node_start(m), end }]);
         }
-        affected.insert(last, SelectionRange { start: node_start(last), end: last_cursor });
+        affected.insert(last, vec![SelectionRange { start: node_start(last), end: last_cursor }]);
 
         self.text_edit_manager.set_cross_block_selection(TextSelection {
             dom_id,
@@ -2496,8 +2503,11 @@ impl LayoutWindow {
 
         let sel = self.text_edit_manager.take_cross_block_selection()?;
         let dom_id = sel.dom_id;
-        let mut nodes: Vec<(NodeId, SelectionRange)> =
-            sel.affected_nodes.iter().map(|(n, r)| (*n, *r)).collect();
+        let mut nodes: Vec<(NodeId, SelectionRange)> = sel
+            .affected_nodes
+            .iter()
+            .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
+            .collect();
         if nodes.len() < 2 {
             return None;
         }
@@ -6437,9 +6447,10 @@ impl LayoutWindow {
             // Bound to a local first: the `&self` read and the `&mut` receiver
             // would otherwise overlap in one expression.
             let blink_interval = self.caret_blink_interval_for(dom_id, container_node_id);
-            self.text_edit_manager
+            let interval_changed = self
+                .text_edit_manager
                 .blink
-                .set_blink_interval(blink_interval);
+                .adopt_blink_interval(blink_interval);
 
             // Make cursor visible and record current time (even before actual initialization)
             let now = Instant::now();
@@ -6447,8 +6458,16 @@ impl LayoutWindow {
             self.text_edit_manager.blink.set_blink_timer_active(true);
 
             if timer_was_active {
-                // Timer already active, just continue
-                CursorBlinkTimerAction::NoChange
+                if interval_changed {
+                    // The running timer still ticks at the previous node's
+                    // period; only a rebuilt Timer carries the new one.
+                    CursorBlinkTimerAction::Restart(
+                        self.create_cursor_blink_timer(current_window_state),
+                    )
+                } else {
+                    // Timer already active, just continue
+                    CursorBlinkTimerAction::NoChange
+                }
             } else {
                 // Need to start the timer
                 let timer = self.create_cursor_blink_timer(current_window_state);
@@ -6598,7 +6617,9 @@ impl LayoutWindow {
         self.focus_manager.set_focused_node(Some(new_focus));
         let window_state = self.current_window_state.clone();
         match self.handle_focus_change_for_cursor_blink(Some(new_focus), &window_state) {
-            CursorBlinkTimerAction::Start(timer) => Some(timer),
+            CursorBlinkTimerAction::Start(timer) | CursorBlinkTimerAction::Restart(timer) => {
+                Some(timer)
+            }
             CursorBlinkTimerAction::Stop | CursorBlinkTimerAction::NoChange => None,
         }
     }
@@ -13177,7 +13198,14 @@ impl LayoutWindow {
                         continue;
                     };
 
-                    let layout = &cached_layout.layout;
+                    // Under the default AZ_DENSE_TEXT=1, retire_sparse swaps
+                    // `cached.layout` for a shared, permanently-EMPTY sentinel
+                    // and keeps only the dense arrays. Reading it directly made
+                    // hittest_cursor return None for every node, so clicking to
+                    // place a caret or start a selection did nothing at all.
+                    // The two sibling hittest paths were fixed with d6h; these
+                    // three were missed.
+                    let layout = Self::materialized_inline_layout(cached_layout);
 
                     // Use point_relative_to_item - this is the local position within the hit node
                     // provided by WebRender's hit test
@@ -13251,7 +13279,7 @@ impl LayoutWindow {
                         y: position.y - node_pos.y,
                     };
 
-                    let layout = &cached_layout.layout;
+                    let layout = Self::materialized_inline_layout(cached_layout);
 
                     // Hit-test the cursor in this text layout
                     if let Some(cursor) = layout.hittest_cursor(local_pos) {
@@ -13292,7 +13320,7 @@ impl LayoutWindow {
             // Find layout node - ifc_root_node_id is always the IFC root, so it has inline_layout_result
             let layout_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
             let cached_layout = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
-            let layout = &cached_layout.layout;
+            let layout = Self::materialized_inline_layout(cached_layout);
 
             match click_count {
                 2 => select_word_at_cursor(&initial_range.start, layout.as_ref())
@@ -13714,8 +13742,11 @@ impl LayoutWindow {
         // selection).
         if let Some(cb) = self.text_edit_manager.get_cross_block_selection() {
             if cb.dom_id == *dom_id {
-                let mut nodes: Vec<(NodeId, SelectionRange)> =
-                    cb.affected_nodes.iter().map(|(n, r)| (*n, *r)).collect();
+                let mut nodes: Vec<(NodeId, SelectionRange)> = cb
+                    .affected_nodes
+                    .iter()
+                    .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
+                    .collect();
                 nodes.sort_by_key(|(n, _)| n.index());
                 let mut parts: Vec<String> = Vec::with_capacity(nodes.len());
                 for (node, range) in &nodes {
@@ -16154,6 +16185,49 @@ mod autotest_generated {
         // ...and it converts to real milliseconds only where a real OS timer
         // needs one: 5 frames at 60Hz is 83ms, not 5ms.
         assert_eq!(t.tick_millis(), 83);
+    }
+
+    /// A `Timer` bakes its interval at construction, so moving focus from a
+    /// 250ms caret onto a `5t` one has to REBUILD the timer. The old path
+    /// answered `NoChange` whenever a timer was already running, and the caret
+    /// went on ticking at the previous node's period for the rest of the
+    /// session.
+    #[test]
+    fn refocusing_between_editables_with_different_blink_rates_restarts_the_timer() {
+        let editable = |css: &str| Dom::create_div().with_contenteditable(true).with_css(css);
+        let mut w = window_for(StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(editable("caret-animation-duration: 250ms;"))
+                .with_child(editable("caret-animation-duration: 5t;"))
+                .with_child(editable("caret-animation-duration: 5t;")),
+        ));
+        let ws = w.current_window_state.clone();
+
+        // Nothing is running yet, so the first focus is a plain Start.
+        match w.handle_focus_change_for_cursor_blink(Some(dnid(1)), &ws) {
+            CursorBlinkTimerAction::Start(t) => assert_eq!(
+                t.interval,
+                azul_core::task::OptionDuration::Some(Duration::from_millis(250))
+            ),
+            other => panic!("expected Start, got {other:?}"),
+        }
+
+        // A change of UNIT is a change: `5t` is five FRAMES, not five ms.
+        match w.handle_focus_change_for_cursor_blink(Some(dnid(2)), &ws) {
+            CursorBlinkTimerAction::Restart(t) => assert_eq!(
+                t.interval,
+                azul_core::task::OptionDuration::Some(Duration::from_ticks(5)),
+                "the rebuilt timer carries the NEWLY focused node's interval"
+            ),
+            other => panic!("expected Restart, got {other:?}"),
+        }
+
+        // Same duration again — rebuilding would restart the blink phase for
+        // nothing.
+        assert!(matches!(
+            w.handle_focus_change_for_cursor_blink(Some(dnid(3)), &ws),
+            CursorBlinkTimerAction::NoChange
+        ));
     }
 
     /// `duration_to_millis` must convert ticks at the nominal frame rate. The

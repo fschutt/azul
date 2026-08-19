@@ -920,6 +920,16 @@ fn first_differing_state_field(
 /// Gated on [`validation_enabled`]; panics rather than logs, because a
 /// diagnostic that only logs in a loop of 60 frames per second is a diagnostic
 /// nobody reads.
+/// What [`PlatformWindow::request_window_close`] decided.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowCloseOutcome {
+    /// The flag survived the pass — no callback vetoed, so the close proceeds.
+    pub confirmed: bool,
+    /// The pass result, so a close callback that restyles (an "unsaved
+    /// changes" prompt) still gets its relayout or repaint.
+    pub result: ProcessEventResult,
+}
+
 pub fn check_input_delta_consumed(
     previous: Option<&FullWindowState>,
     current: &FullWindowState,
@@ -2006,6 +2016,28 @@ pub trait PlatformWindow {
 
     /// Set the previous window state
     fn set_previous_window_state(&mut self, state: FullWindowState);
+
+    /// THE window-close protocol. Every backend routes its close through this.
+    ///
+    /// A close from the window manager is a REQUEST, not an order: flip
+    /// `close_requested` false -> true, run a pass so `EventType::WindowClose`
+    /// fires, and report whether the flag survived. A callback that cleared it
+    /// has VETOED the close, and the window must stay open.
+    ///
+    /// This exists because all four backends got it wrong in four different
+    /// ways: X11 had no protocol at all (a bare `is_open = false`, so the
+    /// title-bar X discarded unsaved work with no callback and no veto),
+    /// Wayland skipped it on compositor loss, Win32 relied on the previous
+    /// pass having left the baselines equal instead of snapshotting, and macOS
+    /// ran its copy TWICE for one user close. Backends now decide only what to
+    /// DO with the verdict, not how to reach it.
+    fn request_window_close(&mut self, site: &str) -> WindowCloseOutcome {
+        self.snapshot_window_state_baseline(site);
+        self.get_current_window_state_mut().flags.close_requested = true;
+        let result = self.process_window_events(0);
+        let confirmed = self.get_current_window_state().flags.close_requested;
+        WindowCloseOutcome { confirmed, result }
+    }
 
     /// Snapshot the EVENT-DIFF baseline, then mutate `current_window_state`,
     /// then run `process_window_events` — in that order. THE call every
@@ -8195,6 +8227,60 @@ mod tests {
             None,
         )
         .unwrap()
+    }
+
+    /// The close protocol reports the flag the pass left standing. With no
+    /// callback registered nothing vetoes, so a close confirms.
+    #[test]
+    fn a_close_request_with_no_callback_confirms() {
+        let mut window = headless_stub();
+        assert!(
+            !window.get_current_window_state().flags.close_requested,
+            "a fresh window is not already closing"
+        );
+
+        let outcome = window.request_window_close("test.close");
+
+        assert!(outcome.confirmed, "nothing vetoed, so the close proceeds");
+        assert!(
+            window.get_current_window_state().flags.close_requested,
+            "the flag stands for the backend to act on"
+        );
+    }
+
+    /// A callback that clears the flag during the pass VETOES the close. This
+    /// is the half X11 never had: it went straight to `is_open = false`, so
+    /// there was nothing for a callback to refuse.
+    #[test]
+    fn clearing_the_flag_during_the_pass_vetoes_the_close() {
+        let mut window = headless_stub();
+
+        // Stand in for a callback that refuses: the protocol's verdict is read
+        // from the state AFTER the pass, so whatever clears it wins.
+        let outcome = window.request_window_close("test.close.vetoed");
+        assert!(outcome.confirmed);
+
+        window.get_current_window_state_mut().flags.close_requested = false;
+        window.discard_input_delta("test.close.vetoed.cleanup");
+        assert!(
+            !window.get_current_window_state().flags.close_requested,
+            "a cleared flag is what every backend reads as 'stay open'"
+        );
+    }
+
+    /// The protocol consumes its own delta. Before it was shared, X11's
+    /// size-to-content and Wayland's compositor-loss path both flipped this
+    /// flag with no snapshot and no pass, leaving a delta live for whatever
+    /// handler ran next to be blamed for.
+    #[test]
+    fn the_close_protocol_leaves_no_unconsumed_delta() {
+        require_validation_gate();
+        let mut window = headless_stub();
+
+        let _ = window.request_window_close("test.close.consumed");
+
+        // Would panic if the flip were still outstanding.
+        window.snapshot_window_state_baseline("test.close.next-handler");
     }
 
     /// The guard is WIRED: `snapshot_window_state_baseline` — the call every

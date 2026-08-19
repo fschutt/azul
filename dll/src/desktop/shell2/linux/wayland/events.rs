@@ -1933,13 +1933,10 @@ pub(super) extern "C" fn xdg_toplevel_close_handler(
     // could veto it. Same protocol as Win32 WM_CLOSE: flip `close_requested`
     // false -> true and run a pass so EventType::WindowClose fires; a callback
     // that clears the flag cancels the close.
-    window.snapshot_window_state_baseline("wayland.xdg_toplevel_close_handler");
-    window.common.current_window_state.flags.close_requested = true;
+    let outcome = window.request_window_close("wayland.xdg_toplevel_close_handler");
+    window.handle_process_event_result(outcome.result);
 
-    let result = window.process_window_events(0);
-    window.handle_process_event_result(result);
-
-    if window.common.current_window_state.flags.close_requested {
+    if outcome.confirmed {
         window.is_open = false;
     } else {
         log_debug!(

@@ -3222,19 +3222,15 @@ unsafe extern "system" fn window_proc(
             // and process callbacks to allow cancellation. Snapshot first so the
             // false -> true transition is what the pass diffs, rather than
             // relying on the last completed pass having left the two equal.
-            window.snapshot_window_state_baseline("windows.wm_close");
-            window.common.current_window_state.flags.close_requested = true;
-
-            // Process window events to trigger OnWindowClose callback.
             // A close callback can cancel the close AND restyle (e.g. show a styled
             // "unsaved changes" prompt) — route the result so any restyle takes the
             // incremental fast path / repaints, same as every other input handler.
             // If the close proceeds below, the InvalidateRect is harmless.
-            let result = window.process_window_events(0);
-            window.route_main_window_result(hwnd, result);
+            let outcome = window.request_window_close("windows.wm_close");
+            window.route_main_window_result(hwnd, outcome.result);
 
             // Check if callback cancelled the close
-            if window.common.current_window_state.flags.close_requested {
+            if outcome.confirmed {
                 // Not cancelled - proceed with close
                 window.is_open = false;
                 // Release the GPU side while the HWND and the GL context are

@@ -1181,6 +1181,11 @@ impl LayoutNode {
     }
 }
 
+/// How far [`LayoutTree::get_ifc_root_layout_index`] walks up looking for the
+/// box that owns an inline descendant's layout. Inline nesting is shallow in
+/// practice; the bound only stops a malformed tree from spinning.
+const IFC_ANCESTOR_WALK_LIMIT: usize = 64;
+
 /// A position in the LAYOUT tree — distinct from a DOM [`NodeId`] BY TYPE.
 ///
 /// The layout tree interleaves anonymous boxes and splits during
@@ -1683,6 +1688,29 @@ impl LayoutTree {
             if warm.inline_layout_result.is_none() {
                 if let Some(ifc_membership) = &warm.ifc_membership {
                     return ifc_membership.ifc_root_layout_index;
+                }
+                // No membership recorded. `ifc_membership` is only ever
+                // assigned to text nodes the IFC root's own walk collected
+                // directly; `collect_inline_span_recursive` assigns none, so
+                // anything under a `<span>` carries nothing and ownership used
+                // to resolve to the text node ITSELF. That is why the caret in
+                // `p > span > text` was never painted, and why keyboard focus
+                // into any editable containing a span produced a session whose
+                // caret never appeared.
+                //
+                // The nearest ancestor that OWNS inline layout is the IFC root
+                // by definition, so walk up to it. Nodes outside any IFC have
+                // no such ancestor and fall through to the identity below.
+                let mut cursor = layout_index;
+                for _ in 0..IFC_ANCESTOR_WALK_LIMIT {
+                    let Some(parent) = self.nodes.get(cursor).and_then(|n| n.parent) else {
+                        break;
+                    };
+                    match self.warm.get(parent) {
+                        Some(w) if w.inline_layout_result.is_some() => return parent,
+                        Some(_) => cursor = parent,
+                        None => break,
+                    }
                 }
             }
         }
