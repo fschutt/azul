@@ -92,6 +92,9 @@ eventloop_symbols![
     AzStartup_setFallbackFont,
     AzStartup_init,
     AzStartup_hydrate,
+    // Reflection-based hydration for models whose raw bytes are
+    // meaningless in the guest (see doc/web-json-hydrate-plan.md).
+    AzStartup_hydrateJson,
     AzStartup_dispatchEvent,
     AzStartup_registerStateDeserializer,
     // M9-2: Layout-cb wasm-side LayoutCallbackInfo builder.
@@ -924,7 +927,7 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
 /// `(name, addr, size)` tuples to `transpiler.lift_and_link_eventloop`.
 /// On any failure log + fall back to the 8-byte stub so the rest of
 /// run_web can proceed (per the M0-M7 "fail soft" discipline).
-fn lift_eventloop_mini_wasm() -> Vec<u8> {
+fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)]) -> Vec<u8> {
     let transpiler = transpiler::default_transpiler();
     if !transpiler.is_available() {
         eprintln!(
@@ -948,6 +951,20 @@ fn lift_eventloop_mini_wasm() -> Vec<u8> {
         };
         let sym = resolve_fn_ptr(addr);
         targets.push((sym_name.to_string(), sym.addr, sym.size));
+    }
+    // Extra roots reachable ONLY through a function pointer — the byte-scan
+    // walk can never discover them. Today: the app's JSON state
+    // deserializer, which AzStartup_hydrateJson calls through the address
+    // the server ships (doc/web-json-hydrate-plan.md).
+    for (name, addr, size) in extra_roots {
+        if targets.iter().any(|(_, a, _)| a == addr) {
+            continue;
+        }
+        eprintln!(
+            "[azul-web] azul-mini: extra fn-pointer root {} addr=0x{:016x} size={}",
+            name, addr, size,
+        );
+        targets.push((name.clone(), *addr, *size));
     }
     match transpiler.lift_and_link_eventloop(&targets) {
         Ok(module) => {
@@ -1055,7 +1072,17 @@ pub fn run_web(
     // or dlsym path can't satisfy the request — keeps Phase D/E
     // unblocked even if the eventloop lift fails.
     let _ = &classification; // M8.9 will use this to wire framework-call routing.
-    let mini_wasm = lift_eventloop_mini_wasm();
+    // The app's state deserializer is invoked through a stored fn-pointer,
+    // so nothing in the call-graph walk points at it — seed it explicitly.
+    let mut mini_extra_roots: Vec<(String, usize, usize)> = Vec::new();
+    {
+        let deser = app_data.get_deserialize_fn();
+        if deser != 0 {
+            let sym = resolve_fn_ptr(deser);
+            mini_extra_roots.push((sym.name.clone(), sym.addr, sym.size));
+        }
+    }
+    let mini_wasm = lift_eventloop_mini_wasm(&mini_extra_roots);
     eprintln!("[azul-web] azul-mini.wasm: {} bytes", mini_wasm.len());
 
     // Phase D: Pre-render all routes. The walk also collects every
