@@ -362,20 +362,6 @@ a.docs-card:hover {
     margin: 0;
 }
 
-/* ---- Footer (same voice as the /ui landing footer) ---- */
-.docs-footer {
-    border-top: 1px solid var(--fl-bd);
-    background-color: var(--fl-desk);
-    background-image: var(--fl-grain);
-    padding: 44px 0;
-    font-family: var(--font-serif);
-    font-size: 16px;
-    color: var(--fl-soft1);
-}
-.docs-footer p { margin: 0; }
-.docs-footer a,
-.docs-footer a:visited { color: var(--color-accent); text-decoration: none; }
-.docs-footer a:hover { text-decoration: underline; }
 
 /* ---- Inline search mount on docs pages ---- */
 .docs-hero #azul-search-mount { max-width: 520px; margin-top: 20px; }

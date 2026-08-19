@@ -1388,3 +1388,150 @@ pub fn write_page_clean_url(
     fs::write(clean_dir.join("index.html"), html)?;
     Ok(())
 }
+
+/// Guard against a stylesheet losing a section.
+///
+/// flora.css is ~3400 lines in one file, and it has been truncated three
+/// times by an edit that replaced a marker-to-marker range whose end marker
+/// had drifted past the middle of the file. Each time the site kept BUILDING
+/// - CSS has no compile step, a missing rule is simply a rule that never
+/// matches - and the damage only showed up as unstyled buttons and
+/// UA-purple links in a screenshot.
+///
+/// So the stylesheets get a compile-time-ish contract instead: every section
+/// that must exist is named here, and `cargo test -p azul-doc` fails if one
+/// goes missing. Braces are counted too, since a half-eaten rule silently
+/// swallows everything after it.
+///
+/// Add to these lists when you add a section. That is the point: the list is
+/// the inventory, and losing an entry is now a test failure rather than a
+/// visual regression someone has to notice.
+#[cfg(test)]
+mod stylesheet_contract {
+    const FLORA: &str = include_str!("../../templates/flora.css");
+    const DOCS: &str = include_str!("../../templates/azul-docs.css");
+    const LANDING: &str = include_str!("../../templates/ui-landing.css");
+    const SEARCH: &str = include_str!("../../templates/azul-search.css");
+
+    /// Sections of flora.css, in the order they appear. Every one of these has
+    /// been lost at least once to an over-broad edit.
+    const FLORA_REQUIRED: &[&str] = &[
+        // tokens + the two dark blocks
+        "--fl-pg:", "--fl-acc:", "--fl-metal-turn:", "--fl-text:",
+        ":root[data-theme=\"dark\"]", "prefers-color-scheme: dark",
+        // chrome
+        ".navbar {", ".navbar::after", ".nav-links a {", ".nav-links a.active {",
+        ".fl-orb {", ".fl-orb-well", ".fl-lamp {",
+        // the tab corner assembly
+        ".fl-tab-flare", ".fl-tab-cove", ".fl-tab-runout", ".fl-tab-foot",
+        // buttons - the section that keeps disappearing
+        ".btn {", ".btn-primary {", ".btn-secondary {", ".btn-hero-primary {",
+        ".btn-quiet {",
+        // page structure
+        ".hero {", ".hero::before", ".feature-card {", ".feature-media",
+        ".faq-section {", ".docs-footer {", "footer {",
+        // link colours - without these every link is UA purple
+        "a:visited", ".btn-primary, .btn-primary:visited",
+        // furniture, code, motion, the depth rig
+        "::-webkit-scrollbar", ".token.comment", "THE DROP PANEL",
+        "STONE RIG", "FLORA DESIGN - MOTION", "@keyframes fl-sheen",
+        "prefers-reduced-motion",
+    ];
+
+    const DOCS_REQUIRED: &[&str] = &[
+        "body.docs", ".docs-hero", ".docs-content p,", ".docs-content pre",
+        ".docs-card {", ".docs-list-item {", ".docs-layout",
+    ];
+
+    const LANDING_REQUIRED: &[&str] = &[
+        ".ui-hero {", ".ui-hero::before", ".feature-section {", ".lang-grid button,",
+        ".code-panel {", ".example-code {", "#latestrelease {",
+    ];
+
+    const SEARCH_REQUIRED: &[&str] = &[
+        ".azul-search {", ".azs-inline-row", ".azs-panel", ".azs-result a",
+        ".azs-kind", "--azs-bg:",
+    ];
+
+    fn check(name: &str, css: &str, required: &[&str]) {
+        let missing: Vec<_> = required.iter().filter(|s| !css.contains(**s)).collect();
+        assert!(
+            missing.is_empty(),
+            "{name} lost {} section(s): {missing:?}\n\
+             A rule that is gone still compiles - it just never matches. If you \
+             removed one on purpose, drop it from the list in the same commit.",
+            missing.len()
+        );
+        let open = css.matches('{').count();
+        let close = css.matches('}').count();
+        assert_eq!(open, close, "{name}: unbalanced braces ({open} open, {close} close)");
+    }
+
+    /// The strip and the footer have exactly ONE source each. Both used to be
+    /// copied by hand into the landing templates and the reftest report, and
+    /// both drifted: /os kept an old tab label after the others were renamed,
+    /// and a footer rewrite reached three of five copies. A template may carry
+    /// the `<!-- NAV -->` / `<!-- FOOTER -->` marker; it may not carry the
+    /// markup.
+    #[test]
+    fn nav_and_footer_have_one_source() {
+        const TEMPLATES: &[(&str, &str)] = &[
+            ("index.template.html", include_str!("../../templates/index.template.html")),
+            ("azlin-index.template.html", include_str!("../../templates/azlin-index.template.html")),
+            ("azlin-os.html", include_str!("../../templates/azlin-os.html")),
+            ("azlin-ws.html", include_str!("../../templates/azlin-ws.html")),
+            ("report_template.html", include_str!("../reftest/report_template.html")),
+        ];
+        for (name, html) in TEMPLATES {
+            assert!(
+                !html.contains("<nav class=\"navbar\""),
+                "{name} carries its own nav strip - use <!-- NAV --> and let                  docgen::azlin_nav / azlin_root_nav render it"
+            );
+            assert!(
+                !html.contains("class=\"docs-footer\""),
+                "{name} carries its own footer - use <!-- FOOTER --> and let                  docgen::azlin_footer render it"
+            );
+            assert!(
+                html.contains("<!-- NAV -->") && html.contains("<!-- FOOTER -->"),
+                "{name} is missing a <!-- NAV --> or <!-- FOOTER --> marker"
+            );
+        }
+    }
+
+    #[test]
+    fn stylesheets_keep_their_sections() {
+        check("flora.css", FLORA, FLORA_REQUIRED);
+        check("azul-docs.css", DOCS, DOCS_REQUIRED);
+        check("ui-landing.css", LANDING, LANDING_REQUIRED);
+        check("azul-search.css", SEARCH, SEARCH_REQUIRED);
+    }
+
+    /// The dark palette is written twice - once for the system preference,
+    /// once for the explicit toggle - and they have to agree, or choosing a
+    /// theme silently gives you a different one.
+    #[test]
+    fn dark_blocks_agree() {
+        fn tokens(block: &str) -> Vec<&str> {
+            block
+                .lines()
+                .filter_map(|l| l.trim().strip_prefix("--fl-"))
+                .filter_map(|l| l.split(':').next())
+                .collect()
+        }
+        let media = FLORA
+            .split("@media (prefers-color-scheme: dark) {\n    :root:not([data-theme=\"light\"]) {")
+            .nth(1)
+            .expect("media dark block");
+        let attr = FLORA
+            .split(":root[data-theme=\"dark\"] {\n    color-scheme: dark;")
+            .nth(1)
+            .expect("attribute dark block");
+        let a = tokens(media.split("\n    }\n}").next().unwrap());
+        let b = tokens(attr.split("\n}").next().unwrap());
+        assert_eq!(
+            a, b,
+            "the two dark blocks define different tokens - an explicit theme \
+             choice would not match the system one"
+        );
+    }
+}
