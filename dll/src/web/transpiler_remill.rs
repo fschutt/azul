@@ -4234,13 +4234,13 @@ impl ImportIntercept {
                  \x20 store i64 %old64{l}, ptr %rp{l}, align 8\n\
                  \x20 %dst{l} = inttoptr i32 %old{l} to ptr\n\
                  \x20 %isnull{l} = icmp eq i64 %op{l}, 0\n\
-                 \x20 br i1 %isnull{l}, label %impz{l}, label %impc{l}\n\
-                 impc{l}:\n\
+                 \x20 br i1 %isnull{l}, label %imp_zero_{l}, label %imp_copy_{l}\n\
+                 imp_copy_{l}:\n\
                  \x20 %op32{l} = trunc i64 %op{l} to i32\n\
                  \x20 %src{l} = inttoptr i32 %op32{l} to ptr\n\
                  \x20 call void @llvm.memmove.p0.p0.i64(ptr %dst{l}, ptr %src{l}, i64 %szal{l}, i1 false)\n\
                  \x20 ret ptr %memory\n\
-                 impz{l}:\n\
+                 imp_zero_{l}:\n\
                  \x20 call void @llvm.memset.p0.i64(ptr %dst{l}, i8 0, i64 %szal{l}, i1 false)\n\
                  \x20 ret ptr %memory\n",
                 l = l, a2 = a2, a3 = a3, cur = CURSOR, ret = ret,
@@ -4291,30 +4291,30 @@ impl ImportIntercept {
                  \x20 %b{l} = load i64, ptr %bp{l}, align 8\n\
                  \x20 %np{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
                  \x20 %n{l} = load i64, ptr %np{l}, align 8\n\
-                 \x20 br label %impl{l}\n\
-                 impl{l}:\n\
-                 \x20 %i{l} = phi i64 [ 0, %imp{l} ], [ %i1{l}, %impn{l} ]\n\
+                 \x20 br label %imp_loop_{l}\n\
+                 imp_loop_{l}:\n\
+                 \x20 %i{l} = phi i64 [ 0, %imp{l} ], [ %i1{l}, %imp_next_{l} ]\n\
                  \x20 %done{l} = icmp uge i64 %i{l}, %n{l}\n\
-                 \x20 br i1 %done{l}, label %impe{l}, label %impb{l}\n\
-                 impb{l}:\n\
+                 \x20 br i1 %done{l}, label %imp_eq_{l}, label %imp_body_{l}\n\
+                 imp_body_{l}:\n\
                  \x20 %aa{l} = add i64 %a{l}, %i{l}\n\
                  \x20 %ba{l} = add i64 %b{l}, %i{l}\n\
                  \x20 %va{l} = call i8 @__remill_read_memory_8(ptr %memory, i64 %aa{l})\n\
                  \x20 %vb{l} = call i8 @__remill_read_memory_8(ptr %memory, i64 %ba{l})\n\
                  \x20 %same{l} = icmp eq i8 %va{l}, %vb{l}\n\
-                 \x20 br i1 %same{l}, label %impn{l}, label %impd{l}\n\
-                 impn{l}:\n\
+                 \x20 br i1 %same{l}, label %imp_next_{l}, label %imp_diff_{l}\n\
+                 imp_next_{l}:\n\
                  \x20 %i1{l} = add i64 %i{l}, 1\n\
-                 \x20 br label %impl{l}\n\
-                 impd{l}:\n\
+                 \x20 br label %imp_loop_{l}\n\
+                 imp_diff_{l}:\n\
                  \x20 %za{l} = zext i8 %va{l} to i32\n\
                  \x20 %zb{l} = zext i8 %vb{l} to i32\n\
                  \x20 %d{l} = sub i32 %za{l}, %zb{l}\n\
-                 \x20 br label %imps{l}\n\
-                 impe{l}:\n\
-                 \x20 br label %imps{l}\n\
-                 imps{l}:\n\
-                 \x20 %res{l} = phi i32 [ %d{l}, %impd{l} ], [ 0, %impe{l} ]\n\
+                 \x20 br label %imp_store_{l}\n\
+                 imp_eq_{l}:\n\
+                 \x20 br label %imp_store_{l}\n\
+                 imp_store_{l}:\n\
+                 \x20 %res{l} = phi i32 [ %d{l}, %imp_diff_{l} ], [ 0, %imp_eq_{l} ]\n\
                  \x20 %res64{l} = sext i32 %res{l} to i64\n\
                  \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
                  \x20 store i64 %res64{l}, ptr %rp{l}, align 8\n\
