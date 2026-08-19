@@ -3102,10 +3102,32 @@ impl RemillTranspiler {
         let addr_set: HashSet<usize> = addrs.collect();
         let mut cs: Vec<(u64, u64)> = Vec::new();
         let mut seen: HashSet<u64> = HashSet::new();
+        let mut synthesized_cases = 0usize;
         for &a in &addr_set {
-            let Some(e) = tbl.lookup(a) else { continue };
-            let raw = e.synthetic_addr as u64;
-            let c = tbl.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr) as u64;
+            // PDB coverage gaps: `synthesize_text_entry` hands the walk an entry
+            // for a call target the PDB has no symbol for, but it takes `&self`
+            // and therefore never inserts into `by_addr` — so `lookup` misses
+            // here even though the function WAS lifted and its body is in the
+            // bundle. Skipping it emitted no case, and every indirect call or
+            // tail-jump to that body then fell into the dispatcher's default arm,
+            // which returns as if the call had succeeded. Silent, and invisible
+            // to the audit: unlike the four sibling sites of this bug (lift_addr,
+            // synth_of, canonical_entry_addr x2) it produces no unresolved extern
+            // to refuse on, only a wrong answer at runtime.
+            //
+            // Derive the synth from the image rebases instead, which is what the
+            // other four sites already fall back to.
+            let (raw, c) = match tbl.lookup(a) {
+                Some(e) => (
+                    e.synthetic_addr as u64,
+                    tbl.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr) as u64,
+                ),
+                None => {
+                    let Some(s) = tbl.native_to_synth(a) else { continue };
+                    synthesized_cases += 1;
+                    (s as u64, tbl.resolve_synth(s).unwrap_or(s) as u64)
+                }
+            };
             if c == 0 {
                 continue;
             }
@@ -3129,6 +3151,13 @@ impl RemillTranspiler {
             {
                 cs.push((trunc, c));
             }
+        }
+        if synthesized_cases > 0 {
+            eprintln!(
+                "[azul-web]   M12.7: {} dispatcher case(s) from PDB-gap bodies \
+                 (no by_addr entry — would have been silently undispatchable)",
+                synthesized_cases,
+            );
         }
         cs
     }
