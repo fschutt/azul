@@ -85,10 +85,54 @@ so both remill AND opt+llc drop out for ~all functions and a relift becomes
 link-bound — minutes instead of ~an hour. A guest source change invalidates
 only the functions whose bytes actually changed.
 
-## Sequencing
+## Measured: how the work actually splits
 
-Stage 1 is a prerequisite (objects cannot be reused while their symbol
-names move), and it alone helps every function whose IR has no numeric
-slots. Stage 2 completes it. Both land behind a flag first, validated on
-the hello-world gate — which has a full pass/fail signal in ~15 minutes —
-before AzWriter uses them.
+Two independent measurements on real AzWriter builds, both cheap enough to
+repeat whenever this is revisited.
+
+**1. What differs between builds.** Diffing the same function's `.patched.ll`
+across two builds (scratch dirs kept via `AZ_REMILL_KEEP_SCRATCH=1`;
+`AzStartup_alloc`, 516 lines) shows **10 changed lines, ~1% of the file**, in
+exactly the two predicted classes and nothing else:
+
+```
+-define ptr @sub_2363c0(...)          +define ptr @sub_232130(...)      symbol name
+-  %49 = add i64 %48, 17715078        +  %49 = add i64 %48, 17732118    numeric slot
+-  %70 = call ptr @sub_a069b0(...)    +  %70 = call ptr @sub_a07040(...) symbol name
+```
+
+So the premise holds: the IR is already ~99% position-independent, and the
+cache misses on a hundredth of the text. (Note the intermediate *filenames*
+are layout-dependent too — stems embed native addresses, so only the 41
+hand-written `AzStartup_*` wrappers even share a name across builds.)
+
+**2. How much each stage buys.** Every v6 manifest records its slots tagged
+`s` (symbol) or `d` (numeric), so the split is already on disk. Over a
+random 4000-manifest sample:
+
+| | functions | function bytes |
+|---|---|---|
+| zero numeric slots — **Stage 1 alone suffices** | 31.1% | **19.4%** |
+| has numeric slots — **needs Stage 2 as well** | 68.9% | **80.6%** |
+
+Numeric slots outnumber symbol slots roughly 4:1 (204,779 vs 52,746).
+
+**The bytes column is the one that matters**, because opt+llc cost scales with
+function size, not count. The functions with no numeric slots are the small
+ones; the expensive tail that dominates the ~88 s llc measurements above is
+almost entirely in the 80.6%.
+
+## Sequencing — revised by the measurement
+
+Stage 1 is still a prerequisite (an object cannot be reused while its symbol
+names move), but it is **not a standalone win**: an object is reusable only
+when the *whole* IR text matches, so shipping Stage 1 by itself would convert
+only ~19% of lift bytes into cache hits and leave every expensive function
+cold. The two stages are a conjunction for the heavy tail, not two
+independently valuable increments.
+
+Land them together, behind one flag, validated on the hello-world gate —
+which gives a full pass/fail signal in ~15 minutes — before AzWriter uses
+them. If they must be split for review, Stage 1 can land first as
+infrastructure, but do not expect a measurable relift speedup until Stage 2
+lands with it.
