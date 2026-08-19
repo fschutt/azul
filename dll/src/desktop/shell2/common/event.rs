@@ -1157,8 +1157,8 @@ pub fn macos_keycode_to_virtual_key(keycode: u16) -> Option<VirtualKeyCode> {
         0x6E => Some(VirtualKeyCode::Apps), // PC "Menu" / contextual-menu key
         0x6F => Some(VirtualKeyCode::F12),
         0x76 => Some(VirtualKeyCode::F4),
-        0x78 => Some(VirtualKeyCode::F2),
         0x7A => Some(VirtualKeyCode::F1),
+        0x78 => Some(VirtualKeyCode::F2),
         // Navigation cluster. These emit Private-Use-Area characters
         // (U+F700..U+F7FF), which handle_key_down correctly refuses to insert as
         // text — so without an entry here they produced no engine event AT ALL.
@@ -1171,6 +1171,319 @@ pub fn macos_keycode_to_virtual_key(keycode: u16) -> Option<VirtualKeyCode> {
         0x7C => Some(VirtualKeyCode::Right),
         0x7D => Some(VirtualKeyCode::Down),
         0x7E => Some(VirtualKeyCode::Up),
+        _ => None,
+    }
+}
+
+/// The Win32 `VK_*` codes [`win32_vkey_to_virtual_key`] matches on.
+///
+/// Transcribed from `winuser.h` because that table is compiled on every
+/// platform and `winapi` is a Windows-only dependency. `win_event.rs` asserts
+/// this whole list against `winapi::um::winuser` at compile time, so a mistyped
+/// digit here is a Windows BUILD ERROR and not a dead key at runtime.
+#[allow(missing_docs)]
+pub mod win32_vk {
+    pub const VK_BACK: i32 = 0x08;
+    pub const VK_TAB: i32 = 0x09;
+    pub const VK_RETURN: i32 = 0x0D;
+    pub const VK_SHIFT: i32 = 0x10;
+    pub const VK_CONTROL: i32 = 0x11;
+    pub const VK_MENU: i32 = 0x12;
+    pub const VK_PAUSE: i32 = 0x13;
+    pub const VK_CAPITAL: i32 = 0x14;
+    pub const VK_KANA: i32 = 0x15;
+    pub const VK_KANJI: i32 = 0x19;
+    pub const VK_ESCAPE: i32 = 0x1B;
+    pub const VK_CONVERT: i32 = 0x1C;
+    pub const VK_NONCONVERT: i32 = 0x1D;
+    pub const VK_SPACE: i32 = 0x20;
+    pub const VK_PRIOR: i32 = 0x21;
+    pub const VK_NEXT: i32 = 0x22;
+    pub const VK_END: i32 = 0x23;
+    pub const VK_HOME: i32 = 0x24;
+    pub const VK_LEFT: i32 = 0x25;
+    pub const VK_UP: i32 = 0x26;
+    pub const VK_RIGHT: i32 = 0x27;
+    pub const VK_DOWN: i32 = 0x28;
+    pub const VK_SNAPSHOT: i32 = 0x2C;
+    pub const VK_INSERT: i32 = 0x2D;
+    pub const VK_DELETE: i32 = 0x2E;
+    pub const VK_LWIN: i32 = 0x5B;
+    pub const VK_RWIN: i32 = 0x5C;
+    pub const VK_APPS: i32 = 0x5D;
+    pub const VK_SLEEP: i32 = 0x5F;
+    pub const VK_NUMPAD0: i32 = 0x60;
+    pub const VK_NUMPAD1: i32 = 0x61;
+    pub const VK_NUMPAD2: i32 = 0x62;
+    pub const VK_NUMPAD3: i32 = 0x63;
+    pub const VK_NUMPAD4: i32 = 0x64;
+    pub const VK_NUMPAD5: i32 = 0x65;
+    pub const VK_NUMPAD6: i32 = 0x66;
+    pub const VK_NUMPAD7: i32 = 0x67;
+    pub const VK_NUMPAD8: i32 = 0x68;
+    pub const VK_NUMPAD9: i32 = 0x69;
+    pub const VK_MULTIPLY: i32 = 0x6A;
+    pub const VK_ADD: i32 = 0x6B;
+    pub const VK_SUBTRACT: i32 = 0x6D;
+    pub const VK_DECIMAL: i32 = 0x6E;
+    pub const VK_DIVIDE: i32 = 0x6F;
+    pub const VK_F1: i32 = 0x70;
+    pub const VK_F2: i32 = 0x71;
+    pub const VK_F3: i32 = 0x72;
+    pub const VK_F4: i32 = 0x73;
+    pub const VK_F5: i32 = 0x74;
+    pub const VK_F6: i32 = 0x75;
+    pub const VK_F7: i32 = 0x76;
+    pub const VK_F8: i32 = 0x77;
+    pub const VK_F9: i32 = 0x78;
+    pub const VK_F10: i32 = 0x79;
+    pub const VK_F11: i32 = 0x7A;
+    pub const VK_F12: i32 = 0x7B;
+    pub const VK_F13: i32 = 0x7C;
+    pub const VK_F14: i32 = 0x7D;
+    pub const VK_F15: i32 = 0x7E;
+    pub const VK_F16: i32 = 0x7F;
+    pub const VK_F17: i32 = 0x80;
+    pub const VK_F18: i32 = 0x81;
+    pub const VK_F19: i32 = 0x82;
+    pub const VK_F20: i32 = 0x83;
+    pub const VK_F21: i32 = 0x84;
+    pub const VK_F22: i32 = 0x85;
+    pub const VK_F23: i32 = 0x86;
+    pub const VK_F24: i32 = 0x87;
+    pub const VK_NUMLOCK: i32 = 0x90;
+    pub const VK_SCROLL: i32 = 0x91;
+    pub const VK_LSHIFT: i32 = 0xA0;
+    pub const VK_RSHIFT: i32 = 0xA1;
+    pub const VK_LCONTROL: i32 = 0xA2;
+    pub const VK_RCONTROL: i32 = 0xA3;
+    pub const VK_LMENU: i32 = 0xA4;
+    pub const VK_RMENU: i32 = 0xA5;
+    pub const VK_BROWSER_BACK: i32 = 0xA6;
+    pub const VK_BROWSER_FORWARD: i32 = 0xA7;
+    pub const VK_BROWSER_REFRESH: i32 = 0xA8;
+    pub const VK_BROWSER_STOP: i32 = 0xA9;
+    pub const VK_BROWSER_SEARCH: i32 = 0xAA;
+    pub const VK_BROWSER_FAVORITES: i32 = 0xAB;
+    pub const VK_BROWSER_HOME: i32 = 0xAC;
+    pub const VK_VOLUME_MUTE: i32 = 0xAD;
+    pub const VK_VOLUME_DOWN: i32 = 0xAE;
+    pub const VK_VOLUME_UP: i32 = 0xAF;
+    pub const VK_MEDIA_NEXT_TRACK: i32 = 0xB0;
+    pub const VK_MEDIA_PREV_TRACK: i32 = 0xB1;
+    pub const VK_MEDIA_STOP: i32 = 0xB2;
+    pub const VK_MEDIA_PLAY_PAUSE: i32 = 0xB3;
+    pub const VK_LAUNCH_MAIL: i32 = 0xB4;
+    pub const VK_LAUNCH_MEDIA_SELECT: i32 = 0xB5;
+    pub const VK_OEM_1: i32 = 0xBA;
+    pub const VK_OEM_PLUS: i32 = 0xBB;
+    pub const VK_OEM_COMMA: i32 = 0xBC;
+    pub const VK_OEM_MINUS: i32 = 0xBD;
+    pub const VK_OEM_PERIOD: i32 = 0xBE;
+    pub const VK_OEM_2: i32 = 0xBF;
+    pub const VK_OEM_3: i32 = 0xC0;
+    pub const VK_OEM_4: i32 = 0xDB;
+    pub const VK_OEM_5: i32 = 0xDC;
+    pub const VK_OEM_6: i32 = 0xDD;
+    pub const VK_OEM_7: i32 = 0xDE;
+    pub const VK_OEM_102: i32 = 0xE2;
+}
+
+/// Translate a Win32 virtual-key code (`VK_*`) to a [`VirtualKeyCode`].
+///
+/// `None` means the engine has no virtual key for that code. The SCANCODE is
+/// recorded regardless (see [`apply_win32_key_transition`]), so an unmapped key
+/// is unlabelled rather than dead — but every shortcut and every key-filtered
+/// callback is keyed on the `VirtualKeyCode`, so a missing entry is still a
+/// feature that silently does not exist.
+///
+/// `oem_char` is the character the ACTIVE keyboard layout produces for `vkey`,
+/// i.e. `MapVirtualKeyA(vkey, MAPVK_VK_TO_CHAR)`. It is the only way to tell
+/// the seven layout-dependent `VK_OEM_1..VK_OEM_7` codes apart — `VK_OEM_1` is
+/// `;` on a US layout and `ü` on a German one — and it is ignored for every
+/// other code. `None` resolves those seven to nothing, which is what a
+/// non-Windows caller (and this crate's own tests) get.
+///
+/// VK code list: <https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes>
+///
+/// Derived from winit's `platform_impl::windows::event`; the Apache-2.0 notice
+/// it is distributed under is reproduced in full at the head of
+/// `shell2/windows/win_event.rs`, where this table used to live.
+#[must_use]
+#[allow(clippy::too_many_lines)] // exhaustive keycode match table
+// The VK code is the documentation here: merging the arms that answer the same
+// VirtualKeyCode would hide WHICH codes reach it (the generic modifier codes vs
+// the sided ones), which is the distinction MWA-A2 was about.
+#[allow(clippy::match_same_arms)]
+#[allow(clippy::wildcard_imports)] // the VK_* constant block, same as the X11 table's defines::*
+pub fn win32_vkey_to_virtual_key(vkey: i32, oem_char: Option<char>) -> Option<VirtualKeyCode> {
+    use win32_vk::*;
+
+    match vkey {
+        VK_BACK => Some(VirtualKeyCode::Back),
+        VK_TAB => Some(VirtualKeyCode::Tab),
+        VK_RETURN => Some(VirtualKeyCode::Return),
+        VK_LSHIFT => Some(VirtualKeyCode::LShift),
+        VK_RSHIFT => Some(VirtualKeyCode::RShift),
+        VK_LCONTROL => Some(VirtualKeyCode::LControl),
+        VK_RCONTROL => Some(VirtualKeyCode::RControl),
+        VK_LMENU => Some(VirtualKeyCode::LAlt),
+        VK_RMENU => Some(VirtualKeyCode::RAlt),
+        // MWA-A2: WM_KEYDOWN/WM_KEYUP deliver the GENERIC modifier codes
+        // (VK_SHIFT/VK_CONTROL/VK_MENU) unless the caller runs MapVirtualKey
+        // on the scancode — dropping them meant ctrl_down() was NEVER true
+        // on Windows and every Ctrl shortcut was dead. Map generic → left
+        // variant (side doesn't matter for shortcut state).
+        VK_SHIFT => Some(VirtualKeyCode::LShift),
+        VK_CONTROL => Some(VirtualKeyCode::LControl),
+        VK_MENU => Some(VirtualKeyCode::LAlt),
+        VK_PAUSE => Some(VirtualKeyCode::Pause),
+        VK_CAPITAL => Some(VirtualKeyCode::Capital),
+        VK_KANA => Some(VirtualKeyCode::Kana),
+        VK_KANJI => Some(VirtualKeyCode::Kanji),
+        VK_ESCAPE => Some(VirtualKeyCode::Escape),
+        VK_CONVERT => Some(VirtualKeyCode::Convert),
+        VK_NONCONVERT => Some(VirtualKeyCode::NoConvert),
+        VK_SPACE => Some(VirtualKeyCode::Space),
+        VK_PRIOR => Some(VirtualKeyCode::PageUp),
+        VK_NEXT => Some(VirtualKeyCode::PageDown),
+        VK_END => Some(VirtualKeyCode::End),
+        VK_HOME => Some(VirtualKeyCode::Home),
+        VK_LEFT => Some(VirtualKeyCode::Left),
+        VK_UP => Some(VirtualKeyCode::Up),
+        VK_RIGHT => Some(VirtualKeyCode::Right),
+        VK_DOWN => Some(VirtualKeyCode::Down),
+        VK_SNAPSHOT => Some(VirtualKeyCode::Snapshot),
+        VK_INSERT => Some(VirtualKeyCode::Insert),
+        VK_DELETE => Some(VirtualKeyCode::Delete),
+        0x30 => Some(VirtualKeyCode::Key0),
+        0x31 => Some(VirtualKeyCode::Key1),
+        0x32 => Some(VirtualKeyCode::Key2),
+        0x33 => Some(VirtualKeyCode::Key3),
+        0x34 => Some(VirtualKeyCode::Key4),
+        0x35 => Some(VirtualKeyCode::Key5),
+        0x36 => Some(VirtualKeyCode::Key6),
+        0x37 => Some(VirtualKeyCode::Key7),
+        0x38 => Some(VirtualKeyCode::Key8),
+        0x39 => Some(VirtualKeyCode::Key9),
+        0x41 => Some(VirtualKeyCode::A),
+        0x42 => Some(VirtualKeyCode::B),
+        0x43 => Some(VirtualKeyCode::C),
+        0x44 => Some(VirtualKeyCode::D),
+        0x45 => Some(VirtualKeyCode::E),
+        0x46 => Some(VirtualKeyCode::F),
+        0x47 => Some(VirtualKeyCode::G),
+        0x48 => Some(VirtualKeyCode::H),
+        0x49 => Some(VirtualKeyCode::I),
+        0x4A => Some(VirtualKeyCode::J),
+        0x4B => Some(VirtualKeyCode::K),
+        0x4C => Some(VirtualKeyCode::L),
+        0x4D => Some(VirtualKeyCode::M),
+        0x4E => Some(VirtualKeyCode::N),
+        0x4F => Some(VirtualKeyCode::O),
+        0x50 => Some(VirtualKeyCode::P),
+        0x51 => Some(VirtualKeyCode::Q),
+        0x52 => Some(VirtualKeyCode::R),
+        0x53 => Some(VirtualKeyCode::S),
+        0x54 => Some(VirtualKeyCode::T),
+        0x55 => Some(VirtualKeyCode::U),
+        0x56 => Some(VirtualKeyCode::V),
+        0x57 => Some(VirtualKeyCode::W),
+        0x58 => Some(VirtualKeyCode::X),
+        0x59 => Some(VirtualKeyCode::Y),
+        0x5A => Some(VirtualKeyCode::Z),
+        VK_LWIN => Some(VirtualKeyCode::LWin),
+        VK_RWIN => Some(VirtualKeyCode::RWin),
+        VK_APPS => Some(VirtualKeyCode::Apps),
+        VK_SLEEP => Some(VirtualKeyCode::Sleep),
+        VK_NUMPAD0 => Some(VirtualKeyCode::Numpad0),
+        VK_NUMPAD1 => Some(VirtualKeyCode::Numpad1),
+        VK_NUMPAD2 => Some(VirtualKeyCode::Numpad2),
+        VK_NUMPAD3 => Some(VirtualKeyCode::Numpad3),
+        VK_NUMPAD4 => Some(VirtualKeyCode::Numpad4),
+        VK_NUMPAD5 => Some(VirtualKeyCode::Numpad5),
+        VK_NUMPAD6 => Some(VirtualKeyCode::Numpad6),
+        VK_NUMPAD7 => Some(VirtualKeyCode::Numpad7),
+        VK_NUMPAD8 => Some(VirtualKeyCode::Numpad8),
+        VK_NUMPAD9 => Some(VirtualKeyCode::Numpad9),
+        VK_MULTIPLY => Some(VirtualKeyCode::NumpadMultiply),
+        VK_ADD => Some(VirtualKeyCode::NumpadAdd),
+        VK_SUBTRACT => Some(VirtualKeyCode::NumpadSubtract),
+        VK_DECIMAL => Some(VirtualKeyCode::NumpadDecimal),
+        VK_DIVIDE => Some(VirtualKeyCode::NumpadDivide),
+        VK_F1 => Some(VirtualKeyCode::F1),
+        VK_F2 => Some(VirtualKeyCode::F2),
+        VK_F3 => Some(VirtualKeyCode::F3),
+        VK_F4 => Some(VirtualKeyCode::F4),
+        VK_F5 => Some(VirtualKeyCode::F5),
+        VK_F6 => Some(VirtualKeyCode::F6),
+        VK_F7 => Some(VirtualKeyCode::F7),
+        VK_F8 => Some(VirtualKeyCode::F8),
+        VK_F9 => Some(VirtualKeyCode::F9),
+        VK_F10 => Some(VirtualKeyCode::F10),
+        VK_F11 => Some(VirtualKeyCode::F11),
+        VK_F12 => Some(VirtualKeyCode::F12),
+        VK_F13 => Some(VirtualKeyCode::F13),
+        VK_F14 => Some(VirtualKeyCode::F14),
+        VK_F15 => Some(VirtualKeyCode::F15),
+        VK_F16 => Some(VirtualKeyCode::F16),
+        VK_F17 => Some(VirtualKeyCode::F17),
+        VK_F18 => Some(VirtualKeyCode::F18),
+        VK_F19 => Some(VirtualKeyCode::F19),
+        VK_F20 => Some(VirtualKeyCode::F20),
+        VK_F21 => Some(VirtualKeyCode::F21),
+        VK_F22 => Some(VirtualKeyCode::F22),
+        VK_F23 => Some(VirtualKeyCode::F23),
+        VK_F24 => Some(VirtualKeyCode::F24),
+        VK_NUMLOCK => Some(VirtualKeyCode::Numlock),
+        VK_SCROLL => Some(VirtualKeyCode::Scroll),
+        VK_BROWSER_BACK => Some(VirtualKeyCode::NavigateBackward),
+        VK_BROWSER_FORWARD => Some(VirtualKeyCode::NavigateForward),
+        VK_BROWSER_REFRESH => Some(VirtualKeyCode::WebRefresh),
+        VK_BROWSER_STOP => Some(VirtualKeyCode::WebStop),
+        VK_BROWSER_SEARCH => Some(VirtualKeyCode::WebSearch),
+        VK_BROWSER_FAVORITES => Some(VirtualKeyCode::WebFavorites),
+        VK_BROWSER_HOME => Some(VirtualKeyCode::WebHome),
+        VK_VOLUME_MUTE => Some(VirtualKeyCode::Mute),
+        VK_VOLUME_DOWN => Some(VirtualKeyCode::VolumeDown),
+        VK_VOLUME_UP => Some(VirtualKeyCode::VolumeUp),
+        VK_MEDIA_NEXT_TRACK => Some(VirtualKeyCode::NextTrack),
+        VK_MEDIA_PREV_TRACK => Some(VirtualKeyCode::PrevTrack),
+        VK_MEDIA_STOP => Some(VirtualKeyCode::MediaStop),
+        VK_MEDIA_PLAY_PAUSE => Some(VirtualKeyCode::PlayPause),
+        VK_LAUNCH_MAIL => Some(VirtualKeyCode::Mail),
+        VK_LAUNCH_MEDIA_SELECT => Some(VirtualKeyCode::MediaSelect),
+        VK_OEM_PLUS => Some(VirtualKeyCode::Equals),
+        VK_OEM_COMMA => Some(VirtualKeyCode::Comma),
+        VK_OEM_MINUS => Some(VirtualKeyCode::Minus),
+        VK_OEM_PERIOD => Some(VirtualKeyCode::Period),
+        // Windows does not distinguish these seven per layout: the code names
+        // a POSITION on the keyboard and only the active layout says which
+        // character sits there.
+        VK_OEM_1 | VK_OEM_2 | VK_OEM_3 | VK_OEM_4 | VK_OEM_5 | VK_OEM_6 | VK_OEM_7 => {
+            win32_oem_char_to_virtual_key(oem_char?)
+        }
+        VK_OEM_102 => Some(VirtualKeyCode::OEM102),
+        _ => None,
+    }
+}
+
+/// The [`VirtualKeyCode`] for the character an active Windows layout puts on one
+/// of the seven `VK_OEM_1..VK_OEM_7` positions.
+///
+/// A character with no punctuation key of its own (`ü`, `ö`, `#` on a German
+/// layout) answers `None`: the engine has no code for it, and the text still
+/// reaches the app through `WM_CHAR`, which never consults this table.
+#[must_use]
+pub fn win32_oem_char_to_virtual_key(oem_char: char) -> Option<VirtualKeyCode> {
+    match oem_char {
+        ';' => Some(VirtualKeyCode::Semicolon),
+        '/' => Some(VirtualKeyCode::Slash),
+        '`' => Some(VirtualKeyCode::Grave),
+        '[' => Some(VirtualKeyCode::LBracket),
+        ']' => Some(VirtualKeyCode::RBracket),
+        '\'' => Some(VirtualKeyCode::Apostrophe),
+        '\\' => Some(VirtualKeyCode::Backslash),
         _ => None,
     }
 }
@@ -8779,6 +9092,124 @@ mod tests {
         assert_eq!(Some(VirtualKeyCode::RControl), macos_keycode_to_virtual_key(0x3E));
         assert_eq!(Some(VirtualKeyCode::Capital), macos_keycode_to_virtual_key(0x39));
         assert_eq!(Some(VirtualKeyCode::Apps), macos_keycode_to_virtual_key(0x6E));
+    }
+
+    // Win32: the VK_* table
+    //
+    // Moved here from `windows/win_event.rs` so it RUNS: that module is
+    // `#[cfg(target_os = "windows")]`, no CI job compiles it on the host that
+    // runs the test suite, and it had NO tests at all.
+
+    #[test]
+    fn win32_vkey_conversion() {
+        let vk = |code: i32| win32_vkey_to_virtual_key(code, None);
+        assert_eq!(Some(VirtualKeyCode::Back), vk(win32_vk::VK_BACK));
+        assert_eq!(Some(VirtualKeyCode::Return), vk(win32_vk::VK_RETURN));
+        assert_eq!(Some(VirtualKeyCode::Space), vk(win32_vk::VK_SPACE));
+        assert_eq!(Some(VirtualKeyCode::Escape), vk(win32_vk::VK_ESCAPE));
+        assert_eq!(Some(VirtualKeyCode::Key0), vk(0x30));
+        assert_eq!(Some(VirtualKeyCode::Key9), vk(0x39));
+        assert_eq!(Some(VirtualKeyCode::A), vk(0x41));
+        assert_eq!(Some(VirtualKeyCode::Z), vk(0x5A));
+        // Not a VK code any Windows version defines.
+        assert_eq!(None, vk(0xFF));
+    }
+
+    /// MWA-A2: `WM_KEYDOWN` delivers the GENERIC modifier codes unless the
+    /// caller runs `MapVirtualKey` on the scancode. Dropping those three arms
+    /// meant `ctrl_down()` was NEVER true on Windows and every Ctrl shortcut
+    /// was dead, while the side-specific arms kept the table looking complete.
+    #[test]
+    fn win32_vkey_conversion_generic_and_sided_modifiers() {
+        let vk = |code: i32| win32_vkey_to_virtual_key(code, None);
+        assert_eq!(Some(VirtualKeyCode::LShift), vk(win32_vk::VK_SHIFT));
+        assert_eq!(Some(VirtualKeyCode::LControl), vk(win32_vk::VK_CONTROL));
+        assert_eq!(Some(VirtualKeyCode::LAlt), vk(win32_vk::VK_MENU));
+
+        assert_eq!(Some(VirtualKeyCode::LShift), vk(win32_vk::VK_LSHIFT));
+        assert_eq!(Some(VirtualKeyCode::RShift), vk(win32_vk::VK_RSHIFT));
+        assert_eq!(Some(VirtualKeyCode::LControl), vk(win32_vk::VK_LCONTROL));
+        assert_eq!(Some(VirtualKeyCode::RControl), vk(win32_vk::VK_RCONTROL));
+        assert_eq!(Some(VirtualKeyCode::LAlt), vk(win32_vk::VK_LMENU));
+        assert_eq!(Some(VirtualKeyCode::RAlt), vk(win32_vk::VK_RMENU));
+        assert_eq!(Some(VirtualKeyCode::LWin), vk(win32_vk::VK_LWIN));
+        assert_eq!(Some(VirtualKeyCode::RWin), vk(win32_vk::VK_RWIN));
+    }
+
+    #[test]
+    fn win32_vkey_conversion_navigation_keypad_and_function_row() {
+        let vk = |code: i32| win32_vkey_to_virtual_key(code, None);
+        // PRIOR/NEXT are PageUp/PageDown, which is the easy one to transpose.
+        assert_eq!(Some(VirtualKeyCode::PageUp), vk(win32_vk::VK_PRIOR));
+        assert_eq!(Some(VirtualKeyCode::PageDown), vk(win32_vk::VK_NEXT));
+        assert_eq!(Some(VirtualKeyCode::Home), vk(win32_vk::VK_HOME));
+        assert_eq!(Some(VirtualKeyCode::End), vk(win32_vk::VK_END));
+        assert_eq!(Some(VirtualKeyCode::Insert), vk(win32_vk::VK_INSERT));
+        assert_eq!(Some(VirtualKeyCode::Delete), vk(win32_vk::VK_DELETE));
+        assert_eq!(Some(VirtualKeyCode::Left), vk(win32_vk::VK_LEFT));
+        assert_eq!(Some(VirtualKeyCode::Up), vk(win32_vk::VK_UP));
+
+        assert_eq!(Some(VirtualKeyCode::Numpad0), vk(win32_vk::VK_NUMPAD0));
+        assert_eq!(Some(VirtualKeyCode::Numpad9), vk(win32_vk::VK_NUMPAD9));
+        assert_eq!(Some(VirtualKeyCode::NumpadMultiply), vk(win32_vk::VK_MULTIPLY));
+        assert_eq!(Some(VirtualKeyCode::NumpadAdd), vk(win32_vk::VK_ADD));
+        assert_eq!(Some(VirtualKeyCode::NumpadSubtract), vk(win32_vk::VK_SUBTRACT));
+        assert_eq!(Some(VirtualKeyCode::NumpadDecimal), vk(win32_vk::VK_DECIMAL));
+        assert_eq!(Some(VirtualKeyCode::NumpadDivide), vk(win32_vk::VK_DIVIDE));
+
+        // The function row is contiguous from VK_F1, all 24 of it.
+        for n in 0..24 {
+            assert!(
+                win32_vkey_to_virtual_key(win32_vk::VK_F1 + n, None).is_some(),
+                "VK_F{} has no VirtualKeyCode",
+                n + 1
+            );
+        }
+        assert_eq!(Some(VirtualKeyCode::F12), vk(win32_vk::VK_F12));
+        assert_eq!(Some(VirtualKeyCode::F24), vk(win32_vk::VK_F24));
+    }
+
+    /// The seven `VK_OEM_1..VK_OEM_7` codes name a POSITION, not a character:
+    /// only the active layout says which key sits there. `None` for the layout
+    /// character therefore has to mean "no virtual key", not "some default US
+    /// key" — otherwise a German `#` would report as `Slash`.
+    #[test]
+    fn win32_oem_keys_resolve_through_the_active_layout_and_not_by_position() {
+        assert_eq!(
+            Some(VirtualKeyCode::Semicolon),
+            win32_vkey_to_virtual_key(win32_vk::VK_OEM_1, Some(';'))
+        );
+        assert_eq!(
+            Some(VirtualKeyCode::Backslash),
+            win32_vkey_to_virtual_key(win32_vk::VK_OEM_5, Some('\\'))
+        );
+        // Same POSITION, a layout that puts something else there.
+        assert_eq!(None, win32_vkey_to_virtual_key(win32_vk::VK_OEM_1, Some('ü')));
+        assert_eq!(None, win32_vkey_to_virtual_key(win32_vk::VK_OEM_1, None));
+
+        // The four OEM codes that are layout-INDEPENDENT keep their meaning
+        // whatever the layout character says.
+        assert_eq!(
+            Some(VirtualKeyCode::Equals),
+            win32_vkey_to_virtual_key(win32_vk::VK_OEM_PLUS, Some('ü'))
+        );
+        assert_eq!(
+            Some(VirtualKeyCode::Comma),
+            win32_vkey_to_virtual_key(win32_vk::VK_OEM_COMMA, None)
+        );
+        assert_eq!(
+            Some(VirtualKeyCode::Minus),
+            win32_vkey_to_virtual_key(win32_vk::VK_OEM_MINUS, None)
+        );
+        assert_eq!(
+            Some(VirtualKeyCode::Period),
+            win32_vkey_to_virtual_key(win32_vk::VK_OEM_PERIOD, None)
+        );
+        // The 102nd key of an ISO keyboard has its own code.
+        assert_eq!(
+            Some(VirtualKeyCode::OEM102),
+            win32_vkey_to_virtual_key(win32_vk::VK_OEM_102, None)
+        );
     }
 
     // Pointer state a scrollbar consumes
