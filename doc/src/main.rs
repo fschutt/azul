@@ -15,6 +15,7 @@ pub mod doc_coverage;
 pub mod dllgen;
 pub mod e2erun;
 pub mod gene2e;
+pub mod lint_examples;
 pub mod docgen;
 pub mod patch;
 pub mod print;
@@ -297,6 +298,35 @@ fn main() -> anyhow::Result<()> {
                 problems += non_repr_c.len();
             } else {
                 println!("[ok] all FFI-exposed structs are #[repr(C)]");
+            }
+
+            // Lint 4: examples may only name API symbols api.json still has.
+            // Renaming a function renames the symbol in all ~38 bindings at
+            // once, but examples and guide snippets are hand-written and
+            // nothing regenerates them. Compiling them is the only other check
+            // and it runs late, per-language, and skips any toolchain that
+            // fails to install. See doc/src/lint_examples.rs.
+            let stale = lint_examples::run(&project_root, &api_data);
+            if stale.is_empty() {
+                println!("[ok] examples reference no removed/renamed API symbols");
+            } else {
+                eprintln!(
+                    "[FAIL] {} example call site(s) invoke a function api.json does not define:",
+                    stale.len()
+                );
+                for f in &stale {
+                    match &f.suggestion {
+                        Some(s) => eprintln!(
+                            "    {}:{}: {} — no such function `{}` (did you mean `{}`?)",
+                            f.file, f.line, f.token, f.function, s
+                        ),
+                        None => eprintln!(
+                            "    {}:{}: {} — no such function `{}`",
+                            f.file, f.line, f.token, f.function
+                        ),
+                    }
+                }
+                problems += stale.len();
             }
 
             if problems > 0 {
