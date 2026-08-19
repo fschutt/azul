@@ -61,6 +61,13 @@ pub struct ScrollAdjustment {
 struct ScrollableAncestor {
     dom_id: DomId,
     node_id: NodeId,
+    /// What to ADD to the target rect to express it in this ancestor's dom.
+    ///
+    /// Zero within one dom, where everything already shares an absolute space.
+    /// Non-zero once the walk has crossed out of a VirtualView's nested dom,
+    /// whose display list is 0-relative and composited at
+    /// `host.origin + content_offset`.
+    target_lift: LogicalPosition,
     /// The visible rect of the scroll container (content area)
     visible_rect: LogicalRect,
     /// Whether horizontal scroll is enabled
@@ -68,6 +75,14 @@ struct ScrollableAncestor {
     /// Whether vertical scroll is enabled
     scroll_y: bool,
 }
+
+/// Resolve a nested dom to the VirtualView that hosts it:
+/// `(host's dom, host node, offset that converts nested geometry to the host's
+/// space)`.
+///
+/// Passed in rather than reaching for `VirtualViewManager` so this module stays
+/// independent of it — and so a test can hand in a fixture chain.
+pub type NestedDomHop<'a> = &'a dyn Fn(DomId) -> Option<(DomId, NodeId, LogicalPosition)>;
 
 // ============================================================================
 // Core API: scroll_rect_into_view
@@ -102,6 +117,7 @@ pub(crate) fn scroll_rect_into_view(
     scroll_manager: &mut ScrollManager,
     options: ScrollIntoViewOptions,
     now: Instant,
+    hop: NestedDomHop<'_>,
 ) -> Vec<ScrollAdjustment> {
     let mut adjustments = Vec::new();
     
@@ -111,6 +127,7 @@ pub(crate) fn scroll_rect_into_view(
         target_node_id,
         layout_results,
         scroll_manager,
+        hop,
     );
     
     if scroll_ancestors.is_empty() {
@@ -121,9 +138,15 @@ pub(crate) fn scroll_rect_into_view(
     let mut current_rect = target_rect;
     
     for ancestor in scroll_ancestors {
+        // Express the target in THIS ancestor's dom before comparing. Zero
+        // within one dom; non-zero once the walk has left a nested one.
+        let mut compare_rect = current_rect;
+        compare_rect.origin.x += ancestor.target_lift.x;
+        compare_rect.origin.y += ancestor.target_lift.y;
+
         // Calculate the scroll delta based on options
         let delta = calculate_scroll_delta(
-            current_rect,
+            compare_rect,
             ancestor.visible_rect,
             options.block,
             options.inline_axis,
@@ -181,6 +204,7 @@ pub fn scroll_node_into_view(
     scroll_manager: &mut ScrollManager,
     options: ScrollIntoViewOptions,
     now: Instant,
+    hop: NestedDomHop<'_>,
 ) -> Vec<ScrollAdjustment> {
     // Get node's bounding rect from layout
     let Some(target_rect) = get_node_rect(node_id, layout_results) else {
@@ -200,6 +224,7 @@ pub fn scroll_node_into_view(
         scroll_manager,
         options,
         now,
+        hop,
     )
 }
 
@@ -214,6 +239,7 @@ pub fn scroll_cursor_into_view(
     scroll_manager: &mut ScrollManager,
     options: ScrollIntoViewOptions,
     now: Instant,
+    hop: NestedDomHop<'_>,
 ) -> Vec<ScrollAdjustment> {
     // Get node's position to transform cursor_rect to absolute coordinates
     let Some(node_rect) = get_node_rect(node_id, layout_results) else {
@@ -242,6 +268,7 @@ pub fn scroll_cursor_into_view(
         scroll_manager,
         options,
         now,
+        hop,
     )
 }
 
@@ -257,35 +284,75 @@ fn find_scrollable_ancestors(
     node_id: NodeId,
     layout_results: &alloc::collections::BTreeMap<DomId, DomLayoutResult>,
     scroll_manager: &ScrollManager,
+    hop: NestedDomHop<'_>,
 ) -> Vec<ScrollableAncestor> {
     let mut ancestors = Vec::new();
-    
-    let Some(layout_result) = layout_results.get(&dom_id) else {
-        return ancestors;
-    };
-    
-    let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+    let mut current_dom = dom_id;
+    let mut current = Some(node_id);
+    // What to add to the target rect to express it in `current_dom`.
+    let mut lift = LogicalPosition::zero();
+    let mut crossings = 0usize;
+    let mut entered_by_crossing = false;
 
-    // Walk up the DOM tree from parent of target node
-    let mut current = node_hierarchy.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-    
-    while let Some(current_node_id) = current {
-        // Check if this node is scrollable
-        if let Some(ancestor) = check_if_scrollable(
-            dom_id,
-            current_node_id,
-            layout_result,
-            scroll_manager,
-        ) {
-            ancestors.push(ancestor);
+    'walk: loop {
+        let Some(layout_result) = layout_results.get(&current_dom) else {
+            return ancestors;
+        };
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+
+        // In the target's OWN dom start above it: scrolling a container into
+        // its own scrollport is not a thing. After a crossing, start AT the
+        // host — the VirtualView clips the nested content, so it is a genuine
+        // scroll ancestor of everything inside it.
+        let mut node = if entered_by_crossing {
+            current
+        } else {
+            current
+                .and_then(|n| node_hierarchy.get(n))
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        };
+
+        while let Some(current_node_id) = node {
+            if let Some(mut ancestor) = check_if_scrollable(
+                current_dom,
+                current_node_id,
+                layout_result,
+                scroll_manager,
+            ) {
+                ancestor.target_lift = lift;
+                ancestors.push(ancestor);
+            }
+            node = node_hierarchy
+                .get(current_node_id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
-        
-        // Move to parent
-        current = node_hierarchy.get(current_node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+
+        // Reached this dom's root. A nested dom is a WINDOW inside a
+        // VirtualView, so its scroll ancestry continues in the host's dom —
+        // stopping here meant a caret inside a virtualized view could never be
+        // revealed through the containers that actually clip it.
+        crossings += 1;
+        if crossings > NESTED_DOM_CROSSING_LIMIT {
+            break 'walk;
+        }
+        match hop(current_dom) {
+            Some((parent_dom, host_node, offset)) => {
+                lift.x += offset.x;
+                lift.y += offset.y;
+                current_dom = parent_dom;
+                current = Some(host_node);
+                entered_by_crossing = true;
+            }
+            None => break 'walk,
+        }
     }
-    
+
     ancestors
 }
+
+/// How many VirtualView boundaries [`find_scrollable_ancestors`] will cross.
+/// Nesting is shallow; the bound only stops a cycle.
+const NESTED_DOM_CROSSING_LIMIT: usize = 32;
 
 /// Check if a node is scrollable and return its scroll info
 fn check_if_scrollable(
@@ -346,6 +413,9 @@ fn check_if_scrollable(
     Some(ScrollableAncestor {
         dom_id,
         node_id,
+        // Filled in by the walk, which is what knows how many VirtualView
+        // boundaries were crossed to reach this ancestor.
+        target_lift: LogicalPosition::zero(),
         visible_rect,
         scroll_x: scroll_x && has_overflow_x,
         scroll_y: scroll_y && has_overflow_y,
@@ -516,6 +586,12 @@ fn get_node_rect(
 
 #[cfg(test)]
 mod autotest_generated {
+    /// The fixtures here are single-dom: there is no VirtualView boundary to
+    /// cross, so the walk stops at the root exactly as it always did.
+    fn no_hop(_: DomId) -> Option<(DomId, NodeId, LogicalPosition)> {
+        None
+    }
+
     use alloc::collections::BTreeMap;
     use std::collections::HashMap;
 
@@ -1475,20 +1551,66 @@ mod autotest_generated {
     fn find_ancestors_missing_dom_is_empty() {
         let empty: BTreeMap<DomId, DomLayoutResult> = BTreeMap::new();
         let sm = ScrollManager::new();
-        assert!(find_scrollable_ancestors(dom_id(0), nid(TARGET), &empty, &sm).is_empty());
+        assert!(find_scrollable_ancestors(dom_id(0), nid(TARGET), &empty, &sm, &no_hop).is_empty());
     }
 
     #[test]
     fn find_ancestors_out_of_range_node_is_empty() {
         let (lrs, sm) = inner_only();
-        assert!(find_scrollable_ancestors(dom_id(0), nid(OUT_OF_RANGE), &lrs, &sm).is_empty());
+        assert!(find_scrollable_ancestors(dom_id(0), nid(OUT_OF_RANGE), &lrs, &sm, &no_hop).is_empty());
     }
 
     #[test]
     fn find_ancestors_of_the_root_is_empty() {
         // The root has no parent — the walk must terminate immediately.
         let (lrs, sm) = inner_only();
-        assert!(find_scrollable_ancestors(dom_id(0), nid(0), &lrs, &sm).is_empty());
+        assert!(find_scrollable_ancestors(dom_id(0), nid(0), &lrs, &sm, &no_hop).is_empty());
+    }
+
+    /// A node inside a VirtualView's nested dom must be revealed through the
+    /// containers that clip the HOST, not just the ones in its own dom.
+    ///
+    /// The walk used to stop at the nested dom's root, so a caret inside a
+    /// virtualized view could never be scrolled into view through the outer
+    /// page — and the geometry it did find was compared against a target rect
+    /// still expressed in the nested dom's 0-relative space.
+    #[test]
+    fn the_walk_crosses_into_the_host_dom_and_carries_the_lift() {
+        let (mut lrs, sm) = inner_only();
+        // A second dom standing in for the VirtualView's nested content, hosted
+        // by INNER (a live scroll container) in dom 0.
+        let nested = dom_id(1);
+        let nested_lr = layout_result(chain_dom(SCROLL_CSS));
+        lrs.insert(nested, nested_lr);
+
+        let lift = LogicalPosition::new(11.0, 220.0);
+        let hop = move |d: DomId| {
+            if d == nested {
+                Some((dom_id(0), nid(INNER), lift))
+            } else {
+                None
+            }
+        };
+
+        let ancestors = find_scrollable_ancestors(nested, nid(TARGET), &lrs, &sm, &hop);
+
+        let crossed = ancestors
+            .iter()
+            .find(|a| a.dom_id == dom_id(0) && a.node_id == nid(INNER))
+            .expect("the host's scroll container must be reached from the nested dom");
+        assert_eq!(
+            crossed.target_lift, lift,
+            "the target must be lifted into the host's space before it is compared"
+        );
+
+        // And nothing found INSIDE the nested dom is lifted.
+        assert!(
+            ancestors
+                .iter()
+                .filter(|a| a.dom_id == nested)
+                .all(|a| a.target_lift == LogicalPosition::zero()),
+            "geometry in the target's own dom needs no lift"
+        );
     }
 
     #[test]
@@ -1496,7 +1618,7 @@ mod autotest_generated {
         // `.inner` is a live scroll container, but scrolling *itself* into view is
         // not the job of its own scrollport: the walk starts at the parent.
         let (lrs, sm) = inner_only();
-        let ancestors = find_scrollable_ancestors(dom_id(0), nid(INNER), &lrs, &sm);
+        let ancestors = find_scrollable_ancestors(dom_id(0), nid(INNER), &lrs, &sm, &no_hop);
         assert!(ancestors.iter().all(|a| a.node_id != nid(INNER)));
     }
 
@@ -1504,7 +1626,7 @@ mod autotest_generated {
     fn find_ancestors_skips_styled_but_non_overflowing_containers() {
         // `.outer` is styled `overflow: scroll` but was never registered.
         let (lrs, sm) = inner_only();
-        let ancestors = find_scrollable_ancestors(dom_id(0), nid(TARGET), &lrs, &sm);
+        let ancestors = find_scrollable_ancestors(dom_id(0), nid(TARGET), &lrs, &sm, &no_hop);
         assert_eq!(ancestors.len(), 1);
         assert_eq!(ancestors[0].node_id, nid(INNER));
     }
@@ -1526,7 +1648,7 @@ mod autotest_generated {
             size(200.0, 2000.0),
         );
 
-        let ancestors = find_scrollable_ancestors(dom_id(0), nid(TARGET), &lrs, &sm);
+        let ancestors = find_scrollable_ancestors(dom_id(0), nid(TARGET), &lrs, &sm, &no_hop);
         assert_eq!(ancestors.len(), 2);
         assert_eq!(ancestors[0].node_id, nid(INNER), "innermost must come first");
         assert_eq!(ancestors[1].node_id, nid(OUTER));
@@ -1552,6 +1674,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert!(adjustments.is_empty());
         assert!(sm.get_current_offset(dom_id(0), nid(INNER)).is_none());
@@ -1569,6 +1692,7 @@ mod autotest_generated {
             &mut sm,
             ScrollIntoViewOptions::nearest(),
             now(),
+            &no_hop,
         );
         assert!(adjustments.is_empty());
     }
@@ -1584,6 +1708,7 @@ mod autotest_generated {
             &mut sm,
             ScrollIntoViewOptions::nearest(),
             now(),
+            &no_hop,
         );
         assert!(adjustments.is_empty());
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -1605,6 +1730,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         assert_eq!(adjustments[0].scroll_container_node_id, nid(INNER));
@@ -1633,6 +1759,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert!(at_threshold.is_empty(), "0.5px must be below the threshold");
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -1650,6 +1777,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(above_threshold.len(), 1, "0.75px must scroll");
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -1671,6 +1799,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -1694,6 +1823,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         // `NaN.abs() > threshold` is false, so the adjustment is skipped entirely.
         assert!(adjustments.is_empty());
@@ -1719,6 +1849,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         // visible rect starts at y = 0 + 300, so the reported delta is unclamped...
@@ -1743,6 +1874,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Auto,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         assert_eq!(adjustments[0].behavior, ScrollIntoViewBehavior::Instant);
@@ -1764,6 +1896,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Smooth,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         assert_eq!(adjustments[0].behavior, ScrollIntoViewBehavior::Smooth);
@@ -1803,6 +1936,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
 
         assert_eq!(adjustments.len(), 2);
@@ -1834,6 +1968,7 @@ mod autotest_generated {
             &mut sm,
             ScrollIntoViewOptions::nearest(),
             now(),
+            &no_hop,
         )
         .is_empty());
     }
@@ -1847,6 +1982,7 @@ mod autotest_generated {
             &mut sm,
             ScrollIntoViewOptions::nearest(),
             now(),
+            &no_hop,
         )
         .is_empty());
     }
@@ -1861,6 +1997,7 @@ mod autotest_generated {
             &mut sm,
             ScrollIntoViewOptions::center(),
             now(),
+            &no_hop,
         )
         .is_empty());
     }
@@ -1889,6 +2026,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -1919,6 +2057,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         // target center 510, container center 50 => 460
@@ -1952,6 +2091,7 @@ mod autotest_generated {
             &mut sm,
             ScrollIntoViewOptions::nearest(),
             now(),
+            &no_hop,
         )
         .is_empty());
     }
@@ -1966,6 +2106,7 @@ mod autotest_generated {
             &mut sm,
             ScrollIntoViewOptions::nearest(),
             now(),
+            &no_hop,
         )
         .is_empty());
     }
@@ -1982,6 +2123,7 @@ mod autotest_generated {
             &mut sm,
             ScrollIntoViewOptions::nearest(),
             now(),
+            &no_hop,
         );
         assert!(adjustments.is_empty());
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -2003,6 +2145,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -2025,6 +2168,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         // visible rect starts at 300, cursor at 50 => delta -250 => offset 50
@@ -2047,6 +2191,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert!(adjustments.is_empty());
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -2069,6 +2214,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         assert_eq!(adjustments.len(), 1);
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
@@ -2093,6 +2239,7 @@ mod autotest_generated {
                 ScrollIntoViewBehavior::Instant,
             ),
             now(),
+            &no_hop,
         );
         // Whatever it decides, the stored offset must stay inside the bounds.
         let _ = adjustments;
