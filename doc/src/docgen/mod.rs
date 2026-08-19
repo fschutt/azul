@@ -1439,6 +1439,7 @@ mod stylesheet_contract {
         "a:visited", ".btn-primary, .btn-primary:visited",
         // furniture, code, motion, the depth rig
         "::-webkit-scrollbar", ".token.comment", "THE DROP PANEL",
+        ".copy-btn,", ".docs-copy-btn {",
         "STONE RIG", "FLORA DESIGN - MOTION", "@keyframes fl-sheen",
         "prefers-reduced-motion",
     ];

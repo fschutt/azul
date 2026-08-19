@@ -1,11 +1,13 @@
 use super::{azlin_page, AzlinPage};
 
 /// One funding-platform tile in the `.docs-card-grid`.
-fn donation_card(href: &str, name: &str, description: &str) -> String {
+///
+/// Name only. A line under "PayPal" explaining that PayPal is a payment
+/// platform is text the reader has to skip to reach the button.
+fn donation_card(href: &str, name: &str, _description: &str) -> String {
     format!(
         r#"        <a class="docs-card" href="{href}" target="_blank" rel="noopener noreferrer">
           <h4>{name}</h4>
-          <p>{description}</p>
         </a>
 "#
     )

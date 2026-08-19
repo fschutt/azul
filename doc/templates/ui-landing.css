@@ -434,32 +434,6 @@ img.showcase.windows { display: initial; }
 }
 .install-step .copy-btn:hover { background: var(--fl-code-bd); }
 
-/* Explicit-text copy buttons (user request 2026-07-04: "Copy", not an
-   icon) - shared look for install commands and example code panels. */
-.copy-btn {
-    flex-shrink: 0;
-    font-family: var(--font-caps);
-    font-size: 14px;
-    font-weight: 700;
-    line-height: 1;
-    padding: 3px 10px;
-    border-radius: var(--fl-r);
-    border: 1px solid rgba(232, 222, 198, 0.3);
-    background: rgba(232, 222, 198, 0.1);
-    color: rgba(232, 222, 198, 0.9);
-    font-variant: all-small-caps;
-    letter-spacing: 0.08em;
-    cursor: pointer;
-    opacity: 0.85;
-}
-/* Opaque on hover: the command scrolling underneath used to read straight
-   through the button. */
-.copy-btn:hover {
-    opacity: 1;
-    background: var(--fl-code-bd);
-    border-color: rgba(232, 222, 198, 0.55);
-    color: #FFFDF6;
-}
 
 .example-code {
     position: relative;

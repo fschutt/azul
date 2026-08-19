@@ -1573,11 +1573,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let binding_links: String = BINDING_LANGS
         .iter()
         .map(|(lang, label)| {
-            card(
-                &format!("{HTML_ROOT}/guide/hello-world/{lang}"),
-                label,
-                "Install instructions + hello-world",
-            )
+            // No subtitle: every one of these said the same sentence, under
+            // a card whose title is the language.
+            card(&format!("{HTML_ROOT}/guide/hello-world/{lang}"), label, "")
         })
         .collect::<Vec<_>>()
         .join("\n                ");
@@ -1690,7 +1688,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let mit_card = card(
         &format!("https://github.com/fschutt/azul/blob/{git}/LICENSE"),
         "Azul project license (MIT)",
-        "The Azul project itself is MIT-licensed",
+        "",
     );
 
     let main_html = format!(
@@ -1716,7 +1714,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                   <li><a href='#linux-packages'>Linux packages</a></li>
                   <li><a href='#demos'>Demos</a></li>
                   <li><a href='#language-bindings'>Installation</a></li>
-                  <li><a href='#docs-guide'>Docs &amp; guide</a></li>
+                  <li><a href='#docs-guide'>Docs &amp; Guide</a></li>
                   <li><a href='#agentic'>Agentic</a></li>
                   <li><a href='#statistics'>Statistics</a></li>
                   <li><a href='#license'>License</a></li>
@@ -1783,10 +1781,10 @@ brew tap fschutt/azul {HTML_ROOT}/homebrew-azul.git
 brew install fschutt/azul/azul</code></pre>
 
               <h2 id='demos'>Demos</h2>
+              <p>For further instructions, see the <a href='{HTML_ROOT}/guide/mobile'>Mobile guide</a>.</p>
               <ul class='release-demos' id='demo-list'>
                 {demo_links}
               </ul>
-              <p>For further instructions, see the <a href='{HTML_ROOT}/guide/mobile'>Mobile guide</a>.</p>
 
               <h2 id='language-bindings'>Installation instructions</h2>
               <div class='docs-card-grid'>
@@ -1838,10 +1836,10 @@ tag = \"{version}\"
 # features = [\"link-dynamic\"], default-features = false
 # export AZ_LINK_PATH=/path/to/libazul</code></pre>
 
-              <h2 id='docs-guide'>Docs &amp; guide</h2>
+              <h2 id='docs-guide'>Docs &amp; Guide</h2>
               <div class='docs-card-grid'>
-                <a class='docs-card' href='{HTML_ROOT}/api/{version}'><h4>API documentation</h4><p>API documentation for this release</p></a>
-                <a class='docs-card' href='{HTML_ROOT}/guide'><h4>Online guide</h4><p>Tutorials and how-tos</p></a>
+                <a class='docs-card' href='{HTML_ROOT}/api/{version}'><h4>API documentation</h4></a>
+                <a class='docs-card' href='{HTML_ROOT}/guide'><h4>Online guide</h4></a>
                 {pdf_link}
                 {api_json_link}
                 {examples_zip_link}
@@ -1849,9 +1847,9 @@ tag = \"{version}\"
 
               <h2 id='agentic'>Agentic</h2>
               <div class='docs-card-grid'>
-                <a class='docs-card' href='{HTML_ROOT}/skill.md'><h4>AI agent skill (skill.md)</h4><p>install once to prime a coding agent</p></a>
-                <a class='docs-card' href='{HTML_ROOT}/llms.txt'><h4>llms.txt</h4><p>compact API + guide index for LLMs</p></a>
-                <a class='docs-card' href='{HTML_ROOT}/llms-full.txt'><h4>llms-full.txt</h4><p>full machine-readable index</p></a>
+                <a class='docs-card' href='{HTML_ROOT}/skill.md'><h4>skill.md</h4></a>
+                <a class='docs-card' href='{HTML_ROOT}/llms.txt'><h4>llms.txt</h4></a>
+                <a class='docs-card' href='{HTML_ROOT}/llms-full.txt'><h4>llms-full.txt</h4></a>
               </div>
 
               <h3>Web Apps (experimental)</h3>
