@@ -1288,10 +1288,15 @@ impl RemillTranspiler {
         // address as its hex. To find the entry's `define` line for
         // `inject_alwaysinline`, look up fn_addr's synthetic_addr +
         // chase the synth chain to its canonical synth target.
+        // Same PDB-gap fallback as the lift-address derivations: a
+        // synthesized entry has no by_addr record, and the raw-native
+        // fallback made the WRAPPER call @sub_<native> while the body
+        // defines @sub_<synth> — an unresolved import in every bundle.
         let canonical_entry_addr = symbol_table::get()
             .and_then(|t| {
                 t.lookup(fn_addr)
                     .map(|e| t.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr))
+                    .or_else(|| t.native_to_synth(fn_addr))
             })
             .unwrap_or(fn_addr) as u64;
 
@@ -5891,10 +5896,15 @@ impl RemillTranspiler {
         // M12.5d-fix: strip noalias from sub_* args (see fn docs).
         let lifted_ir = strip_noalias_from_sub_args(&lifted_ir);
 
+        // Same PDB-gap fallback as the lift-address derivations: a
+        // synthesized entry has no by_addr record, and the raw-native
+        // fallback made the WRAPPER call @sub_<native> while the body
+        // defines @sub_<synth> — an unresolved import in every bundle.
         let canonical_entry_addr = symbol_table::get()
             .and_then(|t| {
                 t.lookup(fn_addr)
                     .map(|e| t.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr))
+                    .or_else(|| t.native_to_synth(fn_addr))
             })
             .unwrap_or(fn_addr) as u64;
 
