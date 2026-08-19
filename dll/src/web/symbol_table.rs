@@ -2443,6 +2443,33 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
             return FnClass::BumpAlloc;
         }
     }
+    // PLATFORM allocator shims. With a statically linked host binary, LTO
+    // inlines the whole __rust_alloc → System.alloc chain down to the raw
+    // OS heap wrapper, so the call target that survives is e.g.
+    // `std::sys::alloc::windows::process_heap_alloc` — which matches none
+    // of the rust_*/rdl_*/rg_* names above and used to land in the
+    // std → Leaf bucket. That stub returns 0, so EVERY allocation in the
+    // lifted binary returned null and init died in handle_alloc_error
+    // (AzWriter's boot). azul.dll escaped it only because the dll build
+    // keeps the __rust_alloc symbol intact. Route the whole family to the
+    // bump helpers, matching the layering of the rules above (free before
+    // realloc before zeroed before alloc, so prefix overlaps can't
+    // mis-bind).
+    {
+        let is_platform_alloc_mod = stripped.contains("sys::alloc::")
+            || stripped.contains("sys..alloc..");
+        if is_platform_alloc_mod || stripped.contains("process_heap") {
+            if stripped.contains("free") || stripped.contains("dealloc") {
+                return FnClass::BumpDealloc;
+            }
+            if stripped.contains("realloc") {
+                return FnClass::BumpRealloc;
+            }
+            if stripped.contains("alloc") {
+                return FnClass::BumpAlloc;
+            }
+        }
+    }
     // libc bulk-copy primitives: `memcpy` / `memmove` (and their
     // `_chk` and `_platform_` spellings, however the PLT-chase names
     // them — e.g. `memcpy`, `_platform_memmove`, `___memcpy_chk`).
