@@ -693,6 +693,25 @@ async function azBootstrap() {
 // the lifted user `_fromJson` would take over (lifting that adds a
 // hidden-return wrapper variant — out of scope today).
 // =====================================================================
+// An unmatched indirect dispatch returns as if the call had succeeded, so the
+// damage surfaces far from its cause. Print the FIRST unmatched PC and the
+// ordered ring rather than the last one, which is usually downstream noise
+// produced by a caller already running on a garbage return value.
+function azUnmatchedDispatches() {
+    try {
+        var dv = new DataView(azMemory.buffer);
+        var n = dv.getUint32(0x40158, true);
+        if (!n) { return; }
+        var ring = [];
+        for (var i = 0; i < 16 && i < n; i++) {
+            ring.push('0x' + dv.getUint32(0x409C0 + 4 * i, true).toString(16));
+        }
+        console.error('[azul-web] unmatched indirect dispatches: ' + n
+            + '  first=0x' + dv.getUint32(0x409B0, true).toString(16)
+            + '  last=0x' + dv.getUint32(0x40900, true).toString(16)
+            + '  ring=[' + ring.join(' ') + ']');
+    } catch (e) { /* memory detached */ }
+}
 function azHydrate() {
     var script = document.getElementById('az-hydrate');
     if (!script) {
@@ -735,9 +754,9 @@ function azHydrate() {
         try {
             var dv = new DataView(azMemory.buffer);
             console.error('[azul-web] hydrateJson step=' + dv.getUint32(0x40980, true)
-                + ' json_len_roundtrip=' + dv.getUint32(0x40984, true)
                 + '  [1 entered, 2 deser registered, 3 parsed, 4 calling app fn,'
                 + ' 5 app fn Ok, 6 stored, 0xE0 app fn Err]');
+            azUnmatchedDispatches();
         } catch (e) { /* memory detached */ }
     }
     var deserFn = (typeof payload.deserialize_fn === 'number') ? payload.deserialize_fn : 0;
@@ -1297,8 +1316,8 @@ function azBootstrapTracked() {
             console.error('[azul-web] bootstrap FAILED:', (e && (e.stack || e.message)) || e);
             try {
                 var dv = new DataView(azMemory.buffer);
-                console.error('[azul-web] hydrateJson step marker=' + dv.getUint32(0x40980, true)
-                    + ' json_len_roundtrip=' + dv.getUint32(0x40984, true));
+                console.error('[azul-web] hydrateJson step marker=' + dv.getUint32(0x40980, true));
+                azUnmatchedDispatches();
             } catch (e2) { /* no memory yet */ }
         })
         .then(function() { window.__az_pending--; });

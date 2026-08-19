@@ -2996,7 +2996,39 @@ impl RemillTranspiler {
         // broken layer outright: 0 ⇒ the fn-ptr slot was never mirrored (guest read zero);
         // a NATIVE addr (0x7ff8…) ⇒ mirrored but not native→synth translated; a plausible
         // SYNTH addr ⇒ translated but the target was never lifted (no case emitted).
-        ir.push_str("unk:\n  %uc = call i32 @__remill_read_memory_32(ptr %memory, i64 262488)\n  %uc1 = add i32 %uc, 1\n  %um = call ptr @__remill_write_memory_32(ptr %memory, i64 262488, i32 %uc1)\n  %pclo = trunc i64 %pcm to i32\n  %um2 = call ptr @__remill_write_memory_32(ptr %um, i64 264448, i32 %pclo)\n  ret ptr %um2\n}\n");
+        //
+        // The LAST PC alone is a trap for the reader: once one dispatch misses, the
+        // caller continues on a garbage return value and the PCs that follow are
+        // downstream noise, so 0x40900 names a symptom while the causal miss is long
+        // overwritten. (Chasing it cost a debugging cycle: the last PC pointed at a
+        // RawVec drop that has no fn-pointer anywhere in the image, while the FIRST
+        // miss was an ordinary lifted serializer.) So also record the FIRST unmatched
+        // PC at 0x409B0 (264624), which is written once and never clobbered, and an
+        // ordered ring of 16 at 0x409C0 (264640) — same shape as the missing-block
+        // ring at 0x40160, which is what made this diagnosable at all.
+        ir.push_str(concat!(
+            "unk:\n",
+            "  %uc = call i32 @__remill_read_memory_32(ptr %memory, i64 262488)\n",
+            "  %uc1 = add i32 %uc, 1\n",
+            "  %um = call ptr @__remill_write_memory_32(ptr %memory, i64 262488, i32 %uc1)\n",
+            "  %pclo = trunc i64 %pcm to i32\n",
+            "  %um2 = call ptr @__remill_write_memory_32(ptr %um, i64 264448, i32 %pclo)\n",
+            // ring slot = (pre-increment count % 16), so the order of the first 16
+            // misses survives regardless of how many follow.
+            "  %idx = and i32 %uc, 15\n",
+            "  %idx64 = zext i32 %idx to i64\n",
+            "  %roff = shl i64 %idx64, 2\n",
+            "  %rslot = add i64 264640, %roff\n",
+            "  %um3 = call ptr @__remill_write_memory_32(ptr %um2, i64 %rslot, i32 %pclo)\n",
+            "  %isfirst = icmp eq i32 %uc, 0\n",
+            "  br i1 %isfirst, label %unkfirst, label %unkdone\n",
+            "unkfirst:\n",
+            "  %um4 = call ptr @__remill_write_memory_32(ptr %um3, i64 264624, i32 %pclo)\n",
+            "  br label %unkdone\n",
+            "unkdone:\n",
+            "  %umr = phi ptr [ %um3, %unk ], [ %um4, %unkfirst ]\n",
+            "  ret ptr %umr\n}\n",
+        ));
         let disp_o = self.scratch_dir.join("az_indirect_dispatch.o");
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
