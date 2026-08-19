@@ -75,7 +75,7 @@ AzDom create_paragraph(int index) {
     
     AzString text = AzString_copyFromBytes((uint8_t*)buffer, 0, len);
     AzDom p = AzDom_createDiv();
-    AzDom_addChild(&p, AzDom_createText(text));
+    AzDom_addChild(&p, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(text));
     
     // Alternate colors
     const char* bg_color = (index % 2 == 0) ? "#e8f4f8" : "#f8f4e8";
@@ -124,7 +124,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Instructions
     AzDom instructions = AzDom_createDiv();
-    AzDom_addChild(&instructions, AzDom_createText(AZ_STR(
+    AzDom_addChild(&instructions, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(
         "Test drag-to-select with auto-scroll:\n"
         "1. Click and drag to select text\n"
         "2. Drag to bottom edge → should auto-scroll down\n"
@@ -135,14 +135,14 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Status bar
     AzDom status_bar = AzDom_createDiv();
-    AzDom_addChild(&status_bar, AzDom_createText(AZ_STR(status)));
+    AzDom_addChild(&status_bar, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(status)));
     AzDom_addClass(&status_bar, AZ_STR("status"));
     
     // Build body
     AzDom body = AzDom_createBody();
     
     AzDom label = AzDom_createDiv();
-    AzDom_addChild(&label, AzDom_createText(AZ_STR("Drag-Select-Scroll Test:")));
+    AzDom_addChild(&label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Drag-Select-Scroll Test:")));
     AzDom_addClass(&label, AZ_STR("label"));
     AzDom_addChild(&body, label);
     

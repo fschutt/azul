@@ -35,7 +35,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString btn_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setCss(&button, btn_style);
     AzString btn_text = AzString_copyFromBytes((const uint8_t*)"Click me!", 0, 9);
-    AzDom_addChild(&button, AzDom_createText(btn_text));
+    AzDom_addChild(&button, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(btn_text));
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzDom_addCallback(&button, event, AzRefAny_clone(&data), on_button_click);
 
@@ -80,7 +80,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     for (size_t r = 0; r < 3; r++) {
         AzDom cells[3];
         for (size_t c = 0; c < 3; c++) {
-            cells[c] = AzDom_createText(str(row_data[r][c]));
+            cells[c] = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(str(row_data[r][c]));
         }
         rows[r].cells = AzDomVec_copyFromPtr(cells, 3);
         rows[r].height.None.tag = AzOptionPixelValueNoPercent_Tag_None;
@@ -96,7 +96,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setCss(&body, body_style);
     AzString showcase_title = AzString_copyFromBytes((const uint8_t*)"Widget Showcase", 0, 15);
 
-    AzDom_addChild(&body, AzDom_createText(showcase_title));
+    AzDom_addChild(&body, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(showcase_title));
     AzDom_addChild(&body, button);
     AzDom_addChild(&body, checkbox);
     AzDom_addChild(&body, progress);
@@ -132,7 +132,7 @@ AzUpdate on_list_row_click(AzRefAny data, AzCallbackInfo info, AzListViewState s
 
     // Headless measure: lay out a DOM off-screen to get its natural size
     // (the building block for virtual-list item sizing)
-    AzDom probe = AzDom_createText(str("How tall is this text at 200px width?"));
+    AzDom probe = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(str("How tall is this text at 200px width?"));
     AzLogicalSize avail = { .width = 200.0f, .height = 1000000.0f };
     AzLogicalSize measured = AzCallbackInfo_measureDom(&info, probe, avail);
     printf("probe DOM measures %.1f x %.1f px\n", measured.width, measured.height);

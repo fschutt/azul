@@ -349,7 +349,7 @@ mod xml_compilation_tests {
         assert!(cpp.contains("Dom::create_p_with_text(String(\"hi\"))"), "{}", cpp);
         assert!(py.contains("azul.Dom.create_p_with_text(\"hi\")"), "{}", py);
         // text folded into the ctor — never also emitted as a child text node
-        assert!(!c.contains("AzDom_createText(AZ_STR(\"hi\"))"), "text not consumed: {}", c);
+        assert!(!c.contains("AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"hi\"))"), "text not consumed: {}", c);
         assert!(!rust.contains("Dom::create_text_do_not_use_without_block_level_wrapper(\"hi\")"), "text not consumed: {}", rust);
     }
 
@@ -361,7 +361,7 @@ mod xml_compilation_tests {
         assert!(c.contains("AzDom_createButton(AZ_STR(\"Go\"), AzSmallAriaInfo_label(AZ_STR(\"Go\")))"), "{}", c);
         assert!(cpp.contains("Dom::create_button(String(\"Go\"), SmallAriaInfo::label(String(\"Go\")))"), "{}", cpp);
         assert!(py.contains("azul.Dom.create_button(\"Go\", azul.SmallAriaInfo.label(\"Go\"))"), "{}", py);
-        assert!(!c.contains("AzDom_createText(AZ_STR(\"Go\"))"), "button text must be consumed: {}", c);
+        assert!(!c.contains("AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"Go\"))"), "button text must be consumed: {}", c);
     }
 
     // Tier C — `<a href="x">link</a>` (no aria) → create_a_no_a11y(href, Some(label)).

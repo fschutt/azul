@@ -44,7 +44,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         *(volatile unsigned int*)0x40764 = sp[0];       /* AzString.ptr_lo (expect heap ~0x6xxxxxx) */
         *(volatile unsigned int*)0x40768 = sp[2];       /* AzString.len_lo (expect 5) */
     }
-    AzDom text = AzDom_createText(s);
+    AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(s);
     AzDom_addChild(&body, text);
 
     return body;

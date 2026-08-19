@@ -74,7 +74,7 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
 
     // Counter label (wrapped in a div so the font-size sticks).
     let counterStr = azString(String(m.pointee.counter))
-    let label = AzDom_createText(counterStr)
+    let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counterStr)
 
     var labelWrapper = AzDom_createDiv()
     let fontSize = AzStyleFontSize_px(32.0)

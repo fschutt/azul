@@ -172,7 +172,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Label 1: Single Line Input — wrap text in a <p> so the class applies
     AzDom label1 = AzDom_createDiv();
     AzDom_addClass(&label1, AZ_STR("label"));
-    AzDom_addChild(&label1, AzDom_createText(AZ_STR("Single Line Input (48px font):")));
+    AzDom_addChild(&label1, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Single Line Input (48px font):")));
     AzDom_addChild(&root, label1);
     
     // Single-line contenteditable input
@@ -184,7 +184,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setTabIndex(&single_input, tab_auto);
     
     // Add text as child
-    AzDom single_text = AzDom_createText(AZ_STR(ref.ptr->single_line_text));
+    AzDom single_text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(ref.ptr->single_line_text));
     AzDom_addChild(&single_input, single_text);
     
     // Add text input callback - use Focus filter for text input
@@ -196,7 +196,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Label 2: Multi Line Text Area
     AzDom label2 = AzDom_createDiv();
     AzDom_addClass(&label2, AZ_STR("label"));
-    AzDom_addChild(&label2, AzDom_createText(AZ_STR("Multi Line Text Area (scroll test):")));
+    AzDom_addChild(&label2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Multi Line Text Area (scroll test):")));
     AzDom_addChild(&root, label2);
     
     // Multi-line contenteditable textarea
@@ -207,7 +207,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setTabIndex(&multi_input, tab_auto);
     
     // Add text as child
-    AzDom multi_text = AzDom_createText(AZ_STR(ref.ptr->multi_line_text));
+    AzDom multi_text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(ref.ptr->multi_line_text));
     AzDom_addChild(&multi_input, multi_text);
     
     // Add callbacks
@@ -228,7 +228,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     AzDom status_bar = AzDom_createDiv();
     AzDom_addClass(&status_bar, AZ_STR("status-bar"));
-    AzDom_addChild(&status_bar, AzDom_createText(AZ_STR(status)));
+    AzDom_addChild(&status_bar, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(status)));
     AzDom_addChild(&root, status_bar);
     
     ContentEditableDataRef_delete(&ref);

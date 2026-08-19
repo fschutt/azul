@@ -32,7 +32,7 @@ AzDom create_scroll_item(int index) {
     
     AzString text = AzString_copyFromBytes(buffer, 0, len);
     AzDom item = AzDom_createDiv();
-    AzDom_addChild(&item, AzDom_createText(text));
+    AzDom_addChild(&item, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(text));
     
     // Alternate background colors for visibility - use bright colors for debugging
     char style[256];
@@ -60,7 +60,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create header
     AzString header_text = AzString_copyFromBytes("Scrolling Test - Overflowing Content", 0, 37);
     AzDom header = AzDom_createDiv();
-    AzDom_addChild(&header, AzDom_createText(header_text));
+    AzDom_addChild(&header, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(header_text));
     AzString header_style = AzString_copyFromBytes(
         "padding: 15px; background-color: #4a90d9; color: white; "
         "font-size: 24px; font-weight: bold; text-align: center;", 0, 121);
@@ -87,7 +87,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString footer_text = AzString_copyFromBytes(
         "Use mouse wheel or drag scrollbar to scroll. Debug API: POST scroll event.", 0, 75);
     AzDom footer = AzDom_createDiv();
-    AzDom_addChild(&footer, AzDom_createText(footer_text));
+    AzDom_addChild(&footer, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(footer_text));
     AzString footer_style = AzString_copyFromBytes(
         "padding: 10px; background-color: #f0f0f0; color: #666; "
         "font-size: 12px; text-align: center;", 0, 95);

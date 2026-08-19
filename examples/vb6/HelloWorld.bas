@@ -39,7 +39,7 @@ Public Declare Function AzDom_createBody Lib "azul" Alias "AzDom_createBody" _
     () As Long
 Public Declare Function AzDom_createDiv Lib "azul" Alias "AzDom_createDiv" _
     () As Long
-Public Declare Function AzDom_createText Lib "azul" Alias "AzDom_createText" _
+Public Declare Function AzDom_createTextDoNotUseWithoutBlockLevelWrapper Lib "azul" Alias "AzDom_createTextDoNotUseWithoutBlockLevelWrapper" _
     (ByVal s As Long) As Long
 Public Declare Sub AzDom_addChild Lib "azul" Alias "AzDom_addChild" _
     (ByVal parent As Long, ByVal child As Long)
@@ -141,7 +141,7 @@ Public Function layout(ByVal data As Long, ByVal info As Long) As Long
     ' Counter label, wrapped in a div so the font-size CSS sticks.
     buf = CStr(m.counter)
     labelText = AzStr(buf)
-    labelDom = AzDom_createText(labelText)
+    labelDom = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(labelText)
     labelWrapper = AzDom_createDiv()
 
     fontSize = AzCssProperty_fontSize(AzStyleFontSize_px(32!))

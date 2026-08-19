@@ -11114,7 +11114,7 @@ fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, Str
     let mut layout_body = String::new();
     layout_body.push_str("    AzDom body = AzDom_createBody();\n");
     if components.is_empty() {
-        layout_body.push_str("    AzDom_addChild(&body, AzDom_createText(AZ_STR(\"Hello from Azul!\")));\n");
+        layout_body.push_str("    AzDom_addChild(&body, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"Hello from Azul!\")));\n");
     } else {
         for comp in components {
             let struct_name = to_pascal_case(&comp.name);

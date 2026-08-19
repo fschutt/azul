@@ -54,7 +54,7 @@ AzVirtualViewReturn render_rows(AzRefAny data, AzVirtualViewCallbackInfo info) {
         char buf[64];
         int len = snprintf(buf, sizeof(buf), "Row %d", row_idx);
         AzString label = AzString_copyFromBytes((const uint8_t*)buf, 0, (size_t)len);
-        AzDom text_node = AzDom_createText(label);
+        AzDom text_node = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(label);
 
         // Row div
         AzDom row = AzDom_createDiv();
@@ -105,7 +105,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     int tlen = snprintf(title_buf, sizeof(title_buf), "VirtualView Test - %d virtual rows", TOTAL_ROWS);
     AzString title_text = AzString_copyFromBytes((const uint8_t*)title_buf, 0, (size_t)tlen);
     AzDom title = AzDom_createDiv();
-    AzDom_addChild(&title, AzDom_createText(title_text));
+    AzDom_addChild(&title, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(title_text));
     AzString title_style = AzString_copyFromBytes(
         (const uint8_t*)"padding: 12px; background: #4a90d9; color: white; font-size: 18px; font-weight: bold;",
         0, 85);
@@ -123,7 +123,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         (const uint8_t*)"Scroll inside the yellow box. Only ~100 rows are rendered at a time via VirtualViewCallback.",
         0, 87);
     AzDom footer = AzDom_createDiv();
-    AzDom_addChild(&footer, AzDom_createText(footer_text));
+    AzDom_addChild(&footer, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(footer_text));
     AzString footer_style = AzString_copyFromBytes(
         (const uint8_t*)"padding: 8px; background: #f0f0f0; color: #666; font-size: 12px; text-align: center;",
         0, 85);

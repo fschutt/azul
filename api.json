@@ -15229,12 +15229,6 @@
                                 "fn_body": "azul_core::dom::Dom::create_br()"
                             },
                             "create_text_do_not_use_without_block_level_wrapper": {
-                                "fn_args": [
-                                    {
-                                        "value": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(value)",
                                 "doc": [
                                     "Creates a RAW text node - read this before using it.",
                                     "",
@@ -15252,7 +15246,13 @@
                                     "create_span_with_text, ...), which builds that shape for you. The engine",
                                     "also logs a warning after layout when it finds a text node used without",
                                     "a containing block."
-                                ]
+                                ],
+                                "fn_args": [
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(value)"
                             },
                             "create_image": {
                                 "fn_args": [

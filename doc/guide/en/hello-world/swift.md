@@ -160,7 +160,7 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
     guard let m = myDataDowncast(&d) else { return AzDom_createBody() }
 
     let counterStr = azString(String(m.pointee.counter))
-    let label = AzDom_createText(counterStr)
+    let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counterStr)
 
     var labelWrapper = AzDom_createDiv()
     let fontSize = AzStyleFontSize_px(32.0)

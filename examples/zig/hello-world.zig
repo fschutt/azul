@@ -61,7 +61,7 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     var buf: [16]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return C.AzDom_createBody();
     const counter_str = C.AzString_fromUtf8(slice.ptr, slice.len);
-    const label = C.AzDom_createText(counter_str);
+    const label = C.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str);
 
     var label_wrapper = C.AzDom_createDiv();
     const font_size = C.AzStyleFontSize_px(32.0);

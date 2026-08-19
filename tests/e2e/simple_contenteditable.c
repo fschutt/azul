@@ -54,7 +54,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setContenteditable(&editor, true);
     
     // Initial text
-    AzDom text = AzDom_createText(AZ_STR("Click here and type..."));
+    AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Click here and type..."));
     AzDom_addChild(&editor, text);
     
     AzDom_addChild(&root, editor);

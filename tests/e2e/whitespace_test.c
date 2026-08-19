@@ -33,34 +33,34 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // ========== Test 1: white-space: nowrap ==========
     AzDom label1 = AzDom_createDiv();
-    AzDom_addChild(&label1, AzDom_createText(AZ_STR("1. white-space: nowrap (single line, clipped):")));
+    AzDom_addChild(&label1, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("1. white-space: nowrap (single line, clipped):")));
     AzDom_addClass(&label1, AZ_STR("label"));
     AzDom_addChild(&body, label1);
     
     AzDom nowrap_div = AzDom_createDiv();
-    AzDom_addChild(&nowrap_div, AzDom_createText(AZ_STR("This is a very long line that should never wrap at word boundaries because white-space is set to nowrap")));
+    AzDom_addChild(&nowrap_div, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("This is a very long line that should never wrap at word boundaries because white-space is set to nowrap")));
     AzDom_addClass(&nowrap_div, AZ_STR("nowrap-box"));
     AzDom_addChild(&body, nowrap_div);
     
     // ========== Test 2: white-space: pre ==========
     AzDom label2 = AzDom_createDiv();
-    AzDom_addChild(&label2, AzDom_createText(AZ_STR("2. white-space: pre (5 lines from \\n):")));
+    AzDom_addChild(&label2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("2. white-space: pre (5 lines from \\n):")));
     AzDom_addClass(&label2, AZ_STR("label"));
     AzDom_addChild(&body, label2);
     
     AzDom pre_div = AzDom_createDiv();
-    AzDom_addChild(&pre_div, AzDom_createText(AZ_STR("Line 1\nLine 2\nLine 3\nLine 4\nLine 5")));
+    AzDom_addChild(&pre_div, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Line 1\nLine 2\nLine 3\nLine 4\nLine 5")));
     AzDom_addClass(&pre_div, AZ_STR("pre-box"));
     AzDom_addChild(&body, pre_div);
     
     // ========== Test 3: white-space: normal ==========
     AzDom label3 = AzDom_createDiv();
-    AzDom_addChild(&label3, AzDom_createText(AZ_STR("3. white-space: normal (wraps at words):")));
+    AzDom_addChild(&label3, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("3. white-space: normal (wraps at words):")));
     AzDom_addClass(&label3, AZ_STR("label"));
     AzDom_addChild(&body, label3);
     
     AzDom normal_div = AzDom_createDiv();
-    AzDom_addChild(&normal_div, AzDom_createText(AZ_STR("This is a very long line that should wrap at word boundaries because white-space is normal")));
+    AzDom_addChild(&normal_div, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("This is a very long line that should wrap at word boundaries because white-space is normal")));
     AzDom_addClass(&normal_div, AZ_STR("normal-box"));
     AzDom_addChild(&body, normal_div);
     

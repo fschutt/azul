@@ -730,7 +730,9 @@ impl Win32Window {
                     {
                         let root_size = dom_result
                             .layout_tree
-                            .get_content_size(dom_result.layout_tree.root);
+                            .get_content_size(azul_layout::solver3::layout_tree::LayoutNodeId::new(
+                                dom_result.layout_tree.root,
+                            ));
                         // root_size is LOGICAL; the OS sizes the OUTER frame
                         // in PHYSICAL px — scale by DPI and fit the CLIENT
                         // area (set_client_size adds the frame delta), or the

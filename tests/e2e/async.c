@@ -52,7 +52,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Title
     AzString title_text = str("Background Thread Progress Demo");
-    AzDom title = AzDom_createText(title_text);
+    AzDom title = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(title_text);
     AzString title_style = str("font-size: 24px; margin-bottom: 30px;");
     AzDom_setInlineStyle(&title, title_style);
     AzDom_addChild(&body, title);
@@ -67,7 +67,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     char progress_buf[32];
     snprintf(progress_buf, sizeof(progress_buf), "Progress: %.0f%%", state.ptr->progress);
     AzString progress_label_text = str(progress_buf);
-    AzDom progress_label = AzDom_createText(progress_label_text);
+    AzDom progress_label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(progress_label_text);
     AzString progress_label_style = str("margin-bottom: 20px;");
     AzDom_setInlineStyle(&progress_label, progress_label_style);
     AzDom_addChild(&body, progress_label);
@@ -83,7 +83,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&body, button);
     } else {
         AzString running_text = str("Processing...");
-        AzDom running = AzDom_createText(running_text);
+        AzDom running = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(running_text);
         AzString running_style = str("color: #666;");
         AzDom_setInlineStyle(&running, running_style);
         AzDom_addChild(&body, running);

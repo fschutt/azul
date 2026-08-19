@@ -1040,7 +1040,7 @@ function fail(msg) { console.error('FAIL:', msg); process.exit(1); }
           const rootDisc = D(0x406E4), childDisc = D(0x406E8);
           console.log('[cb-dom] cb-Dom root(body).disc=' + rootDisc + ' | first-child(text).disc=' + childDisc
             + (childDisc === 177 ? ' → child=177 ✓ createText OK → DROP IS IN THE CASCADE (StyledDom::create copy of data-variant)'
-               : childDisc === 0 ? ' → child=0 ✗ → AzDom_createText DROPPED node_type (X8/sret build-lift)'
+               : childDisc === 0 ? ' → child=0 ✗ → AzDom_createTextDoNotUseWithoutBlockLevelWrapper DROPPED node_type (X8/sret build-lift)'
                : ' → child=' + childDisc + ' (root should be 2=Body)'));
         }
         const ph = mini.AzStartup_peekU32(0x401C0);

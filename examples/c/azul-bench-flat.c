@@ -112,7 +112,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         int len = snprintf(buf, sizeof(buf), "row #%u (id=%u)", i, base_id + i);
         AzString label = AzString_copyFromBytes((const uint8_t*)buf, 0, len);
         AzDom row = AzDom_createDiv();
-        AzDom_addChild(&row, AzDom_createText(label));
+        AzDom_addChild(&row, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(label));
         AzDom_addChild(&body, row);
     }
 
