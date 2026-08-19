@@ -1977,17 +1977,20 @@ fn main() -> anyhow::Result<()> {
                 templates_dir.join("azul-docs.css"),
                 root_dir.join("azul-docs.css"),
             )?;
-            fs::copy(
-                templates_dir.join("azlin-ws.html"),
-                root_dir.join("ws.html"),
-            )?;
-            fs::copy(
-                templates_dir.join("azlin-os.html"),
-                root_dir.join("os.html"),
-            )?;
-            let azlin_landing =
-                fs::read_to_string(templates_dir.join("azlin-index.template.html"))?;
-            fs::write(root_dir.join("index.html"), azlin_landing)?;
+            // The nav strip is generated, not copied: three templates each
+            // holding their own hand-written copy is how /os kept an old
+            // label after the others were renamed. One list lives in
+            // docgen::azlin_root_nav and every page fills its <!-- NAV -->
+            // marker from it.
+            for (template, out, active) in [
+                ("azlin-ws.html", "ws.html", "workspace"),
+                ("azlin-os.html", "os.html", "operating system"),
+                ("azlin-index.template.html", "index.html", "workspace"),
+            ] {
+                let page = fs::read_to_string(templates_dir.join(template))?
+                    .replace("<!-- NAV -->", &docgen::azlin_root_nav(active));
+                fs::write(root_dir.join(out), page)?;
+            }
             // Clean-URL twins for the root marketing stubs (/ws, /os):
             // GitHub Pages resolves extensionless URLs natively, the local
             // python server needs the directory form.

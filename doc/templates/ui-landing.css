@@ -76,8 +76,8 @@ body.ui-landing {
 }
 .ui-hero .tagline {
     font-family: var(--font-serif);
-    font-size: 19px;
-    line-height: 1.65;
+    font-size: var(--fl-lede);
+    line-height: 1.6;
     color: var(--fl-band-soft);
     max-width: 540px;
     margin-bottom: 32px;
@@ -164,9 +164,9 @@ body.ui-landing {
 }
 .feature-section .description {
     font-family: var(--font-serif);
-    font-size: 18px;
+    font-size: var(--fl-text);
     font-weight: 400;
-    line-height: 1.7;
+    line-height: 1.68;
     color: var(--color-text-light);
     max-width: 700px;
     margin-bottom: 48px;

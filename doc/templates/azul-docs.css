@@ -44,9 +44,9 @@ body.docs {
 }
 .docs-hero .docs-lede {
     font-family: var(--font-serif);
-    font-size: 21px;
+    font-size: var(--fl-lede);
     font-weight: 400;
-    line-height: 1.6;
+    line-height: 1.55;
     color: var(--color-text-light);
     max-width: 720px;
     text-wrap: balance;
@@ -68,8 +68,8 @@ body.docs {
 .docs-content p,
 .docs-content li {
     font-family: var(--font-serif);
-    font-size: 18.5px;
-    line-height: 1.7;
+    font-size: var(--fl-text);
+    line-height: 1.68;
     color: var(--color-text);
 }
 .docs-content p { margin: 0 0 20px; }
@@ -309,8 +309,8 @@ body.docs {
     margin-bottom: 12px;
 }
 .docs-list-item p {
-    font-size: 17px;
-    line-height: 1.7;
+    font-size: var(--fl-text);
+    line-height: 1.65;
     color: var(--color-text-light);
     text-wrap: balance;
     margin: 0 0 12px;
