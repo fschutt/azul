@@ -99,6 +99,25 @@ enum RenderMode {
 /// Posted by the WebRender Notifier (backend thread) when a frame finished
 /// building — the wndproc presents it.
 pub(crate) const WM_APP_FRAME_READY: u32 = 0x8000 + 0x0042; // WM_APP + 0x42
+/// Present a native popup menu that was PARKED by a handler.
+///
+/// `TrackPopupMenu` runs a modal message loop, so calling it from inside
+/// `window_proc` re-enters `window_proc` (WM_TIMER is delivered in that loop)
+/// and hands out a SECOND `&mut Win32Window` while the outer one is still
+/// live — aliased `&mut`, i.e. UB. The handler parks the menu and posts this
+/// instead; the arm takes it and tracks with no borrow held. Same shape macOS
+/// uses for its nested tracking runloop.
+pub(crate) const WM_APP_SHOW_PENDING_MENU: u32 = 0x8000 + 0x0043; // WM_APP + 0x43
+
+/// A popup menu built and positioned, waiting for a turn of the message loop
+/// on which no `&mut Win32Window` is live. Holds only OS handles and screen
+/// coordinates — no Rust references into the window.
+pub(crate) struct PendingNativeMenu {
+    hmenu: HMENU,
+    /// Screen coordinates, already converted.
+    x: i32,
+    y: i32,
+}
 
 /// #27 native backbuffer (Windows): one persistent RGBA-mask DIB section per
 /// window — the CPU renderer's direct target. Created (and probe-verified)
@@ -176,6 +195,9 @@ pub struct Win32Window {
     pub menu_bar: Option<menu::WindowsMenuBar>,
     /// Context menu callbacks (active when context menu is open)
     pub context_menu: Option<BTreeMap<u16, CoreMenuCallback>>,
+    /// A native popup menu parked by a handler, presented from
+    /// [`WM_APP_SHOW_PENDING_MENU`] once no `&mut` to this window is live.
+    pending_native_menu: Option<PendingNativeMenu>,
 
     // Timers and threads
     /// Active timers (TimerId -> Win32 timer handle)
@@ -195,6 +217,11 @@ pub struct Win32Window {
     /// The HIMC returned by ImmAssociateContext(hwnd, NULL) when we disable
     /// the IME, restored on re-enable (null while enabled).
     pub ime_saved_himc: dlopen::HIMC,
+    /// The focus / editing-node / caret identity the OS-side IME was last
+    /// synced to. `sync_ime_state` recomputes the composition + candidate
+    /// windows only when this changes, so it can be called from every event
+    /// pass and every frame without walking the layout tree 60 times a second.
+    ime_sync_key: event::ImeSyncKey,
 
     // System functions
     /// DPI functions
@@ -208,6 +235,11 @@ pub struct Win32Window {
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
     /// Icon provider for resolving icon names to renderable content
     pub icon_provider: azul_core::icon::SharedIconProvider,
+    /// The `AppConfig` this window was built from, kept so a window can be
+    /// created from a context that has no access to `run.rs`'s locals — the
+    /// modal size/move pump, which has to service `pending_window_creates`
+    /// while USER32 owns the loop.
+    pub app_config: azul_core::resources::AppConfig,
 
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
@@ -657,16 +689,19 @@ impl Win32Window {
             needs_gpu_present: false,
             menu_bar,
             context_menu: None,
+            pending_native_menu: None,
             timers: HashMap::new(),
             thread_timer_running: None,
             high_surrogate: None,
             ime_composition: None,
             ime_enabled: true,
             ime_saved_himc: std::ptr::null_mut(),
+            ime_sync_key: event::ImeSyncKey::default(),
             dpi: dpi_functions,
             font_registry,
             dynamic_selector_context,
             icon_provider: azul_core::icon::SharedIconProvider::from_handle(config.icon_provider.clone()),
+            app_config: config.clone(),
             pending_window_creates: Vec::new(),
             tooltip: None, // Created lazily when first needed
             #[cfg(feature = "a11y")]
@@ -843,6 +878,40 @@ impl Win32Window {
     const THREAD_POLL_TIMER_ID: usize = 0xFFFF;
     /// Interval in milliseconds for the thread-polling timer (~60 FPS).
     const THREAD_POLL_INTERVAL_MS: u32 = 16;
+
+    /// Win32 timer ID reserved for the modal size/move pump (~60 FPS tick).
+    ///
+    /// Distinct from [`Self::THREAD_POLL_TIMER_ID`] on purpose: `SetTimer` with
+    /// an id that is already in use REPLACES that timer, so sharing one would
+    /// silently kill background-thread polling for the rest of the run and the
+    /// `KillTimer` at `WM_EXITSIZEMOVE` would never bring it back.
+    pub(crate) const MODAL_LOOP_TIMER_ID: usize = 0xFFFE;
+    /// Interval in milliseconds for the modal size/move pump (~60 FPS).
+    const MODAL_LOOP_INTERVAL_MS: u32 = 16;
+
+    /// Arm the stand-in for the outer event loop, for the duration of a modal
+    /// size/move loop (`WM_ENTERSIZEMOVE` … `WM_EXITSIZEMOVE`).
+    ///
+    /// See [`pump_modal_loop_work`] for what stalls without it.
+    pub(crate) fn start_modal_loop_pump(&mut self) {
+        unsafe {
+            (self.win32.user32.SetTimer)(
+                self.hwnd,
+                Self::MODAL_LOOP_TIMER_ID,
+                Self::MODAL_LOOP_INTERVAL_MS,
+                ptr::null(),
+            );
+        }
+    }
+
+    /// Disarm it again. `KillTimer` must be passed the SAME nIDEvent given to
+    /// `SetTimer` for window timers (the same contract as `stop_timer`), and is
+    /// harmless if the timer was never armed.
+    pub(crate) fn stop_modal_loop_pump(&mut self) {
+        unsafe {
+            (self.win32.user32.KillTimer)(self.hwnd, Self::MODAL_LOOP_TIMER_ID);
+        }
+    }
 
     /// Start the thread-polling tick timer (delegates to the trait
     /// `start_thread_poll_timer` so external callers have a stable inherent API).
@@ -1661,9 +1730,7 @@ impl Win32Window {
         // so once AfterMount spawns them their writebacks drain.
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
-        self.update_ime_position_from_cursor();
-        self.sync_ime_position_to_os();
-        self.sync_ime_enabled_state();
+        self.sync_ime_state();
 
         Ok(result)
     }
@@ -1822,6 +1889,16 @@ impl Win32Window {
                 // No action needed (matches the old `!DoNothing` no-op).
             }
         }
+
+        // The focus, the editing session or the caret may have moved in the
+        // pass whose result this is routing — the IME association and the
+        // over-the-spot composition/candidate windows follow from exactly
+        // those, and NONE of the routes above run `regenerate_layout_inner`'s
+        // tail (the only place this used to happen). Gated internally on the
+        // identity actually having changed. Every main-window input handler
+        // plus WM_SETFOCUS / WM_KILLFOCUS ends here; the WM_COMMAND menu arm
+        // routes its own result and is picked up by the WM_PAINT it schedules.
+        self.sync_ime_state();
     }
 
     // --- File drag-and-drop (OLE IDropTarget) ------------------------------
@@ -2681,19 +2758,9 @@ impl Win32Window {
         self.context_menu = Some(callbacks);
 
         // Show menu (blocks until closed)
-        unsafe {
-            (self.win32.user32.SetForegroundWindow)(self.hwnd);
-            (self.win32.user32.TrackPopupMenu)(
-                hmenu,
-                dlopen::constants::TPM_RIGHTBUTTON | dlopen::constants::TPM_LEFTALIGN,
-                pt.x,
-                pt.y,
-                0,
-                self.hwnd,
-                ptr::null(),
-            );
-            (self.win32.user32.DestroyMenu)(hmenu);
-        }
+        // PARK, do not track: TrackPopupMenu is a modal loop and `&mut self`
+        // is live all the way up to window_proc.
+        self.park_native_menu(hmenu, pt.x, pt.y);
     }
 
     /// Show a context menu using Azul window-based menu system
@@ -2779,7 +2846,11 @@ fn win32_msg_name(msg: u32) -> &'static str {
         0x0204 => "WM_RBUTTONDOWN",
         0x0205 => "WM_RBUTTONUP",
         0x020A => "WM_MOUSEWHEEL",
+        0x020B => "WM_XBUTTONDOWN",
+        0x020C => "WM_XBUTTONUP",
         0x020E => "WM_MOUSEHWHEEL",
+        0x0231 => "WM_ENTERSIZEMOVE",
+        0x0232 => "WM_EXITSIZEMOVE",
         0x02E0 => "WM_DPICHANGED",
         _ => "WM_other",
     }
@@ -3023,6 +3094,137 @@ impl Win32Window {
     }
 }
 
+thread_local! {
+    /// Set while [`pump_modal_loop_work`] is running, so a nested message loop
+    /// started from inside it cannot re-enter and alias a live borrow.
+    static MODAL_PUMP_ACTIVE: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
+/// One iteration of the outer event loop's per-window work, for use INSIDE a
+/// modal size/move loop.
+///
+/// `WM_ENTERSIZEMOVE` … `WM_EXITSIZEMOVE` brackets a loop USER32 runs itself:
+/// `DispatchMessageW` does not return until the user releases the mouse, so for
+/// the whole of a drag-resize or a drag-move the body of `run.rs`'s
+/// `'event_loop` — pending window creates, the accessibility drain, the
+/// cross-window regeneration sweep and the deferred free of closed windows —
+/// simply does not run. A window opened from a callback (a tooltip, a menu, a
+/// progress dialog) stayed queued, a screen reader's queued actions stayed
+/// unhandled, and a SECOND window whose DOM a resize callback invalidated kept
+/// rendering the stale one until the user let go. Messages ARE pumped inside
+/// that loop, so a `WM_TIMER` gets us back in; this is what it runs.
+///
+/// The dragged window itself is unaffected by the missing render sweep — it
+/// keeps getting `WM_SIZE` + `WM_PAINT` — which is exactly why the stall was
+/// invisible with one window open.
+///
+/// Every window is re-borrowed from the registry for the shortest possible
+/// span and no `&mut Win32Window` is live across a call that can create or free
+/// one, which is the same rule the outer loop follows for the same reason.
+fn pump_modal_loop_work() {
+    // RE-ENTRANCY GUARD. The sweep below holds a `&mut Win32Window` across
+    // `regenerate_layout()`, which runs user callbacks — and anything those do
+    // that spins yet another nested message loop (a modal dialog, a tracked
+    // menu) delivers this same `WM_TIMER` again and would hand a SECOND `&mut`
+    // to the very window we are holding. One pump at a time.
+    if MODAL_PUMP_ACTIVE.with(|active| active.get()) {
+        return;
+    }
+    MODAL_PUMP_ACTIVE.with(|active| active.set(true));
+
+    // Windows destroyed during this modal loop parked their boxes; this is the
+    // only place they are reclaimed while USER32 owns the loop.
+    registry::drain_closed_windows();
+
+    for hwnd in registry::get_all_window_handles() {
+        // Pending window creates. Re-fetched every iteration: creating a window
+        // runs a whole `Win32Window::new`, and the registry may have moved on.
+        loop {
+            let Some(wptr) = registry::get_window(hwnd) else {
+                break;
+            };
+            let next = unsafe {
+                let window = &mut *wptr;
+                match window.pending_window_creates.pop() {
+                    Some(options) => Some((
+                        options,
+                        window.app_config.clone(),
+                        window.common.fc_cache.clone(),
+                        window.font_registry.clone(),
+                        window.common.app_data.clone(),
+                        window.common.undo_manager.clone(),
+                    )),
+                    None => None,
+                }
+            };
+            let Some((options, config, fc_cache, font_registry, app_data, undo_manager)) = next
+            else {
+                break;
+            };
+
+            match Win32Window::new(options, config, fc_cache, font_registry, app_data, undo_manager)
+            {
+                Ok(new_window) => unsafe {
+                    let new_window_ptr = Box::into_raw(Box::new(new_window));
+                    let new_hwnd = (*new_window_ptr).hwnd;
+                    ((*new_window_ptr).win32.user32.SetWindowLongPtrW)(
+                        new_hwnd,
+                        dlopen::constants::GWLP_USERDATA,
+                        new_window_ptr as isize,
+                    );
+                    registry::register_window(new_hwnd, new_window_ptr);
+                    (*new_window_ptr).register_drag_drop();
+                },
+                Err(e) => {
+                    log_error!(
+                        LogCategory::Window,
+                        "[Windows] Failed to create window during a modal size/move loop: {:?}",
+                        e
+                    );
+                }
+            }
+        }
+
+        // Accessibility actions queued by the UI Automation adapter.
+        #[cfg(feature = "a11y")]
+        {
+            if let Some(wptr) = registry::get_window(hwnd) {
+                unsafe {
+                    (*wptr).process_accessibility_actions();
+                }
+            }
+        }
+
+        // Cross-window regeneration sweep.
+        if let Some(wptr) = registry::get_window(hwnd) {
+            unsafe {
+                let window = &mut *wptr;
+                if window.common.regeneration_pending() {
+                    // Captured BEFORE the regeneration: a lifecycle callback
+                    // inside it can raise a new request, and only what we saw
+                    // here may be retired.
+                    let regen_epoch_seen = window.common.regen_epoch();
+                    if let Err(e) = window.regenerate_layout() {
+                        log_error!(
+                            LogCategory::Layout,
+                            "[Windows] Layout regeneration error during a modal size/move loop: {}",
+                            e
+                        );
+                    }
+                    window
+                        .common
+                        .clear_regeneration_unless_reraised(regen_epoch_seen);
+                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                }
+            }
+        }
+    }
+
+    // No early return above, and a panic out of a wndproc aborts, so this is
+    // the only exit.
+    MODAL_PUMP_ACTIVE.with(|active| active.set(false));
+}
+
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
     msg: u32,
@@ -3046,8 +3248,13 @@ unsafe extern "system" fn window_proc(
     const WM_RBUTTONUP: u32 = 0x0205;
     const WM_MBUTTONDOWN: u32 = 0x0207;
     const WM_MBUTTONUP: u32 = 0x0208;
+    const WM_XBUTTONDOWN: u32 = 0x020B;
+    const WM_XBUTTONUP: u32 = 0x020C;
+    const WM_ENTERSIZEMOVE: u32 = 0x0231;
+    const WM_EXITSIZEMOVE: u32 = 0x0232;
     const WM_MOUSEWHEEL: u32 = 0x020A;
     const WM_APP_FRAME_READY_LOCAL: u32 = WM_APP_FRAME_READY;
+    const WM_APP_SHOW_PENDING_MENU_LOCAL: u32 = WM_APP_SHOW_PENDING_MENU;
     const WM_MOUSEHWHEEL: u32 = 0x020E;
     const WM_GETMINMAXINFO: u32 = 0x0024;
     const WM_SETTINGCHANGE: u32 = 0x001A;
@@ -3332,6 +3539,14 @@ unsafe extern "system" fn window_proc(
                 false
             };
 
+            // The caret may have moved on ANY of those paths — including the
+            // relayout-only fast path, which skips `regenerate_layout_inner`'s
+            // tail entirely. Without this an over-the-spot IME kept drawing its
+            // composition and candidate windows wherever the caret was at the
+            // last FULL regeneration. Gated internally on the caret/focus
+            // identity actually having changed.
+            window.sync_ime_state();
+
             match window.render_and_present(layout_was_regenerated) {
                 Ok(_) => {}
                 Err(e) => {
@@ -3491,12 +3706,25 @@ unsafe extern "system" fn window_proc(
                 }
 
                 // The relayout is already scheduled above; this pass exists so
-                // the app's WindowResize / Maximize / Restore callbacks
-                // actually run. All three are DERIVED from the previous→current
-                // delta, so an arm that applies the new geometry to both sides
-                // and never runs a pass (what this used to do) cannot fire
-                // them at all — no resize event has ever reached a Windows app.
-                // Mirrors the Wayland xdg_toplevel.configure handler.
+                // the app's WindowResize callbacks actually run. `WindowResize`
+                // is DERIVED from the previous→current delta, so an arm that
+                // applies the new geometry to both sides and never runs a pass
+                // (what this used to do) cannot fire it at all — no resize
+                // event has ever reached a Windows app. Mirrors the Wayland
+                // xdg_toplevel.configure handler.
+                //
+                // The MAXIMIZE/RESTORE half of `wparam` fires NO callback: there
+                // is no frame `EventType` (no Maximize, no Restore, no
+                // Minimize, no Fullscreen) and `first_differing_state_field`
+                // deliberately excludes `flags.frame` — including it would make
+                // every maximize trip the unconsumed-delta guard. Writing it is
+                // still required: it is what the app reads back from the window
+                // state and what the CSD titlebar widget draws its
+                // maximize/restore button from, and advancing `os_synced_state`
+                // in lockstep (source = Os above) is what stops
+                // `sync_window_state` from re-issuing `ShowWindow` off a stale
+                // diff. The `size.dimensions` half of this same delta IS
+                // event-bearing and is the reason for the pass.
                 window.set_previous_window_state(prev_snapshot);
                 let r = window.process_window_events(0);
                 window.route_main_window_result(hwnd, r);
@@ -3833,10 +4061,16 @@ unsafe extern "system" fn window_proc(
             if let Some(scrollbar_hit_id) =
                 PlatformWindow::perform_scrollbar_hit_test(&*window, logical_pos)
             {
-                let r = PlatformWindow::handle_scrollbar_click(
+                // The scrollbar consumes the press, but the button is still
+                // PHYSICALLY DOWN: the shared helper records `left_down` and
+                // the cursor position before swallowing the delta, so the live
+                // pointer state agrees with the hardware for the whole drag.
+                let r = PlatformWindow::handle_scrollbar_press(
                     &mut *window,
                     scrollbar_hit_id,
                     logical_pos,
+                    azul_core::events::MouseButton::Left,
+                    "windows.wm_lbuttondown.scrollbar_click",
                 );
                 // Capture the mouse so a fast thumb-drag leaving the client
                 // area keeps receiving WM_MOUSEMOVE (this early-return used to
@@ -3927,9 +4161,17 @@ unsafe extern "system" fn window_proc(
                 y as f32 / hidpi_factor.inner.get(),
             );
 
-            // End scrollbar drag if active (before state changes)
-            if window.common.scrollbar_drag_state.is_some() {
-                window.common.scrollbar_drag_state = None;
+            // End scrollbar drag if active (before state changes). The shared
+            // helper also CLEARS the button the press latched — a release that
+            // skipped that write left `left_down == true` for good after the
+            // first thumb drag.
+            let scrollbar_release = PlatformWindow::end_scrollbar_drag(
+                &mut *window,
+                logical_pos,
+                azul_core::events::MouseButton::Left,
+                "windows.wm_lbuttonup.scrollbar_drag",
+            );
+            if scrollbar_release.is_some() {
                 unsafe {
                     (window.win32.user32.ReleaseCapture)();
                 }
@@ -4196,6 +4438,80 @@ unsafe extern "system" fn window_proc(
             0
         }
 
+        WM_XBUTTONDOWN | WM_XBUTTONUP => {
+            // Mouse buttons 4 and 5 (the thumb "back"/"forward" pair). There
+            // was no arm at all, so on Windows they fell through to
+            // DefWindowProc and the engine never even learned the cursor had
+            // moved with them — macOS routes the same buttons through
+            // `otherMouse*` and X11 through buttons 8/9.
+            //
+            // Two Win32 peculiarities, both of them traps: the button is in the
+            // HIGH word of wParam (the low word is the modifier set), and MSDN
+            // requires TRUE, not 0, as the return value.
+            let is_down = msg == WM_XBUTTONDOWN;
+            let button = match crate::desktop::shell2::common::event::win32_xbutton_to_mouse_button(
+                wparam,
+            ) {
+                Some(button) => button,
+                None => return 1,
+            };
+
+            let x = (lparam & 0xFFFF) as i16 as i32;
+            let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+
+            use azul_core::geom::LogicalPosition;
+
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
+            let logical_pos = LogicalPosition::new(
+                x as f32 / hidpi_factor.inner.get(),
+                y as f32 / hidpi_factor.inner.get(),
+            );
+
+            // Save previous state
+            window.snapshot_window_state_baseline(if is_down {
+                "windows.wm_xbuttondown"
+            } else {
+                "windows.wm_xbuttonup"
+            });
+
+            // `MouseState` has no field for buttons 4/5, so this records the
+            // position only — the same thing macOS's `otherMouse*` path does.
+            // A press/release of them therefore reaches callbacks as pointer
+            // motion, not as MouseDown/MouseUp, on every backend alike.
+            crate::desktop::shell2::common::event::apply_pointer_button_state(
+                &mut window.common.current_window_state.mouse_state,
+                logical_pos,
+                button,
+                is_down,
+            );
+
+            let result = window.process_window_events(0);
+
+            window.route_main_window_result(hwnd, result);
+
+            1
+        }
+
+        WM_ENTERSIZEMOVE => {
+            // A drag-resize or drag-move hands control to a MODAL loop inside
+            // USER32: `DispatchMessageW` does not return until the user lets
+            // go, so `run.rs`'s loop body — pending window creates, the
+            // accessibility drain, the cross-window regeneration sweep and the
+            // deferred free of closed windows — does not run for the whole
+            // drag. Messages ARE still pumped inside that loop, so a timer is
+            // the way back in: `WM_TIMER` runs the same per-iteration work.
+            window.start_modal_loop_pump();
+            0
+        }
+
+        WM_EXITSIZEMOVE => {
+            // The outer loop is about to get control back, so the stand-in
+            // timer must go — leaving it armed would run the sweep twice per
+            // frame forever after the first resize.
+            window.stop_modal_loop_pump();
+            0
+        }
+
         WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
             // Mouse wheel scrolled - similar to macOS handle_scroll_wheel.
             // WM_MOUSEHWHEEL (tilt wheel / trackpad horizontal) previously fell
@@ -4374,42 +4690,37 @@ unsafe extern "system" fn window_proc(
             let repeat_count = (lparam & 0xFFFF) as u16;
             let is_repeat = repeat_count > 1 || ((lparam >> 30) & 1) == 1; // bit 30 = previous key state
 
-            // Translate virtual key to azul key
-            if let Some(virtual_key) = win_event::vkey_to_winit_vkey(vk_code as i32) {
-                // Save previous state. For key repeats, clear current_virtual_keycode
-                // in the snapshot so the state-diff sees None → Some(key).
-                let mut prev_snapshot = window.common.current_window_state.clone();
-                if is_repeat {
-                    prev_snapshot.keyboard_state.current_virtual_keycode =
-                        azul_core::window::OptionVirtualKeyCode::None;
-                }
-                window.set_previous_window_state(prev_snapshot);
+            // Translate virtual key to azul key. `None` — a key the table has
+            // no entry for — is NOT a reason to skip the handler: the SCANCODE
+            // names the physical key and needs no table to be true, and gating
+            // its write on the translation left media keys, the browser cluster
+            // and every OEM key on a non-US layout missing from
+            // `pressed_scancodes`. The pass has to run either way, or the
+            // keyboard-state delta this leaves behind trips the
+            // unconsumed-input guard in the next handler.
+            let virtual_key = win_event::vkey_to_winit_vkey(vk_code as i32);
 
-                // Update keyboard state
-                window
-                    .common
-                    .current_window_state
-                    .keyboard_state
-                    .current_virtual_keycode =
-                    azul_core::window::OptionVirtualKeyCode::Some(virtual_key);
-                window
-                    .common
-                    .current_window_state
-                    .keyboard_state
-                    .pressed_virtual_keycodes
-                    .insert_hm_item(virtual_key);
-                window
-                    .common
-                    .current_window_state
-                    .keyboard_state
-                    .pressed_scancodes
-                    .insert_hm_item(scan_code);
-
-                // V2 system will detect VirtualKeyDown event
-                let result = window.process_window_events(0);
-
-                window.route_main_window_result(hwnd, result);
+            // Save previous state. For key repeats, clear current_virtual_keycode
+            // in the snapshot so the state-diff sees None → Some(key).
+            let mut prev_snapshot = window.common.current_window_state.clone();
+            if is_repeat {
+                prev_snapshot.keyboard_state.current_virtual_keycode =
+                    azul_core::window::OptionVirtualKeyCode::None;
             }
+            window.set_previous_window_state(prev_snapshot);
+
+            // Update keyboard state
+            crate::desktop::shell2::common::event::apply_win32_key_state_change(
+                &mut window.common.current_window_state.keyboard_state,
+                virtual_key,
+                scan_code,
+                true,
+            );
+
+            // V2 system will detect VirtualKeyDown event
+            let result = window.process_window_events(0);
+
+            window.route_main_window_result(hwnd, result);
 
             // The SYS variants MUST reach DefWindowProc: that is what turns
             // Alt+F4's WM_SYSKEYDOWN into WM_SYSCOMMAND/SC_CLOSE and what puts
@@ -4430,35 +4741,28 @@ unsafe extern "system" fn window_proc(
             let vk_code = wparam as u32;
             let scan_code = ((lparam >> 16) & 0xFF) as u32;
 
-            // Translate virtual key
-            if let Some(virtual_key) = win_event::vkey_to_winit_vkey(vk_code as i32) {
-                // Save previous state
-                window.snapshot_window_state_baseline("windows.wm_keyup");
+            // Translate virtual key. Ungated for the same reason as the
+            // key-down arm: an unmapped key that got INTO `pressed_scancodes`
+            // has to be able to come back out, and the gate used to stop both
+            // halves — so any key the table does not know would have stayed
+            // latched down for the rest of the session.
+            let virtual_key = win_event::vkey_to_winit_vkey(vk_code as i32);
 
-                // Update keyboard state
-                window
-                    .common
-                    .current_window_state
-                    .keyboard_state
-                    .current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
-                window
-                    .common
-                    .current_window_state
-                    .keyboard_state
-                    .pressed_virtual_keycodes
-                    .remove_hm_item(&virtual_key);
-                window
-                    .common
-                    .current_window_state
-                    .keyboard_state
-                    .pressed_scancodes
-                    .remove_hm_item(&scan_code);
+            // Save previous state
+            window.snapshot_window_state_baseline("windows.wm_keyup");
 
-                // V2 system will detect VirtualKeyUp event
-                let result = window.process_window_events(0);
+            // Update keyboard state
+            crate::desktop::shell2::common::event::apply_win32_key_state_change(
+                &mut window.common.current_window_state.keyboard_state,
+                virtual_key,
+                scan_code,
+                false,
+            );
 
-                window.route_main_window_result(hwnd, result);
-            }
+            // V2 system will detect VirtualKeyUp event
+            let result = window.process_window_events(0);
+
+            window.route_main_window_result(hwnd, result);
 
             // Same as WM_SYSKEYDOWN: DefWindowProc completes the menu-mode
             // entry a bare Alt press starts (Alt down + up activates the menu
@@ -4856,8 +5160,18 @@ unsafe extern "system" fn window_proc(
             // Timer fired — process_timers_and_threads() handles both user timers
             // (invoke_expired_timers) and thread polling (invoke_thread_callbacks).
             use crate::desktop::shell2::common::event::PlatformWindow;
+            let modal_tick = wparam == Win32Window::MODAL_LOOP_TIMER_ID;
             if window.process_timers_and_threads() {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+            }
+
+            if modal_tick {
+                // Inside a modal size/move loop this timer is the only thing
+                // still driving `run.rs`'s per-iteration work. NOTHING below
+                // may touch `window` again: the pump re-borrows every window
+                // from the registry — this one included — and may free one, so
+                // the `&mut Win32Window` above has to be dead by here.
+                pump_modal_loop_work();
             }
 
             0
@@ -5107,6 +5421,35 @@ unsafe extern "system" fn window_proc(
                 if let Ok(mut guard) = lw.monitors.lock() {
                     *guard = crate::desktop::display::get_monitors();
                 }
+            }
+            0
+        }
+
+        WM_APP_SHOW_PENDING_MENU_LOCAL => {
+            // Take the menu and the function pointers, then STOP touching
+            // `window`. TrackPopupMenu below runs a modal loop that re-enters
+            // window_proc, which fetches its own `&mut` from GWLP_USERDATA —
+            // sound only because this one is dead by then.
+            let Some(pending) = window.pending_native_menu.take() else {
+                return 0;
+            };
+            let hwnd_local = window.hwnd;
+            let set_foreground = window.win32.user32.SetForegroundWindow;
+            let track = window.win32.user32.TrackPopupMenu;
+            let destroy = window.win32.user32.DestroyMenu;
+
+            unsafe {
+                set_foreground(hwnd_local);
+                track(
+                    pending.hmenu,
+                    dlopen::constants::TPM_RIGHTBUTTON | dlopen::constants::TPM_LEFTALIGN,
+                    pending.x,
+                    pending.y,
+                    0,
+                    hwnd_local,
+                    ptr::null(),
+                );
+                destroy(pending.hmenu);
             }
             0
         }
@@ -5795,6 +6138,26 @@ impl PlatformWindow for Win32Window {
 }
 
 impl Win32Window {
+    /// Park a built menu for presentation on a later turn of the message loop.
+    ///
+    /// Replacing an already-parked menu destroys it first, so a second
+    /// right-click before the first was presented cannot leak an HMENU.
+    fn park_native_menu(&mut self, hmenu: HMENU, screen_x: i32, screen_y: i32) {
+        if let Some(stale) = self.pending_native_menu.take() {
+            unsafe {
+                (self.win32.user32.DestroyMenu)(stale.hmenu);
+            }
+        }
+        self.pending_native_menu = Some(PendingNativeMenu {
+            hmenu,
+            x: screen_x,
+            y: screen_y,
+        });
+        unsafe {
+            (self.win32.user32.PostMessageW)(self.hwnd, WM_APP_SHOW_PENDING_MENU, 0, 0);
+        }
+    }
+
     /// Show a native Win32 popup menu at the given logical position using `TrackPopupMenu`.
     fn show_native_menu_at_position(
         &mut self,
@@ -5826,19 +6189,9 @@ impl Win32Window {
 
         self.context_menu = Some(callbacks);
 
-        unsafe {
-            (self.win32.user32.SetForegroundWindow)(self.hwnd);
-            (self.win32.user32.TrackPopupMenu)(
-                hmenu,
-                dlopen::constants::TPM_RIGHTBUTTON | dlopen::constants::TPM_LEFTALIGN,
-                pt.x,
-                pt.y,
-                0,
-                self.hwnd,
-                ptr::null(),
-            );
-            (self.win32.user32.DestroyMenu)(hmenu);
-        }
+        // PARK, do not track: TrackPopupMenu is a modal loop and `&mut self`
+        // is live all the way up to window_proc.
+        self.park_native_menu(hmenu, pt.x, pt.y);
     }
 
     /// Show a fallback window-based menu at the given position
@@ -6073,6 +6426,38 @@ impl Win32Window {
             self.set_ime_composition_window(rect);
         }
     }
+
+    /// Keep the OS-side IME in step with the LIVE focus / editing / caret state.
+    ///
+    /// The three calls this replaces had exactly ONE call site between them —
+    /// the tail of a FULL `regenerate_layout_inner`. Clicking into a
+    /// contenteditable produces a focus restyle, an INCREMENTAL relayout and a
+    /// re-render, none of which run that tail, so the IME context stayed
+    /// dissociated and a CJK input method never engaged at all; and while
+    /// typing, the relayout-only frame path never moved the composition or
+    /// candidate window, so they kept drawing at the caret's position from
+    /// whenever the last full regeneration happened.
+    ///
+    /// Called from every event pass (`route_main_window_result`), every frame
+    /// (`WM_PAINT`) and the regeneration tail. The association diffs internally
+    /// against `ime_enabled`; the caret-rect recompute — a walk of the layout
+    /// tree — is gated on [`event::ImeSyncKey`] actually having changed. The
+    /// X11 backend's `sync_ime_state`, same contract.
+    pub(crate) fn sync_ime_state(&mut self) {
+        let key = event::ime_sync_key(
+            self.common.current_window_state.window_focused,
+            self.common.layout_window.as_ref(),
+        );
+
+        // Cheap: diffs against `ime_enabled` internally.
+        self.sync_ime_enabled_state();
+
+        if key != self.ime_sync_key {
+            self.ime_sync_key = key;
+            self.update_ime_position_from_cursor();
+            self.sync_ime_position_to_os();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -6084,5 +6469,37 @@ mod tests {
         // Just ensure the struct compiles
         let size = std::mem::size_of::<Win32Window>();
         assert!(size > 0);
+    }
+
+    /// `SetTimer` with an nIDEvent that is already in use REPLACES that timer.
+    /// The modal size/move pump sharing the thread-poll id would therefore kill
+    /// background-thread polling for the rest of the run, silently — and the
+    /// `KillTimer` at `WM_EXITSIZEMOVE` would never bring it back.
+    #[test]
+    fn reserved_win32_timer_ids_do_not_collide() {
+        assert_ne!(
+            Win32Window::MODAL_LOOP_TIMER_ID,
+            Win32Window::THREAD_POLL_TIMER_ID,
+            "the modal size/move pump and the thread poll need separate timers"
+        );
+    }
+
+    /// Buttons 4/5 arrive with the button in the HIGH word of wParam and the
+    /// modifier keys in the low one. This is the mapping the `WM_XBUTTON*` arm
+    /// runs; it lives in `common` so it is also tested on hosts that cannot
+    /// compile this module at all.
+    #[test]
+    fn xbutton_wparam_names_the_thumb_buttons() {
+        use crate::desktop::shell2::common::event::win32_xbutton_to_mouse_button;
+        use azul_core::events::MouseButton;
+
+        assert_eq!(
+            win32_xbutton_to_mouse_button(0x0001 << 16),
+            Some(MouseButton::Other(3))
+        );
+        assert_eq!(
+            win32_xbutton_to_mouse_button(0x0002 << 16),
+            Some(MouseButton::Other(4))
+        );
     }
 }

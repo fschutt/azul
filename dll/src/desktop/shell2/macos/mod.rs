@@ -1186,6 +1186,28 @@ define_class!(
             // Note: NSTimer with repeats:true automatically reschedules itself
         }
 
+        /// Pop up a menu a callback's `info.open_menu()` parked.
+        ///
+        /// Scheduled by `schedule_pending_menu_presentation` with
+        /// `performSelector:withObject:afterDelay:`, so it runs on a LATER
+        /// run-loop turn: the `&mut MacOSWindow` the pass held is long gone by
+        /// then. The borrow below lives only for the `take`, and
+        /// `present_pending_context_menu` — which blocks in a nested tracking
+        /// run loop where the common-mode `tickTimers:` above fires and takes
+        /// its own `&mut` to this same window — runs with nothing borrowed.
+        #[unsafe(method(presentPendingMenu:))]
+        fn present_pending_menu(&self, _sender: Option<&NSObject>) {
+            let pending = {
+                let window_ptr = *self.ivars().window_ptr.borrow();
+                window_ptr.and_then(|window_ptr| unsafe {
+                    (*(window_ptr as *mut MacOSWindow)).take_pending_context_menu()
+                })
+            };
+            if let Some(pending) = pending {
+                present_pending_context_menu(&pending);
+            }
+        }
+
         #[unsafe(method_id(initWithFrame:pixelFormat:))]
         fn init_with_frame_pixel_format(
             this: Allocated<Self>,
@@ -1902,6 +1924,24 @@ define_class!(
                 }
             }
             // Note: NSTimer with repeats:true automatically reschedules itself
+        }
+
+        /// Pop up a menu a callback's `info.open_menu()` parked.
+        ///
+        /// See the GLView twin: the pop-up spins a nested tracking run loop, so
+        /// it may only run once every `&mut MacOSWindow` has been dropped. The
+        /// borrow below lives for the `take` and nothing else.
+        #[unsafe(method(presentPendingMenu:))]
+        fn present_pending_menu(&self, _sender: Option<&NSObject>) {
+            let pending = {
+                let window_ptr = *self.ivars().window_ptr.borrow();
+                window_ptr.and_then(|window_ptr| unsafe {
+                    (*(window_ptr as *mut MacOSWindow)).take_pending_context_menu()
+                })
+            };
+            if let Some(pending) = pending {
+                present_pending_context_menu(&pending);
+            }
         }
 
         #[unsafe(method(validateUserInterfaceItem:))]
@@ -2891,8 +2931,14 @@ fn create_opengl_pixel_format(
 /// registered in `kCFRunLoopCommonModes` (deliberately — blink and tweens have
 /// to survive menu tracking and live resize) and `tickTimers:` takes a SECOND
 /// `&mut` to the same window, which is aliasing UB on top of plain re-entrancy.
-/// The mouse-up handler parks the built menu here; the view handler drains it
-/// with `take_pending_context_menu()` and presents it AFTER the borrow ends.
+/// Both routes into a native menu park here and neither presents:
+///
+///   * a right-click — `handle_mouse_up` builds it, `right_mouse_up` drains it
+///     with `take_pending_context_menu()` once its own borrow has ended;
+///   * `info.open_menu()` from a callback — `show_menu_from_callback` builds it
+///     mid-pass and asks the view for a `presentPendingMenu:` on a LATER
+///     run-loop turn, because there is no point in this call stack where the
+///     borrow is not live.
 pub(crate) struct PendingContextMenu {
     menu: Retained<NSMenu>,
     view: Retained<NSView>,
@@ -2904,11 +2950,23 @@ pub(crate) struct PendingContextMenu {
 /// exit fullscreen) under the event contract: snapshot `previous`, mutate
 /// `current`, run the pass.
 ///
+/// NO USER CALLBACK RUNS FOR THE TRANSITION ITSELF. There is no frame event:
+/// `azul_core::events::EventType` has no Maximize / Minimize / Restore /
+/// Fullscreen variant, and `first_differing_state_field` deliberately excludes
+/// `flags.frame` (a maximize would otherwise trip the unconsumed-delta guard on
+/// every window). What this function IS for:
+///
+///   * it advances `current_window_state.flags.frame` — what the app reads back
+///     from the window state, and what the CSD titlebar widget reads to draw
+///     its maximize/restore button and to decide what a double-click does;
+///   * it advances `os_synced_state` in lockstep (source = `Os` below), which
+///     is what kills the fullscreen flap described further down;
+///   * the pass consumes whatever ELSE the delta held (the size and position an
+///     OS-driven frame change arrives with), and THOSE do reach callbacks.
+///
 /// The four delegate methods used to assign `flags.frame` in place with no
-/// snapshot and no pass, so the transition was never dispatched — the delta just
-/// waited for the next handler's snapshot to overwrite it, and the window-frame
-/// callbacks, `:fullscreen` styling and minimize-driven timer policy all
-/// silently never ran.
+/// snapshot and no pass, so both baselines drifted from the OS and the next
+/// handler's snapshot silently swallowed whatever else was pending.
 fn set_window_frame_and_dispatch(window: &mut MacOSWindow, frame: WindowFrame) {
     if window.common.current_window_state.flags.frame == frame {
         return;
@@ -3331,8 +3389,17 @@ impl event::PlatformWindow for MacOSWindow {
     ) {
         // Check if native menus are enabled
         if self.common.current_window_state.flags.use_native_context_menus {
-            // Show native NSMenu
-            self.show_native_menu_at_position(menu, position);
+            // QUEUE the native NSMenu — never pop it up from here. This runs
+            // inside `apply_user_change`, i.e. in the middle of a pass, with
+            // the handler's `&mut MacOSWindow` (reconstructed from the
+            // registry's raw pointer) live. The pop-up spins a SYNCHRONOUS
+            // nested tracking run loop in which the common-mode tick timers
+            // fire and `tickTimers:` takes a SECOND `&mut` to this same
+            // window — aliased `&mut` on top of plain re-entrancy. Same
+            // conversion the right-click path already got; `presentPendingMenu:`
+            // does the pop-up on a later run-loop turn, with no borrow live.
+            self.queue_native_context_menu_at_position(menu, position);
+            self.schedule_pending_menu_presentation();
         } else {
             // Show fallback DOM-based menu
             // Make show_window_based_context_menu public or inline its logic
@@ -6019,78 +6086,37 @@ impl MacOSWindow {
         }
     }
 
-    /// Show a native NSMenu at the given position (without NSEvent)
+    /// Ask this window's view to drain `pending_context_menu` on a later
+    /// run-loop turn.
     ///
-    /// This is used for menus opened from callbacks (info.open_menu()).
-    /// Unlike context menus which need the NSEvent for proper positioning,
-    /// this version shows the menu at an absolute position.
-    fn show_native_menu_at_position(
-        &mut self,
-        menu: &azul_core::menu::Menu,
-        position: azul_core::geom::LogicalPosition,
-    ) {
-        use objc2_app_kit::{NSMenu, NSMenuItem};
-        use objc2_foundation::{MainThreadMarker, NSPoint, NSString};
+    /// `performSelector:withObject:afterDelay:` only ENQUEUES — nothing runs
+    /// before the caller's `&mut MacOSWindow` is gone, which is the entire
+    /// point. `presentPendingMenu:` then reconstructs its own short-lived
+    /// borrow, TAKES the parked menu, drops the borrow and only then spins the
+    /// nested tracking run loop, so the common-mode `tickTimers:` that fires
+    /// inside it is the only `&mut` to this window in existence.
+    ///
+    /// Same mechanism as the one-shot `tickTimers:` kick in `set_window_ptr`.
+    fn schedule_pending_menu_presentation(&self) {
+        use objc2::sel;
 
-        let mtm = match MainThreadMarker::new() {
-            Some(m) => m,
-            None => {
-                log_warn!(
-                    LogCategory::Platform,
-                    "[Menu] Not on main thread, cannot show menu"
-                );
-                return;
+        let delay: f64 = 0.0;
+        unsafe {
+            if let Some(ref gl_view) = self.gl_view {
+                let _: () = msg_send![
+                    &**gl_view,
+                    performSelector: sel!(presentPendingMenu:),
+                    withObject: std::ptr::null::<NSObject>(),
+                    afterDelay: delay
+                ];
+            } else if let Some(ref cpu_view) = self.cpu_view {
+                let _: () = msg_send![
+                    &**cpu_view,
+                    performSelector: sel!(presentPendingMenu:),
+                    withObject: std::ptr::null::<NSObject>(),
+                    afterDelay: delay
+                ];
             }
-        };
-
-        let ns_menu = NSMenu::new(mtm);
-
-        // Build menu items recursively from Azul menu structure
-        // Call the public(crate) associated function
-        MacOSWindow::recursive_build_nsmenu(
-            &ns_menu,
-            menu.items.as_slice(),
-            &mtm,
-            &mut self.menu_state,
-        );
-
-        // Show the menu at the specified position. `position` is azul-logical
-        // (top-left origin, y-down); popUpMenuPositioningItem:atLocation:inView:
-        // takes the point in the VIEW's coordinate system, which is BOTTOM-left
-        // origin (neither view overrides isFlipped) — flip y once, the inverse
-        // of macos_to_azul_coords (same fix as the context-menu path in
-        // events.rs).
-        let window_height = self.common.current_window_state.size.dimensions.height;
-        let view_point = NSPoint {
-            x: position.x as f64,
-            y: (window_height - position.y) as f64,
-        };
-
-        let view: Option<&NSView> = if let Some(ref gl_view) = self.gl_view {
-            Some(&**gl_view)
-        } else {
-            self.cpu_view.as_ref().map(|cpu_view| &**cpu_view as &NSView)
-        };
-
-        if let Some(view) = view {
-            log_debug!(
-                LogCategory::Platform,
-                "[Menu] Showing native menu at position ({}, {}) with {} items",
-                position.x,
-                position.y,
-                menu.items.as_slice().len()
-            );
-
-            // Typed binding, not msg_send!: the method returns BOOL and a
-            // `let _: () = msg_send![…]` declares a void return, which objc2's
-            // debug-assertions signature verification panics on. Same call as
-            // `present_pending_context_menu`; the BOOL is deliberately unused
-            // (activation arrives through the item's target/action).
-            let _selected: bool = ns_menu.popUpMenuPositioningItem_atLocation_inView(
-                None,
-                view_point,
-                Some(view),
-            );
         }
     }
 
@@ -7898,6 +7924,13 @@ mod objc_class_registration_tests {
             sel!(otherMouseUp:),
             sel!(otherMouseDragged:),
             sel!(scrollWheel:),
+            // Not routed by AppKit but by US: `show_menu_from_callback` parks
+            // the menu and sends this with performSelector:afterDelay: so the
+            // pop-up's nested tracking run loop starts AFTER the pass's
+            // `&mut MacOSWindow` is gone. A view that does not declare it turns
+            // every `info.open_menu()` into an unrecognized-selector crash.
+            sel!(presentPendingMenu:),
+            sel!(tickTimers:),
         ];
 
         for (name, class) in [

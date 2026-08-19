@@ -181,7 +181,21 @@ impl MacOSWindow {
         // Use trait method from PlatformWindow
         if let Some(scrollbar_hit_id) = PlatformWindow::perform_scrollbar_hit_test(self, position)
         {
-            let result = PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
+            // The scrollbar consumes the press, but the button is still
+            // PHYSICALLY DOWN: returning before writing the mouse state left
+            // `left_down == false` and `cursor_position` stale for the whole
+            // thumb drag, so the live pointer state disagreed with the hardware
+            // for as long as the user held the thumb. The headless backend
+            // (which the E2E suite scripts against) always wrote them; the
+            // write plus its sanctioned swallow now live in the shared trait so
+            // every backend gets the same answer.
+            let result = PlatformWindow::handle_scrollbar_press(
+                self,
+                scrollbar_hit_id,
+                position,
+                button,
+                "macos.handle_mouse_down.scrollbar_click",
+            );
             return self.convert_result_with_fanout(result);
         }
 
@@ -224,10 +238,19 @@ impl MacOSWindow {
         let window_height = self.common.current_window_state.size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
-        // End scrollbar drag if active (before state changes)
-        if self.common.scrollbar_drag_state.is_some() {
-            self.common.scrollbar_drag_state = None;
-            return EventProcessResult::RequestRedraw;
+        // End scrollbar drag if active (before state changes).
+        //
+        // The release must CLEAR what the press latched: `handle_mouse_down`
+        // records the button on a scrollbar hit, and a release that skipped the
+        // write would leave it down forever after the first thumb drag.
+        let scrollbar_release = PlatformWindow::end_scrollbar_drag(
+            self,
+            position,
+            button,
+            "macos.handle_mouse_up.scrollbar_drag",
+        );
+        if let Some(result) = scrollbar_release {
+            return self.convert_result_with_fanout(result);
         }
 
         // Save previous state BEFORE making changes
@@ -1223,7 +1246,11 @@ impl MacOSWindow {
 
     /// Build the NSMenu for a context menu and park it in `pending_context_menu`
     /// together with the view + view-space point it must pop up at.
-    fn queue_native_context_menu_at_position(
+    ///
+    /// `pub(super)` because `show_menu_from_callback` (in `macos/mod.rs`, the
+    /// `info.open_menu()` route) parks through here too — it used to pop the
+    /// menu up synchronously while holding `&mut MacOSWindow`.
+    pub(super) fn queue_native_context_menu_at_position(
         &mut self,
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
