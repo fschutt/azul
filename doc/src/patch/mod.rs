@@ -942,6 +942,7 @@ fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> 
                     println!("  [ADD] Creating new module '{}' for move", to_module);
                     crate::api::ModuleData {
                         doc: None,
+                        priority: None,
                         classes: indexmap::IndexMap::new(),
                     }
                 });
@@ -985,6 +986,7 @@ fn apply_version_patch(version_data: &mut VersionData, patch: &VersionPatch) -> 
             println!("  [ADD] Creating new module '{}' from patch", module_name);
             let mut new_module = crate::api::ModuleData {
                 doc: None,
+                priority: None,
                 classes: indexmap::IndexMap::new(),
             };
             match apply_module_patch(&mut new_module, &non_move_patches, module_name) {
@@ -1520,6 +1522,7 @@ fn apply_class_patch(
 fn class_patch_to_class_data(patch: &ClassPatch) -> ClassData {
     ClassData {
         doc: patch.doc.clone(),
+        priority: None,
         external: patch.external.clone(),
         is_boxed_object: patch.is_boxed_object.unwrap_or(false),
         custom_impls: patch.custom_impls.clone(),
@@ -1614,10 +1617,12 @@ mod tests {
                     "test_module".to_string(),
                     ModuleData {
                         doc: Some(vec!["Test module".to_string()]),
+                        priority: None,
                         classes: IndexMap::from([(
                             "TestClass".to_string(),
                             ClassData {
                                 doc: Some(vec!["Original documentation".to_string()]),
+                                priority: None,
                                 external: Some("original::path::TestClass".to_string()),
                                 is_boxed_object: false,
                                 custom_impls: None,
@@ -1761,6 +1766,7 @@ mod tests {
                     "test_module".to_string(),
                     ModuleData {
                         doc: Some(vec!["Test module".to_string()]),
+                        priority: None,
                         classes: IndexMap::from([(
                             "TestClass".to_string(),
                             ClassData {

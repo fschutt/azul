@@ -840,6 +840,8 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
 
     FunctionData {
         doc,
+        // Curated by hand in api.json; a diff-derived function has none.
+        priority: None,
         fn_args,
         returns,
         fn_body,
