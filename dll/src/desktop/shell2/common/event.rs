@@ -411,8 +411,34 @@ extern "C" fn auto_scroll_timer_callback(
         }
     };
 
+    // `container_rect.origin` is STATIC layout geometry (see
+    // `managers::scroll_registration`), but `mouse_position` arrives in WINDOW
+    // space. They agree only while no ancestor of this container is itself
+    // scrolled — so for a NESTED scroller the edge tests below ran against a
+    // box that is not where the container appears, and it autoscrolled from
+    // the wrong edges. Subtract the scroll of every ancestor ABOVE it; its own
+    // offset does not move its box.
+    let mut ancestor_scroll = azul_core::geom::LogicalPosition::zero();
+    let mut walk = scroll_parent;
+    for _ in 0..AUTO_SCROLL_ANCESTOR_WALK_LIMIT {
+        let Some(parent) = callback_info.find_scroll_parent(dom_id, walk) else {
+            break;
+        };
+        if let Some(info) = callback_info.get_scroll_node_info(dom_id, parent) {
+            ancestor_scroll.x += info.current_offset.x;
+            ancestor_scroll.y += info.current_offset.y;
+        }
+        walk = parent;
+    }
+
     // Calculate scroll delta based on mouse distance from container edges
-    let container = scroll_info.container_rect;
+    let container = azul_core::geom::LogicalRect {
+        origin: azul_core::geom::LogicalPosition::new(
+            scroll_info.container_rect.origin.x - ancestor_scroll.x,
+            scroll_info.container_rect.origin.y - ancestor_scroll.y,
+        ),
+        size: scroll_info.container_rect.size,
+    };
     let edge_threshold = AUTO_SCROLL_EDGE_THRESHOLD;
     let max_speed = AUTO_SCROLL_MAX_SPEED;
 
@@ -831,6 +857,9 @@ pub enum WindowStateSource {
 /// from spinning.
 const SELECT_ALL_BLOCK_SCAN_LIMIT: usize = 4096;
 
+/// How far the autoscroll edge test walks up summing ancestor scroll offsets.
+const AUTO_SCROLL_ANCESTOR_WALK_LIMIT: usize = 64;
+
 pub fn validation_enabled() -> bool {
     if cfg!(debug_assertions) {
         return true;
@@ -867,8 +896,8 @@ pub fn validation_enabled() -> bool {
 ///
 /// A field no event is derived from cannot encode a LOST event, which is the
 /// only failure [`check_input_delta_consumed`] exists to catch. The omissions
-/// are deliberate, not oversights: `title`, the rest of `flags` (frame,
-/// decorations, visibility, …), `size.min_dimensions`/`max_dimensions` and
+/// are deliberate, not oversights: `title`, the rest of `flags`
+/// (decorations, visibility, …), `size.min_dimensions`/`max_dimensions` and
 /// `renderer_options` are pushed to the OS by each backend's
 /// `sync_window_state()`, which diffs against `os_synced_state` — a different
 /// baseline this check never looks at — and `ime_position`, `debug_state`,
@@ -916,6 +945,9 @@ fn first_differing_state_field(
     }
     if *position != b.position {
         return Some("position");
+    }
+    if flags.frame != b.flags.frame {
+        return Some("flags.frame");
     }
     if flags.close_requested != b.flags.close_requested {
         return Some("flags.close_requested");
@@ -8954,7 +8986,10 @@ mod tests {
                 LogicalSize::new(3.0, 4.0),
             ),
         );
-        current.flags.frame = WindowFrame::Maximized;
+        // NOT flags.frame any more: `EventType::WindowFrameChanged` is derived
+        // from it now, so it belongs with the event-bearing fields. The rest of
+        // `flags` is still pushed to the OS against a different baseline.
+        current.flags.is_always_on_top = !previous.flags.is_always_on_top;
         check_input_delta_consumed(Some(&previous), &current, "test.not-event-bearing");
     }
 
@@ -9667,22 +9702,33 @@ mod tests {
     /// for the transition itself. Adding the field here would make every
     /// maximize trip the unconsumed-delta guard instead.
     #[test]
-    fn a_window_frame_transition_is_not_event_bearing() {
+    fn a_window_frame_transition_is_event_bearing() {
+        // It was NOT, and this test asserted so. `EventType::WindowFrameChanged`
+        // is now derived from `flags.frame`, so an unconsumed change here IS a
+        // lost event and the guard has to say so.
         let (previous, mut current) = state_pair();
         current.flags.frame = WindowFrame::Fullscreen;
         assert_eq!(
             first_differing_state_field(&previous, &current),
-            None,
-            "flags.frame carries no event"
+            Some("flags.frame")
         );
 
-        // Positive control: `flags` is not skipped wholesale — close_requested,
-        // which DOES have an EventType, is compared.
         let (previous, mut current) = state_pair();
         current.flags.close_requested = true;
         assert_eq!(
             first_differing_state_field(&previous, &current),
             Some("flags.close_requested")
+        );
+
+        // Negative control: the rest of `flags` is still skipped. These are
+        // pushed to the OS by sync_window_state against a different baseline,
+        // and no event is derived from them.
+        let (previous, mut current) = state_pair();
+        current.flags.is_always_on_top = !previous.flags.is_always_on_top;
+        assert_eq!(
+            first_differing_state_field(&previous, &current),
+            None,
+            "flags is not compared wholesale"
         );
     }
 
