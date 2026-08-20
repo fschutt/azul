@@ -178,6 +178,23 @@ log_info "Copied header to $TEMP_DIR/"
 cp "$EXAMPLE_SRC" "$TEMP_DIR/"
 log_info "Copied $EXAMPLE_NAME.c to $TEMP_DIR/"
 
+# Copy the shared asset tree next to the temp folder, NOT into it.
+# The examples resolve assets relative to the binary as "../assets/...", and the
+# binary runs in $TEMP_DIR = target/examples-temp/<example>/, so "../assets"
+# means target/examples-temp/assets. Nothing put it there, so every example that
+# loads an asset came up empty: opengl.c reads ../assets/testdata.json and
+# rendered no geometry, icons.c reads ../assets/images/favicon.ico. The
+# screenshots on the website show exactly that emptiness.
+ASSETS_SRC="$ROOT_DIR/examples/assets"
+ASSETS_DST="$(dirname "$TEMP_DIR")/assets"
+if [ -d "$ASSETS_SRC" ]; then
+    mkdir -p "$ASSETS_DST"
+    cp -R "$ASSETS_SRC/." "$ASSETS_DST/"
+    log_info "Copied examples/assets -> $ASSETS_DST"
+else
+    log_warn "examples/assets not found at $ASSETS_SRC - asset-loading examples will render empty"
+fi
+
 log_success "Temp folder prepared"
 
 # Step 4: Compile the example
