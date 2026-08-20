@@ -564,10 +564,9 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
     let mut content = String::new();
     for version in api_data.get_sorted_versions() {
         content.push_str(&format!(
-            // Same card as the guide index and the releases overview - the
-            // version is the destination and the whole of the card.
-            "<div class=\"guide-card\"><h3><a class=\"guide-link guide-link-lead\" \
-             href=\"{}/api/{}\">v{}</a></h3></div>\n",
+            // The version IS the destination, so the whole card is the link -
+            // same treatment as the releases overview.
+            "<a class=\"guide-card-btn\" href=\"{}/api/{}\">v{}</a>\n",
             HTML_ROOT, version, version
         ));
     }

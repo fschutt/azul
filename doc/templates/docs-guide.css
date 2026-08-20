@@ -125,6 +125,49 @@ h3 a.guide-link-lead:hover,
         var(--fl-leaf-b) border-box;
 }
 
+/* A card whose only content is its destination - a release, an API version -
+   IS the button. A small button inside a big card gives the pointer a target
+   a fraction of the size of the thing that looks clickable. */
+a.guide-card-btn,
+.docs-content a.guide-card-btn {
+    display: block;
+    padding: 20px 22px;
+    border: 1px solid transparent;
+    border-radius: var(--fl-r);
+    background:
+        linear-gradient(var(--fl-rT), var(--fl-rB)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    box-shadow: var(--fl-lip), var(--fl-shadow-1);
+    color: var(--fl-ink);
+    font-family: var(--font-display);
+    font-size: 26px;
+    font-weight: 500;
+    letter-spacing: 0.015em;
+    line-height: 1.1;
+    text-decoration: none;
+    transition: background var(--fl-dur) var(--fl-ease),
+                filter var(--fl-dur) var(--fl-ease);
+}
+
+a.guide-card-btn:hover,
+.docs-content a.guide-card-btn:hover {
+    background:
+        linear-gradient(var(--fl-hT), var(--fl-hB)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    filter: brightness(1.04) drop-shadow(0 0 10px rgba(255, 216, 96, 0.35));
+}
+
+a.guide-card-btn:active,
+.docs-content a.guide-card-btn:active {
+    background:
+        linear-gradient(var(--fl-pT), var(--fl-pB)) padding-box,
+        var(--fl-leaf-a) border-box,
+        var(--fl-leaf-b) border-box;
+    box-shadow: inset 0 1px 3px rgba(48, 45, 38, 0.18);
+}
+
 /* ---- Prev/next chapter footer: plain accent links (colored by the shared
         .docs-content a rule) in a hairline-topped row ---- */
 .docs-guide-footer {

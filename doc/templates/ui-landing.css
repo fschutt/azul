@@ -23,32 +23,8 @@ body.ui-landing {
     border-bottom: 1px solid rgba(0, 0, 0, 0.5);
     overflow: hidden;
 }
-.ui-hero::before {
-    content: "";
-    position: absolute;
-    /* The tile carries the motif upright and already contains the half-drop,
-       so the layer is a plain axis-aligned repeat over the band. */
-    inset: 0;
-    pointer-events: none;
-    background-color: var(--fl-band-fig);
-    -webkit-mask-image: var(--fl-figure);
-            mask-image: var(--fl-figure);
-    -webkit-mask-repeat: repeat;
-            mask-repeat: repeat;
-    -webkit-mask-size: 62px 62px;
-            mask-size: 62px 62px;
-}
-.ui-hero::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 2px;
-    background: var(--fl-rule-metal-bg);
-    pointer-events: none;
-    z-index: 2;
-}
+/* The tiled figure and the metal rule that closes the band are shared with
+   `.hero` and live in flora.css - see "the figure, tiled" there. */
 .ui-hero a:not(.btn),
 .ui-hero a:not(.btn):visited { color: #DCCFA4; }
 
@@ -253,6 +229,7 @@ img.showcase.windows { display: initial; }
     align-items: stretch;
 }
 .lang-grid button,
+.lang-grid .lang-more-btn,
 .lang-tab-dropdown .dialect-select,
 .tab-bar select {
     /* One explicit box for BOTH the buttons and the <select>. The select
@@ -355,28 +332,37 @@ img.showcase.windows { display: initial; }
     background-clip: padding-box, padding-box, border-box, border-box;
 }
 
-/* "more languages…" overflow group (kept from the old design) */
-.lang-grid .lang-more { flex-basis: 100%; margin-top: 2px; }
-.lang-grid .lang-more > summary {
-    list-style: none;
-    cursor: pointer;
-    font-family: var(--font-caps);
-    font-size: 15px;
-    font-weight: 700;
-    font-variant: all-small-caps;
-    letter-spacing: 0.08em;
-    color: var(--fl-soft1);
-    padding: 4px 6px;
+/* The overflow toggle. The checkbox is the state; the label is the control
+   and carries its own word, so the open/closed pair needs no script. */
+.lang-grid .lang-more-toggle {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+.lang-grid .lang-more-btn {
+    display: inline-block;
     user-select: none;
 }
-.lang-grid .lang-more > summary::-webkit-details-marker { display: none; }
-.lang-grid .lang-more > summary::before {
-    content: "▸ ";
-    display: inline-block;
+.lang-grid .lang-more-btn::before { content: "\25BE\00A0"; }
+.lang-grid .lang-more-btn::after { content: "More"; }
+.lang-grid .lang-more-toggle:checked ~ .lang-more-btn::before { content: "\25B4\00A0"; }
+.lang-grid .lang-more-toggle:checked ~ .lang-more-btn::after { content: "Less"; }
+.lang-grid .lang-more-btn:hover { color: var(--fl-ink); }
+.lang-grid .lang-more-toggle:focus-visible ~ .lang-more-btn {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
 }
-.lang-grid .lang-more[open] > summary::before { content: "▾ "; }
-.lang-grid .lang-more > summary:hover { color: var(--color-accent); }
-.lang-more-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+/* Closed it occupies nothing; open it takes the next line whole. */
+.lang-grid .lang-more-grid { display: none; }
+.lang-grid .lang-more-toggle:checked ~ .lang-more-grid {
+    display: flex;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+}
 
 /* Install controls only on the first example */
 .install-controls {
