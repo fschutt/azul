@@ -38,7 +38,7 @@ static AzEventFilter hover(AzHoverEventFilter h) {
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom body = AzDom_createBody();
     AzDom div = AzDom_createDiv();
-    AzDom_addChild(&div, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("click to widen")));
+    AzDom_addChild(&div, AzDom_createPWithText(AZ_STR("click to widen")));
     AzRefAny clone = AzRefAny_clone(&data);
     AzDom_addCallback(&div, hover(AzHoverEventFilter_MouseUp), clone, on_click);
     AzDom_addChild(&body, div);

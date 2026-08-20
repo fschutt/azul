@@ -58,7 +58,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     MyDataModelRef_delete(&d);
 
     AzString label_text = AzString_copyFromBytes((const uint8_t*)buffer, 0, written);
-    AzDom label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(label_text);
+    AzDom label = AzDom_createPWithText(label_text);
     AzDom label_wrapper = AzDom_createDiv();
     AzDom_addCssProperty(&label_wrapper, AzCssPropertyWithConditions_simple(
         AzCssProperty_fontSize(AzStyleFontSize_px(32.0))

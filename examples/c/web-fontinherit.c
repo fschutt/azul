@@ -35,7 +35,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzStyleFontFamilyVec ffv = AzStyleFontFamilyVec_fromItem(ff);
     add_prop(&body, AzCssProperty_fontFamily(ffv));
 
-    AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(s("hello"));
+    AzDom text = AzDom_createPWithText(s("hello"));
     AzDom_addChild(&body, text);
     return body;
 }

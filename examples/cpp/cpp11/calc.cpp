@@ -65,7 +65,7 @@ Dom make_button(RefAny& calc, const char* label, EventType evt, char digit, Oper
 
     Dom btn = Dom::create_div();
     btn.set_css(String(style));
-    btn.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(label)));
+    btn.add_child(Dom::create_p_with_text(String(label)));
     btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), RefAny::create(std::move(bd)), on_click);
     return btn;
 }
@@ -77,7 +77,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     Dom display = Dom::create_div();
     display.set_css(String(DISPLAY_STYLE));
-    display.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(c->display.c_str())));
+    display.add_child(Dom::create_p_with_text(String(c->display.c_str())));
 
     Dom buttons = Dom::create_div();
     buttons.set_css(String(BUTTONS_STYLE));

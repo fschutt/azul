@@ -32,7 +32,7 @@ def layout(data, info):
         Dom: The styled DOM tree to render
     """
     # Create a simple label
-    label = azul.Dom.create_text_do_not_use_without_block_level_wrapper(f"Hello from Python! Counter: {data.counter}")
+    label = azul.Dom.create_p_with_text(f"Hello from Python! Counter: {data.counter}")
 
     # Create a button that increments the counter
     button_dom = azul.Button.create("Click me!").dom()

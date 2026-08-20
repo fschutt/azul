@@ -7,7 +7,7 @@
 //! callback, `tab_index` or `dataset` attached to one is silently inert.
 //! That silence has shipped real bugs (text escaping its widget, click
 //! targets that never fire), which is why the raw constructor is named
-//! `create_text_do_not_use_without_block_level_wrapper` and why this pass
+//! `create_p_with_text` and why this pass
 //! exists: after layout, every text node in a shape azul cannot honor is
 //! reported to the developer, once per unique finding.
 //!

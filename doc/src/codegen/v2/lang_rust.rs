@@ -2098,7 +2098,7 @@ impl RustGenerator {
                 //   fn append_children(children: impl Into<DomVec>) allows vec![...] directly
                 //
                 // This allows ergonomic API like:
-                //   Dom::create_text_do_not_use_without_block_level_wrapper("hello")  where &str: Into<AzString>
+                //   Dom::create_p_with_text("hello")  where &str: Into<AzString>
                 //   Dom::append(button)  where button: Button (if Button: Into<Dom>)
                 //   Dom::append_children(vec![child1, child2])  where Vec<Dom>: Into<DomVec>
                 let is_callback_type = callback_typedefs.contains(arg.type_name.as_str())

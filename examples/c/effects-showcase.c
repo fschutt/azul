@@ -16,7 +16,7 @@ static AzDom make_styled_div(const char* css, const char* text) {
     AzDom div = AzDom_createDiv();
     AzDom_setCss(&div, AZ_STR(css));
     if (text && text[0]) {
-        AzDom_addChild(&div, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(text)));
+        AzDom_addChild(&div, AzDom_createPWithText(AZ_STR(text)));
     }
     return div;
 }
@@ -26,7 +26,7 @@ static AzDom make_label(const char* text) {
     AzDom_setCss(&label, AZ_STR(
         "font-size: 10px; color: #888; text-align: center; margin-top: 4px;"
     ));
-    AzDom_addChild(&label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(text)));
+    AzDom_addChild(&label, AzDom_createPWithText(AZ_STR(text)));
     return label;
 }
 
@@ -57,7 +57,7 @@ static AzDom make_section_header(const char* title) {
         "grid-column-start: 1; grid-column-end: 5;"
         "border-bottom: 1px solid #ddd; padding-bottom: 4px;"
     ));
-    AzDom_addChild(&h, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(title)));
+    AzDom_addChild(&h, AzDom_createPWithText(AZ_STR(title)));
     return h;
 }
 
@@ -83,7 +83,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setCss(&title, AZ_STR(
         "font-size: 28px; font-weight: bold; margin-bottom: 16px; color: #111;"
     ));
-    AzDom_addChild(&title, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Effects Showcase")));
+    AzDom_addChild(&title, AzDom_createPWithText(AZ_STR("Effects Showcase")));
     add_child(&body, title);
 
     // Main grid: 4 columns

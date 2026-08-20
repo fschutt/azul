@@ -2704,7 +2704,7 @@ impl LayoutWindow {
             let _ = &mut root;
             let replacement = Dom {
                 root,
-                children: alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(merged_text)]
+                children: alloc::vec![Dom::create_p_with_text(merged_text)]
                     .into(),
                 css: Vec::new().into(),
                 estimated_total_children: 1,

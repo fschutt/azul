@@ -303,7 +303,7 @@ pub fn markdown_to_content_dom(markdown: &str) -> Dom {
         }
         Err(e) => Dom::create_div()
             .with_css(DOC_CSS)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("markdown parse error: {e}"))),
+            .with_child(Dom::create_p_with_text(format!("markdown parse error: {e}"))),
     }
 }
 

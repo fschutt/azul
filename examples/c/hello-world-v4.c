@@ -13,7 +13,7 @@ AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
 }
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) { return AzUpdate_DoNothing; }
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    AzDom unused_text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("X"));
+    AzDom unused_text = AzDom_createPWithText(AZ_STR("X"));
     AzDom_delete(&unused_text);
     AzDom body = AzDom_createBody();
     return body;

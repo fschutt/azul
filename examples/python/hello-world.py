@@ -8,7 +8,7 @@ class DataModel:
 
 def layout(data, info):
     label = (Dom.create_div()
-             .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(str(data.counter)))
+             .with_child(Dom.create_p_with_text(str(data.counter)))
              .with_css("font-size: 32px;"))
 
     button = (Button.create("Increase counter")

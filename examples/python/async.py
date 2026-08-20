@@ -79,7 +79,7 @@ def control(text, data, callback):
             .with_css("width:28px;height:28px;line-height:28px;text-align:center;"
                       "background:white;color:#333333;border:1px solid #b0b0b0;"
                       "margin-right:4px;font-size:16px;cursor:pointer;")
-            .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(text))
+            .with_child(Dom.create_p_with_text(text))
             .with_callback(CLICK, data, callback))
 
 
@@ -153,17 +153,17 @@ def layout(data, info):
                         "padding-left:14px;background:#24303f;color:white;")
               .with_child(Dom.create_div()
                           .with_css("font-size:16px;font-weight:bold;margin-right:16px;")
-                          .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(
+                          .with_child(Dom.create_p_with_text(
                               "Azul Maps")))
               .with_child(Dom.create_div()
                           .with_css("font-size:12px;color:#9fb0c4;")
-                          .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(
+                          .with_child(Dom.create_p_with_text(
                               "zoom %d   tile %d/%d" % (data.zoom, data.tile_x, data.tile_y)))))
 
     footer = (Dom.create_div()
               .with_css("height:22px;line-height:22px;padding-left:14px;background:#f3f5f7;"
                         "color:#5b6875;font-size:11px;border-top:1px solid #d3d9df;")
-              .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(
+              .with_child(Dom.create_p_with_text(
                   "tiles are generated procedurally - no network, no assets")))
 
     return (Dom.create_body()

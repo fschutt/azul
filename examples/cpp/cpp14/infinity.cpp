@@ -22,7 +22,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     std::ostringstream title_text;
     title_text << "Infinite Gallery - " << d->file_paths.size() << " images";
 
-    Dom title = Dom::create_text_do_not_use_without_block_level_wrapper(String(title_text.str().c_str()));
+    Dom title = Dom::create_p_with_text(String(title_text.str().c_str()));
     title.set_css(String("font-size: 20px; margin-bottom: 10px;"));
 
     Dom container = Dom::create_div();
@@ -32,7 +32,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     for (size_t i = d->visible_start; i < end; ++i) {
         Dom item = Dom::create_div();
         item.set_css(String("width: 150px; height: 150px; background: white; display: flex; align-items: center; justify-content: center;"));
-        item.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(d->file_paths[i].c_str())));
+        item.add_child(Dom::create_p_with_text(String(d->file_paths[i].c_str())));
         container.add_child(std::move(item));
     }
 

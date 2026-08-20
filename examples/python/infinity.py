@@ -48,7 +48,7 @@ def cell_text(row, col):
 def cell(text, css):
     return (Dom.create_div()
             .with_css(css)
-            .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(text)))
+            .with_child(Dom.create_p_with_text(text)))
 
 
 def column_header():
@@ -113,7 +113,7 @@ def pager_button(text, data, callback):
     return (Dom.create_div()
             .with_css("padding:2px 10px;margin-right:6px;background:#ffffff;color:#33404f;"
                       "border:1px solid #b6bcc6;font-size:11px;cursor:pointer;")
-            .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(text))
+            .with_child(Dom.create_p_with_text(text))
             .with_callback(CLICK, data, callback))
 
 
@@ -121,7 +121,7 @@ def layout(data, info):
     title = (Dom.create_div()
              .with_css("padding:8px 12px;background:#217346;color:white;"
                        "font-size:13px;font-weight:bold;")
-             .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(
+             .with_child(Dom.create_p_with_text(
                  "Sheet1  -  %d rows x %d columns" % (data.total_rows, len(COL_LABELS)))))
 
     viewport = (Dom.create_div()
@@ -135,7 +135,7 @@ def layout(data, info):
                         "font-size:11px;")
               .with_child(pager_button("Prev", data, on_page_up))
               .with_child(pager_button("Next", data, on_page_down))
-              .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(
+              .with_child(Dom.create_p_with_text(
                   "rows %d - %d of %d" % (data.first_row + 1,
                                           data.first_row + VISIBLE_ROWS,
                                           data.total_rows))))

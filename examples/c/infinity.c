@@ -38,7 +38,7 @@ static AzString str(const char* s) {
 
 static AzDom cell(const char* text, const char* css) {
     AzDom d = AzDom_createDiv();
-    AzDom_addChild(&d, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(str(text)));
+    AzDom_addChild(&d, AzDom_createPWithText(str(text)));
     AzDom_setCss(&d, str(css));
     return d;
 }
@@ -171,7 +171,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     char buf[96];
     snprintf(buf, sizeof(buf), "Sheet1  -  %d rows x %d columns", TOTAL_ROWS, COL_COUNT);
     AzDom title = AzDom_createDiv();
-    AzDom_addChild(&title, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(str(buf)));
+    AzDom_addChild(&title, AzDom_createPWithText(str(buf)));
     AzDom_setCss(&title, str(
         "padding: 8px 12px; background: #217346; color: white; "
         "font-size: 13px; font-weight: bold;"));
@@ -182,7 +182,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "background: #ffffff;"));
 
     AzDom status = AzDom_createDiv();
-    AzDom_addChild(&status, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(
+    AzDom_addChild(&status, AzDom_createPWithText(
         str("Ready   -   only the visible band of cells exists in the DOM")));
     AzDom_setCss(&status, str(
         "padding: 4px 12px; background: #f1f3f6; border-top: 1px solid #c9ced6; "

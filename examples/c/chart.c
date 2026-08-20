@@ -157,7 +157,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
 
     // === Title ===
-    AzDom title = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("Chart Demo - SVG Clip Masks"));
+    AzDom title = AzDom_createPWithText(az_str("Chart Demo - SVG Clip Masks"));
     AzDom_setCss(&title, az_str(
         "font-size: 24px;"
         "color: white;"
@@ -175,7 +175,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "border-radius: 12px;"
     ));
 
-    AzDom bar_title = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("Monthly Revenue (Bar Chart with Clip Masks)"));
+    AzDom bar_title = AzDom_createPWithText(az_str("Monthly Revenue (Bar Chart with Clip Masks)"));
     AzDom_setCss(&bar_title, az_str(
         "font-size: 16px;"
         "color: #eee;"
@@ -235,7 +235,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&bar_col, bar);
 
         // Label below bar
-        AzDom label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str(bar_labels[i]));
+        AzDom label = AzDom_createPWithText(az_str(bar_labels[i]));
         AzDom_setCss(&label, az_str(
             "color: #aaa;"
             "font-size: 12px;"
@@ -246,7 +246,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         // Value label
         char val_buf[32];
         snprintf(val_buf, sizeof(val_buf), "%d%%", (int)(bar_values[i] * 100));
-        AzDom val_label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str(val_buf));
+        AzDom val_label = AzDom_createPWithText(az_str(val_buf));
         AzDom_setCss(&val_label, az_str(
             "color: white;"
             "font-size: 11px;"
@@ -270,7 +270,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "border-radius: 12px;"
     ));
 
-    AzDom pie_title = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("Distribution (Pie Chart with Clip Masks)"));
+    AzDom pie_title = AzDom_createPWithText(az_str("Distribution (Pie Chart with Clip Masks)"));
     AzDom_setCss(&pie_title, az_str(
         "font-size: 16px;"
         "color: #eee;"

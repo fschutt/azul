@@ -112,7 +112,7 @@ def make_callback(calc, event_type, event_data):
 def button(calc, label, event_type, event_data, style):
     return (Dom.create_div()
             .with_css(style)
-            .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(label))
+            .with_child(Dom.create_p_with_text(label))
             .with_callback(
                 EventFilter.Hover(HoverEventFilter.MouseUp),
                 calc,
@@ -122,7 +122,7 @@ def button(calc, label, event_type, event_data, style):
 def layout(data, info):
     display = (Dom.create_div()
                .with_css(DISPLAY_STYLE)
-               .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(data.display)))
+               .with_child(Dom.create_p_with_text(data.display)))
 
     rows = [
         ("C", "clear", None, BTN_STYLE),

@@ -563,13 +563,13 @@ AzDom layout(AzRefAny data_ref, AzLayoutCallbackInfo info) {
     // If still loading or error, show status
     if (data->error_message != NULL) {
         AzDom body = AzDom_createBody();
-        AzDom_addChild(&body, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str(data->error_message)));
+        AzDom_addChild(&body, AzDom_createPWithText(az_str(data->error_message)));
         return body;
     }
 
     if (!data->has_xml) {
         AzDom body = AzDom_createBody();
-        AzDom_addChild(&body, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str(data->status_message ? data->status_message : "Loading...")));
+        AzDom_addChild(&body, AzDom_createPWithText(az_str(data->status_message ? data->status_message : "Loading...")));
         return body;
     }
     

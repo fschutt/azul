@@ -34,7 +34,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString title_text = AzString_copyFromBytes(
         (const uint8_t*)"Regular Scroll Test (no VirtualView)", 0, 36);
     AzDom title = AzDom_createDiv();
-    AzDom_addChild(&title, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(title_text));
+    AzDom_addChild(&title, AzDom_createPWithText(title_text));
     AzString title_style = AzString_copyFromBytes(
         (const uint8_t*)"padding: 12px; background: #4a90d9; color: white; font-size: 18px; font-weight: bold;",
         0, 85);
@@ -46,7 +46,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         char buf[64];
         int len = snprintf(buf, sizeof(buf), "Row %d", i);
         AzString label = AzString_copyFromBytes((const uint8_t*)buf, 0, (size_t)len);
-        AzDom text_node = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(label);
+        AzDom text_node = AzDom_createPWithText(label);
 
         AzDom row = AzDom_createDiv();
         AzDom_addChild(&row, text_node);
@@ -73,7 +73,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "Regular scroll container with %d real DOM rows (no VirtualView).", total);
     AzString footer_text = AzString_copyFromBytes((const uint8_t*)footer_buf, 0, (size_t)flen);
     AzDom footer = AzDom_createDiv();
-    AzDom_addChild(&footer, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(footer_text));
+    AzDom_addChild(&footer, AzDom_createPWithText(footer_text));
     AzString footer_style = AzString_copyFromBytes(
         (const uint8_t*)"padding: 8px; background: #f0f0f0; color: #666; font-size: 12px; text-align: center;",
         0, 85);

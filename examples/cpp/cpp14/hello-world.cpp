@@ -17,7 +17,7 @@ auto layout(AzRefAny data, AzLayoutCallbackInfo info) -> AzDom {
     return Dom::create_body()
         .with_child(Dom::create_div()
             .with_css(String("font-size: 32px;"))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(std::to_string(d->counter).c_str()))))
+            .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))))
         .with_child(Button::create("Increase counter")
             .with_button_type(ButtonType::Primary)
             .with_on_click(data_wrapper.clone(), on_click)

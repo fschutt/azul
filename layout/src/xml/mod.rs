@@ -131,7 +131,7 @@ use xmlparser::Tokenizer;
             return DomXml {
                 parsed_dom: {
                     let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(format!("{e}"))].into());
+                        .with_children(vec![Dom::create_p_with_text(format!("{e}"))].into());
                     StyledDom::create(&mut dom, error_css)
                 },
             };
@@ -144,7 +144,7 @@ use xmlparser::Tokenizer;
             return DomXml {
                 parsed_dom: {
                     let mut dom = Dom::create_body()
-                        .with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(format!("{e}"))].into());
+                        .with_children(vec![Dom::create_p_with_text(format!("{e}"))].into());
                     StyledDom::create(&mut dom, error_css)
                 },
             };
@@ -165,7 +165,7 @@ use xmlparser::Tokenizer;
     let component_map = ComponentMap::with_builtin();
     match str_to_dom_unstyled(xml.root.as_ref(), &component_map) {
         Ok(dom) => dom,
-        Err(e) => Dom::create_body().with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(format!("{e}"))].into()),
+        Err(e) => Dom::create_body().with_children(vec![Dom::create_p_with_text(format!("{e}"))].into()),
     }
 }
 
@@ -637,7 +637,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(
                 parsed_dom: {
                     let mut dom = Dom::create_body()
                         .with_children(
-                            vec![Dom::create_text_do_not_use_without_block_level_wrapper(format!(
+                            vec![Dom::create_p_with_text(format!(
                                 "Error reading: \"{}\": {}",
                                 file_path.as_ref().to_string_lossy(),
                                 e

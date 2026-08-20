@@ -36,7 +36,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // === Heading ===
     AzDom h1 = AzDom_createNode(AzNodeType_h1());
-    AzDom_addChild(&h1, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Accessibility Test Page")));
+    AzDom_addChild(&h1, AzDom_createPWithText(AZ_STR("Accessibility Test Page")));
     AzDom_addChild(&body, h1);
 
     // === Section 1: Text content ===
@@ -45,7 +45,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addClass(&section, AZ_STR("section"));
 
         AzDom h2 = AzDom_createNode(AzNodeType_h2());
-        AzDom_addChild(&h2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("1. Text Content")));
+        AzDom_addChild(&h2, AzDom_createPWithText(AZ_STR("1. Text Content")));
         AzDom_addChild(&section, h2);
 
         AzDom p1 = AzDom_createP();
@@ -65,7 +65,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addClass(&section, AZ_STR("section"));
 
         AzDom h2 = AzDom_createNode(AzNodeType_h2());
-        AzDom_addChild(&h2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("2. Buttons")));
+        AzDom_addChild(&h2, AzDom_createPWithText(AZ_STR("2. Buttons")));
         AzDom_addChild(&section, h2);
 
         AzDom btn1 = AzDom_createButton(AZ_STR("Click Me"), AzSmallAriaInfo_label(AZ_STR("Click Me")));
@@ -86,13 +86,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addClass(&section, AZ_STR("section"));
 
         AzDom h2 = AzDom_createNode(AzNodeType_h2());
-        AzDom_addChild(&h2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("3. Links")));
+        AzDom_addChild(&h2, AzDom_createPWithText(AZ_STR("3. Links")));
         AzDom_addChild(&section, h2);
 
         AzDom link1 = AzDom_createA(AZ_STR("https://example.com"), AZ_STR("Example Website"), AzSmallAriaInfo_label(AZ_STR("Example Website")));
         AzDom_addChild(&section, link1);
 
-        AzDom_addChild(&section, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(" | ")));
+        AzDom_addChild(&section, AzDom_createPWithText(AZ_STR(" | ")));
 
         AzDom link2 = AzDom_createA(AZ_STR("https://azul.rs"), AZ_STR("Azul Homepage"), AzSmallAriaInfo_label(AZ_STR("Azul Homepage")));
         AzDom_addChild(&section, link2);
@@ -106,7 +106,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addClass(&section, AZ_STR("section"));
 
         AzDom h2 = AzDom_createNode(AzNodeType_h2());
-        AzDom_addChild(&h2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("4. Form Inputs")));
+        AzDom_addChild(&h2, AzDom_createPWithText(AZ_STR("4. Form Inputs")));
         AzDom_addChild(&section, h2);
 
         AzDom input1 = AzDom_createInput(AZ_STR("text"), AZ_STR("username"), AZ_STR("Username:"), AzSmallAriaInfo_label(AZ_STR("Username")));
@@ -127,18 +127,18 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addClass(&section, AZ_STR("section"));
 
         AzDom h2 = AzDom_createNode(AzNodeType_h2());
-        AzDom_addChild(&h2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("5. Lists")));
+        AzDom_addChild(&h2, AzDom_createPWithText(AZ_STR("5. Lists")));
         AzDom_addChild(&section, h2);
 
         AzDom ul = AzDom_createUl();
         AzDom li1 = AzDom_createLi();
-        AzDom_addChild(&li1, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("First item")));
+        AzDom_addChild(&li1, AzDom_createPWithText(AZ_STR("First item")));
         AzDom_addChild(&ul, li1);
         AzDom li2 = AzDom_createLi();
-        AzDom_addChild(&li2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Second item")));
+        AzDom_addChild(&li2, AzDom_createPWithText(AZ_STR("Second item")));
         AzDom_addChild(&ul, li2);
         AzDom li3 = AzDom_createLi();
-        AzDom_addChild(&li3, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Third item")));
+        AzDom_addChild(&li3, AzDom_createPWithText(AZ_STR("Third item")));
         AzDom_addChild(&ul, li3);
         AzDom_addChild(&section, ul);
 
@@ -151,7 +151,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addClass(&section, AZ_STR("section"));
 
         AzDom h2 = AzDom_createNode(AzNodeType_h2());
-        AzDom_addChild(&h2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("6. Table")));
+        AzDom_addChild(&h2, AzDom_createPWithText(AZ_STR("6. Table")));
         AzDom_addChild(&section, h2);
 
         AzDom table = AzDom_createTable(AZ_STR("Employee Directory"), AzSmallAriaInfo_label(AZ_STR("Employee directory table")));
@@ -159,29 +159,29 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         // Header row
         AzDom tr_head = AzDom_createTr();
         AzDom th1 = AzDom_createTh();
-        AzDom_addChild(&th1, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Name")));
+        AzDom_addChild(&th1, AzDom_createPWithText(AZ_STR("Name")));
         AzDom_addChild(&tr_head, th1);
         AzDom th2 = AzDom_createTh();
-        AzDom_addChild(&th2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Role")));
+        AzDom_addChild(&th2, AzDom_createPWithText(AZ_STR("Role")));
         AzDom_addChild(&tr_head, th2);
         AzDom_addChild(&table, tr_head);
 
         // Data rows
         AzDom tr1 = AzDom_createTr();
         AzDom td1a = AzDom_createTd();
-        AzDom_addChild(&td1a, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Alice")));
+        AzDom_addChild(&td1a, AzDom_createPWithText(AZ_STR("Alice")));
         AzDom_addChild(&tr1, td1a);
         AzDom td1b = AzDom_createTd();
-        AzDom_addChild(&td1b, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Developer")));
+        AzDom_addChild(&td1b, AzDom_createPWithText(AZ_STR("Developer")));
         AzDom_addChild(&tr1, td1b);
         AzDom_addChild(&table, tr1);
 
         AzDom tr2 = AzDom_createTr();
         AzDom td2a = AzDom_createTd();
-        AzDom_addChild(&td2a, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Bob")));
+        AzDom_addChild(&td2a, AzDom_createPWithText(AZ_STR("Bob")));
         AzDom_addChild(&tr2, td2a);
         AzDom td2b = AzDom_createTd();
-        AzDom_addChild(&td2b, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Designer")));
+        AzDom_addChild(&td2b, AzDom_createPWithText(AZ_STR("Designer")));
         AzDom_addChild(&tr2, td2b);
         AzDom_addChild(&table, tr2);
 
@@ -195,13 +195,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addClass(&section, AZ_STR("section"));
 
         AzDom h2 = AzDom_createNode(AzNodeType_h2());
-        AzDom_addChild(&h2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("7. Contenteditable")));
+        AzDom_addChild(&h2, AzDom_createPWithText(AZ_STR("7. Contenteditable")));
         AzDom_addChild(&section, h2);
 
         AzDom editable = AzDom_createDiv();
         AzDom_addClass(&editable, AZ_STR("editable"));
         AzDom_setContenteditable(&editable, true);
-        AzDom_addChild(&editable, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Click here and type to edit this text.")));
+        AzDom_addChild(&editable, AzDom_createPWithText(AZ_STR("Click here and type to edit this text.")));
         AzDom_addChild(&section, editable);
 
         AzDom_addChild(&body, section);

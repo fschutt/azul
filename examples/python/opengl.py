@@ -13,7 +13,7 @@ def button(text, data, callback):
     return (Dom.create_div()
             .with_css("padding:6px 14px;margin-right:8px;background:#2d3f5e;color:white;"
                       "border:1px solid #4a6a9e;font-size:12px;cursor:pointer;")
-            .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(text))
+            .with_child(Dom.create_p_with_text(text))
             .with_callback(CLICK, data, callback))
 
 
@@ -35,7 +35,7 @@ def on_slower(data, info):
 def layout(data, info):
     title = (Dom.create_div()
              .with_css("color:white;font-size:22px;margin-bottom:16px;")
-             .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(
+             .with_child(Dom.create_p_with_text(
                  "OpenGL Integration Demo")))
 
     quad = (Dom.create_div()
@@ -56,7 +56,7 @@ def layout(data, info):
                 .with_child(button("Slower", data, on_slower))
                 .with_child(Dom.create_div()
                             .with_css("color:#9fb0c4;font-size:12px;")
-                            .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(
+                            .with_child(Dom.create_p_with_text(
                                 "%.0f deg   step %.0f deg" % (data.rotation_deg, data.step_deg)))))
 
     return (Dom.create_body()

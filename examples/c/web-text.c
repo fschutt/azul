@@ -1,6 +1,6 @@
-// Bisection toward hello-world.c: body + ONE createTextDoNotUseWithoutBlockLevelWrapper child. web-2node.c
-// (body + div, no text) WORKS. If THIS cb OOBs → createTextDoNotUseWithoutBlockLevelWrapper/AzString is the
-// hello-world.c trigger (m12_7 flagged the "createTextDoNotUseWithoutBlockLevelWrapper/AzString chain X8 stomp").
+// Bisection toward hello-world.c: body + ONE createPWithText child. web-2node.c
+// (body + div, no text) WORKS. If THIS cb OOBs → createPWithText/AzString is the
+// hello-world.c trigger (m12_7 flagged the "createPWithText/AzString chain X8 stomp").
 // If it RUNS → text is fine, the trigger is the AzButton widget.
 #include "azul.h"
 #include <string.h>
@@ -30,7 +30,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     add_prop(&body, AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(800.0f))));
     add_prop(&body, AzCssProperty_height(AzLayoutHeight_px(AzPixelValue_px(600.0f))));
 
-    AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(s("Hello"));
+    AzDom text = AzDom_createPWithText(s("Hello"));
     AzDom_addChild(&body, text);
 
     return body;

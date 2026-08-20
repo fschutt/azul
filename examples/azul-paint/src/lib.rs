@@ -787,7 +787,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let mode_label = if metaballs { "Metaballs" } else { "Brush" };
     let header = Dom::create_div()
         .with_css(HEADER)
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        .with_child(Dom::create_p_with_text(
             format!("AzPaint  ·  {} strokes  ·  Effect: {}", n_strokes, mode_label).as_str(),
         ));
 

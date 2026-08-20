@@ -292,12 +292,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "display: flex; flex-direction: column; padding: 16px; background: #0e0e14; "
         "font-family: sans-serif; color: #e6e6f0;"));
 
-    AzDom title = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("AzVideo (C) - H.264 hardware decode (Big Buck Bunny)"));
+    AzDom title = AzDom_createPWithText(AZ_STR("AzVideo (C) - H.264 hardware decode (Big Buck Bunny)"));
     AzDom_setCss(&title, AZ_STR("font-size: 22px; margin-bottom: 10px;"));
     AzDom_addChild(&body, title);
 
     for (int i = 0; i < d.ptr->n_status; i++) {
-        AzDom line = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(d.ptr->status[i]));
+        AzDom line = AzDom_createPWithText(AZ_STR(d.ptr->status[i]));
         AzDom_setCss(&line, AZ_STR("font-size: 13px; color: #b8c0d0; margin-bottom: 5px;"));
         AzDom_addChild(&body, line);
     }
@@ -317,7 +317,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         size_t idx = d.ptr->idx;
         char pbuf[64];
         snprintf(pbuf, sizeof(pbuf), "playing - frame %zu/%zu", idx + 1, d.ptr->n_frames);
-        AzDom playing = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(pbuf));
+        AzDom playing = AzDom_createPWithText(AZ_STR(pbuf));
         AzDom_setCss(&playing, AZ_STR("font-size: 12px; color: #7ad17a; margin: 10px 0 5px 0;"));
         AzDom_addChild(&body, playing);
 
@@ -335,7 +335,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_setCss(&img_dom, AZ_STR(css));
         AzDom_addChild(&body, img_dom);
     } else {
-        AzDom note = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(
+        AzDom note = AzDom_createPWithText(AZ_STR(
             "no decoded frames - no Vulkan Video decode here (see probe summary above)"));
         AzDom_setCss(&note, AZ_STR("font-size: 12px; color: #6a7080; margin: 10px 0 5px 0;"));
         AzDom_addChild(&body, note);

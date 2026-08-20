@@ -32,7 +32,7 @@ fn row(i: usize) -> Dom {
         )
         .as_str(),
     );
-    item.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("row {i}").as_str()));
+    item.add_child(Dom::create_p_with_text(format!("row {i}").as_str()));
     item
 }
 

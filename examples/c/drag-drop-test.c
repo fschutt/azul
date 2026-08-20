@@ -394,7 +394,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     );
     drag_box = AzDom_withClass(drag_box, AZ_STR("drag-box"));
     drag_box = AzDom_withAttribute(drag_box, AzAttributeType_draggable(true));
-    drag_box = AzDom_withChild(drag_box, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Drag Me")));
+    drag_box = AzDom_withChild(drag_box, AzDom_createPWithText(AZ_STR("Drag Me")));
     drag_box = AzDom_withCallback(drag_box,
         AzEventFilter_hover(AzHoverEventFilter_dragStart()),
         data1, on_drag_start);
@@ -424,11 +424,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     );
     zone_a = AzDom_withClass(zone_a, AZ_STR("drop-zone"));
     zone_a = AzDom_withChild(zone_a, AzDom_withCss(
-        AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Drop Zone A")),
+        AzDom_createPWithText(AZ_STR("Drop Zone A")),
         AZ_STR("font-size: 16px; font-weight: bold;")
     ));
     zone_a = AzDom_withChild(zone_a, AzDom_withCss(
-        AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("(text/plain)")),
+        AzDom_createPWithText(AZ_STR("(text/plain)")),
         AZ_STR("font-size: 12px; margin-top: 5px; color: #60a5fa;")
     ));
     zone_a = AzDom_withCallback(zone_a,
@@ -451,11 +451,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     );
     zone_b = AzDom_withClass(zone_b, AZ_STR("drop-zone"));
     zone_b = AzDom_withChild(zone_b, AzDom_withCss(
-        AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Drop Zone B")),
+        AzDom_createPWithText(AZ_STR("Drop Zone B")),
         AZ_STR("font-size: 16px; font-weight: bold;")
     ));
     zone_b = AzDom_withChild(zone_b, AzDom_withCss(
-        AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("(text/html)")),
+        AzDom_createPWithText(AZ_STR("(text/html)")),
         AZ_STR("font-size: 12px; margin-top: 5px; color: #fb923c;")
     ));
     zone_b = AzDom_withCallback(zone_b,
@@ -470,14 +470,14 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // ── Status display ──
     AzDom status_text = AzDom_withCss(
-        AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AzString_copyFromBytes(
+        AzDom_createPWithText(AzString_copyFromBytes(
             (const uint8_t*)status_buf, 0, strlen(status_buf))),
         AZ_STR("font-size: 14px; color: #e2e8f0; background: #1e293b; "
                "padding: 10px; border-radius: 4px; font-family: monospace;")
     );
 
     AzDom stats_text = AzDom_withCss(
-        AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AzString_copyFromBytes(
+        AzDom_createPWithText(AzString_copyFromBytes(
             (const uint8_t*)stats_buf, 0, strlen(stats_buf))),
         AZ_STR("font-size: 12px; color: #94a3b8; background: #1e293b; "
                "padding: 8px; border-radius: 4px; margin-top: 5px; "

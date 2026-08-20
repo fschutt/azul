@@ -13,13 +13,13 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     const XhtmlState* d = XhtmlState_downcast_ref(data_wrapper);
     if (!d) return AzDom_createBody();
     
-    Dom title = Dom::create_text_do_not_use_without_block_level_wrapper(String("XHTML Spreadsheet Demo"));
+    Dom title = Dom::create_p_with_text(String("XHTML Spreadsheet Demo"));
     title.set_css(String("font-size: 24px; font-weight: bold; margin-bottom: 20px;"));
     
-    Dom cell1 = Dom::create_text_do_not_use_without_block_level_wrapper(String("Cell A1"));
+    Dom cell1 = Dom::create_p_with_text(String("Cell A1"));
     cell1.set_css(String("padding: 8px; border: 1px solid #ccc; background: #f9f9f9;"));
     
-    Dom cell2 = Dom::create_text_do_not_use_without_block_level_wrapper(String("Cell B1"));
+    Dom cell2 = Dom::create_p_with_text(String("Cell B1"));
     cell2.set_css(String("padding: 8px; border: 1px solid #ccc; background: #f9f9f9;"));
     
     Dom row = Dom::create_div();

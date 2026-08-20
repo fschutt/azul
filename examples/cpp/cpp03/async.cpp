@@ -31,10 +31,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     char progress_buf[32];
     std::snprintf(progress_buf, sizeof(progress_buf), "Progress: %.0f%%", d->progress);
 
-    Dom title = Dom::create_text_do_not_use_without_block_level_wrapper(String("Background Thread Progress"));
+    Dom title = Dom::create_p_with_text(String("Background Thread Progress"));
     title.set_css(String("font-size: 24px; margin-bottom: 20px;"));
 
-    Dom label = Dom::create_text_do_not_use_without_block_level_wrapper(String(progress_buf));
+    Dom label = Dom::create_p_with_text(String(progress_buf));
     label.set_css(String("font-size: 32px; margin-bottom: 20px;"));
 
     Dom body = Dom::create_body();
@@ -43,11 +43,11 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     body.add_child(label);
 
     if (d->is_running) {
-        Dom running = Dom::create_text_do_not_use_without_block_level_wrapper(String("Processing..."));
+        Dom running = Dom::create_p_with_text(String("Processing..."));
         running.set_css(String("color: #666;"));
         body.add_child(running);
     } else {
-        Dom button_text = Dom::create_text_do_not_use_without_block_level_wrapper(String("Start"));
+        Dom button_text = Dom::create_p_with_text(String("Start"));
         Dom button = Dom::create_div();
         button.set_css(String("padding: 10px 30px; background: #4CAF50; color: white;"));
         button.add_child(button_text);

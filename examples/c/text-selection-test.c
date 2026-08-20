@@ -30,25 +30,25 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Label
     AzDom label1 = AzDom_createDiv();
     AzDom_addClass(&label1, AZ_STR("label"));
-    AzDom_addChild(&label1, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Selectable text (click and drag):")));
+    AzDom_addChild(&label1, AzDom_createPWithText(AZ_STR("Selectable text (click and drag):")));
     AzDom_addChild(&body, label1);
 
     // Selectable text paragraph
     AzDom p1 = AzDom_createDiv();
-    AzDom_addChild(&p1, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("The quick brown fox jumps over the lazy dog. This text should be selectable by clicking and dragging.")));
+    AzDom_addChild(&p1, AzDom_createPWithText(AZ_STR("The quick brown fox jumps over the lazy dog. This text should be selectable by clicking and dragging.")));
     AzDom_addChild(&body, p1);
 
     // Label
     AzDom label2 = AzDom_createDiv();
     AzDom_addClass(&label2, AZ_STR("label"));
-    AzDom_addChild(&label2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Contenteditable div (click and type):")));
+    AzDom_addChild(&label2, AzDom_createPWithText(AZ_STR("Contenteditable div (click and type):")));
     AzDom_addChild(&body, label2);
 
     // Contenteditable div
     AzDom editable = AzDom_createDiv();
     AzDom_addClass(&editable, AZ_STR("editable"));
     AzDom_setContenteditable(&editable, true);
-    AzDom_addChild(&editable, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Click here and type to edit this text.")));
+    AzDom_addChild(&editable, AzDom_createPWithText(AZ_STR("Click here and type to edit this text.")));
     AzDom_addChild(&body, editable);
 
     return AzDom_withCss(body, css_str);

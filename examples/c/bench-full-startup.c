@@ -37,7 +37,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
 
     AzDom body = AzDom_createBody();
-    AzDom label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Hello World - Timing Benchmark"));
+    AzDom label = AzDom_createPWithText(AZ_STR("Hello World - Timing Benchmark"));
     AzDom_addChild(&body, label);
     return body;
 }

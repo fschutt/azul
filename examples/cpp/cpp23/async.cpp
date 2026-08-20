@@ -40,7 +40,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     const AsyncState* d = data_wrapper.downcast_ref<AsyncState>();
     if (!d) return AzDom_createBody();
 
-    Dom title = Dom::create_text_do_not_use_without_block_level_wrapper(String("Async Database Connection"))
+    Dom title = Dom::create_p_with_text(String("Async Database Connection"))
         .with_css(String("font-size: 24px; margin-bottom: 20px;"));
 
     Dom content = Dom::create_div();
@@ -50,7 +50,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         case Stage_NotConnected: {
             content = Dom::create_div()
                 .with_css(String("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(String("Connect")))
+                .with_child(Dom::create_p_with_text(String("Connect")))
                 .with_callback(event, data_wrapper.clone(), start_connection);
             break;
         }
@@ -60,22 +60,22 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             ss << (d->stage == Stage_Connecting ? "Connecting to " : "Loading from ")
                << d->database_url << " - " << static_cast<int>(d->progress) << "%";
             content = Dom::create_div()
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(ss.str().c_str())));
+                .with_child(Dom::create_p_with_text(String(ss.str().c_str())));
             break;
         }
         case Stage_DataLoaded: {
             std::ostringstream ss;
             ss << "Loaded " << d->loaded_data.size() << " records";
             content = Dom::create_div()
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(ss.str().c_str())))
+                .with_child(Dom::create_p_with_text(String(ss.str().c_str())))
                 .with_child(Dom::create_div()
                     .with_css(String("padding: 10px; background: #2196F3; color: white; cursor: pointer;"))
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(String("Reset")))
+                    .with_child(Dom::create_p_with_text(String("Reset")))
                     .with_callback(event, data_wrapper.clone(), reset_connection));
             break;
         }
         case Stage_Error:
-            content = Dom::create_text_do_not_use_without_block_level_wrapper(String("Error occurred"));
+            content = Dom::create_p_with_text(String("Error occurred"));
             break;
     }
 

@@ -13,7 +13,7 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
 
     let label = Dom::create_div()
         .with_css("font-size: 32px")
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(counter.as_str()));
+        .with_child(Dom::create_p_with_text(counter.as_str()));
 
     let mut button = Button::create("Increase counter");
     button.set_on_click(data.clone(), my_on_click);

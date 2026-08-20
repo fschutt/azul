@@ -115,7 +115,7 @@ pub fn emit_managed_module(builder: &mut super::super::generator::CodeBuilder, i
     // idempotent across the wrapper layer's call paths.
     builder.line("# Auto-AzString-conversion helper.");
     builder.line("# Wrapper methods route every Owned `String` arg through this so");
-    builder.line("# user code can pass plain Ruby strings directly (Dom.create_text_do_not_use_without_block_level_wrapper(\"hi\")).");
+    builder.line("# user code can pass plain Ruby strings directly (Dom.create_p_with_text(\"hi\")).");
     builder.line("def self._az_string(val)");
     builder.indent();
     builder.line("return val if val.is_a?(FFI::Struct) || val.is_a?(FFI::Pointer)");

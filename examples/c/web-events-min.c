@@ -54,7 +54,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // broadcast (fire regardless of pointer position). 3 divs + 1 text ≈ 5
     // nodes — under the class-B trap threshold that bites the 19-node app.
     AzDom click_div = AzDom_createDiv();
-    AzDom_addChild(&click_div, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("click me")));
+    AzDom_addChild(&click_div, AzDom_createPWithText(AZ_STR("click me")));
     AzRefAny c1 = AzRefAny_clone(&data);
     AzDom_addCallback(&click_div, hover(AzHoverEventFilter_MouseUp), c1, on_click);
     AzDom_addChild(&body, click_div);

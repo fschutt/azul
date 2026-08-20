@@ -92,7 +92,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     ));
     
     // Add a button on top of the OpenGL content
-    AzDom button = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("Button drawn on top of OpenGL!"));
+    AzDom button = AzDom_createPWithText(az_str("Button drawn on top of OpenGL!"));
     AzDom_setCss(&button, az_str(
         "margin-top: 50px;"
         "margin-left: 50px;"

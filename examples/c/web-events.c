@@ -63,7 +63,7 @@ AzUpdate on_contextmenu(AzRefAny data, AzCallbackInfo info) { return bump(&data,
 
 static AzDom event_div(const char* label, AzRefAny* data,
                        AzEventFilter filter, AzCallbackType cb) {
-    AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(label));
+    AzDom text = AzDom_createPWithText(AZ_STR(label));
     AzDom div = AzDom_createDiv();
     AzDom_addChild(&div, text);
     AzRefAny clone = AzRefAny_clone(data);

@@ -15,10 +15,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     const OpenGlState* d = data_wrapper.downcast_ref<OpenGlState>();
     if (!d) return AzDom_createBody();
 
-    Dom title = Dom::create_text_do_not_use_without_block_level_wrapper(String("OpenGL Integration Demo"));
+    Dom title = Dom::create_p_with_text(String("OpenGL Integration Demo"));
     title.set_css(String("color: white; font-size: 24px; margin-bottom: 20px;"));
 
-    Dom placeholder = Dom::create_text_do_not_use_without_block_level_wrapper(String("OpenGL texture would render here"));
+    Dom placeholder = Dom::create_p_with_text(String("OpenGL texture would render here"));
     placeholder.set_css(String("flex-grow: 1; min-height: 300px; border-radius: 10px; background: #333; color: white; display: flex; align-items: center; justify-content: center;"));
 
     Dom body = Dom::create_body();

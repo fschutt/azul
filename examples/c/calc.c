@@ -96,7 +96,7 @@ AzDom create_button(AzRefAny* calc, const char* label, EventType evt, char digit
     AzString style_str = AzString_copyFromBytes((const uint8_t*)style, 0, strlen(style));
     AzDom_setCss(&button, style_str);
     AzString label_str = AzString_copyFromBytes((const uint8_t*)label, 0, strlen(label));
-    AzDom_addChild(&button, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(label_str));
+    AzDom_addChild(&button, AzDom_createPWithText(label_str));
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzDom_addCallback(&button, event, ButtonData_upcast(bd), on_button_click);
     
@@ -219,7 +219,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom display = AzDom_createDiv();
     AzString display_style = AzString_copyFromBytes((const uint8_t*)DISPLAY_STYLE, 0, strlen(DISPLAY_STYLE));
     AzDom_setCss(&display, display_style);
-    AzDom_addChild(&display, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AzString_copyFromBytes((uint8_t*)display_text, 0, strlen(display_text))));
+    AzDom_addChild(&display, AzDom_createPWithText(AzString_copyFromBytes((uint8_t*)display_text, 0, strlen(display_text))));
 
     AzDom buttons = AzDom_createDiv();
     AzString buttons_style = AzString_copyFromBytes((const uint8_t*)BUTTONS_STYLE, 0, strlen(BUTTONS_STYLE));

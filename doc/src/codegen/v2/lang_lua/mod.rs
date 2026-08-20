@@ -284,7 +284,7 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     //    - `azul.String.from_lua(s)` — explicit Lua-string → AzString.
     //    - `azul._az_string(v)` — auto-conversion helper used by the
     //      wrapper codegen for every Owned `String` arg, so plain Lua
-    //      strings flow through `Dom.create_text_do_not_use_without_block_level_wrapper("hi")` directly.
+    //      strings flow through `Dom.create_p_with_text("hi")` directly.
     builder.line("");
     builder.line("-- Postlude: convenience helpers that hang off generated wrappers.");
     builder.line("azul.String.from_lua = function(s)");

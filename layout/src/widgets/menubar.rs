@@ -102,7 +102,7 @@ fn build_menubar_item(item: &StringMenuItem) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(MENUBAR_ITEM_CLASS.into())]))
         .with_css(MENUBAR_ITEM_CSS)
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(item.label.clone()))
+        .with_child(Dom::create_p_with_text(item.label.clone()))
         .with_callbacks(
             vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -253,11 +253,23 @@ mod autotest_generated {
             .collect()
     }
 
-    /// The label rendered by a bar item (its single text child).
+    /// The label rendered by a bar item: a `<p>` block wrapping the text.
+    ///
+    /// The bar item used to hold a BARE text node. A text leaf owns no box, so
+    /// in a flex/grid parent it competes as an item with no line box of its own
+    /// — browsers wrap such runs in an anonymous block, azul does not. Every
+    /// widget label is a `<p>` now, so this walks one level deeper.
     fn rendered_label(item_dom: &Dom) -> &str {
         let children = item_dom.children.as_ref();
-        assert_eq!(children.len(), 1, "a bar item renders exactly one text child");
-        text_of(&children[0]).expect("a bar item's only child must be a text node")
+        assert_eq!(children.len(), 1, "a bar item renders exactly one label block");
+        let label = &children[0];
+        assert!(
+            matches!(label.root.get_node_type(), NodeType::P),
+            "a bar item's label must be wrapped in a <p>, not a bare text node"
+        );
+        let inner = label.children.as_ref();
+        assert_eq!(inner.len(), 1, "a label <p> wraps exactly one text node");
+        text_of(&inner[0]).expect("the <p>'s only child must be a text node")
     }
 
     /// The true recursive descendant count — what `estimated_total_children`
@@ -599,8 +611,8 @@ mod autotest_generated {
             assert_eq!(bar.children.as_ref().len(), n);
             assert_eq!(
                 bar.estimated_total_children,
-                2 * n,
-                "each item contributes itself + its text node"
+                3 * n,
+                "each item contributes itself + its label <p> + the text node"
             );
             assert_children_count_is_in_sync(&bar);
         }
@@ -774,7 +786,11 @@ mod autotest_generated {
 
             assert_eq!(classes_of(&dom), vec![MENUBAR_ITEM_CLASS.to_string()]);
             assert_eq!(rendered_label(&dom), label, "the label must survive verbatim");
-            assert_eq!(dom.estimated_total_children, 1);
+            // The item, its label <p>, and the text leaf inside it. This was 1
+            // when the item held a BARE text node; every widget label is a <p>
+            // now, because a text leaf owns no box and misbehaves as a
+            // flex/grid item.
+            assert_eq!(dom.estimated_total_children, 2);
             assert_children_count_is_in_sync(&dom);
         }
     }

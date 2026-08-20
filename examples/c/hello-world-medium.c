@@ -43,7 +43,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Static label (no snprintf)
     AzString label_text = AZ_STR("Counter");
-    AzDom label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(label_text);
+    AzDom label = AzDom_createPWithText(label_text);
 
     // Button
     AzButton button = AzButton_create(AZ_STR("Increase"));

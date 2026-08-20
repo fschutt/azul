@@ -89,7 +89,7 @@ pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR) {
 
     // Auto-AzString-conversion helper. Wrapper methods route Owned
     // `String` args through this so user code can pass plain JS
-    // strings directly (`Dom.create_text_do_not_use_without_block_level_wrapper(\"hi\")`). Pass-through for
+    // strings directly (`Dom.create_p_with_text(\"hi\")`). Pass-through for
     // already-AzString values (existing koffi objects or wrapper
     // instances with `_ptr`). Pure type-driven; no method-name allow-
     // list (the codegen detects `type_name == \"String\"` + Owned in

@@ -98,7 +98,7 @@ def layout(data, info):
     button = (Dom.create_div()
               .with_css("margin-bottom:10px;padding:10px;background:#4CAF50;"
                         "color:white;cursor:pointer;")
-              .with_child(Dom.create_text_do_not_use_without_block_level_wrapper("Click me!"))
+              .with_child(Dom.create_p_with_text("Click me!"))
               .with_callback(CLICK, data, on_button_click))
 
     checkbox = (CheckBox.create(data.checkbox_checked)

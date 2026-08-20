@@ -8,10 +8,10 @@ DOC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "asset
 def error_dom(message):
     heading = (Dom.create_div()
                .with_css("font-size:20px;font-weight:bold;color:#a61b1b;margin-bottom:8px;")
-               .with_child(Dom.create_text_do_not_use_without_block_level_wrapper("XHTML load failed")))
+               .with_child(Dom.create_p_with_text("XHTML load failed")))
     detail = (Dom.create_div()
               .with_css("font-size:13px;color:#5f2120;")
-              .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(message)))
+              .with_child(Dom.create_p_with_text(message)))
     return (Dom.create_body()
             .with_css("display:flex;flex-direction:column;padding:24px;background:#fdf2f2;")
             .with_child(heading)

@@ -16,7 +16,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     let display = Dom::create_div()
         .with_css(DISPLAY_STYLE)
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(display_text));
+        .with_child(Dom::create_p_with_text(display_text));
 
     let buttons = Dom::create_div()
         .with_css(BUTTONS_STYLE)
@@ -260,7 +260,7 @@ fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, style: &str) -> Dom
 
     Dom::create_div()
         .with_css(style)
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label))
+        .with_child(Dom::create_p_with_text(label))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::MouseUp),
             button_data,

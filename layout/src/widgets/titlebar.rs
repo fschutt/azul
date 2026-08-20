@@ -371,7 +371,7 @@ impl Titlebar {
         let title_node = Dom::create_div()
             .with_ids_and_classes(title_classes)
             .with_css_props(title_style)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(self.title)) // moves self.title
+            .with_child(Dom::create_p_with_text(self.title)) // moves self.title
             .with_callbacks(vec![
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::DragStart),
@@ -1908,7 +1908,7 @@ mod autotest_generated {
         // under-allocate and panic on an out-of-bounds write.
         let dom = tb("x").dom();
         assert_eq!(dom.estimated_total_children, count_descendants(&dom));
-        assert_eq!(dom.estimated_total_children, 2, "title div + text node");
+        assert_eq!(dom.estimated_total_children, 3, "title div + label <p> + text node");
     }
 
     #[test]
@@ -2073,8 +2073,9 @@ mod autotest_generated {
                 let enabled = usize::from(buttons.has_close)
                     + usize::from(buttons.has_minimize)
                     + usize::from(buttons.has_maximize);
-                // title + text + button container + 2 nodes per enabled button
-                assert_eq!(dom.estimated_total_children, 3 + 2 * enabled);
+                // title + label <p> + text + button container
+                // + 2 nodes per enabled button
+                assert_eq!(dom.estimated_total_children, 4 + 2 * enabled);
             }
         }
     }

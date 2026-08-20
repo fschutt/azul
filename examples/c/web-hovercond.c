@@ -38,7 +38,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addCssProperty(&div, AzCssPropertyWithConditions_onHover(
         AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_px(500.0f)))
     ));
-    AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(s("x"));
+    AzDom text = AzDom_createPWithText(s("x"));
     AzDom_addChild(&div, text);   // div is a PARENT → restyle iterates its props
     AzDom_addChild(&body, div);
     return body;

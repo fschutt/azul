@@ -25,23 +25,23 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setCss(&para, az_str("background-color: #f0f0f0; padding: 20px;"));
     
     // Multiple text nodes with different font sizes
-    AzDom t1 = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("Small "));
+    AzDom t1 = AzDom_createPWithText(az_str("Small "));
     AzDom_setCss(&t1, az_str("font-size: 12px; background-color: #fdd;"));
     AzDom_addChild(&para, t1);
     
-    AzDom t2 = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("LARGE "));
+    AzDom t2 = AzDom_createPWithText(az_str("LARGE "));
     AzDom_setCss(&t2, az_str("font-size: 32px; background-color: #dfd;"));
     AzDom_addChild(&para, t2);
     
-    AzDom t3 = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("Medium "));
+    AzDom t3 = AzDom_createPWithText(az_str("Medium "));
     AzDom_setCss(&t3, az_str("font-size: 18px; background-color: #ddf;"));
     AzDom_addChild(&para, t3);
     
-    AzDom t4 = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("tiny "));
+    AzDom t4 = AzDom_createPWithText(az_str("tiny "));
     AzDom_setCss(&t4, az_str("font-size: 10px; background-color: #ffd;"));
     AzDom_addChild(&para, t4);
     
-    AzDom t5 = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("HUGE"));
+    AzDom t5 = AzDom_createPWithText(az_str("HUGE"));
     AzDom_setCss(&t5, az_str("font-size: 48px; background-color: #fdf;"));
     AzDom_addChild(&para, t5);
     

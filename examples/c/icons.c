@@ -26,7 +26,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Title
     AzDom title = AzDom_createDiv();
-    AzDom title_text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("Icon System Demo"));
+    AzDom title_text = AzDom_createPWithText(az_str("Icon System Demo"));
     AzDom_setCss(&title_text, az_str("font-size: 24px; font-weight: bold;"));
     AzDom_addChild(&title, title_text);
     AzDom_addChild(&root, title);
@@ -34,7 +34,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Description  
     AzDom desc = AzDom_createDiv();
     AzDom_setCss(&desc, az_str("margin-top: 16px;"));
-    AzDom desc_text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("The favicon icon below is loaded from favicon.ico."));
+    AzDom desc_text = AzDom_createPWithText(az_str("The favicon icon below is loaded from favicon.ico."));
     AzDom_setCss(&desc_text, az_str("font-size: 14px; color: #666;"));
     AzDom_addChild(&desc, desc_text);
     AzDom_addChild(&root, desc);
@@ -52,7 +52,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Material icons row
     AzDom icons_label = AzDom_createDiv();
     AzDom_setCss(&icons_label, az_str("margin-top: 20px;"));
-    AzDom icons_label_text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(az_str("Material Icons:"));
+    AzDom icons_label_text = AzDom_createPWithText(az_str("Material Icons:"));
     AzDom_setCss(&icons_label_text, az_str("font-size: 14px;"));
     AzDom_addChild(&icons_label, icons_label_text);
     AzDom_addChild(&root, icons_label);

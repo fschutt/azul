@@ -1035,7 +1035,7 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ZOOM_LABEL))
                 .with_css_props(style.zoom_label_style.clone())
-                .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from(
+                .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(AzString::from(
                     label,
                 ))])),
         );

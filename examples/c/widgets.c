@@ -187,7 +187,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     AzDom button = AzDom_createDiv();
     AzDom_setCss(&button, str("margin-bottom: 10px;"));
-    AzDom_addChild(&button, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(str("Click me!")));
+    AzDom_addChild(&button, AzDom_createPWithText(str("Click me!")));
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzDom_addCallback(&button, event, AzRefAny_clone(&data), on_button_click);
 
@@ -222,7 +222,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     for (size_t r = 0; r < 3; r++) {
         AzDom cells[3];
         for (size_t c = 0; c < 3; c++) {
-            cells[c] = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(str(row_data[r][c]));
+            cells[c] = AzDom_createPWithText(str(row_data[r][c]));
         }
         rows[r].cells = AzDomVec_copyFromPtr(cells, 3);
         rows[r].height.None.tag = AzOptionPixelValueNoPercent_Tag_None;

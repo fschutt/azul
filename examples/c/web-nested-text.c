@@ -32,7 +32,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     add_prop(&body, AzCssProperty_fontSize(AzStyleFontSize_px(16.0f)));
 
     AzString s = AzString_copyFromBytes((const uint8_t*)"Hello", 0, 5);
-    AzDom text = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(s);
+    AzDom text = AzDom_createPWithText(s);
 
     // The ONLY difference vs web-text-min: wrap the text in a DIV (forces the nested
     // body(BFC) > div(IFC) > text path that hello-world's label_wrapper takes).
