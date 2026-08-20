@@ -83,7 +83,7 @@ fn web_flexbox_simple_reference() {
     // fallback were insufficient, the lifted solveLayoutReal Err would reproduce
     // here too.
     const AZ_WEB_FALLBACK_FONT: &[u8] =
-        include_bytes!("../../doc/fonts/SourceSerifPro-Regular.ttf");
+        include_bytes!("../../examples/assets/fonts/SourceSerifPro-Regular.ttf");
     let fc_cache = FcFontCache::default();
     fc_cache.with_memory_fonts(vec![(
         rust_fontconfig::FcPattern {

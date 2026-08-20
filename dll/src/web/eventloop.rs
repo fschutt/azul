@@ -65,7 +65,7 @@ use azul_css::css::Css;
 /// the header returns 0 (proven: font_bytes[124]/[93596] read 0 in the wasm). Both the
 /// real load (`with_memory_fonts(... .to_vec())`) and any direct parse see the truncated const.
 pub(crate) const AZ_WEB_FALLBACK_FONT_BYTES: &[u8] =
-    include_bytes!("../../../doc/fonts/SourceSerifPro-Regular.ttf");
+    include_bytes!("../../../examples/assets/fonts/SourceSerifPro-Regular.ttf");
 
 /// Native `(address, len)` of [`AZ_WEB_FALLBACK_FONT_BYTES`] in THIS process. The transpiler
 /// runs in-process (web-transpiler-static) and calls this to add the font's pages to the
