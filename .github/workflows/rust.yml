@@ -3654,12 +3654,33 @@ jobs:
   # ---------------------------------------------------------------------------
   build_dll_e2e:
     name: Build E2E DLL (${{ matrix.os }})
-    # STAGE 2: gated on PREFLIGHT + the fast lane (see PIPELINE STAGING at the
-    # top of `jobs:`). Costs ~7.2 min of latency on green (preflight 2.1 +
-    # test_lib 5.1, in series); saves this job's whole cost on the ~22% of runs
-    # that are red, where those two tiers are what was red 9/8/8/7 times out
-    # of 13.
-    needs: [content_state_lint, documentation_paths, clippy, check_crates, feature_matrix_check, test_lib, codegen_linux, codegen_macos, codegen_windows]
+    # STAGE 2: gated on PREFLIGHT ONLY, deliberately. This is the longest job in
+    # the workflow (~23 min on ubuntu) and the whole AZ_E2E board waits on it, so
+    # it is the critical path and it should start the moment it can.
+    #
+    # It used to also need `test_lib` + `feature_matrix_check`. Measured on run
+    # 32379556181 that cost ~19 minutes of wall clock, in two parts:
+    #   - 7.2 min of stated latency (preflight 2.1 + test_lib 5.1, in series), and
+    #   - 12 min that was NOT stated: the account caps at 20 concurrent jobs, and
+    #     when test_lib finished at minute 9.1 about thirty jobs became eligible
+    #     at once. Twenty won slots and this one queued behind Code Coverage
+    #     (20m), rust9x (19m), four Cross-Build legs and three Mobile libazul
+    #     jobs - none of which anything waits on. It did not start until 21.3.
+    # Minutes 2-9 meanwhile ran only 2-6 concurrent jobs. The build now uses that
+    # idle window instead of the congested one.
+    #
+    # NO GATE IS LOST. This job only BUILDS the DLL; the E2E matrix that consumes
+    # it (e2e_native) needs ffi_safety_tests and dll_windows_unit_tests, and BOTH
+    # of those need feature_matrix_check + test_lib. So a red unit-test suite
+    # still stops every AZ_E2E job from running - it just no longer also stalls a
+    # build that has no opinion about it.
+    #
+    # The cost is the ~22% of runs where test_lib/feature_matrix_check are red:
+    # those now burn three DLL builds (~59 machine-min) the old ordering skipped.
+    # That buys ~19 min of wall clock on the other 78% and on every deploy, which
+    # is the trade we want - preflight, which catches the cheapest and most common
+    # breakage, still kills a bad run before this job starts.
+    needs: [content_state_lint, documentation_paths, clippy, check_crates, codegen_linux, codegen_macos, codegen_windows]
     timeout-minutes: 60
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
