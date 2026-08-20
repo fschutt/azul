@@ -7,8 +7,6 @@
 //! Fake metrics @ size 20: 'a' 600u => 12px · 'A' 700u => 14px · space 5px ·
 //! line-height normal 20px. FakeFallback covers Greek α/β/γ/δ + '#' at 16px.
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
@@ -23,7 +21,7 @@ use azul_layout::Solver3LayoutCache;
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use std::collections::{BTreeMap, HashMap};
 
-use fakefont::{simple_fallback_font, simple_test_font, FAKE_FALLBACK_FAMILY, FAKE_FAMILY};
+use crate::fakefont::{simple_fallback_font, simple_test_font, FAKE_FALLBACK_FAMILY, FAKE_FAMILY};
 
 /// Deterministic built-in mock font (auto-registered by `FontManager::new`):
 /// every glyph, space included, advances 0.5 em = 10px @ font-size 20;

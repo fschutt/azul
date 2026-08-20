@@ -25,8 +25,7 @@ use azul_core::{
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, solver3, window::LayoutWindow,
-    window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -104,7 +103,27 @@ fn web_flexbox_simple_reference() {
     let rr = RendererResources::default();
     let sc = ExternalSystemCallbacks::rust_internal();
     let mut dbg = None;
-    solver3::set_skip_display_list(true);
+    // `solver3::set_skip_display_list(true)` is DELIBERATELY NOT CALLED here.
+    //
+    // The web backend flips `solver3::SKIP_DISPLAY_LIST` — a PROCESS-GLOBAL
+    // `AtomicBool` — so the AArch64→wasm lift can drop the whole painter
+    // surface. This test used to flip it too, and never put it back. That was
+    // invisible while every `tests/*.rs` was its own binary: the process ended
+    // and took the flag with it. In the shared `tests/all.rs` binary it left
+    // the painter switched off for every test that ran afterwards, and
+    // `xml_dom_embed` — which counts `DisplayListItem::Text` — measured zero.
+    //
+    // The flag only short-circuits display-list GENERATION. `calculated_positions`
+    // (what `get_node_position`/`get_node_size` read below) is computed either
+    // way; see the doc comment on `solver3::SKIP_DISPLAY_LIST`. So the reference
+    // rects are identical with it on or off, this file asserts nothing about
+    // the painter, and not writing the global costs the test nothing.
+    //
+    // A scoped set-and-restore would NOT be enough: libtest is multi-threaded,
+    // so even a microsecond window leaves a neighbour's layout looking at a
+    // disabled painter. Not writing it is the only fix that cannot race. The
+    // flag's own round-trip contract is covered by the library unit test
+    // `solver3::tests::set_skip_display_list_round_trips_and_is_idempotent`.
     lw.layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg)
         .expect("layout_dom_recursive should succeed");
     // Diagnostic: compare against the lifted env (which gets 0/0 → Text error).

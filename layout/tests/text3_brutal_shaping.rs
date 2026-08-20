@@ -16,8 +16,6 @@
 //!   '-' 300u => 6px · CJK 1000u => 20px · Hebrew 550u => 11px · U+0301 => 0px
 //!   kern (A,V)=(V,A)=-100u => -2px.
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,7 +33,7 @@ use azul_layout::text3::default::shape_text_for_parsed_font;
 use azul_layout::text3::script::{Language, Script};
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
-use fakefont::simple_test_font;
+use crate::fakefont::simple_test_font;
 
 const FONT_SIZE: f32 = 20.0;
 

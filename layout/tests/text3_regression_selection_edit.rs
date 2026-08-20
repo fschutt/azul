@@ -7,8 +7,6 @@
 //! Fake metrics @ size 20: 'a'/'b'/'c' 600u => 12px · space 250u => 5px ·
 //! Hebrew 550u => 11px · U+0301 combining => 0px (stays in its base cluster).
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,7 +28,7 @@ use azul_layout::text3::edit::{delete_backward, delete_forward, edit_text, inser
 use azul_layout::text3::selection::{select_paragraph_at_cursor, select_word_at_cursor};
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
-use fakefont::simple_test_font;
+use crate::fakefont::simple_test_font;
 
 const FONT_SIZE: f32 = 20.0;
 

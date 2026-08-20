@@ -9,7 +9,7 @@
 //! # Running
 //!
 //! ```bash
-//! cargo test --test e2e_pixel_diff -p azul-layout --features "cpurender xml"
+//! cargo test --test all -p azul-layout --features "cpurender xml" -- e2e_pixel_diff::
 //! ```
 //!
 //! # Updating baselines
@@ -17,7 +17,7 @@
 //! Delete the reference PNG and re-run:
 //! ```bash
 //! rm layout/tests/reference_images/red_box.png
-//! cargo test --test e2e_pixel_diff -p azul-layout --features "cpurender xml"
+//! cargo test --test all -p azul-layout --features "cpurender xml" -- e2e_pixel_diff::
 //! ```
 
 #[cfg(all(

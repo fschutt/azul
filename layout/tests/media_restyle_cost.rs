@@ -81,9 +81,23 @@ fn probe_crossing_restyle_cost_at_document_scale() {
     styled.set_dynamic_selector_context(ctx_with_width(1280.0));
     let cross_wide = t2.elapsed();
     // No-op context set (same width): must be ~free (the early return).
-    let t3 = std::time::Instant::now();
-    styled.set_dynamic_selector_context(ctx_with_width(1280.0));
-    let noop = t3.elapsed();
+    //
+    // BEST-OF-N, not one sample. This file used to be alone in its process; it
+    // now shares a multi-threaded harness with ~115 other test files, so any
+    // single measurement can absorb a scheduler preemption worth milliseconds
+    // and blow a 100 us budget for reasons that have nothing to do with the
+    // code under test. The MINIMUM over a handful of runs is the honest floor:
+    // it still goes red if the early return stops early-returning (a real
+    // re-cascade is orders of magnitude over budget, on every sample), and it
+    // cannot go red from contention alone.
+    let noop = (0..9)
+        .map(|_| {
+            let t3 = std::time::Instant::now();
+            styled.set_dynamic_selector_context(ctx_with_width(1280.0));
+            t3.elapsed()
+        })
+        .min()
+        .expect("9 samples");
 
     eprintln!(
         "[RESTYLE-PROBE] {n} nodes: create={create_dt:?} cross_narrow={cross_narrow:?} \

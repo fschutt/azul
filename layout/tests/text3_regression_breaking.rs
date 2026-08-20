@@ -7,8 +7,6 @@
 //! '-' 300u => 6px · '/' 300u => 6px · '@' 900u => 18px · CJK 1000u => 20px ·
 //! U+200B / U+00AD => 0px. Every expected number is exact arithmetic on these.
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,7 +22,7 @@ use azul_layout::text3::cache::{
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
-use fakefont::simple_test_font;
+use crate::fakefont::simple_test_font;
 
 const FONT_SIZE: f32 = 20.0;
 

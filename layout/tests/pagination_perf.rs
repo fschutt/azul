@@ -1,7 +1,7 @@
 //! Where does pagination time actually go?
 //!
-//! Run: `cargo test -p azul-layout --features probe --test pagination_perf
-//! -- --nocapture`
+//! Run: `cargo test -p azul-layout --features probe --test all --
+//! pagination_perf:: --nocapture`
 //!
 //! A 34-block document paginating in hundreds of milliseconds is a defect,
 //! not a cost — every phase here should be cheap on a warm cache. This
@@ -143,6 +143,13 @@ fn build_profile_banner() {
 
 #[test]
 fn pagination_phase_breakdown() {
+    // `Probe`'s recording flag is a process-global atomic (the buffer it gates
+    // is thread-local). This file shares a binary with `probe_gate`, which
+    // deliberately flips that flag on and off; without this lock the phase
+    // breakdown below would attribute a truncated or a phantom profile
+    // depending on the interleaving. See `crate::PROBE_LOCK`.
+    let _serialised = crate::probe_lock();
+
     build_profile_banner();
     let html = sample_html(30);
     let fc = build_font_cache();

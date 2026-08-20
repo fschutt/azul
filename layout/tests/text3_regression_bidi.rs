@@ -8,8 +8,6 @@
 //! Fake metrics @ size 20: 'a' 600u => 12px · Hebrew א/ב/ג 550u => 11px · digit
 //! 500u => 10px · space/'.' 250u => 5px. Hebrew chars are 2 UTF-8 bytes each.
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,7 +23,7 @@ use azul_layout::text3::cache::{
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
-use fakefont::simple_test_font;
+use crate::fakefont::simple_test_font;
 
 const FONT_SIZE: f32 = 20.0;
 

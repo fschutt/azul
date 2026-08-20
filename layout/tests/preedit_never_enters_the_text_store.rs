@@ -26,10 +26,10 @@
 //! keys the overlay on a different node than the one they read, or one added
 //! somewhere else in the crate entirely. This file closes that: the structural
 //! tests pin the "exactly one writer" property directly, and the behavioural
-//! ones run the composition through the P-wrapped shape (`div[contenteditable]
-//! > p > text`) that the text widgets, azul-writer and the contenteditable e2e
-//! fixtures all use, reading the document back at BOTH the host and the inline
-//! formatting root.
+//! ones run the composition through the P-wrapped shape
+//! (`div[contenteditable] > p > text`) that the text widgets, azul-writer and
+//! the contenteditable e2e fixtures all use, reading the document back at BOTH
+//! the host and the inline formatting root.
 //!
 //! TO TURN THE STRUCTURAL TESTS RED: give `ContentOverlay::set_text` a second
 //! call site, or make `apply_preedit_to_text_cache` write through the overlay.

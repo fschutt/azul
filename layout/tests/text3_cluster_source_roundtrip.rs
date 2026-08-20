@@ -26,8 +26,7 @@ use azul_layout::text3::cache::{
 use azul_css::props::basic::FontRef;
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
+use crate::fakefont;
 
 fn test_font() -> ParsedFont {
     let bytes = fakefont::simple_test_font();

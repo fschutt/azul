@@ -35,6 +35,24 @@ exclude = [
 ]
 resolver = "2"
 autoexamples = true
+# ONE integration-test binary instead of 118.
+#
+# Cargo compiles AND LINKS every auto-discovered `tests/*.rs` as its own binary,
+# each statically pulling in all of azul-layout plus its dependency graph.
+# Measured on this tree: 129 test binaries, 11.2 GB, averaging 89 MB each under
+# `[profile.release]` (`debug = 1`, `strip = false` — both deliberate, so samply
+# can resolve symbols), and larger still on the dev profile, where `debug = 2`
+# applies and no `[profile.dev]` override exists. It was the single largest
+# build cost in the repo, paid on every developer machine and every CI run of
+# `cargo test -p azul-layout --lib --tests`, and it filled this machine's disk
+# twice. Every test file is now a `#[path] mod` of `tests/all.rs`; that file
+# carries the registration list and the full rationale.
+#
+# The price of the switch: an UNREGISTERED `tests/*.rs` is silently never
+# compiled — it does not fail, it does not warn, it simply never runs.
+# `tests/integration_test_registry_is_exhaustive.rs` is the interlock that makes
+# that impossible to do by accident. Do not delete it.
+autotests = false
 
 [dependencies]
 azul-css                = { version = "0.0.14", path = "../css", default-features = false, features = ["parser"] }
@@ -380,6 +398,12 @@ name = "telemetry_grafana"
 path = "examples/telemetry_grafana.rs"
 required-features = ["telemetry"]
 
+# THE integration-test target: the 116 former `tests/*.rs` binaries, folded into
+# one link. Registration list and rationale live in tests/all.rs.
+[[test]]
+name = "all"
+path = "tests/all.rs"
+
 [[test]]
 name = "solver3_calc"
 path = "tests/solver3/calc.rs"
@@ -411,6 +435,25 @@ path = "tests/svg_render.rs"
 [[test]]
 name = "svg_xml_dom"
 path = "tests/svg_xml_dom.rs"
+
+# NOT folded into `all`: CI selects this one BY NAME, on its own feature set —
+# `cargo test -p azul-layout --test icu_parity --no-default-features --features
+# icu|icu_macos|icu_windows` (.github/workflows/rust.yml, job `icu_parity`).
+# `--test <name>` only resolves against a real target, and the ~116 modules in
+# `all` do not compile with `--no-default-features`, so this must stay
+# separately selectable.
+[[test]]
+name = "icu_parity"
+path = "tests/icu_parity.rs"
+
+# NOT folded into `all`: `scripts/coretext_regression.sh` invokes it by name
+# (`cargo test -p azul-layout --features coretext_tests --test
+# coretext_autoregression --release -- --nocapture`). The file is
+# `#![cfg(all(target_os = "macos", feature = "coretext_tests"))]`, so off macOS
+# it links an empty ~6 MB harness — far cheaper than breaking the script.
+[[test]]
+name = "coretext_autoregression"
+path = "tests/coretext_autoregression.rs"
 
 [[test]]
 name = "contenteditable_e2e"

@@ -3,7 +3,7 @@
 //! For each glyph, we decode the raw bytecode into (opcode, ip, consumed_bytes)
 //! triples and compare against fonttools' reference disassembly.
 //!
-//! Run: cargo test -p azul-layout --test test_bytecode_decode -- --nocapture
+//! Run: cargo test -p azul-layout --test all -- test_bytecode_decode:: --nocapture
 
 use std::fs;
 use azul_layout::font::parsed::ParsedFont;
