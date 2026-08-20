@@ -72,6 +72,16 @@ a.is-missing {
     opacity: 0.55;
     background: var(--color-bg);
 }
+/* An artifact the DEPLOY found was never published: scripts/prune_dead_release_links.py
+   replaces the whole <a> with this inert span (it already carries its own
+   "— not available" text, so no ::after here). The client-side probe below
+   cannot cover these — it skips cross-origin links, and every one of the 18
+   dead links on the live 0.2.0 page was a github.com release asset. */
+.release-link-missing {
+    opacity: 0.55;
+    color: var(--color-text-light);
+    cursor: default;
+}
 li.is-missing::after,
 a.docs-card.is-missing .docs-card-file::after {
     content: " — not published for this release (yet)";

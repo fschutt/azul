@@ -50,7 +50,23 @@ MIN_OS="${MIN_OS:-16.0}"
 FEATURES="${AZ_IOS_FEATURES:-std,logging,link-static,a11y}"
 
 if ! xcrun -p >/dev/null 2>&1; then
-    echo "xcode-select not configured. Run 'xcode-select --install'." >&2
+    # Say WHAT is wrong. "xcode-select not configured" was the whole message,
+    # printed ten times in a row in CI, and it does not distinguish "xcrun is
+    # not on PATH at all" from "xcode-select points at a directory that is not
+    # there" — which is the difference between an unfixable runner and a
+    # one-line `sudo xcode-select -s`.
+    {
+        echo "cannot resolve an Xcode toolchain (\`xcrun -p\` failed)."
+        if ! command -v xcrun >/dev/null 2>&1; then
+            echo "  xcrun is not on PATH — no Xcode and no Command Line Tools are installed."
+        else
+            echo "  xcrun is at $(command -v xcrun)"
+            echo "  xcode-select -p says: $(xcode-select -p 2>&1 || true)"
+            echo "  DEVELOPER_DIR=${DEVELOPER_DIR:-<unset>}"
+            echo "  /Applications/Xcode*.app: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')"
+        fi
+        echo "  fix: sudo xcode-select -s /Applications/Xcode.app  (or 'xcode-select --install')"
+    } >&2
     exit 3
 fi
 SDK_SHORT=$([[ $IS_SIM -eq 1 ]] && echo iphonesimulator || echo iphoneos)
@@ -70,13 +86,24 @@ else
     FEATURE_ARGS=()
 fi
 echo "==> cargo build --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]}"
+CARGO_LOG="$WORKSPACE_ROOT/target/ios-build-${CRATE}-${TARGET}.json"
+mkdir -p "$WORKSPACE_ROOT/target"
 ( cd "$WORKSPACE_ROOT" \
-  && cargo build --target "$TARGET" --release -p "$CRATE" "${FEATURE_ARGS[@]}" )
+  && cargo build --target "$TARGET" --release -p "$CRATE" "${FEATURE_ARGS[@]}" \
+       --message-format=json-render-diagnostics > "$CARGO_LOG" )
 
-# A bin crate produces an executable Mach-O at target/<triple>/release/<crate>;
-# that binary's main() runs App::run → UIApplicationMain, so it IS the app. If
-# CRATE is the library (azul-dll) there's no bin — fall back to the dylib/.a.
-ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/$CRATE"
+# A bin crate produces an executable Mach-O whose main() runs App::run →
+# UIApplicationMain, so it IS the app. Ask cargo where it put it rather than
+# assuming the file is named after the package: `examples/azul-writer`
+# declares `[[bin]] name = "azwriter"`, so the assumed
+# target/<triple>/release/azul-writer does not exist and this fell through to
+# the azul-dll fallback below — i.e. it would have bundled the LIBRARY as if it
+# were the app. If CRATE really is the library (azul-dll) there is no bin and
+# the dylib/.a fallback is correct.
+ARTIFACT="$(python3 "$WORKSPACE_ROOT/scripts/cargo_bin_path.py" "$CARGO_LOG" "$CRATE" 2>/dev/null || true)"
+if [[ -z "$ARTIFACT" || ! -f "$ARTIFACT" ]]; then
+    ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/$CRATE"
+fi
 if [[ ! -f "$ARTIFACT" ]]; then
     ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/libazul.dylib"
     [[ -f "$ARTIFACT" ]] || ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/libazul.a"

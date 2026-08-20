@@ -1893,6 +1893,18 @@ docker pull ghcr.io/fschutt/azul:{version}</code></pre>
     // `is-missing` style. Cross-origin links (GitHub release assets) are
     // skipped: CORS blocks HEAD, and those large assets are CI-uploaded in
     // the same job that made this page, so they don't have the problem.
+    //
+    // THAT LAST SENTENCE WAS WRONG, and the exemption it justified is where
+    // every dead link lived. On the live 0.2.0 page 18 of the 71 GitHub-Release
+    // links 404'd — fifteen iOS demo bundles CI has never produced and all
+    // three azul-writer desktop tarballs — precisely because "uploaded in the
+    // same job" assumes the producer job actually produced something. Nothing
+    // in the browser can check a cross-origin asset, so the check moved to
+    // where it belongs: rust.yml's "Remove links to artifacts that were never
+    // published" step (scripts/prune_dead_release_links.py) reconciles this
+    // page against the real published asset list at deploy time and rewrites
+    // the dead ones. This script stays for the same-origin Pages assets that
+    // land after this page is generated.
     let linkcheck_script = r#"<script>
     document.addEventListener('DOMContentLoaded', function() {
       var cards = Array.prototype.slice.call(

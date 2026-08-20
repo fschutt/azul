@@ -3639,6 +3639,23 @@ jobs:
           fi
 
           : > /tmp/demo-manifest-lines
+          # Two workspace-relative hand-offs to the staging step. Workspace-
+          # relative, not /tmp: on windows-2022 this runs in Git-bash while
+          # python3 is WINDOWS python, which cannot resolve Git-bash's /tmp
+          # (the same trap the manifest line below documents).
+          #
+          #   demo-exe-paths.txt   demo=<the path cargo REALLY produced>
+          #   demo-reused.txt      one demo name per line, published-asset reuse
+          #
+          # The staging step used to derive the first from the package name and
+          # infer the second from "is there a manifest line". Both were wrong:
+          # `examples/azul-writer` declares `[[bin]] name = "azwriter"`, so
+          # `target/release/azul-writer` has never existed, and every manifest
+          # line matched the reuse test — so a demo that BUILT FINE was staged
+          # as "[reuse] published binary kept" and the release shipped no
+          # azul-writer asset at all, on any OS, behind a green job.
+          : > demo-exe-paths.txt
+          : > demo-reused.txt
           failed=()
           reused=()
           built=()
@@ -3665,6 +3682,7 @@ jobs:
               echo "::notice::[$demo] REUSING the published binary from release ${AZUL_VERSION} — no source change under '$demo_dir' or the engine since commit ${fp:0:12}"
               reused+=("$demo")
               echo "$demo=$fp" >> /tmp/demo-manifest-lines
+              echo "$demo" >> demo-reused.txt
               continue
             fi
 
@@ -3673,7 +3691,26 @@ jobs:
             else
               echo "=== Building $demo on ${{ matrix.os }} (no published fingerprint) ==="
             fi
-            if cargo build --release -p "$demo"; then
+            # --message-format=json-render-diagnostics: human warnings/errors
+            # still go to stderr and stay readable in the log, while stdout
+            # carries the machine stream whose `compiler-artifact.executable`
+            # field is the ONLY authoritative answer to "what file did this
+            # build produce". Guessing target/release/<package> is what shipped
+            # nothing for azul-writer (bin name `azwriter`) for months.
+            if cargo build --release -p "$demo" \
+                 --message-format=json-render-diagnostics > "demo-build-$demo.json"; then
+              exe="$(python3 scripts/cargo_bin_path.py "demo-build-$demo.json" "$demo")" || exe=""
+              # Git-bash cannot stat the `D:\a\...` path Windows cargo prints.
+              if [ -n "$exe" ] && command -v cygpath >/dev/null 2>&1; then
+                exe="$(cygpath -u "$exe")"
+              fi
+              if [ -z "$exe" ] || [ ! -f "$exe" ]; then
+                echo "::error::[$demo] cargo exited 0 on ${{ matrix.os }} but named no executable it produced (resolved: '${exe:-<none>}'). A build that succeeds MUST yield a binary; refusing to call this a cache hit."
+                failed+=("$demo")
+                continue
+              fi
+              echo "  [OK] $demo -> $exe"
+              echo "$demo=$exe" >> demo-exe-paths.txt
               built+=("$demo")
               echo "$demo=$fp" >> /tmp/demo-manifest-lines
             else
@@ -3703,9 +3740,17 @@ jobs:
           mkdir -p demos-staging
           # Each demo is a single self-contained binary (static libazul.a linked
           # in) — no DLL to ship alongside, same as the old link-static output.
+          # `demos-staging/` must end up holding one file per demo that this run
+          # is responsible for. Track it explicitly rather than inferring.
+          staged=()
           for demo in azul-widgets azul-maps azul-paint azul-meet azul-writer; do
-            src="target/release/${demo}${{ matrix.bin_ext }}"
-            if [ -f "$src" ]; then
+            # The path CARGO REPORTED, recorded by the build step, not
+            # target/release/<package>. `azul-writer`'s bin is named
+            # `azwriter`, so the guessed path never existed and this loop fell
+            # through to a branch that printed "[reuse]" about a binary that
+            # had never been published even once.
+            src="$(sed -n "s|^${demo}=||p" demo-exe-paths.txt 2>/dev/null | tail -1 || true)"
+            if [ -n "$src" ] && [ -f "$src" ]; then
               dst="demos-staging/${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }}"
               cp "$src" "$dst"
               # Strip debug/line-table symbols — the `release` profile keeps
@@ -3716,20 +3761,28 @@ jobs:
               strip "$dst" 2>/dev/null || strip -S "$dst" 2>/dev/null || true
               after=$(wc -c < "$dst" 2>/dev/null || echo 0)
               echo "  [OK] staged ${demo}-${{ matrix.os_suffix }}${{ matrix.bin_ext }} ($before -> $after bytes)"
-            elif grep -q "^${demo}=" /tmp/demo-manifest-lines 2>/dev/null \
-                 && ! grep -q "^${demo}=BUILT" /tmp/demo-manifest-lines 2>/dev/null; then
-              # Recorded in the manifest but not rebuilt => a deliberate reuse,
-              # already announced with its reason by the build step.
-              echo "  [reuse] $demo — published binary kept (source unchanged)"
+              staged+=("$demo")
+            elif grep -qx "$demo" demo-reused.txt 2>/dev/null; then
+              # A deliberate reuse — and the build step only wrote this line
+              # after `gh release view` confirmed the published asset EXISTS.
+              # The old test ("has a manifest line, and it isn't the literal
+              # string BUILT") was true for every demo including freshly built
+              # ones, and `=BUILT` was never written by anything, so the branch
+              # was unreachable-as-intended and reachable-as-written.
+              echo "  [reuse] $demo — published binary kept (source unchanged, asset verified present on the release)"
             else
-              # The build step exits non-zero on any failure, so reaching here
-              # means it claimed success and produced nothing. That contradiction
-              # is what let 26-day-old binaries ship behind a green job.
-              echo "::error::$src is missing although the build step reported success for $demo — refusing to stage a partial demo set"
+              # The build step exits non-zero on any failure and asserts that a
+              # zero exit named a real executable, so reaching here means the
+              # two steps disagree about what happened. That contradiction is
+              # what let 26-day-old binaries — and, for azul-writer, no binary
+              # at all — ship behind a green job.
+              echo "::error::no staged binary and no verified reuse for $demo on ${{ matrix.os }} (build step recorded exe='${src:-<none>}') — refusing to stage a partial demo set"
               missing_staged=1
             fi
           done
           ls -la demos-staging/ || echo "No demos staged"
+          echo "=== demo staging summary (${{ matrix.os }}) ==="
+          echo "  staged: ${staged[*]:-none}"
           [ "${missing_staged:-0}" = 0 ] || exit 1
 
           # Manifest for the NEXT run's reuse decision. Written even when every
@@ -5437,6 +5490,17 @@ jobs:
       (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
       && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
           || github.event_name == 'workflow_dispatch')
+    # KEPT continue-on-error, DELIBERATELY, and here is the exact cost: a
+    # failing step below leaves this job's conclusion at `success`, so it does
+    # not block deploy_pages and does not show red in the jobs list. What
+    # changed is that the steps no longer LIE — they emit ::error:: annotations
+    # and write the verdict to the run summary — and, more importantly, the
+    # consequence is now caught downstream instead of being served to users:
+    # deploy_pages' "Remove links to artifacts that were never published" step
+    # strips any advertised download that was not actually uploaded, and the
+    # post-release watchdog fetches every remaining link and fails on a 404.
+    # Flip this to `false` once the iOS bundles are green often enough to gate a
+    # release on them.
     continue-on-error: true
     runs-on: macos-14
     # Hoist the signing secrets to job env so the optional cert-import step can
@@ -5483,11 +5547,77 @@ jobs:
           security list-keychain -d user -s "$KCHAIN"
           IDENT=$(security find-identity -v -p codesigning "$KCHAIN" | awk '/Apple (Development|Distribution)|Developer ID/{print $2; exit}')
           echo "IOS_SIGNING_IDENTITY=$IDENT" >> "$GITHUB_ENV"
-      - name: Build + bundle each demo as a .app — device + simulator (best-effort)
+      # WHY THIS STEP EXISTS. On run 32388074182 this job reported SUCCESS
+      # having produced zero .app.zip and zero .ipa, while the release page
+      # advertised fifteen of them. Every one of the ten build-ios.sh
+      # invocations died in ~6 ms with the single line
+      #   "xcode-select not configured. Run 'xcode-select --install'."
+      # i.e. `xcrun -p` failed on a macos-14 runner that ships Xcode. The loop
+      # turned that into a ::warning:: and moved on, the upload was
+      # if-no-files-found: warn, and the job is continue-on-error — three
+      # cannot-fail layers over a toolchain that was one `xcode-select -s` away
+      # from working. Resolve it here, LOUDLY, before anything is built.
+      - name: Resolve the iOS toolchain (must exist before we claim to ship apps)
         shell: bash
         run: |
-          set +e
+          set -uo pipefail
+          echo "xcrun:          $(command -v xcrun || echo '<not on PATH>')"
+          echo "xcode-select -p: $(xcode-select -p 2>&1 || true)"
+          echo "DEVELOPER_DIR:  ${DEVELOPER_DIR:-<unset>}"
+          echo "installed Xcodes:"; ls -d /Applications/Xcode*.app 2>/dev/null || echo "  (none)"
+          if ! xcrun -p >/dev/null 2>&1; then
+            # Pick the newest installed Xcode and point xcode-select at it.
+            # Glob, not `ls` (SC2012): the runner installs Xcode_15.4.app etc.
+            xc=""
+            for cand in /Applications/Xcode*.app; do
+              [ -d "$cand" ] && xc="$cand"
+            done
+            if [ -n "$xc" ]; then
+              echo "::warning::xcrun could not resolve a toolchain — selecting $xc"
+              sudo xcode-select -s "$xc/Contents/Developer"
+              echo "DEVELOPER_DIR=$xc/Contents/Developer" >> "$GITHUB_ENV"
+            fi
+          fi
+          if ! xcrun -p >/dev/null 2>&1; then
+            echo "::error::no usable Xcode toolchain on this runner — iOS demo apps CANNOT be built here. Do not advertise them: either fix the image/toolchain or drop the iOS rows from the release page (doc/src/dllgen/deploy.rs os_groups)."
+            exit 1
+          fi
+          missing_sdk=0
+          for sdk in iphoneos iphonesimulator; do
+            if p="$(xcrun --sdk "$sdk" --show-sdk-path 2>/dev/null)" && [ -n "$p" ]; then
+              echo "  SDK $sdk: $p"
+            else
+              echo "::error::iOS SDK '$sdk' is not installed (Xcode CLT alone does not ship it) — the $sdk slice cannot be built on this runner"
+              missing_sdk=1
+            fi
+          done
+          exit "$missing_sdk"
+
+      # `.ipa` HONESTY. An .ipa is only emitted when the device .app was
+      # code-signed, which needs IOS_SIGNING_IDENTITY, which needs the
+      # APPLE_CERT_P12 secret. That secret is EMPTY in this repo (visible in the
+      # run log: `APPLE_CERT_P12: ` with nothing after it), so no run has ever
+      # produced an .ipa — yet the release page linked five of them. Say so
+      # once, in the log, so the absence is a stated configuration fact rather
+      # than a silent hole. The dead links themselves are removed by the
+      # "Remove links to artifacts that were never published" step in
+      # deploy_pages, which checks what was ACTUALLY uploaded.
+      - name: State up front whether signed .ipa files are possible
+        shell: bash
+        run: |
+          if [ -n "${IOS_SIGNING_IDENTITY:-}" ]; then
+            echo "::notice::signing identity present — device .app will be signed and an .ipa emitted per demo"
+          else
+            echo "::warning::no Apple signing identity configured (APPLE_CERT_P12 secret is unset) — this run CANNOT produce any .ipa. Unsigned .app bundles ship instead; sign them yourself, or run the Simulator .app."
+          fi
+
+      - name: Build + bundle each demo as a .app — device + simulator
+        shell: bash
+        run: |
+          set -uo pipefail
           mkdir -p mobile-apps
+          ios_failed=()
+          ios_built=()
           # Build BOTH the device slice (aarch64-apple-ios → <demo>-ios.app.zip,
           # needs signing to install on a phone) and the simulator slice
           # (aarch64-apple-ios-sim → <demo>-ios-sim.app.zip, runs UNSIGNED in the
@@ -5496,11 +5626,20 @@ jobs:
             for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
               echo "=== iOS .app: $demo ($tgt) ==="
               suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
-              AZ_IOS_DRYRUN=1 APP_NAME="$demo" bash scripts/build-ios.sh "$tgt" "$demo" \
-                || { echo "::warning::$demo ($tgt) failed to bundle — skipping"; continue; }
+              if ! AZ_IOS_DRYRUN=1 APP_NAME="$demo" bash scripts/build-ios.sh "$tgt" "$demo"; then
+                echo "::error::[$demo/$tgt] failed to bundle. The release page offers this download; a failure here is a dead link, not a skip."
+                ios_failed+=("$demo/$tgt")
+                continue
+              fi
               APP_DIR="target/ios-bundle/${demo}-${tgt}.app"
+              if [ ! -d "$APP_DIR" ]; then
+                echo "::error::[$demo/$tgt] build-ios.sh exited 0 but produced no $APP_DIR"
+                ios_failed+=("$demo/$tgt")
+                continue
+              fi
               if [ -d "$APP_DIR" ]; then
                 ( cd "$(dirname "$APP_DIR")" && zip -qr "$OLDPWD/mobile-apps/${demo}-${suffix}.app.zip" "$(basename "$APP_DIR")" )
+                ios_built+=("${demo}-${suffix}.app.zip")
                 # When the device .app was code-signed (IOS_SIGNING_IDENTITY set by
                 # the optional cert-import step), also emit an installable .ipa
                 # (Payload/<App>.app, zipped). Unsigned builds ship only the .app.
@@ -5508,17 +5647,46 @@ jobs:
                   rm -rf "$RUNNER_TEMP/Payload" && mkdir -p "$RUNNER_TEMP/Payload"
                   cp -R "$APP_DIR" "$RUNNER_TEMP/Payload/"
                   ( cd "$RUNNER_TEMP" && zip -qr "$OLDPWD/mobile-apps/${demo}-ios.ipa" Payload )
+                  ios_built+=("${demo}-ios.ipa")
                 fi
               fi
             done
           done
           ls -l mobile-apps || true
+          echo "=== iOS demo app summary ==="
+          echo "  built:  ${ios_built[*]:-none}"
+          echo "  FAILED: ${ios_failed[*]:-none}"
+          # The job is continue-on-error (see the job header), so a failing step
+          # here does NOT turn the job red in the jobs list. Put the verdict
+          # somewhere a human actually reads the run: the run summary page.
+          {
+            echo "### iOS demo apps"
+            echo ""
+            echo "- built: \`${ios_built[*]:-none}\`"
+            echo "- FAILED: \`${ios_failed[*]:-none}\`"
+            [ -n "${IOS_SIGNING_IDENTITY:-}" ] || echo "- no Apple signing identity: **no .ipa can be produced by this run**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # `set +e` used to cover this whole loop and the step ended with
+          # `ls -l mobile-apps || true`, so ten consecutive failures exited 0.
+          # A step that ships nothing must not exit 0.
+          if [ "${#ios_failed[@]}" -gt 0 ]; then
+            echo "::error::${#ios_failed[@]} iOS demo bundle(s) failed: ${ios_failed[*]}"
+            exit 1
+          fi
+          if [ "${#ios_built[@]}" -eq 0 ]; then
+            echo "::error::no iOS demo app was produced — the release page advertises these downloads, so shipping none of them is a failure, not a skip"
+            exit 1
+          fi
       - name: Upload mobile demo apps
         uses: actions/upload-artifact@v7
         with:
           name: azul-mobile-apps-ios
+          # `warn` was the last cannot-fail layer: an empty mobile-apps/
+          # uploaded nothing and reported success. The build step now exits
+          # non-zero when it produced nothing, so an empty directory here means
+          # the two steps disagree.
           path: mobile-apps
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # Android demo APKs — only the demos set up as a NativeActivity cdylib
   # (crate-type=cdylib + ctor android entry: azul-maps, azul-paint). CLI-only:
@@ -7449,6 +7617,49 @@ jobs:
 
           echo "release dir after:"; du -sh "$REL" || true
           echo "total website size:"; du -sh website || true
+
+      # A USER MUST NEVER BE OFFERED A 404.
+      #
+      # deploy.rs renders the release page from a STATIC list of what a release
+      # is supposed to contain, during the website-skeleton build, before any
+      # real artifact exists. A producer job that ships nothing therefore does
+      # not remove a row — it leaves a link to a file nobody uploaded. Measured
+      # on the live 0.2.0 page: 71 GitHub-Release download links, 18 of them
+      # 404 (fifteen iOS demo bundles CI has never produced, and all three
+      # azul-writer desktop tarballs, whose binary is named `azwriter` so the
+      # staging loop copied a path that does not exist and called it a reuse).
+      #
+      # This is the only point in the pipeline where both facts are known at
+      # once: what the page CLAIMS, and what actually got published. So this is
+      # where the two are reconciled. It runs AFTER the LARGE-asset upload,
+      # because that step is what decides whether a link points at the Release
+      # or at Pages, and after the Pages trim, because a trimmed file is
+      # supposed to be gone from disk and present on the Release.
+      #
+      # It rewrites, it does not gate: the red belongs on the producer job that
+      # shipped nothing, and the post-release watchdog fetches every link that
+      # survives here.
+      - name: Remove links to artifacts that were never published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REL="website/ui/release/${AZUL_VERSION}"
+          [ -d "$REL" ] || { echo "no $REL — skipping"; exit 0; }
+          gh release view "${AZUL_VERSION}" --repo "$GITHUB_REPOSITORY" \
+            --json assets -q '.assets[].name' > /tmp/release-asset-names.txt \
+            || : > /tmp/release-asset-names.txt
+          if [ ! -s /tmp/release-asset-names.txt ]; then
+            echo "::error::could not list the ${AZUL_VERSION} release assets — refusing to prune, because with an empty list EVERY release link would look dead and the page would be gutted"
+            exit 1
+          fi
+          python3 scripts/prune_dead_release_links.py \
+            --version "${AZUL_VERSION}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --release-dir "$REL" \
+            --release-assets /tmp/release-asset-names.txt \
+            "website/ui/release/${AZUL_VERSION}.html" \
+            "$REL/index.html"
 
       - name: Repack the Pages artifact as plain files (Pages forbids symlinks + hard links)
         run: |

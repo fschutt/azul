@@ -20,7 +20,10 @@
 # broken artifact turns this run RED while the site stays up, which is the point:
 # it reports, it does not gate.
 #
-#   - push to master: verifies the version currently named in api.json.
+#   - after a successful "Deploy to GitHub Pages" (workflow_run on the build
+#     workflow): verifies THE DEPLOY THAT JUST HAPPENED. It used to run on
+#     `push`, i.e. ~80 minutes before that deploy, so every result described the
+#     PREVIOUS release — see the `on:` block for the measured timings.
 #   - daily (cron): verifies the LIVE site against today's ecosystem. A new pip,
 #     a new NuGet client, an expired index — none of those touch this repo, and
 #     this is the only job that would notice.
@@ -32,8 +35,26 @@
 name: Post-release checks
 
 on:
-  push:
-    branches: [master]
+  # THIS USED TO BE `push: branches: [master]`, AND THAT MADE EVERY GREEN TICK
+  # BELOW A STATEMENT ABOUT THE *PREVIOUS* RELEASE.
+  #
+  # Measured, run 32388068257 vs 32388074182 on the same commit:
+  #   post-release checks    15:45:54 - 15:47:47
+  #   Deploy to GitHub Pages 17:05:09 - 17:12:28
+  # It fired on the push, ~78 minutes BEFORE the deploy it claims to verify.
+  # So `install: apt`, `install: pypi`, `android: install the published APK`
+  # and — worst — the job literally named "Release page lists the expected
+  # artifacts" all passed while the page that was about to be published carried
+  # 18 links that 404. A check that reports on a build other than the one you
+  # just made is not a weak check, it is a misleading one.
+  #
+  # Verify what was actually deployed: run when the build workflow FINISHES,
+  # and only when that run really deployed (`resolve` gates on the "Deploy to
+  # GitHub Pages" job's conclusion — rust.yml deploys only on a `deploy` or
+  # `website` workflow_dispatch, so most completions are correctly skipped).
+  workflow_run:
+    workflows: ["build"]
+    types: [completed]
   schedule:
     # Daily. Failures surface in the Actions tab and in GitHub's failure emails.
     - cron: "17 6 * * *"
@@ -48,6 +69,9 @@ on:
 
 permissions:
   contents: read
+  # `resolve` asks the triggering run whether its deploy job actually
+  # succeeded, which is a read of the Actions API, not of the repo contents.
+  actions: read
 
 concurrency:
   # Deliberately NOT the same group as rust.yml. A release run must never cancel
@@ -63,6 +87,10 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       base_url: ${{ steps.v.outputs.base_url }}
+      # "did a deploy actually happen, and did it succeed?" Every downstream
+      # job gates on this, so a plain CI run of the build workflow (which does
+      # not deploy) does not produce a green tick about a site it never touched.
+      deployed: ${{ steps.gate.outputs.deployed }}
       # The URL the release listing actually lives at, after resolving the
       # HTML redirect stub at /releases. Downstream jobs must use this rather
       # than re-deriving /releases, which is how the artifacts check ended up
@@ -70,7 +98,33 @@ jobs:
       releases_url: ${{ steps.v.outputs.releases_url }}
     steps:
       - uses: actions/checkout@v7
+      # Only a run that DEPLOYED is worth verifying. rust.yml's deploy_pages is
+      # `if: run_mode == 'deploy' || run_mode == 'website'`, so the overwhelming
+      # majority of build-workflow completions never touched the site; treating
+      # those as "the release is fine" is the same lie in a new shape.
+      - id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "workflow_run" ]; then
+            echo "deployed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ github.event_name }} run — verifying the live site unconditionally"
+            exit 0
+          fi
+          run_id="${{ github.event.workflow_run.id }}"
+          concl="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" --paginate \
+                    --jq '.jobs[] | select(.name == "Deploy to GitHub Pages") | .conclusion' | head -1)"
+          if [ "$concl" = "success" ]; then
+            echo "deployed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::build run $run_id deployed successfully — verifying what it published"
+          else
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::build run $run_id did not deploy (Deploy to GitHub Pages: ${concl:-absent}) — nothing new to verify, skipping"
+          fi
       - id: v
+        if: steps.gate.outputs.deployed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -132,6 +186,7 @@ jobs:
   channels:
     name: "install: ${{ matrix.channel }}"
     needs: resolve
+    if: needs.resolve.outputs.deployed == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     strategy:
@@ -174,6 +229,7 @@ jobs:
   python_import:
     name: "python: install, import, construct, teardown"
     needs: resolve
+    if: needs.resolve.outputs.deployed == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     container:
@@ -206,19 +262,29 @@ jobs:
           ( ulimit -v 4000000
             PYTHONPATH=/tmp/azul-site python3 /tmp/smoke.py )
 
-  # The release page must LIST what it claims to ship. An artifact that is
-  # deliberately absent (unsigned iOS builds when no Apple signing cert is
-  # configured) must be listed as UNAVAILABLE rather than silently missing —
-  # "not built" and "not shipped in this configuration" have to be
-  # distinguishable by looking.
+  # The release page must LIST what it claims to ship, AND EVERY LISTED
+  # DOWNLOAD MUST RESOLVE. An artifact that is deliberately absent (unsigned iOS
+  # builds when no Apple signing cert is configured) must be listed as
+  # UNAVAILABLE rather than silently missing — "not built" and "not shipped in
+  # this configuration" have to be distinguishable by looking.
+  #
+  # This job passed on 2026-08-20 while 18 of the release page's 71
+  # GitHub-Release download links returned 404, for two independent reasons,
+  # both now fixed:
+  #   1. it ran on `push`, ~80 minutes before the deploy — see the `on:` block;
+  #   2. it only grepped the page for five NAMES. "The page mentions
+  #      libazul.so" is not "a user who clicks Download gets a file". The
+  #      second step below fetches every advertised link and fails on a 404.
   artifacts:
     name: Release page lists the expected artifacts
     needs: resolve
+    if: needs.resolve.outputs.deployed == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - shell: bash
+      - name: The expected artifacts are named on the page
+        shell: bash
         run: |
           set -euo pipefail
           BASE="${{ needs.resolve.outputs.base_url }}"
@@ -307,12 +373,29 @@ jobs:
           fi
           exit "$missing"
 
+      # THE CHECK THAT SHOULD HAVE EXISTED FROM THE START. The step above reads
+      # the page; this one uses it. Every advertised download is fetched and
+      # must resolve — a 404 fails the job, by name, with the URL.
+      #
+      # `if: always()` so a naming regression above does not hide the dead-link
+      # verdict; both failures are independently useful.
+      - name: Every advertised download actually resolves
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ needs.resolve.outputs.base_url }}"
+          VERSION="${{ needs.resolve.outputs.version }}"
+          bash scripts/verify_release_page_links.sh \
+            "$BASE/ui/release/$VERSION/" "$BASE" "$VERSION"
+
   # An APK that exists is not an APK that installs. This launches the LAUNCHER
   # activity, NOT `android.app.NativeActivity` — launching the latter directly is
   # exactly the bypass that let an APK with no classes.dex look healthy for months.
   apk_install:
     name: "android: install the published APK and launch it"
     needs: resolve
+    if: needs.resolve.outputs.deployed == 'true'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
