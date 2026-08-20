@@ -241,11 +241,15 @@ pub fn generate_blog_index() -> String {
         let title = escape_html(&post.title);
         let excerpt = post_excerpt(post);
         post_items.push_str(&format!(
+            // One destination per entry, and it looks like one: the heading
+            // is a heading, the accent stone below it is the control. A
+            // half-underlined title that happened to be clickable made the
+            // reader guess which of the two to aim at.
             r#"        <article class="docs-list-item">
-          <h3><a href="{href}">{title}</a></h3>
+          <h3>{title}</h3>
           <p class="docs-meta">{date}</p>
           <p>{excerpt}</p>
-          <a class="docs-read-more" href="{href}">Read more &rarr;</a>
+          <a class="btn btn-primary docs-read-more" href="{href}">Read more &rarr;</a>
         </article>
 "#,
             date = post.date,
