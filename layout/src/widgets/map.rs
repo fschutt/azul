@@ -1095,9 +1095,27 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     let mut to_spawn: Vec<TileFetchInit> = Vec::new();
     {
         let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
+            // The dataset handed to this callback is not a MapTileCache. Every
+            // tile stays Pending forever and the map shows placeholders — the
+            // exact symptom of "panning works, tiles never paint".
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                std::eprintln!("[map] spawn_pending: ABORT — dataset is not a MapTileCache");
+            }
             return;
         };
         if cache.fetch_callback.is_none() {
+            // No worker wired. Either the build has no `map-tiles` feature, or
+            // the callback was lost when the cache RefAny was rebuilt (the
+            // merge callback is what preserves it across relayout).
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                std::eprintln!(
+                    "[map] spawn_pending: ABORT — no fetch_callback on the cache \
+                     ({} tiles held)",
+                    cache.tiles.len()
+                );
+            }
             return; // no worker wired — leave tiles Pending (placeholder grid)
         }
         let template = cache.layer.url_template.as_str().to_string();
@@ -1126,16 +1144,32 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
 
     let cb = {
         let Some(cache) = data.downcast_ref::<MapTileCache>() else {
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                std::eprintln!("[map] spawn_pending: ABORT — dataset vanished before spawn");
+            }
             return;
         };
         match cache.fetch_callback.as_ref() {
             Some(cb) => cb.clone(),
-            None => return,
+            None => {
+                #[cfg(feature = "std")]
+                if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                    std::eprintln!("[map] spawn_pending: ABORT — fetch_callback gone at spawn");
+                }
+                return;
+            }
         }
     };
 
     #[cfg(feature = "std")]
     let spawn_count = to_spawn.len();
+    // Distinguish "nothing to do" from "never got here" — a quiet log and an
+    // aborted one look identical otherwise.
+    #[cfg(feature = "std")]
+    if spawn_count == 0 && std::env::var("AZ_MAP_DEBUG").is_ok() {
+        std::eprintln!("[map] spawn_pending: 0 tiles were Pending (nothing to spawn)");
+    }
     for init in to_spawn {
         let init_data = RefAny::new(init);
         let writeback_data = data.clone(); // same cache dataset
@@ -1191,10 +1225,28 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
 ) -> Update {
     let msg = match incoming.downcast_ref::<TileReadyMsg>() {
         Some(m) => (m.tile, m.svg.clone(), m.error.clone()),
-        None => return Update::DoNothing,
+        None => {
+            // The worker sent something that is not a TileReadyMsg: the tile
+            // arrived and is dropped on the floor here.
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                std::eprintln!("[map] writeback: DROPPED — payload is not a TileReadyMsg");
+            }
+            return Update::DoNothing;
+        }
     };
     {
         let Some(mut cache) = cache_dataset.downcast_mut::<MapTileCache>() else {
+            // The tile came back but the dataset it targets is no longer a
+            // MapTileCache — typically a rebuild replaced it. The fetch
+            // succeeded and the pixels are still discarded.
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                std::eprintln!(
+                    "[map] writeback: DROPPED tile=({},{},{}) — target dataset is not a MapTileCache",
+                    msg.0.z, msg.0.x, msg.0.y
+                );
+            }
             return Update::DoNothing;
         };
         #[cfg(feature = "std")]
