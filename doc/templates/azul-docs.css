@@ -284,19 +284,6 @@ body.docs {
     border-bottom: none;
 }
 
-.docs-list-item h3 a,
-.docs-list-item h3 a:visited {
-    color: var(--color-text);
-    text-decoration: none;
-    border-bottom: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
-    transition: border-color 0.15s ease, color 0.15s ease;
-}
-
-.docs-list-item h3 a:hover {
-    color: var(--color-accent-hover);
-    border-bottom-color: var(--color-accent);
-}
-.docs-list-item h3 a:hover { color: var(--color-accent); }
 .docs-list-item .docs-meta {
     font-family: var(--font-caps);
     font-size: 16px;
@@ -312,13 +299,13 @@ body.docs {
     text-wrap: balance;
     margin: 0 0 8px;
 }
-.docs-read-more,
-.docs-read-more:visited {
-    color: var(--color-accent);
-    font-weight: 600;
-    text-decoration: none;
+/* The "read more" control is a real button in the accent stone (`.btn
+   .btn-primary` in flora.css); this only trims it to list scale. */
+.docs-read-more {
+    padding: 4px 18px;
+    font-size: 17px;
+    margin-top: 4px;
 }
-.docs-read-more:hover { text-decoration: underline; }
 
 /* ---- Card grid (download/link tiles where a list is too sparse) ---- */
 .docs-card-grid {

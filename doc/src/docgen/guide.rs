@@ -493,7 +493,7 @@ pub fn generate_guide_mainpage(_version: &str) -> String {
     crate::docgen::azlin_page(&page, false)
 }
 
-/// Render a flat list of pages as a `.docs-list` of `.docs-list-item`s.
+/// Render the chapters of one tree as a `.guide-grid` of `.guide-card`s.
 /// A page with file_name `parent/child` becomes a sub-bullet under the page
 /// with file_name `parent` (when that page exists in the same bucket); else
 /// it's promoted to the top level under a synthetic group label.
@@ -583,8 +583,9 @@ fn render_tree(pages: &[&Guide]) -> String {
     s
 }
 
-/// One top-level chapter as a hairline `.docs-list-item`: title link,
-/// one-line description, optional sub-chapter list, "Read chapter" link.
+/// One top-level chapter as a `.guide-card`: heading, one-line description,
+/// and a button per article (the chapter's own page first, as
+/// "Introduction").
 fn render_list_item(
     g: &Guide,
     children: &std::collections::BTreeMap<String, Vec<&Guide>>,
