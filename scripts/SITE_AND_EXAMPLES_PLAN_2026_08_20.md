@@ -64,13 +64,54 @@ which is one line:
 
 ## 3. Widget themes — `layout/src/widgets/themes/{flora.rs,flat.rs}`
 
-There is no `themes/` directory today. All 51 widgets in `layout/src/widgets/`
-carry hardcoded `CssProperty` values inline (see `button.rs`
-`background_color_for_button_type`). A theme layer has to centralise palette +
-decoration so a widget renders Flora (skeuomorphic parchment, per the Azlin
-specimen) or Flat.
+### The shape (decided 2026-08-20)
 
-This is the prerequisite for the Azlin `widgets` rewrite in §1.
+NOT a styling abstraction over one DOM. Per-theme **DOM builders**: the same
+logical component produces a different tree with entirely different CSS.
+
+    flora::button(dom) -> Dom
+    flat::button(dom)  -> Dom
+
+The Flora orb is the argument for this — its depth rig is five nested spans
+(`fl-orb-well` / `-well-shadow` / `-well-bounce` / `-collar` / `-stone` /
+`-gloss` / `-edge`); a flat theme needs one box. No property-level theming can
+bridge that, so the theme owns the markup.
+
+Hardcoded `CssProperty` values stay hardcoded — that is intentional and is not
+what changes. What changes is WHERE they are defined: today 51 widgets each
+carry their own literals (76 distinct `ColorU { r, g, b }` across
+`layout/src/widgets/*.rs`), so a colour cannot be shared and a theme cannot be
+coherent. The definitions MOVE into the theme files so one palette serves a
+whole theme.
+
+### The two themes
+
+- **`flora.rs`** — matches `doc/templates/flora.css`, i.e. the redesigned
+  website. That CSS is real, shipped and already debugged in a browser, and it
+  is the Azlin Interface Specimen expressed as HTML/CSS. So it doubles as a
+  CONFORMANCE TARGET: azul's rendering of `flora::*` should match what the
+  browser does with `flora.css`. 127 `--fl-*` tokens under `:root` are the
+  palette source of truth (`--fl-pg/-sur/-desk/-strip`, `--fl-bd..bd5`,
+  `--fl-ink/-ink2/-soft1..3`, `--fl-acc/-deep/-glow`, `--fl-gem`, `--fl-band`,
+  `--fl-shadow-1/-2`, …).
+- **`flat.rs`** — the current Office-2013 AzWriter style, already present in
+  `layout/src/widgets/ribbon.rs`: `#2B579A` Word blue, `#1E3E6F` pressed,
+  `#444444` / `#676767` ink, `#D4D4D4` rules.
+
+### C API
+
+Widgets carry an `OptionTheme`, so styling stays consistent by default while the
+user can override per widget. That is an FFI surface change: it goes through
+`api.json` and codegen, and per the standing rule it must be synced with
+`azul-doc autofix` commands ONLY — never hand-edited patches, never broad globs.
+
+### Order of work
+
+1. Extract the two palettes into `themes/flora.rs` + `themes/flat.rs`.
+2. Add `themes/mod.rs` and the `OptionTheme` plumbing (autofix → api.json → codegen).
+3. Move widgets over one at a time, flora first (it has a browser-rendered
+   reference to diff against).
+4. Only then the Azlin `widgets` rewrite in §1.
 
 ## 4. Guide `azul-render` blocks: whitespace-only text warnings
 
