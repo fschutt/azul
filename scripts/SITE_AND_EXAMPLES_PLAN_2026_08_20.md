@@ -98,6 +98,42 @@ whole theme.
   `layout/src/widgets/ribbon.rs`: `#2B579A` Word blue, `#1E3E6F` pressed,
   `#444444` / `#676767` ink, `#D4D4D4` rules.
 
+### Zero allocation: const items, not built strings
+
+The theme building blocks are `const` items, so a themed widget allocates
+nothing for its styling. This is NOT new machinery — `ribbon.rs` already proves
+the idiom in-tree:
+
+    const W13_BLUE: ColorU = ColorU { r: 43, g: 87, b: 154, a: 255 };
+    const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
+    const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+    const SYSTEM_UI_FAMILY: StyleFontFamilyVec = ...;
+
+`flat.rs` is therefore largely a LIFT of ribbon.rs's `W13_*` constants into a
+shared module — they are already the Office-2013 palette, already const.
+
+### The public theme API
+
+A set of building blocks out of which the individual widgets (checkbox, slider,
+combobox, …) compose their visual style — optionally taking a font. The widgets
+do not hardcode a look; they ask the theme for its pieces and assemble.
+
+Crucially the theme owns the WRAPPER STRUCTURE too, not just colours. Flora
+needs decorative wrapper divs — clip masks, cove/collar layers, gloss caps — and
+`flat` needs none of them. So `flora::checkbox` may emit four nested divs where
+`flat::checkbox` emits one. A theme that needs no decoration pays for no
+decoration.
+
+### Flora's decorations already work in a browser
+
+Flora is full of decorative divs with clip masks, and they render CORRECTLY in a
+browser today — visible on the /ui tab of the deployed site. That makes the port
+a copy rather than a design exercise, and it makes every visual mismatch
+INFORMATIVE: if azul renders `flora::*` differently from the browser rendering
+of the same construction, that is an ENGINE BUG to fix, not a theme to tweak.
+Expect this step to surface real layout/paint bugs; that is a feature of doing
+it this way, not a setback.
+
 ### C API
 
 Widgets carry an `OptionTheme`, so styling stays consistent by default while the
@@ -107,11 +143,20 @@ user can override per widget. That is an FFI surface change: it goes through
 
 ### Order of work
 
-1. Extract the two palettes into `themes/flora.rs` + `themes/flat.rs`.
-2. Add `themes/mod.rs` and the `OptionTheme` plumbing (autofix → api.json → codegen).
-3. Move widgets over one at a time, flora first (it has a browser-rendered
-   reference to diff against).
-4. Only then the Azlin `widgets` rewrite in §1.
+1. Extract the two palettes into `themes/flora.rs` + `themes/flat.rs` as const
+   items (lift ribbon.rs's `W13_*` for flat; take flora's 127 `--fl-*` tokens).
+2. Define the public theme API — the building blocks, optional font, and the
+   per-theme wrapper/decoration structure.
+3. Add `themes/mod.rs` and the `OptionTheme` plumbing (autofix → api.json →
+   codegen).
+4. Move widgets over one at a time, flora first, diffing each against the
+   browser's rendering of the same construction in `flora.css`. Fix the ENGINE
+   where they disagree.
+5. Native screenshot of the result (`AZ_DEBUG=<port>` + `{"op":
+   "take_native_screenshot"}`) for real macOS window chrome.
+6. Update the C `api.json` (autofix only).
+7. Rewrite the examples (§1) on top of the finished themes.
+8. Final /ui showcase page built from all of it.
 
 ## 4. Guide `azul-render` blocks: whitespace-only text warnings
 
