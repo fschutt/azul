@@ -159,7 +159,7 @@ impl Default for ScrollbarGeometry {
 /// The unit is the LOGICAL pixel, because the display list (and therefore the
 /// baked `thumb_initial_transform` this must agree with) is DPI-free by
 /// construction: the rasteriser multiplies by the DPI factor, and no layout
-/// stage knows it. On a HiDPI screen that costs at most one device pixel of
+/// stage knows it. On a `HiDPI` screen that costs at most one device pixel of
 /// thumb precision — against a track that has only `usable_track_length`
 /// distinct positions to begin with.
 ///

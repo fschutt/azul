@@ -2057,6 +2057,12 @@ impl RssCensus {
 ///
 /// Returns `None` off Linux or if `smaps` is unreadable. Costs one file read
 /// and a linear scan; `smaps` is a few hundred KB on a process this size.
+// Off Linux every `#[cfg]` arm below collapses to `None`, so clippy sees a
+// function that could be `const` — and says so as an error under the extreme
+// lint set, making `cargo clippy` red on every Mac while CI's ubuntu job is
+// green. The Linux body reads a file; it cannot be const. Allow it here rather
+// than let the gate mean two different things on two machines.
+#[allow(clippy::missing_const_for_fn)]
 #[must_use]
 pub fn rss_census() -> Option<RssCensus> {
     #[cfg(not(target_os = "linux"))]
@@ -2255,6 +2261,12 @@ impl AllocatorStats {
 /// `allocator_stats`: an `extern` block would make the BINARY FAIL TO LINK
 /// wherever the symbol is absent, turning a missing optimisation into a
 /// missing build.
+// Off Linux every `#[cfg]` arm below collapses to `None`, so clippy sees a
+// function that could be `const` — and says so as an error under the extreme
+// lint set, making `cargo clippy` red on every Mac while CI's ubuntu job is
+// green. The Linux body reads a file; it cannot be const. Allow it here rather
+// than let the gate mean two different things on two machines.
+#[allow(clippy::missing_const_for_fn)]
 #[must_use]
 pub fn malloc_trim() -> Option<bool> {
     #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -2280,6 +2292,12 @@ pub fn malloc_trim() -> Option<bool> {
     }
 }
 
+// Off Linux every `#[cfg]` arm below collapses to `None`, so clippy sees a
+// function that could be `const` — and says so as an error under the extreme
+// lint set, making `cargo clippy` red on every Mac while CI's ubuntu job is
+// green. The Linux body reads a file; it cannot be const. Allow it here rather
+// than let the gate mean two different things on two machines.
+#[allow(clippy::missing_const_for_fn)]
 #[must_use]
 pub fn allocator_stats() -> Option<AllocatorStats> {
     #[cfg(not(all(unix, not(target_os = "macos"))))]
