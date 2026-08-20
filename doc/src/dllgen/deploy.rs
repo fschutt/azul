@@ -2099,14 +2099,21 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     // Copy logo SVG at runtime
     fs::copy(templates_dir.join("logo.svg"), output_dir.join("logo.svg"))?;
 
-    // Copy favicon.ico for local development
-    let favicon_source = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("examples/assets/images/favicon.ico");
-    if favicon_source.exists() {
-        fs::copy(&favicon_source, output_dir.join("favicon.ico"))?;
-    }
+    // The favicon every generated page links as `{base_url}/favicon.ico`.
+    // It is the site's own orb: the .fl-orb collar + stone + gloss + edge from
+    // flora.css, rendered by a browser at 8x and downsampled, so the tab icon
+    // carries the same skeuomorphic dome as the navbar mark instead of the flat
+    // logo.svg. The .fl-orb-well (the recess it sits in) is deliberately left
+    // out - it is the navbar strip's context, not part of the mark.
+    // Stored at 16/32/48, the sizes a browser actually asks for, so it is 15 KB
+    // rather than the 43 KB 7-frame icon copied out of examples/assets/images/.
+    //
+    // NOT `if exists()`: a missing favicon used to mean "silently ship no
+    // favicon", and that is exactly how the placeholder below went unnoticed.
+    fs::copy(
+        templates_dir.join("favicon.ico"),
+        output_dir.join("favicon.ico"),
+    )?;
 
     // Copy fleur-de-lis SVG (for navigation) at runtime
     fs::copy(
@@ -2144,9 +2151,6 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     ] {
         fs::copy(fonts_source_dir.join(f), fonts_dir.join(f))?;
     }
-
-    // Create favicon
-    fs::write(output_dir.join("favicon.ico"), "Favicon placeholder")?;
 
     println!("Static assets copied successfully");
     Ok(())
