@@ -258,17 +258,61 @@
     border-bottom-color: currentColor;
 }
 
-/* ---- Quick jump: "Commonly used" (ranked from the guide) + the module
-        index. Outside #api so the listing's mono reset does not reach the
-        buttons, which are the shared `.guide-link` control. ---- */
+/* ---- Quick jump: "Commonly used" (ranked from the guide), the module index
+        and the way back up. It rides in the sticky rail under the search box,
+        so it is still there four hundred types down the page. Outside #api so
+        the listing's mono reset does not reach the buttons, which are the
+        shared `.guide-link` control.
+
+        The rail is the only place these fit: 30 types and 39 modules is more
+        than a viewport once the column is 340px wide, hence its own scroll
+        rather than a rail taller than the screen. ---- */
 .api-jump {
-    margin: 0 0 40px;
-    padding-bottom: 28px;
-    border-bottom: 1px solid var(--color-border);
+    margin: 20px 0 0;
+    max-height: calc(100vh - 190px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 6px;
 }
 .api-jump h2 {
-    font-size: 19px;
+    font-size: 17px;
     margin: 0 0 10px;
+}
+
+/* The way back to the top of a very long page. Full width so it reads as the
+   rail's last control rather than as one more jump target, and outside the
+   scrolling list so a short window never hides it. */
+.api-top {
+    display: block;
+    margin-top: 16px;
+    padding: 6px 12px;
+    border: 1px solid var(--fl-bd2);
+    border-radius: var(--fl-r);
+    background: linear-gradient(var(--fl-rT), var(--fl-rB));
+    box-shadow: var(--fl-lip);
+    color: var(--fl-ink);
+    font-family: var(--font-caps);
+    font-size: 15px;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.08em;
+    text-align: center;
+    text-decoration: none;
+}
+.api-top:hover {
+    background: linear-gradient(var(--fl-hT), var(--fl-hB));
+    border-color: var(--fl-bd3);
+}
+.api-top::before { content: "\2191\00A0"; }
+
+/* Below the breakpoint the rail stops being a column and moves ABOVE the
+   listing, where two full jump lists would push the API itself off the first
+   screen. The search box still works there; these do not. Stated after
+   `.api-top` on purpose - same specificity, so the later rule is the one
+   that decides. */
+@media (max-width: 1024px) {
+    .api-jump,
+    .api-top { display: none; }
 }
 /* `.docs-content a.guide-link` in docs-guide.css matches at the same
    specificity and is loaded after this file, so the reach has to be one
@@ -276,7 +320,7 @@
 .docs-content .api-jump a.guide-link,
 .api-jump a.guide-link {
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: 12px;
     font-variant: normal;
     font-weight: 500;
     letter-spacing: 0;
