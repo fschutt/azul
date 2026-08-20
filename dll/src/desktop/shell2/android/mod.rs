@@ -130,31 +130,18 @@ impl AndroidWindow {
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
 
+        let mut common = CommonWindowState::new(
+            full_window_state,
+            fc_cache,
+            Arc::new(azul_css::system::SystemStyle::default()),
+            Arc::new(RefCell::new(app_data)),
+            undo_manager,
+        );
+        common.layout_window = Some(layout_window);
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+
         Ok(Self {
-            common: CommonWindowState {
-                layout_window: Some(layout_window),
-                current_window_state: full_window_state,
-                previous_window_state: None,
-                os_synced_state: None,
-                renderer_resources: RendererResources::default(),
-                fc_cache,
-                gl_context_ptr: azul_core::gl::OptionGlContextPtr::None,
-                system_style: Arc::new(azul_css::system::SystemStyle::default()),
-                app_data: Arc::new(RefCell::new(app_data)),
-                undo_manager,
-                scrollbar_drag_state: None,
-                hit_tester: None,
-                cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
-                last_hovered_node: None,
-                document_id: None,
-                id_namespace: None,
-                render_api: None,
-                renderer: None,
-                regen: crate::desktop::shell2::common::event::RegenerationState::pending_initial(),
-                display_list_initialized: false,
-                display_list_dirty: false,
-                a11y_dirty: true,
-            },
+            common,
             cpu_backend: CpuBackend::new(),
             #[cfg(feature = "ndk")]
             native_window: None,
@@ -212,7 +199,7 @@ impl AndroidWindow {
         // Android wants physical pixels. `android_main` derives the framework
         // dpi as `density * 96 / 160`, so the android scale (`density / 160`)
         // is exactly `dpi / 96` — the same factor everything else here uses.
-        let scale = self.common.current_window_state.size.dpi as f32 / 96.0;
+        let scale = self.common.current_window_state().size.dpi as f32 / 96.0;
         self.accessibility_adapter.update_snapshot(snapshot, scale);
         self.common.a11y_dirty = false;
     }
@@ -241,11 +228,8 @@ impl AndroidWindow {
         // the request (see CommonWindowState::request_regeneration).
         let relayout_reason = self.common.take_relayout_reason();
 
-        let layout_window = self
-            .common
-            .layout_window
-            .as_mut()
-            .ok_or("No layout window")?;
+        let borrows = self.common.layout_borrows();
+        let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         let debug_enabled =
             crate::desktop::shell2::common::debug_server::is_debug_enabled();
@@ -253,13 +237,13 @@ impl AndroidWindow {
 
         let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
-            &self.common.app_data,
-            &self.common.current_window_state,
-            &mut self.common.renderer_resources,
-            &self.common.gl_context_ptr,
-            &self.common.fc_cache,
+            borrows.app_data,
+            borrows.current_window_state,
+            borrows.renderer_resources,
+            borrows.gl_context_ptr,
+            borrows.fc_cache,
             &self.font_registry,
-            &self.common.system_style,
+            borrows.system_style,
             &self.icon_provider,
             &mut debug_messages,
             relayout_reason,
@@ -298,7 +282,7 @@ impl AndroidWindow {
         // so the next `render_frame()` call can blit pixels.
         #[cfg(feature = "cpurender")]
         {
-            let ws = &self.common.current_window_state;
+            let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
@@ -354,22 +338,20 @@ impl PlatformWindow for AndroidWindow {
     }
 
     fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
-        let layout_window = self
-            .common
-            .layout_window
-            .as_mut()
-            .expect("Layout window must exist for callback invocation");
+        let borrows = self.common.layout_borrows();
         event::InvokeSingleCallbackBorrows {
-            layout_window,
+            layout_window: borrows
+                .layout_window
+                .expect("Layout window must exist for callback invocation"),
             window_handle: RawWindowHandle::Android(AndroidHandle {
                 a_native_window: std::ptr::null_mut(),
             }),
-            gl_context_ptr: &self.common.gl_context_ptr,
-            fc_cache_clone: (*self.common.fc_cache).clone(),
-            system_style: self.common.system_style.clone(),
-            previous_window_state: &self.common.previous_window_state,
-            current_window_state: &self.common.current_window_state,
-            renderer_resources: &mut self.common.renderer_resources,
+            gl_context_ptr: borrows.gl_context_ptr,
+            fc_cache_clone: (**borrows.fc_cache).clone(),
+            system_style: borrows.system_style.clone(),
+            previous_window_state: borrows.previous_window_state,
+            current_window_state: borrows.current_window_state,
+            renderer_resources: borrows.renderer_resources,
         }
     }
 
@@ -582,11 +564,11 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
         2 => azul_core::window::WindowTheme::DarkMode,
         _ => return,
     };
-    if window.common.current_window_state.theme == theme {
+    if window.common.current_window_state().theme == theme {
         return;
     }
     window.snapshot_window_state_baseline("android.drain_pending_theme");
-    window.common.current_window_state.theme = theme;
+    window.common.update_unsynced_state(|ws| ws.theme = theme);
     window.common.request_regeneration(RelayoutReason::ThemeChange);
     let _ = window.process_window_events(0);
 }
@@ -623,7 +605,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // Android-native scale factor, not the framework's).
                 let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
                 let dpi = ((density as f32) * 96.0 / 160.0).round() as u32;
-                window.common.current_window_state.size.dpi = dpi.max(1);
+                window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                    ws.size.dpi = dpi.max(1);
+                });
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = app.native_window() {
@@ -637,8 +621,10 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             "[Android] InitWindow physical={}x{} density={} (azul dpi={}) logical={}x{}",
                             nw.width(), nw.height(), density, dpi, logical_w, logical_h,
                         );
-                        window.common.current_window_state.size.dimensions.width = logical_w;
-                        window.common.current_window_state.size.dimensions.height = logical_h;
+                        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.size.dimensions.width = logical_w;
+                            ws.size.dimensions.height = logical_h;
+                        });
                         window.native_window = Some(nw);
                         // On the launch InitWindow this preserves the queued
                         // `Initial`; on a re-attach (rotation recreates the
@@ -663,10 +649,10 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                     if let Some(nw) = window.native_window.as_ref() {
                         let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
                         let android_scale = (density as f32) / 160.0;
-                        window.common.current_window_state.size.dimensions.width =
-                            (nw.width() as f32) / android_scale;
-                        window.common.current_window_state.size.dimensions.height =
-                            (nw.height() as f32) / android_scale;
+                        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.size.dimensions.width = (nw.width() as f32) / android_scale;
+                            ws.size.dimensions.height = (nw.height() as f32) / android_scale;
+                        });
                     }
                 }
                 let reason = resize_reason(window);
@@ -682,19 +668,21 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // a11y bounds — on the stale factor.
                 let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
                 let dpi = (((density as f32) * 96.0 / 160.0).round() as u32).max(1);
-                if window.common.current_window_state.size.dpi != dpi {
+                if window.common.current_window_state().size.dpi != dpi {
                     // Contract shape (snapshot → mutate → pass) — the dpi
                     // diff is what dispatches WindowDpiChanged.
                     window.snapshot_window_state_baseline("android.main_event.config_changed");
                     let reason = resize_reason(window);
-                    window.common.current_window_state.size.dpi = dpi;
+                    window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                        ws.size.dpi = dpi;
+                    });
                     #[cfg(feature = "ndk")]
                     if let Some(nw) = window.native_window.as_ref() {
                         let android_scale = (density as f32) / 160.0;
-                        window.common.current_window_state.size.dimensions.width =
-                            (nw.width() as f32) / android_scale;
-                        window.common.current_window_state.size.dimensions.height =
-                            (nw.height() as f32) / android_scale;
+                        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.size.dimensions.width = (nw.width() as f32) / android_scale;
+                            ws.size.dimensions.height = (nw.height() as f32) / android_scale;
+                        });
                     }
                     window.common.request_regeneration(reason);
                     let _ = window.process_window_events(0);
@@ -876,7 +864,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         window.snapshot_window_state_baseline("android.drain_input.motion");
 
         {
-            let ms = &mut window.common.current_window_state.mouse_state;
+            let ms = window.common.mouse_state_mut();
             match update.action {
                 MotionAction::Down | MotionAction::PointerDown => {
                     ms.cursor_position = CursorPosition::InWindow(update.mouse_pos);
@@ -898,7 +886,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             // Refresh TouchState. Android delivers all currently-active
             // pointers on every MotionEvent, so the rebuild is
             // straightforward (no need for the per-ID merge iOS does).
-            let ts = &mut window.common.current_window_state.touch_state;
+            let ts = window.common.touch_state_mut();
             match update.action {
                 MotionAction::Up | MotionAction::Cancel => {
                     // Last finger lifted — clear.
@@ -949,7 +937,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     for (action, vkc) in key_updates {
         window.snapshot_window_state_baseline("android.drain_input.key");
         {
-            let ks = &mut window.common.current_window_state.keyboard_state;
+            let ks = window.common.keyboard_state_mut();
             match (action, vkc) {
                 (KeyAction::Down, Some(code)) => {
                     ks.current_virtual_keycode = Some(code).into();

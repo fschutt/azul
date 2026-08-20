@@ -756,6 +756,36 @@ pub struct InvokeSingleCallbackBorrows<'a> {
     pub renderer_resources: &'a mut RendererResources,
 }
 
+/// The `CommonWindowState` fields one layout pass needs, borrowed together.
+///
+/// Same trick as [`InvokeSingleCallbackBorrows`], and needed for the same
+/// reason one level down: `current_window_state` is private, so a call site
+/// cannot take a field-level borrow of it — [`CommonWindowState::current_window_state`]
+/// borrows the whole struct, which collides with the `&mut layout_window` /
+/// `&mut renderer_resources` the very same call needs. Handing all of them out
+/// of ONE `&mut self` keeps the borrows disjoint.
+///
+/// `layout_window` is an `Option` because X11 and Wayland create the window
+/// before the layout window exists.
+pub struct LayoutPassBorrows<'a> {
+    /// The layout window the pass drives
+    pub layout_window: Option<&'a mut LayoutWindow>,
+    /// The state the pass lays out against
+    pub current_window_state: &'a FullWindowState,
+    /// The event-diff baseline (callback passes report transitions from it)
+    pub previous_window_state: &'a Option<FullWindowState>,
+    /// The resource pool the pass fills
+    pub renderer_resources: &'a mut RendererResources,
+    /// OpenGL context pointer
+    pub gl_context_ptr: &'a OptionGlContextPtr,
+    /// Shared font cache
+    pub fc_cache: &'a Arc<FcFontCache>,
+    /// System style
+    pub system_style: &'a Arc<azul_css::system::SystemStyle>,
+    /// Shared application data
+    pub app_data: &'a Arc<RefCell<RefAny>>,
+}
+
 /// Common window state shared across all platform window implementations.
 ///
 /// Contains the 17 fields that are accessed via the 28 PlatformWindow getter/setter methods.
@@ -937,6 +967,26 @@ pub struct WindowCloseOutcome {
     /// The pass result, so a close callback that restyles (an "unsaved
     /// changes" prompt) still gets its relayout or repaint.
     pub result: ProcessEventResult,
+}
+
+/// The fields every backend's `sync_window_state()` diffs against
+/// `os_synced_state` — the ones a write has to make the App-vs-Os decision for.
+/// Used by [`CommonWindowState::update_unsynced_state`] to prove it did not
+/// touch any of them.
+fn os_synced_fields(
+    state: &FullWindowState,
+) -> (
+    azul_css::AzString,
+    azul_core::window::WindowSize,
+    azul_core::window::WindowPosition,
+    azul_core::window::WindowFlags,
+) {
+    (
+        state.title.clone(),
+        state.size,
+        state.position,
+        state.flags,
+    )
 }
 
 pub fn check_input_delta_consumed(
@@ -1853,8 +1903,24 @@ impl RegenerationState {
 pub struct CommonWindowState {
     /// LayoutWindow integration (for UI callbacks and display list)
     pub layout_window: Option<LayoutWindow>,
-    /// Current window state
-    pub current_window_state: FullWindowState,
+    /// The live window state. PRIVATE, and the reason is the pair of invariants
+    /// nothing else can enforce:
+    ///
+    ///   * every write has to decide whether `sync_window_state()` should push
+    ///     it at the window system, and
+    ///   * every write to a field `determine_all_events` diffs owes the
+    ///     snapshot → mutate → pass shape.
+    ///
+    /// While it was `pub`, 166 sites wrote it directly (or through the
+    /// `&mut FullWindowState` the `PlatformWindow` trait used to hand out)
+    /// against 25 that went through [`Self::update_window_state`], so both
+    /// invariants were advisory.
+    /// Read it with [`Self::current_window_state`]; write it with
+    /// [`Self::update_window_state`] (the fields the sync diffs — `title`,
+    /// `size`, `position`, `flags`), [`Self::update_unsynced_state`] (the ones
+    /// it never looks at), or the three input accessors
+    /// ([`Self::mouse_state_mut`] and friends).
+    current_window_state: FullWindowState,
     /// The EVENT-DIFF baseline: the state the last completed
     /// [`PlatformWindow::process_window_events`] pass consumed.
     ///
@@ -2157,6 +2223,77 @@ impl CommonWindowState {
 }
 
 impl CommonWindowState {
+    /// Seed a window's common state from the `FullWindowState` it is created
+    /// with. Everything a backend cannot know yet — the renderer, the hit
+    /// tester, the document/namespace ids — starts empty and is assigned
+    /// afterwards through the `pub` fields; `layout_window` and `regen` are the
+    /// two the backends always override.
+    ///
+    /// This exists because `current_window_state` is private, so the 22-field
+    /// struct literal each backend used to write is no longer expressible
+    /// outside this module. Both baselines start `None`: `previous` because no
+    /// pass has run, `os_synced` because nothing has been shown yet — which is
+    /// what makes the first `sync_window_state()` a no-op instead of a burst of
+    /// redundant geometry calls (see [`Self::mark_os_synced`]).
+    #[must_use]
+    pub fn new(
+        current_window_state: FullWindowState,
+        fc_cache: Arc<FcFontCache>,
+        system_style: Arc<azul_css::system::SystemStyle>,
+        app_data: Arc<RefCell<RefAny>>,
+        undo_manager: SharedUndoManager,
+    ) -> Self {
+        Self {
+            layout_window: None,
+            current_window_state,
+            previous_window_state: None,
+            os_synced_state: None,
+            renderer_resources: RendererResources::default(),
+            fc_cache,
+            gl_context_ptr: OptionGlContextPtr::None,
+            system_style,
+            app_data,
+            undo_manager,
+            scrollbar_drag_state: None,
+            hit_tester: None,
+            cpu_hit_tester: None,
+            last_hovered_node: None,
+            document_id: None,
+            id_namespace: None,
+            render_api: None,
+            renderer: None,
+            regen: RegenerationState::pending_initial(),
+            display_list_initialized: false,
+            display_list_dirty: false,
+            a11y_dirty: true,
+        }
+    }
+
+    /// Everything a layout pass needs from here, as disjoint borrows — see
+    /// [`LayoutPassBorrows`].
+    pub fn layout_borrows(&mut self) -> LayoutPassBorrows<'_> {
+        LayoutPassBorrows {
+            layout_window: self.layout_window.as_mut(),
+            current_window_state: &self.current_window_state,
+            previous_window_state: &self.previous_window_state,
+            renderer_resources: &mut self.renderer_resources,
+            gl_context_ptr: &self.gl_context_ptr,
+            fc_cache: &self.fc_cache,
+            system_style: &self.system_style,
+            app_data: &self.app_data,
+        }
+    }
+
+    /// Read the live window state.
+    ///
+    /// The field itself is private: every write goes through
+    /// [`Self::update_window_state`] (the fields `sync_window_state()` diffs)
+    /// or [`Self::update_unsynced_state`] (the fields it never looks at).
+    #[must_use]
+    pub fn current_window_state(&self) -> &FullWindowState {
+        &self.current_window_state
+    }
+
     /// Apply a window-state mutation, tagged with its [`WindowStateSource`].
     ///
     /// This is the single entry point for changing `current_window_state` in a
@@ -2193,6 +2330,62 @@ impl CommonWindowState {
                 apply(synced);
             }
         }
+    }
+
+    /// The live pointer state, for a handler translating a platform mouse
+    /// event into it.
+    ///
+    /// One of the three narrow doors that replace the old
+    /// `get_current_window_state_mut()`: a platform handler holds this across
+    /// its whole body (and often hands it to a shared `apply_*` helper), which
+    /// a closure cannot do while the handler still needs the window. Narrow
+    /// because it reaches ONLY an input sub-state — `sync_window_state()` never
+    /// diffs one, so no baseline decision is being skipped. The EVENT diff is a
+    /// different matter and still owed: see [`Self::update_unsynced_state`].
+    pub fn mouse_state_mut(&mut self) -> &mut azul_core::window::MouseState {
+        &mut self.current_window_state.mouse_state
+    }
+
+    /// The live keyboard state — see [`Self::mouse_state_mut`].
+    pub fn keyboard_state_mut(&mut self) -> &mut azul_core::window::KeyboardState {
+        &mut self.current_window_state.keyboard_state
+    }
+
+    /// The live touch state — see [`Self::mouse_state_mut`].
+    pub fn touch_state_mut(&mut self) -> &mut azul_core::window::TouchState {
+        &mut self.current_window_state.touch_state
+    }
+
+    /// Apply a change to the parts of the window state `sync_window_state()`
+    /// never diffs — `window_focused`, `theme`, `monitor_id`, `ime_position`,
+    /// `layout_callback`, `active_route`, and multi-field input updates.
+    ///
+    /// Deliberately NOT [`update_window_state`](Self::update_window_state) with
+    /// [`Os`](WindowStateSource::Os): that advances `os_synced_state` too, and
+    /// doing so here would claim these fields are part of the OS-sync contract
+    /// when nothing ever pushes them at the window system. There is no echo to
+    /// suppress, so there is no baseline to advance.
+    ///
+    /// What it does NOT excuse is the EVENT diff: these fields are exactly what
+    /// `determine_all_events` reads, so a caller still owes the
+    /// snapshot → mutate → pass shape (or a `discard_input_delta` if it
+    /// consumed the input itself). [`check_input_delta_consumed`] enforces that
+    /// separately.
+    ///
+    /// Writing an OS-synced field through here would silently skip the baseline
+    /// decision, so under the validation gate that is an assertion, not a
+    /// convention.
+    pub fn update_unsynced_state<R>(&mut self, apply: impl FnOnce(&mut FullWindowState) -> R) -> R {
+        let before = validation_enabled().then(|| os_synced_fields(&self.current_window_state));
+        let out = apply(&mut self.current_window_state);
+        if let Some(before) = before {
+            assert!(
+                before == os_synced_fields(&self.current_window_state),
+                "update_unsynced_state changed an OS-SYNCED field (title/size/position/flags); \
+                 it has to go through update_window_state so the baseline decision is made"
+            );
+        }
+        out
     }
 
     /// Snapshot the EVENT-DIFF baseline from a plain `CommonWindowState`.
@@ -2329,10 +2522,7 @@ macro_rules! impl_platform_window_getters {
             self.$field.layout_window.as_ref()
         }
         fn get_current_window_state(&self) -> &FullWindowState {
-            &self.$field.current_window_state
-        }
-        fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
-            &mut self.$field.current_window_state
+            self.$field.current_window_state()
         }
         fn get_previous_window_state(&self) -> &Option<FullWindowState> {
             &self.$field.previous_window_state
@@ -2463,11 +2653,15 @@ pub trait PlatformWindow {
 
     // Window State Access
 
-    /// Get the current window state
+    /// Get the current window state.
+    ///
+    /// There is deliberately no `_mut` counterpart: a `&mut FullWindowState`
+    /// handed to a backend is a door around both the OS-sync baseline and the
+    /// event-diff guard. Writes go through
+    /// [`CommonWindowState::update_window_state`] (fields `sync_window_state()`
+    /// diffs) or [`CommonWindowState::update_unsynced_state`] (fields it never
+    /// looks at), reached via [`Self::get_common_mut`].
     fn get_current_window_state(&self) -> &FullWindowState;
-
-    /// Get mutable access to the current window state
-    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState;
 
     /// Get the previous window state (if available)
     fn get_previous_window_state(&self) -> &Option<FullWindowState>;
@@ -2491,7 +2685,10 @@ pub trait PlatformWindow {
     /// DO with the verdict, not how to reach it.
     fn request_window_close(&mut self, site: &str) -> WindowCloseOutcome {
         self.snapshot_window_state_baseline(site);
-        self.get_current_window_state_mut().flags.close_requested = true;
+        self.get_common_mut()
+            .update_window_state(WindowStateSource::App, |ws| {
+                ws.flags.close_requested = true;
+            });
         let result = self.process_window_events(0);
         let confirmed = self.get_current_window_state().flags.close_requested;
         WindowCloseOutcome { confirmed, result }
@@ -3217,18 +3414,18 @@ pub trait PlatformWindow {
                 }
 
                 // Apply state changes
-                {
-                    let current = self.get_current_window_state_mut();
-                    current.title = state.title.clone();
-                    current.size = state.size;
-                    current.position = state.position;
-                    current.flags = state.flags;
-                    current.background_color = state.background_color;
-                    current.mouse_state = state.mouse_state;
-                    current.keyboard_state = state.keyboard_state.clone();
-                    current.touch_state = state.touch_state.clone();
-                    current.window_focused = state.window_focused;
-                }
+                self.get_common_mut()
+                    .update_window_state(WindowStateSource::App, |current| {
+                        current.title = state.title.clone();
+                        current.size = state.size;
+                        current.position = state.position;
+                        current.flags = state.flags;
+                        current.background_color = state.background_color;
+                        current.mouse_state = state.mouse_state;
+                        current.keyboard_state = state.keyboard_state.clone();
+                        current.touch_state = state.touch_state.clone();
+                        current.window_focused = state.window_focused;
+                    });
 
                 if state.flags.close_requested {
                     return ProcessEventResult::DoNothing;
@@ -3328,15 +3525,15 @@ pub trait PlatformWindow {
                     let old_state = self.get_current_window_state().clone();
                     self.set_previous_window_state(old_state);
 
-                    {
-                        let current = self.get_current_window_state_mut();
-                        current.mouse_state = queued_state.mouse_state;
-                        current.keyboard_state = queued_state.keyboard_state.clone();
-                        current.title = queued_state.title.clone();
-                        current.size = queued_state.size;
-                        current.position = queued_state.position;
-                        current.flags = queued_state.flags;
-                    }
+                    self.get_common_mut()
+                        .update_window_state(WindowStateSource::App, |current| {
+                            current.mouse_state = queued_state.mouse_state;
+                            current.keyboard_state = queued_state.keyboard_state.clone();
+                            current.title = queued_state.title.clone();
+                            current.size = queued_state.size;
+                            current.position = queued_state.position;
+                            current.flags = queued_state.flags;
+                        });
 
                     let mouse_pos = queued_state.mouse_state.cursor_position.get_position();
                     if let Some(pos) = mouse_pos {
@@ -3355,7 +3552,10 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::CloseWindow => {
-                self.get_current_window_state_mut().flags.close_requested = true;
+                self.get_common_mut()
+                    .update_window_state(WindowStateSource::App, |ws| {
+                        ws.flags.close_requested = true;
+                    });
                 ProcessEventResult::DoNothing
             }
 
@@ -3837,10 +4037,7 @@ pub trait PlatformWindow {
             CallbackChange::ScrollIntoView { node_id, options } => {
                 let now = azul_core::task::Instant::now();
                 if let Some(lw) = self.get_layout_window_mut() {
-                    azul_layout::managers::scroll_into_view::scroll_node_into_view(
-                        *node_id, &lw.layout_results, &mut lw.scroll_manager,
-                        *options, now,
-                    );
+                    lw.scroll_node_into_view(*node_id, *options, now);
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -4591,16 +4788,17 @@ pub trait PlatformWindow {
                 });
 
                 if let Some(new_cb) = found_cb {
-                    // Swap layout callback
-                    self.get_current_window_state_mut().layout_callback = new_cb;
-                    // Store the active route match (pattern + params)
-                    self.get_current_window_state_mut().active_route =
-                        azul_core::resources::OptionRouteMatch::Some(
+                    self.get_common_mut().update_unsynced_state(|ws| {
+                        // Swap layout callback
+                        ws.layout_callback = new_cb;
+                        // Store the active route match (pattern + params)
+                        ws.active_route = azul_core::resources::OptionRouteMatch::Some(
                             azul_core::resources::RouteMatch {
                                 pattern: pattern.clone(),
                                 params: params.clone(),
                             },
                         );
+                    });
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 } else {
                     log_warn!(
@@ -8081,12 +8279,9 @@ pub trait PlatformWindow {
         button: azul_core::events::MouseButton,
         site: &str,
     ) -> ProcessEventResult {
-        apply_pointer_button_state(
-            &mut self.get_current_window_state_mut().mouse_state,
-            position,
-            button,
-            true,
-        );
+        self.get_common_mut().update_unsynced_state(|ws| {
+            apply_pointer_button_state(&mut ws.mouse_state, position, button, true);
+        });
         let result = self.handle_scrollbar_click(hit_id, position);
         self.discard_input_delta(site);
         result
@@ -8109,12 +8304,9 @@ pub trait PlatformWindow {
             return None;
         }
         *self.get_scrollbar_drag_state_mut() = None;
-        apply_pointer_button_state(
-            &mut self.get_current_window_state_mut().mouse_state,
-            position,
-            button,
-            false,
-        );
+        self.get_common_mut().update_unsynced_state(|ws| {
+            apply_pointer_button_state(&mut ws.mouse_state, position, button, false);
+        });
         self.discard_input_delta(site);
         Some(ProcessEventResult::ShouldReRenderCurrentWindow)
     }
@@ -8810,7 +9002,11 @@ mod tests {
         let outcome = window.request_window_close("test.close.vetoed");
         assert!(outcome.confirmed);
 
-        window.get_current_window_state_mut().flags.close_requested = false;
+        window
+            .common
+            .update_window_state(WindowStateSource::App, |ws| {
+                ws.flags.close_requested = false;
+            });
         window.discard_input_delta("test.close.vetoed.cleanup");
         assert!(
             !window.get_current_window_state().flags.close_requested,
@@ -8843,8 +9039,10 @@ mod tests {
         let mut window = headless_stub();
         window.snapshot_window_state_baseline("test.seed");
         // A handler that mutates and returns without running a pass.
-        window.get_current_window_state_mut().mouse_state.cursor_position =
-            CursorPosition::InWindow(LogicalPosition::new(80.0, 90.0));
+        window.common.update_unsynced_state(|ws| {
+            ws.mouse_state.cursor_position =
+                CursorPosition::InWindow(LogicalPosition::new(80.0, 90.0));
+        });
         window.snapshot_window_state_baseline("test.next-handler");
     }
 
@@ -8856,8 +9054,10 @@ mod tests {
         require_validation_gate();
         let mut window = headless_stub();
         window.snapshot_window_state_baseline("test.seed");
-        window.get_current_window_state_mut().mouse_state.cursor_position =
-            CursorPosition::InWindow(LogicalPosition::new(80.0, 90.0));
+        window.common.update_unsynced_state(|ws| {
+            ws.mouse_state.cursor_position =
+                CursorPosition::InWindow(LogicalPosition::new(80.0, 90.0));
+        });
         window.discard_input_delta("test.scrollbar-drag");
         window.snapshot_window_state_baseline("test.next-handler");
     }
@@ -8877,7 +9077,7 @@ mod tests {
             ws.flags.frame = WindowFrame::Normal;
         });
         window.common.mark_os_synced();
-        let before = window.common.current_window_state.clone();
+        let before = window.common.current_window_state().clone();
         window.common.previous_window_state = Some(before.clone());
 
         window.common.update_window_state(WindowStateSource::Os, |ws| {
@@ -8896,7 +9096,7 @@ mod tests {
              zeroes the previous->current diff and the resize reaches no callback"
         );
         assert_ne!(
-            baseline.size.dimensions, window.common.current_window_state.size.dimensions,
+            baseline.size.dimensions, window.common.current_window_state().size.dimensions,
             "the resize delta must still be there for the pass to dispatch"
         );
 

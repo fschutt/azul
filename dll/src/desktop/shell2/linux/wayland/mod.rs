@@ -1057,7 +1057,7 @@ impl WaylandWindow {
         self.is_open
     }
     pub fn close_requested(&self) -> bool {
-        self.common.current_window_state.flags.close_requested
+        self.common.current_window_state().flags.close_requested
     }
     pub fn close(&mut self) {
         // WebRender's Renderer must be deinit()'d, not dropped — texture
@@ -1191,23 +1191,22 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows {
-        let layout_window = self.common
-            .layout_window
-            .as_mut()
-            .expect("Layout window must exist for callback invocation");
+        let borrows = self.common.layout_borrows();
 
         event::InvokeSingleCallbackBorrows {
-            layout_window,
+            layout_window: borrows
+                .layout_window
+                .expect("Layout window must exist for callback invocation"),
             window_handle: RawWindowHandle::Wayland(WaylandHandle {
                 surface: self.surface as *mut c_void,
                 display: self.display as *mut c_void,
             }),
-            gl_context_ptr: &self.common.gl_context_ptr,
-            fc_cache_clone: (*self.common.fc_cache).clone(),
-            system_style: self.common.system_style.clone(),
-            previous_window_state: &self.common.previous_window_state,
-            current_window_state: &self.common.current_window_state,
-            renderer_resources: &mut self.common.renderer_resources,
+            gl_context_ptr: borrows.gl_context_ptr,
+            fc_cache_clone: (**borrows.fc_cache).clone(),
+            system_style: borrows.system_style.clone(),
+            previous_window_state: borrows.previous_window_state,
+            current_window_state: borrows.current_window_state,
+            renderer_resources: borrows.renderer_resources,
         }
     }
 
@@ -1300,7 +1299,7 @@ impl PlatformWindow for WaylandWindow {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Check if native menus are enabled
-        if self.common.current_window_state.flags.use_native_context_menus {
+        if self.common.current_window_state().flags.use_native_context_menus {
             // TODO: Show native Wayland popup via xdg_popup protocol
             log_debug!(
                 LogCategory::Platform,
@@ -1534,6 +1533,38 @@ impl WaylandWindow {
         })?;
         layout_window.routes = resources.config.routes.clone();
 
+        let mut common = event::CommonWindowState::new(
+            FullWindowState {
+                title: options.window_state.title.clone(),
+                size: options.window_state.size,
+                position: options.window_state.position,
+                flags: options.window_state.flags,
+                theme: options.window_state.theme,
+                debug_state: options.window_state.debug_state,
+                keyboard_state: options.window_state.keyboard_state.clone(),
+                mouse_state: options.window_state.mouse_state.clone(),
+                touch_state: options.window_state.touch_state.clone(),
+                ime_position: options.window_state.ime_position,
+                platform_specific_options: options.window_state.platform_specific_options.clone(),
+                renderer_options: options.window_state.renderer_options,
+                background_color: options.window_state.background_color,
+                layout_callback: options.window_state.layout_callback.clone(),
+                close_callback: options.window_state.close_callback.clone(),
+                monitor_id: OptionU32::None,
+                window_id: options.window_state.window_id.clone(),
+                window_focused: false,
+                active_route: azul_core::resources::OptionRouteMatch::None,
+            },
+            resources.fc_cache.clone(),
+            resources.system_style.clone(),
+            resources.app_data.clone(),
+            resources.undo_manager.clone(),
+        );
+        common.layout_window = Some(layout_window);
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+        common.gl_context_ptr = None.into();
+        common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();
+
         let mut window = Self {
             wayland: wayland.clone(),
             xkb,
@@ -1570,50 +1601,7 @@ impl WaylandWindow {
             tooltip: None,
             screensaver_inhibit_cookie: None,
             dbus_connection: None,
-            common: event::CommonWindowState {
-                current_window_state: FullWindowState {
-                    title: options.window_state.title.clone(),
-                    size: options.window_state.size,
-                    position: options.window_state.position,
-                    flags: options.window_state.flags,
-                    theme: options.window_state.theme,
-                    debug_state: options.window_state.debug_state,
-                    keyboard_state: options.window_state.keyboard_state.clone(),
-                    mouse_state: options.window_state.mouse_state.clone(),
-                    touch_state: options.window_state.touch_state.clone(),
-                    ime_position: options.window_state.ime_position,
-                    platform_specific_options: options.window_state.platform_specific_options.clone(),
-                    renderer_options: options.window_state.renderer_options,
-                    background_color: options.window_state.background_color,
-                    layout_callback: options.window_state.layout_callback.clone(),
-                    close_callback: options.window_state.close_callback.clone(),
-                    monitor_id: OptionU32::None,
-                    window_id: options.window_state.window_id.clone(),
-                    window_focused: false,
-                    active_route: azul_core::resources::OptionRouteMatch::None,
-                },
-                previous_window_state: None,
-                os_synced_state: None,
-                layout_window: Some(layout_window),
-                render_api: None,
-                renderer: None,
-                hit_tester: None,
-                cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
-                document_id: None,
-                renderer_resources: RendererResources::default(),
-                gl_context_ptr: None.into(),
-                id_namespace: None,
-                fc_cache: resources.fc_cache.clone(),
-                system_style: resources.system_style.clone(),
-                app_data: resources.app_data.clone(),
-                undo_manager: resources.undo_manager.clone(),
-                scrollbar_drag_state: None,
-                last_hovered_node: None,
-                regen: crate::desktop::shell2::common::event::RegenerationState::idle_initial(),
-                display_list_initialized: false,
-                display_list_dirty: false,
-                a11y_dirty: true,
-            },
+            common,
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             keyboard_state: events::WaylandKeyboardState::new(),
             pointer_state: events::PointerState::new(),
@@ -1889,7 +1877,7 @@ impl WaylandWindow {
                     // server-side. CSD-wanting and frameless windows request
                     // client_side (compositor draws nothing); everything
                     // else requests server_side. client_side=1, server_side=2.
-                    let flags = &window.common.current_window_state.flags;
+                    let flags = &window.common.current_window_state().flags;
                     let wants_csd = crate::desktop::csd::should_inject_csd(
                         flags.has_decorations,
                         flags.decorations,
@@ -1916,10 +1904,13 @@ impl WaylandWindow {
             // compositor will NEVER draw a frame. If the user asked for
             // normal decorations, flip this window to CSD so it isn't a
             // bare, immovable, uncloseable rectangle.
-            let flags = &mut window.common.current_window_state.flags;
-            if flags.decorations != azul_core::window::WindowDecorations::None {
-                flags.decorations = azul_core::window::WindowDecorations::None;
-                flags.has_decorations = true;
+            if window.common.current_window_state().flags.decorations
+                != azul_core::window::WindowDecorations::None
+            {
+                window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                    ws.flags.decorations = azul_core::window::WindowDecorations::None;
+                    ws.flags.has_decorations = true;
+                });
                 log_info!(
                     LogCategory::Platform,
                     "[Wayland] No xdg-decoration protocol — falling back to CSD titlebar"
@@ -2143,7 +2134,7 @@ impl WaylandWindow {
                 if let Some(ns_id) = window.common.id_namespace {
                     layout_window.id_namespace = ns_id;
                 }
-                layout_window.current_window_state = window.common.current_window_state.clone();
+                layout_window.current_window_state = window.common.current_window_state().clone();
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                 layout_window.routes = window.resources.config.routes.clone();
                 // Initialize monitor cache once at window creation
@@ -2154,9 +2145,9 @@ impl WaylandWindow {
             }
 
             // Get mutable references needed for invoke_single_callback
-            let layout_window = window
-                .common.layout_window
-                .as_mut()
+            let borrows = window.common.layout_borrows();
+            let layout_window = borrows
+                .layout_window
                 .expect("LayoutWindow should exist at this point");
             // Get app_data for callback
             let mut app_data_ref = window.resources.app_data.borrow_mut();
@@ -2165,12 +2156,12 @@ impl WaylandWindow {
                 &mut callback,
                 &mut *app_data_ref,
                 &raw_handle,
-                &window.common.gl_context_ptr,
+                borrows.gl_context_ptr,
                 window.resources.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &window.common.previous_window_state,
-                &window.common.current_window_state,
-                &window.common.renderer_resources,
+                borrows.previous_window_state,
+                borrows.current_window_state,
+                borrows.renderer_resources,
             );
 
             drop(app_data_ref);
@@ -2197,7 +2188,7 @@ impl WaylandWindow {
                     if let Some(ns_id) = window.common.id_namespace {
                         layout_window.id_namespace = ns_id;
                     }
-                    layout_window.current_window_state = window.common.current_window_state.clone();
+                    layout_window.current_window_state = window.common.current_window_state().clone();
                     layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                     layout_window.routes = window.resources.config.routes.clone();
                     // Initialize monitor cache once at window creation
@@ -2214,7 +2205,7 @@ impl WaylandWindow {
         // Apply initial background material if not Opaque
         {
             use azul_core::window::WindowBackgroundMaterial;
-            let initial_material = window.common.current_window_state.flags.background_material;
+            let initial_material = window.common.current_window_state().flags.background_material;
             if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
                 log_trace!(
                     LogCategory::Window,
@@ -2288,12 +2279,12 @@ impl WaylandWindow {
 
         self.common.renderer = Some(renderer);
         self.common.render_api = Some(sender.create_api());
-        let render_api = self.common.render_api.as_mut().unwrap();
 
         let framebuffer_size = webrender::api::units::DeviceIntSize::new(
-            self.common.current_window_state.size.dimensions.width as i32,
-            self.common.current_window_state.size.dimensions.height as i32,
+            self.common.current_window_state().size.dimensions.width as i32,
+            self.common.current_window_state().size.dimensions.height as i32,
         );
+        let render_api = self.common.render_api.as_mut().unwrap();
         let wr_doc_id = render_api.add_document(framebuffer_size);
         self.common.document_id = Some(wr_translate2::translate_document_id_wr(wr_doc_id));
         self.common.id_namespace = Some(wr_translate2::translate_id_namespace_wr(
@@ -2385,7 +2376,7 @@ impl WaylandWindow {
         // this cannot over-render: with a fresh `done` outstanding it returns
         // immediately and the retry rides on frame_done_callback instead.
         let closing_now = !self.is_open
-            || self.common.current_window_state.flags.close_requested;
+            || self.common.current_window_state().flags.close_requested;
         if self.configured && !closing_now {
             let vview_pending = self
                 .common
@@ -2468,7 +2459,7 @@ impl WaylandWindow {
             // While closing, poll with 0 so the iteration completes and the run
             // loop reaches its `get_all_window_ids()` check and unregisters.
             let closing = !self.is_open
-                || self.common.current_window_state.flags.close_requested;
+                || self.common.current_window_state().flags.close_requested;
             let timeout_ms: i32 = if closing {
                 0
             } else if has_threads {
@@ -2549,9 +2540,15 @@ impl WaylandWindow {
                     // is gone, so the flag goes back up whatever the callback
                     // did with it. The pass is also what consumes the delta.
                     self.snapshot_window_state_baseline("wayland.display_connection_lost");
-                    self.common.current_window_state.flags.close_requested = true;
+                    self.common
+                        .update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.flags.close_requested = true;
+                        });
                     let _ = self.process_window_events(0);
-                    self.common.current_window_state.flags.close_requested = true;
+                    self.common
+                        .update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.flags.close_requested = true;
+                        });
                     return Ok(());
                 }
 
@@ -2670,7 +2667,8 @@ impl WaylandWindow {
             };
 
             // Get layout window
-            let layout_window = match self.common.layout_window.as_mut() {
+            let borrows = self.common.layout_borrows();
+            let layout_window = match borrows.layout_window {
                 Some(lw) => lw,
                 None => {
                     log_warn!(
@@ -2693,12 +2691,12 @@ impl WaylandWindow {
                 &mut menu_callback.callback,
                 &mut menu_callback.refany,
                 &raw_handle,
-                &self.common.gl_context_ptr,
-                self.common.system_style.clone(),
+                borrows.gl_context_ptr,
+                borrows.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.common.previous_window_state,
-                &self.common.current_window_state,
-                &self.common.renderer_resources,
+                borrows.previous_window_state,
+                borrows.current_window_state,
+                borrows.renderer_resources,
             );
 
             use crate::desktop::shell2::common::event::PlatformWindow;
@@ -2723,12 +2721,13 @@ impl WaylandWindow {
                     // of a full regenerate_layout(). Mirrors the macOS arm.
                     // The relayout-only request then makes generate_frame_if_needed() skip
                     // regenerate_layout() and only rebuild + send the transaction.
-                    if let Some(layout_window) = self.common.layout_window.as_mut() {
+                    let borrows = self.common.layout_borrows();
+                    if let Some(layout_window) = borrows.layout_window {
                         let mut debug_messages = None;
                         if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
                             layout_window,
-                            &self.common.current_window_state,
-                            &mut self.common.renderer_resources,
+                            borrows.current_window_state,
+                            borrows.renderer_resources,
                             &mut debug_messages,
                         ) {
                             log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
@@ -2767,12 +2766,12 @@ impl WaylandWindow {
         // Save previous state BEFORE making changes.
         // Detect key repeat: if the key is already in pressed_virtual_keycodes,
         // clear current_virtual_keycode in the snapshot for state-diff detection.
-        let mut prev_snapshot = self.common.current_window_state.clone();
+        let mut prev_snapshot = self.common.current_window_state().clone();
         if is_pressed {
             // We can't resolve the VK here yet (need XKB), but we can check
             // pressed_scancodes. The evdev keycode maps 1:1 with scan codes.
             let scan = key;
-            let already_pressed = self.common.current_window_state.keyboard_state
+            let already_pressed = self.common.current_window_state().keyboard_state
                 .pressed_scancodes.as_ref().iter().any(|s| *s == scan);
             if already_pressed {
                 prev_snapshot.keyboard_state.current_virtual_keycode =
@@ -2784,8 +2783,8 @@ impl WaylandWindow {
         // Phase 2: OnFocus callback (delayed) - if we receive keyboard events, we must have focus
         // Wayland doesn't have explicit focus events like X11, so we detect focus from keyboard
         // activity
-        if is_pressed && !self.common.current_window_state.window_focused {
-            self.common.current_window_state.window_focused = true;
+        if is_pressed && !self.common.current_window_state().window_focused {
+            self.common.update_unsynced_state(|ws| ws.window_focused = true);
             self.dynamic_selector_context.window_focused = true;
             self.sync_ime_position_to_os();
         }
@@ -2797,9 +2796,7 @@ impl WaylandWindow {
         let xkb_state = self.keyboard_state.state;
         if xkb_state.is_null() {
             // XKB not initialized yet - V2 input system will handle text input
-            self.common.current_window_state
-                .keyboard_state
-                .current_virtual_keycode = OptionVirtualKeyCode::None;
+            self.common.keyboard_state_mut().current_virtual_keycode = OptionVirtualKeyCode::None;
             // SANCTIONED SWALLOW: no translation possible, no event owed.
             {
                 use crate::desktop::shell2::common::event::PlatformWindow as _;
@@ -2939,7 +2936,7 @@ impl WaylandWindow {
         // Shift+digit and the keypad, but it cannot cover the level-3 layouts —
         // remembering the press is what makes press/release symmetric for every key.
         apply_key_state_change(
-            &mut self.common.current_window_state.keyboard_state,
+            self.common.keyboard_state_mut(),
             &mut self.pressed_key_vks,
             key,
             virtual_keycode,
@@ -3033,12 +3030,13 @@ impl WaylandWindow {
                 // (relayout-only): skip regenerate_layout, but still rebuild the
                 // CPU hit-tester + build & send the full WebRender transaction + present
                 // (an incremental relayout does NOT send the transaction itself).
-                if let Some(layout_window) = self.common.layout_window.as_mut() {
+                let borrows = self.common.layout_borrows();
+                if let Some(layout_window) = borrows.layout_window {
                     let mut debug_messages = None;
                     if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
                         layout_window,
-                        &self.common.current_window_state,
-                        &mut self.common.renderer_resources,
+                        borrows.current_window_state,
+                        borrows.renderer_resources,
                         &mut debug_messages,
                     ) {
                         log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
@@ -3116,13 +3114,13 @@ impl WaylandWindow {
         }
 
         let was_enabled = self.text_input_enabled;
-        let old_position = self.common.current_window_state.ime_position;
+        let old_position = self.common.current_window_state().ime_position;
 
         self.update_ime_position_from_cursor();
         self.sync_text_input_v3_focus_state();
 
         if self.text_input_enabled
-            && (!was_enabled || self.common.current_window_state.ime_position != old_position)
+            && (!was_enabled || self.common.current_window_state().ime_position != old_position)
         {
             self.sync_ime_position_to_os();
         }
@@ -3135,7 +3133,7 @@ impl WaylandWindow {
         use azul_core::window::{TouchPoint, TouchPointVec};
         let pos = LogicalPosition::new(x as f32, y as f32);
         self.snapshot_window_state_baseline("wayland.handle_touch_point");
-        let ts = &mut self.common.current_window_state.touch_state;
+        let ts = self.common.touch_state_mut();
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
         let is_new = !pts.iter().any(|p| p.id == id as u64);
         if let Some(p) = pts.iter_mut().find(|p| p.id == id as u64) {
@@ -3155,7 +3153,7 @@ impl WaylandWindow {
         // compositor exposes no global coordinates on Wayland).
         {
             let now = azul_core::task::Instant::from(std::time::Instant::now());
-            let window_position = self.common.current_window_state.position;
+            let window_position = self.common.current_window_state().position;
             if let Some(lw) = self.common.layout_window.as_mut() {
                 if is_new {
                     lw.gesture_drag_manager
@@ -3173,7 +3171,7 @@ impl WaylandWindow {
     pub fn handle_touch_up(&mut self, id: i32) {
         use azul_core::window::{TouchPoint, TouchPointVec};
         self.snapshot_window_state_baseline("wayland.handle_touch_up");
-        let ts = &mut self.common.current_window_state.touch_state;
+        let ts = self.common.touch_state_mut();
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
         let last_pos = pts
             .iter()
@@ -3197,7 +3195,7 @@ impl WaylandWindow {
     pub fn handle_touch_cancel(&mut self) {
         use azul_core::window::TouchPointVec;
         self.snapshot_window_state_baseline("wayland.handle_touch_cancel");
-        let ts = &mut self.common.current_window_state.touch_state;
+        let ts = self.common.touch_state_mut();
         ts.touch_points = TouchPointVec::from_vec(Vec::new());
         ts.num_touches = 0;
         // MWA-B4: end every gesture session for the cancelled sequence.
@@ -3256,7 +3254,7 @@ impl WaylandWindow {
         // Save previous state BEFORE making changes
         self.snapshot_window_state_baseline("wayland.handle_pointer_motion");
 
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::InWindow(logical_pos);
 
         // Handle scrollbar dragging if active
@@ -3277,15 +3275,15 @@ impl WaylandWindow {
         }
 
         // Record input sample for gesture detection (movement during button press)
-        let button_state = if self.common.current_window_state.mouse_state.left_down {
+        let button_state = if self.common.current_window_state().mouse_state.left_down {
             BUTTON_STATE_LEFT
         } else {
             BUTTON_STATE_NONE
-        } | if self.common.current_window_state.mouse_state.right_down {
+        } | if self.common.current_window_state().mouse_state.right_down {
             BUTTON_STATE_RIGHT
         } else {
             BUTTON_STATE_NONE
-        } | if self.common.current_window_state.mouse_state.middle_down {
+        } | if self.common.current_window_state().mouse_state.middle_down {
             BUTTON_STATE_MIDDLE
         } else {
             BUTTON_STATE_NONE
@@ -3304,7 +3302,7 @@ impl WaylandWindow {
             {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 // Update the window state cursor type
-                self.common.current_window_state.mouse_state.mouse_cursor_type =
+                self.common.mouse_state_mut().mouse_cursor_type =
                     Some(cursor_test.cursor_icon).into();
                 // Set the actual OS cursor
                 self.set_cursor(cursor_test.cursor_icon);
@@ -3352,7 +3350,7 @@ impl WaylandWindow {
         };
 
         let is_down = state == 1;
-        let position = match self.common.current_window_state.mouse_state.cursor_position {
+        let position = match self.common.current_window_state().mouse_state.cursor_position {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
@@ -3365,13 +3363,13 @@ impl WaylandWindow {
         // compositor (xdg_toplevel.resize); edge codes per xdg-shell.
         if is_down
             && button == 0x110 // BTN_LEFT
-            && self.common.current_window_state.flags.decorations
+            && self.common.current_window_state().flags.decorations
                 == azul_core::window::WindowDecorations::None
         {
             use crate::desktop::shell2::common::event::{
                 csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
             };
-            let size = self.common.current_window_state.size.dimensions;
+            let size = self.common.current_window_state().size.dimensions;
             if let Some(edge) = csd_resize_edge_at(position, size, CSD_RESIZE_BAND_PX) {
                 let edges: u32 = match edge {
                     CsdResizeEdge::Top => 1,
@@ -3439,7 +3437,7 @@ impl WaylandWindow {
         // Right while Left was held made the state diff synthesize a phantom
         // LeftMouseUp — drags and text selections died mid-gesture.
         set_mouse_button_down(
-            &mut self.common.current_window_state.mouse_state,
+            self.common.mouse_state_mut(),
             mouse_button,
             is_down,
         );
@@ -3590,7 +3588,7 @@ impl WaylandWindow {
         // hover manager's last hit test meant a stationary cursor over content
         // that had scrolled/relaid-out beneath it kept scrolling the node that
         // used to be there (X11 re-runs the hit test for exactly this reason).
-        let hover_pos = match self.common.current_window_state.mouse_state.cursor_position {
+        let hover_pos = match self.common.current_window_state().mouse_state.cursor_position {
             CursorPosition::InWindow(pos) => Some(pos),
             _ => None,
         };
@@ -3750,7 +3748,7 @@ impl WaylandWindow {
         // MouseEnter callbacks and :hover styling fire on the entry itself
         // instead of on the first subsequent motion event.
         self.snapshot_window_state_baseline("wayland.handle_pointer_enter");
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::InWindow(logical_pos);
         self.update_hit_test(logical_pos);
         let result = self.process_window_events(0);
@@ -3763,18 +3761,18 @@ impl WaylandWindow {
         // Focus is gone — the compositor will not send the key release.
         self.disarm_key_repeat();
         self.snapshot_window_state_baseline("wayland.handle_keyboard_leave");
-        self.common.current_window_state.window_focused = false;
+        self.common.update_unsynced_state(|ws| ws.window_focused = false);
         self.dynamic_selector_context.window_focused = false;
         // Every held key is released somewhere we will never hear about, so drop
         // them all now. Engine modifiers are DERIVED from pressed_virtual_keycodes
         // (core/src/window.rs, KeyboardState::*_down) — leaving Ctrl in the list
         // made the whole app behave as if Ctrl were held forever after an
         // Alt-Tab away with a modifier down.
-        self.common.current_window_state.keyboard_state.pressed_virtual_keycodes =
+        self.common.keyboard_state_mut().pressed_virtual_keycodes =
             azul_core::window::VirtualKeyCodeVec::new();
-        self.common.current_window_state.keyboard_state.pressed_scancodes =
+        self.common.keyboard_state_mut().pressed_scancodes =
             azul_core::window::ScanCodeVec::new();
-        self.common.current_window_state.keyboard_state.current_virtual_keycode =
+        self.common.keyboard_state_mut().current_virtual_keycode =
             azul_core::window::OptionVirtualKeyCode::None;
         // The press→code record must die with the list it mirrors, or a key held
         // across the focus change keeps an entry that a much later release of the
@@ -3807,7 +3805,7 @@ impl WaylandWindow {
     /// Integer buffer scale for this window (dpi is maintained by the
     /// wl_output enter/leave handlers; 96 → 1, 192 → 2, …).
     fn buffer_scale(&self) -> i32 {
-        (self.common.current_window_state.size.dpi as f32 / 96.0)
+        (self.common.current_window_state().size.dpi as f32 / 96.0)
             .round()
             .max(1.0) as i32
     }
@@ -3831,7 +3829,7 @@ impl WaylandWindow {
     ///   round(dpi/96) (announced via set_buffer_scale at attach).
     fn cpu_buffer_spec(&self, logical_w: i32, logical_h: i32) -> (i32, i32, i32) {
         if self.fractional_scale_active() {
-            let d = (self.common.current_window_state.size.dpi as f32 / 96.0).max(0.01);
+            let d = (self.common.current_window_state().size.dpi as f32 / 96.0).max(0.01);
             (
                 ((logical_w.max(1) as f32) * d).ceil() as i32,
                 ((logical_h.max(1) as f32) * d).ceil() as i32,
@@ -4113,13 +4111,13 @@ impl WaylandWindow {
     /// stays wrong until each of them is released.
     pub fn handle_keyboard_enter(&mut self, held_scancodes: &[u32]) {
         self.snapshot_window_state_baseline("wayland.handle_keyboard_enter");
-        self.common.current_window_state.window_focused = true;
+        self.common.update_unsynced_state(|ws| ws.window_focused = true);
         self.dynamic_selector_context.window_focused = true;
 
         let xkb_state = self.keyboard_state.state;
         for &scancode in held_scancodes {
-            self.common.current_window_state
-                .keyboard_state
+            self.common
+                .keyboard_state_mut()
                 .pressed_scancodes
                 .insert_hm_item(scancode);
             if xkb_state.is_null() {
@@ -4132,8 +4130,8 @@ impl WaylandWindow {
             // nothing. Record what we DID seed so the eventual release removes
             // exactly that code (see the bookkeeping in `handle_key`).
             if let Some(vk) = events::keysym_to_virtual_keycode(keysym) {
-                self.common.current_window_state
-                    .keyboard_state
+                self.common
+                    .keyboard_state_mut()
                     .pressed_virtual_keycodes
                     .insert_hm_item(vk);
                 self.pressed_key_vks.insert(scancode, vk);
@@ -4157,7 +4155,7 @@ impl WaylandWindow {
         }
 
         // Get last known position before leaving
-        let last_pos = match self.common.current_window_state.mouse_state.cursor_position {
+        let last_pos = match self.common.current_window_state().mouse_state.cursor_position {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
@@ -4167,7 +4165,7 @@ impl WaylandWindow {
         // stop and the :hover restyle were all deferred to whatever event
         // happened to arrive next (macOS/X11/Windows all diff immediately).
         self.snapshot_window_state_baseline("wayland.handle_pointer_leave");
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::OutOfWindow(last_pos);
         if let Some(ref mut layout_window) = self.common.layout_window {
             layout_window
@@ -4204,7 +4202,7 @@ impl WaylandWindow {
         paths: Vec<String>,
     ) -> ProcessEventResult {
         self.snapshot_window_state_baseline("wayland.handle_file_drag_entered");
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::InWindow(position);
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -4242,7 +4240,7 @@ impl WaylandWindow {
         paths: Vec<String>,
     ) -> ProcessEventResult {
         self.snapshot_window_state_baseline("wayland.handle_file_drop");
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::InWindow(position);
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -4386,7 +4384,8 @@ impl WaylandWindow {
         // the request (see CommonWindowState::request_regeneration).
         let relayout_reason = self.common.take_relayout_reason();
 
-        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
+        let borrows = self.common.layout_borrows();
+        let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
@@ -4400,12 +4399,12 @@ impl WaylandWindow {
         let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
             &self.resources.app_data,
-            &self.common.current_window_state,
-            &mut self.common.renderer_resources,
-            &self.common.gl_context_ptr,
-            &self.common.fc_cache,
+            borrows.current_window_state,
+            borrows.renderer_resources,
+            borrows.gl_context_ptr,
+            borrows.fc_cache,
             &self.resources.font_registry,
-            &self.common.system_style,
+            borrows.system_style,
             &self.resources.icon_provider,
             &mut debug_messages,
         
@@ -4471,7 +4470,10 @@ impl WaylandWindow {
         if let Some(layout_window) = &self.common.layout_window {
             if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
                 // Successfully calculated cursor position from text layout
-                self.common.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+                self.common
+                    .update_unsynced_state(|ws| {
+                        ws.ime_position = ImePosition::Initialized(cursor_rect);
+                    });
             }
         }
     }
@@ -4493,7 +4495,7 @@ impl WaylandWindow {
         let mut needs_commit = false;
 
         // Window frame (Maximized, Minimized, Fullscreen)
-        match self.common.current_window_state.flags.frame {
+        match self.common.current_window_state().flags.frame {
             WindowFrame::Maximized => {
                 unsafe {
                     (self.wayland.xdg_toplevel_set_maximized)(self.xdg_toplevel);
@@ -4519,7 +4521,7 @@ impl WaylandWindow {
         }
 
         // Min dimensions
-        if let OptionLogicalSize::Some(dims) = self.common.current_window_state.size.min_dimensions {
+        if let OptionLogicalSize::Some(dims) = self.common.current_window_state().size.min_dimensions {
             unsafe {
                 (self.wayland.xdg_toplevel_set_min_size)(
                     self.xdg_toplevel,
@@ -4531,7 +4533,7 @@ impl WaylandWindow {
         }
 
         // Max dimensions
-        if let OptionLogicalSize::Some(dims) = self.common.current_window_state.size.max_dimensions {
+        if let OptionLogicalSize::Some(dims) = self.common.current_window_state().size.max_dimensions {
             unsafe {
                 (self.wayland.xdg_toplevel_set_max_size)(
                     self.xdg_toplevel,
@@ -4543,12 +4545,12 @@ impl WaylandWindow {
         }
 
         // is_top_level
-        if self.common.current_window_state.flags.is_top_level {
+        if self.common.current_window_state().flags.is_top_level {
             self.set_is_top_level(true);
         }
 
         // prevent_system_sleep
-        if self.common.current_window_state.flags.prevent_system_sleep {
+        if self.common.current_window_state().flags.prevent_system_sleep {
             self.set_prevent_system_sleep(true);
         }
 
@@ -4744,8 +4746,8 @@ impl WaylandWindow {
             // For opaque windows, set opaque region covering the entire surface
             // This optimizes compositing by telling the compositor it can skip blending
             let (width, height) = (
-                self.common.current_window_state.size.dimensions.width as i32,
-                self.common.current_window_state.size.dimensions.height as i32,
+                self.common.current_window_state().size.dimensions.width as i32,
+                self.common.current_window_state().size.dimensions.height as i32,
             );
 
             if width > 0 && height > 0 {
@@ -4994,13 +4996,14 @@ impl WaylandWindow {
         // dropped rather than left to fire a redundant relayout afterwards.
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
-            if let Some(layout_window) = self.common.layout_window.as_mut() {
+            let borrows = self.common.layout_borrows();
+            if let Some(layout_window) = borrows.layout_window {
                 let mut debug_messages = None;
                 let _span = crate::log_span!(LogCategory::Window, "resize_incremental_relayout");
                 if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
                     layout_window,
-                    &self.common.current_window_state,
-                    &mut self.common.renderer_resources,
+                    borrows.current_window_state,
+                    borrows.renderer_resources,
                     &mut debug_messages,
                 ) {
                     log_warn!(
@@ -5169,9 +5172,11 @@ impl WaylandWindow {
         // LOGICAL surface size.
         let fractional = self.fractional_scale_active();
         let (logical_w, logical_h) = {
-            let d = &self.common.current_window_state.size.dimensions;
+            let d = &self.common.current_window_state().size.dimensions;
             (d.width as i32, d.height as i32)
         };
+        // Read before `self.common.renderer` is borrowed mutably below.
+        let physical_size = self.common.current_window_state().size.get_physical_size();
 
         match &mut self.render_mode {
             RenderMode::Gpu(gl_context, gl_functions) => {
@@ -5194,7 +5199,6 @@ impl WaylandWindow {
                     // of the on-screen FBO showed stray pixels ("garbage dots"). Bind
                     // FBO 0, set the full viewport, and clear to the window background.
                     // (GenericGlContext is the same fn table used on macOS/X11.)
-                    let physical_size = self.common.current_window_state.size.get_physical_size();
                     use azul_core::gl as gl_types;
                     gl_context.make_current();
 
@@ -5251,7 +5255,7 @@ impl WaylandWindow {
                                 should_present = true;
                             }
                             // Store dirty rects for wl_surface_damage per-rect hints.
-                            let dpi_scale = self.common.current_window_state.size.dpi as f32 / 96.0;
+                            let dpi_scale = self.common.current_window_state().size.dpi as f32 / 96.0;
                             self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
                                 azul_core::geom::LogicalRect {
                                     origin: azul_core::geom::LogicalPosition {
@@ -5341,7 +5345,7 @@ impl WaylandWindow {
                             self.gpu_damage_rects.clear();
                         } else if self.common.display_list_initialized {
                             // No damage rects computed — full surface damage as fallback
-                            let physical_size = self.common.current_window_state.size.get_physical_size();
+                            let physical_size = self.common.current_window_state().size.get_physical_size();
                             unsafe {
                                 (self.wayland.wl_surface_damage)(
                                     self.surface,
@@ -5881,8 +5885,8 @@ impl WaylandWindow {
             RenderMode::Cpu(None) => {
                 // CPU fallback not yet initialized - initialize it now if we have shm
                 if !self.shm.is_null() {
-                    let width = self.common.current_window_state.size.dimensions.width as i32;
-                    let height = self.common.current_window_state.size.dimensions.height as i32;
+                    let width = self.common.current_window_state().size.dimensions.width as i32;
+                    let height = self.common.current_window_state().size.dimensions.height as i32;
                     let (buf_w, buf_h, scale) = self.cpu_buffer_spec(width, height);
                     match CpuFallbackState::new(&self.wayland, self.shm, buf_w, buf_h, scale) {
                         Ok(cpu_state) => {
@@ -5973,10 +5977,16 @@ impl WaylandWindow {
             // The run loop already honours this flag at run.rs:1388 and closes at
             // a point where teardown is safe.
             self.snapshot_window_state_baseline("wayland.exit_after_frame_render");
-            self.common.current_window_state.flags.close_requested = true;
+            self.common
+                .update_window_state(event::WindowStateSource::App, |ws| {
+                    ws.flags.close_requested = true;
+                });
             let _ = self.process_window_events(0);
             // A synthetic shutdown, so it is announced but not refusable.
-            self.common.current_window_state.flags.close_requested = true;
+            self.common
+                .update_window_state(event::WindowStateSource::App, |ws| {
+                    ws.flags.close_requested = true;
+                });
             return;
         }
         // KNOWN-SUBOPTIMAL, deliberately left visible here rather than only in a
@@ -6875,19 +6885,19 @@ impl WaylandWindow {
 
     /// Returns the logical size of the window's surface.
     pub fn get_window_size_logical(&self) -> (i32, i32) {
-        let size = self.common.current_window_state.size.get_logical_size();
+        let size = self.common.current_window_state().size.get_logical_size();
         (size.width as i32, size.height as i32)
     }
 
     /// Returns the physical size of the window by applying the scale factor.
     pub fn get_window_size_physical(&self) -> (i32, i32) {
-        let size = self.common.current_window_state.size.get_physical_size();
+        let size = self.common.current_window_state().size.get_physical_size();
         (size.width as i32, size.height as i32)
     }
 
     /// Returns the DPI scale factor for the window.
     pub fn get_scale_factor(&self) -> f32 {
-        self.common.current_window_state
+        self.common.current_window_state()
             .size
             .get_hidpi_factor()
             .inner
@@ -7137,23 +7147,23 @@ impl WaylandPopup {
         let current_window_state = FullWindowState {
             title: "Popup".to_string().into(),
             size: options.window_state.size,
-            position: parent.common.current_window_state.position,
-            flags: parent.common.current_window_state.flags,
-            theme: parent.common.current_window_state.theme,
-            debug_state: parent.common.current_window_state.debug_state,
-            keyboard_state: parent.common.current_window_state.keyboard_state.clone(),
-            mouse_state: parent.common.current_window_state.mouse_state.clone(),
-            touch_state: parent.common.current_window_state.touch_state.clone(),
-            ime_position: parent.common.current_window_state.ime_position,
+            position: parent.common.current_window_state().position,
+            flags: parent.common.current_window_state().flags,
+            theme: parent.common.current_window_state().theme,
+            debug_state: parent.common.current_window_state().debug_state,
+            keyboard_state: parent.common.current_window_state().keyboard_state.clone(),
+            mouse_state: parent.common.current_window_state().mouse_state.clone(),
+            touch_state: parent.common.current_window_state().touch_state.clone(),
+            ime_position: parent.common.current_window_state().ime_position,
             platform_specific_options: parent
-                .common.current_window_state
+                .common.current_window_state()
                 .platform_specific_options
                 .clone(),
-            renderer_options: parent.common.current_window_state.renderer_options,
-            background_color: parent.common.current_window_state.background_color,
+            renderer_options: parent.common.current_window_state().renderer_options,
+            background_color: parent.common.current_window_state().background_color,
             layout_callback: options.window_state.layout_callback.clone(),
             close_callback: options.window_state.close_callback.clone(),
-            monitor_id: parent.common.current_window_state.monitor_id,
+            monitor_id: parent.common.current_window_state().monitor_id,
             window_id: options.window_state.window_id.clone(),
             window_focused: false,
             active_route: azul_core::resources::OptionRouteMatch::None,
@@ -7709,7 +7719,7 @@ impl WaylandWindow {
     pub fn sync_ime_position_to_os(&self) {
         use azul_core::window::ImePosition;
 
-        if let ImePosition::Initialized(rect) = self.common.current_window_state.ime_position {
+        if let ImePosition::Initialized(rect) = self.common.current_window_state().ime_position {
             // Use text-input v3 protocol if available (native Wayland IME)
             if let Some(text_input) = self.text_input {
                 if self.text_input_enabled {
@@ -7986,7 +7996,7 @@ impl WaylandWindow {
 
         // Show tooltip
         let dpi = azul_core::resources::DpiScaleFactor::new(
-            self.common.current_window_state.size.dpi as f32 / 96.0,
+            self.common.current_window_state().size.dpi as f32 / 96.0,
         );
         if let Some(tooltip) = self.tooltip.as_mut() {
             if let Err(e) = tooltip.show(text, position, dpi) {

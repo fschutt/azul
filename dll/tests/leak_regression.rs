@@ -370,7 +370,10 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
             if let Some(lw) = window.common.layout_window.as_mut() {
                 lw.current_window_state.size.dimensions = dim;
             }
-            window.common.current_window_state.size.dimensions = dim;
+            window.common.update_window_state(
+                azul::desktop::shell2::common::event::WindowStateSource::Os,
+                |ws| ws.size.dimensions = dim,
+            );
 
             // Force a full relayout so the callback fires and
             // `request_fonts` is called — this is the exact trigger the

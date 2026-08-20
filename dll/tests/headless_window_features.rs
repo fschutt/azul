@@ -85,7 +85,7 @@ fn accelerator_key_matches_individual_modifiers() {
     assert!(!window.matches_accelerator(&[AcceleratorKey::Key(VirtualKeyCode::S)]));
 
     // Press Ctrl+S.
-    let kb = &mut window.common.current_window_state.keyboard_state;
+    let kb = window.common.keyboard_state_mut();
     kb.pressed_virtual_keycodes =
         vec![VirtualKeyCode::LControl, VirtualKeyCode::S].into();
     kb.current_virtual_keycode = OptionVirtualKeyCode::Some(VirtualKeyCode::S);
@@ -106,10 +106,10 @@ fn accelerator_key_matches_individual_modifiers() {
     assert!(!window.matches_accelerator(&chord_with_shift));
 
     // Each AcceleratorKey individually evaluates correctly via .matches().
-    assert!(AcceleratorKey::Ctrl.matches(&window.common.current_window_state.keyboard_state));
-    assert!(!AcceleratorKey::Shift.matches(&window.common.current_window_state.keyboard_state));
+    assert!(AcceleratorKey::Ctrl.matches(&window.common.current_window_state().keyboard_state));
+    assert!(!AcceleratorKey::Shift.matches(&window.common.current_window_state().keyboard_state));
     assert!(AcceleratorKey::Key(VirtualKeyCode::S)
-        .matches(&window.common.current_window_state.keyboard_state));
+        .matches(&window.common.current_window_state().keyboard_state));
 
     // Empty chord matches trivially.
     assert!(window.matches_accelerator(&[]));
@@ -121,44 +121,44 @@ fn fullscreen_mode_toggles_window_frame_state() {
 
     // Default: Normal frame, FastFullScreen transition style.
     assert_eq!(
-        window.common.current_window_state.flags.frame,
+        window.common.current_window_state().flags.frame,
         WindowFrame::Normal
     );
     assert_eq!(
-        window.common.current_window_state.flags.fullscreen_mode,
+        window.common.current_window_state().flags.fullscreen_mode,
         FullScreenMode::FastFullScreen
     );
 
     // FastFullScreen → frame becomes Fullscreen.
     window.set_fullscreen_mode(FullScreenMode::FastFullScreen);
     assert_eq!(
-        window.common.current_window_state.flags.frame,
+        window.common.current_window_state().flags.frame,
         WindowFrame::Fullscreen
     );
     assert_eq!(
-        window.common.current_window_state.flags.fullscreen_mode,
+        window.common.current_window_state().flags.fullscreen_mode,
         FullScreenMode::FastFullScreen
     );
 
     // SlowWindowed → frame becomes Normal again, transition style records "slow".
     window.set_fullscreen_mode(FullScreenMode::SlowWindowed);
     assert_eq!(
-        window.common.current_window_state.flags.frame,
+        window.common.current_window_state().flags.frame,
         WindowFrame::Normal
     );
     assert_eq!(
-        window.common.current_window_state.flags.fullscreen_mode,
+        window.common.current_window_state().flags.fullscreen_mode,
         FullScreenMode::SlowWindowed
     );
 
     // SlowFullScreen → Fullscreen with slow transition style.
     window.set_fullscreen_mode(FullScreenMode::SlowFullScreen);
     assert_eq!(
-        window.common.current_window_state.flags.frame,
+        window.common.current_window_state().flags.frame,
         WindowFrame::Fullscreen
     );
     assert_eq!(
-        window.common.current_window_state.flags.fullscreen_mode,
+        window.common.current_window_state().flags.fullscreen_mode,
         FullScreenMode::SlowFullScreen
     );
 }
@@ -169,13 +169,13 @@ fn touch_points_are_recorded_on_window_state() {
 
     // No touches initially.
     assert_eq!(
-        window.common.current_window_state.touch_state.num_touches,
+        window.common.current_window_state().touch_state.num_touches,
         0
     );
     assert_eq!(
         window
             .common
-            .current_window_state
+            .current_window_state()
             .touch_state
             .touch_points
             .len(),
@@ -195,7 +195,7 @@ fn touch_points_are_recorded_on_window_state() {
     };
     window.inject_touch_points([p1, p2]);
 
-    let touch_state = &window.common.current_window_state.touch_state;
+    let touch_state = &window.common.current_window_state().touch_state;
     assert_eq!(touch_state.num_touches, 2);
     assert_eq!(touch_state.touch_points.len(), 2);
     let pts = touch_state.touch_points.as_ref();
@@ -207,7 +207,7 @@ fn touch_points_are_recorded_on_window_state() {
     // Inject empty list — clears the touch state.
     let empty: [TouchPoint; 0] = [];
     window.inject_touch_points(empty);
-    let touch_state = &window.common.current_window_state.touch_state;
+    let touch_state = &window.common.current_window_state().touch_state;
     assert_eq!(touch_state.num_touches, 0);
     assert_eq!(touch_state.touch_points.len(), 0);
 }

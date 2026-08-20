@@ -774,7 +774,7 @@ pub(crate) fn adopt_observed_theme(
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
     };
-    if common.current_window_state.theme == theme {
+    if common.current_window_state().theme == theme {
         return false;
     }
 
@@ -782,6 +782,6 @@ pub(crate) fn adopt_observed_theme(
     // ThemeChanged event fired; without this snapshot the event is never
     // determined and no callback runs.
     common.snapshot_window_state_baseline("macos.adopt_observed_theme");
-    common.current_window_state.theme = theme;
+    common.update_unsynced_state(|ws| ws.theme = theme);
     true
 }

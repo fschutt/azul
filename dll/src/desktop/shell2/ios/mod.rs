@@ -438,7 +438,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         // — the rest are still active. Filter the existing list against the
         // IDs UIKit just reported as ended, rather than clobbering it.
         let remaining = {
-            let ts = &mut window.common.current_window_state.touch_state;
+            let ts = window.common.touch_state_mut();
             match phase {
                 0 | 1 => {
                     // Began / moved → merge by ID. Replace existing entries
@@ -471,7 +471,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
             ts.num_touches
         };
 
-        let ms = &mut window.common.current_window_state.mouse_state;
+        let ms = window.common.mouse_state_mut();
         if let Some(p) = pos {
             ms.cursor_position = CursorPosition::InWindow(p);
         }
@@ -587,15 +587,17 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
         let w = bounds.size.width as f32;
         let h = bounds.size.height as f32;
         if w > 0.0 && h > 0.0 {
-            let dims = &mut window.common.current_window_state.size.dimensions;
+            let dims = window.common.current_window_state().size.dimensions;
             if (dims.width - w).abs() > 0.5 || (dims.height - h).abs() > 0.5 {
                 log_info!(
                     LogCategory::Window,
                     "[iOS] layoutSubviews: bounds {}x{} -> {}x{}",
                     dims.width, dims.height, w, h,
                 );
-                dims.width = w;
-                dims.height = h;
+                window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                    ws.size.dimensions.width = w;
+                    ws.size.dimensions.height = h;
+                });
                 // `Resize` is the tag every desktop backend gives geometry
                 // changes — the variant responsive layout callbacks branch
                 // on; `RefreshDom` hid every rotation / split-view resize
@@ -907,13 +909,13 @@ unsafe fn adopt_device_appearance(
     let Some(theme) = probe_user_interface_style() else {
         return false;
     };
-    if common.current_window_state.theme == theme {
+    if common.current_window_state().theme == theme {
         return false;
     }
     // The diff pipeline compares against previous_window_state to decide a
     // ThemeChanged event fired; without this snapshot no callback runs.
     common.snapshot_window_state_baseline("ios.adopt_device_appearance");
-    common.current_window_state.theme = theme;
+    common.update_unsynced_state(|ws| ws.theme = theme);
     true
 }
 
@@ -1312,31 +1314,18 @@ impl IOSWindow {
             )
         };
 
+        let mut common = CommonWindowState::new(
+            full_window_state,
+            fc_cache,
+            Arc::new(azul_css::system::SystemStyle::default()),
+            Arc::new(RefCell::new(app_data)),
+            undo_manager,
+        );
+        common.layout_window = Some(layout_window);
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+
         Ok(Self {
-            common: CommonWindowState {
-                layout_window: Some(layout_window),
-                current_window_state: full_window_state,
-                previous_window_state: None,
-                os_synced_state: None,
-                renderer_resources: RendererResources::default(),
-                fc_cache,
-                gl_context_ptr: OptionGlContextPtr::None,
-                system_style: Arc::new(azul_css::system::SystemStyle::default()),
-                app_data: Arc::new(RefCell::new(app_data)),
-                undo_manager,
-                scrollbar_drag_state: None,
-                hit_tester: None,
-                cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
-                last_hovered_node: None,
-                document_id: None,
-                id_namespace: None,
-                render_api: None,
-                renderer: None,
-                regen: crate::desktop::shell2::common::event::RegenerationState::pending_initial(),
-                display_list_initialized: false,
-                display_list_dirty: false,
-                a11y_dirty: true,
-            },
+            common,
             cpu_backend: CpuBackend::new(),
             ui_window,
             ui_view,
@@ -1438,11 +1427,8 @@ impl IOSWindow {
         // the request (see CommonWindowState::request_regeneration).
         let relayout_reason = self.common.take_relayout_reason();
 
-        let layout_window = self
-            .common
-            .layout_window
-            .as_mut()
-            .ok_or("No layout window")?;
+        let borrows = self.common.layout_borrows();
+        let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         let debug_enabled =
             crate::desktop::shell2::common::debug_server::is_debug_enabled();
@@ -1450,13 +1436,13 @@ impl IOSWindow {
 
         let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
-            &self.common.app_data,
-            &self.common.current_window_state,
-            &mut self.common.renderer_resources,
-            &self.common.gl_context_ptr,
-            &self.common.fc_cache,
+            borrows.app_data,
+            borrows.current_window_state,
+            borrows.renderer_resources,
+            borrows.gl_context_ptr,
+            borrows.fc_cache,
             &self.font_registry,
-            &self.common.system_style,
+            borrows.system_style,
             &self.icon_provider,
             &mut debug_messages,
             relayout_reason,
@@ -1486,7 +1472,7 @@ impl IOSWindow {
         // ready for `displayLayer:` to blit into the layer (Sprint C-iOS).
         #[cfg(feature = "cpurender")]
         {
-            let ws = &self.common.current_window_state;
+            let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
@@ -1540,24 +1526,22 @@ impl PlatformWindow for IOSWindow {
     }
 
     fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
-        let layout_window = self
-            .common
-            .layout_window
-            .as_mut()
-            .expect("Layout window must exist for callback invocation");
+        let borrows = self.common.layout_borrows();
         event::InvokeSingleCallbackBorrows {
-            layout_window,
+            layout_window: borrows
+                .layout_window
+                .expect("Layout window must exist for callback invocation"),
             window_handle: RawWindowHandle::IOS(IOSHandle {
                 ui_window: std::ptr::null_mut(),
                 ui_view: std::ptr::null_mut(),
                 ui_view_controller: std::ptr::null_mut(),
             }),
-            gl_context_ptr: &self.common.gl_context_ptr,
-            fc_cache_clone: (*self.common.fc_cache).clone(),
-            system_style: self.common.system_style.clone(),
-            previous_window_state: &self.common.previous_window_state,
-            current_window_state: &self.common.current_window_state,
-            renderer_resources: &mut self.common.renderer_resources,
+            gl_context_ptr: borrows.gl_context_ptr,
+            fc_cache_clone: (**borrows.fc_cache).clone(),
+            system_style: borrows.system_style.clone(),
+            previous_window_state: borrows.previous_window_state,
+            current_window_state: borrows.current_window_state,
+            renderer_resources: borrows.renderer_resources,
         }
     }
 
