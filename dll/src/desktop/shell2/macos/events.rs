@@ -174,7 +174,7 @@ impl MacOSWindow {
         button: MouseButton,
     ) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let window_height = self.common.current_window_state.size.dimensions.height;
+        let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
         // Check for scrollbar hit FIRST (before state changes)
@@ -203,13 +203,13 @@ impl MacOSWindow {
         self.snapshot_window_state_baseline("macos.handle_mouse_down");
 
         // Update mouse state
-        self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
 
         // Set appropriate button flag
         match button {
-            MouseButton::Left => self.common.current_window_state.mouse_state.left_down = true,
-            MouseButton::Right => self.common.current_window_state.mouse_state.right_down = true,
-            MouseButton::Middle => self.common.current_window_state.mouse_state.middle_down = true,
+            MouseButton::Left => self.common.mouse_state_mut().left_down = true,
+            MouseButton::Right => self.common.mouse_state_mut().right_down = true,
+            MouseButton::Middle => self.common.mouse_state_mut().middle_down = true,
             _ => {}
         }
 
@@ -235,7 +235,7 @@ impl MacOSWindow {
     /// Process a mouse button up event.
     pub fn handle_mouse_up(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let window_height = self.common.current_window_state.size.dimensions.height;
+        let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
         // End scrollbar drag if active (before state changes).
@@ -258,9 +258,9 @@ impl MacOSWindow {
 
         // Update mouse state - clear appropriate button flag
         match button {
-            MouseButton::Left => self.common.current_window_state.mouse_state.left_down = false,
-            MouseButton::Right => self.common.current_window_state.mouse_state.right_down = false,
-            MouseButton::Middle => self.common.current_window_state.mouse_state.middle_down = false,
+            MouseButton::Left => self.common.mouse_state_mut().left_down = false,
+            MouseButton::Right => self.common.mouse_state_mut().right_down = false,
+            MouseButton::Middle => self.common.mouse_state_mut().middle_down = false,
             _ => {}
         }
 
@@ -334,7 +334,7 @@ impl MacOSWindow {
     /// Process a mouse move event.
     pub fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let window_height = self.common.current_window_state.size.dimensions.height;
+        let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
         // Handle active scrollbar drag (special case - not part of normal event system)
@@ -348,18 +348,18 @@ impl MacOSWindow {
         self.snapshot_window_state_baseline("macos.handle_mouse_move");
 
         // Update mouse state
-        self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
 
         // Record input sample for gesture detection (movement during button press)
-        let button_state = if self.common.current_window_state.mouse_state.left_down {
+        let button_state = if self.common.current_window_state().mouse_state.left_down {
             BUTTON_STATE_LEFT
         } else {
             BUTTON_STATE_NONE
-        } | if self.common.current_window_state.mouse_state.right_down {
+        } | if self.common.current_window_state().mouse_state.right_down {
             BUTTON_STATE_RIGHT
         } else {
             BUTTON_STATE_NONE
-        } | if self.common.current_window_state.mouse_state.middle_down {
+        } | if self.common.current_window_state().mouse_state.middle_down {
             BUTTON_STATE_MIDDLE
         } else {
             BUTTON_STATE_NONE
@@ -370,7 +370,7 @@ impl MacOSWindow {
         self.update_hit_test(position);
 
         // Feed Wacom/pen state on tablet events (in contact iff the tip/button is down).
-        let pen_in_contact = self.common.current_window_state.mouse_state.left_down;
+        let pen_in_contact = self.common.current_window_state().mouse_state.left_down;
         self.feed_tablet_pen(event, position, pen_in_contact);
 
         // Update cursor based on CSS cursor properties
@@ -382,7 +382,7 @@ impl MacOSWindow {
             {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 // Update the window state cursor type
-                self.common.current_window_state.mouse_state.mouse_cursor_type =
+                self.common.mouse_state_mut().mouse_cursor_type =
                     Some(cursor_test.cursor_icon).into();
                 // Set the actual OS cursor
                 let cursor_name = self.map_cursor_type_to_macos(cursor_test.cursor_icon);
@@ -398,14 +398,14 @@ impl MacOSWindow {
     /// Process mouse entered window event.
     pub fn handle_mouse_entered(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let window_height = self.common.current_window_state.size.dimensions.height;
+        let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
         // Save previous state BEFORE making changes
         self.snapshot_window_state_baseline("macos.handle_mouse_entered");
 
         // Update mouse state - cursor is now in window
-        self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
 
         // Update hit test
         self.update_hit_test(position);
@@ -418,14 +418,14 @@ impl MacOSWindow {
     /// Process mouse exited window event.
     pub fn handle_mouse_exited(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let window_height = self.common.current_window_state.size.dimensions.height;
+        let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
         // Save previous state BEFORE making changes
         self.snapshot_window_state_baseline("macos.handle_mouse_exited");
 
         // Update mouse state - cursor left window
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::OutOfWindow(position);
 
         // Clear last hit test since mouse is out
@@ -468,7 +468,7 @@ impl MacOSWindow {
         let delta_y = discrete_scroll_delta_to_pixels(raw_delta_y, has_precise);
 
         let location = unsafe { event.locationInWindow() };
-        let window_height = self.common.current_window_state.size.dimensions.height;
+        let window_height = self.common.current_window_state().size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
         // Save previous state BEFORE making changes
@@ -655,7 +655,7 @@ impl MacOSWindow {
         // temporarily clear current_virtual_keycode in the snapshot so the diff
         // sees None → Some(key) instead of Some(key) → Some(key).
         let is_repeat = unsafe { event.isARepeat() };
-        let mut prev_snapshot = self.common.current_window_state.clone();
+        let mut prev_snapshot = self.common.current_window_state().clone();
         if is_repeat {
             prev_snapshot.keyboard_state.current_virtual_keycode =
                 azul_core::window::OptionVirtualKeyCode::None;
@@ -833,7 +833,7 @@ impl MacOSWindow {
         let Some(vk) = self.convert_keycode(key_code) else {
             return EventProcessResult::DoNothing;
         };
-        if self.common.current_window_state.keyboard_state.is_key_down(vk) == is_down {
+        if self.common.current_window_state().keyboard_state.is_key_down(vk) == is_down {
             return EventProcessResult::DoNothing;
         }
 
@@ -888,7 +888,7 @@ impl MacOSWindow {
 
         // Check if DPI changed (window may have moved to different display)
         let current_hidpi = self.get_hidpi_factor();
-        let old_hidpi = self.common.current_window_state.size.get_hidpi_factor();
+        let old_hidpi = self.common.current_window_state().size.get_hidpi_factor();
 
         if (current_hidpi.inner.get() - old_hidpi.inner.get()).abs() > 0.001 {
             log_info!(
@@ -992,7 +992,7 @@ impl MacOSWindow {
         // MWA-B7: the OS drag location is the ONLY fresh position — no
         // mouse-move events arrive during an OS drag, so the cached cursor
         // is stale (wherever the pointer was before the drag started).
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::InWindow(position);
 
         // Update cursor manager with dropped file
@@ -1043,7 +1043,7 @@ impl MacOSWindow {
         }
 
         // Update hit test at the OS-provided drag location (MWA-B7).
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::InWindow(position);
         self.update_hit_test(position);
 
@@ -1098,7 +1098,7 @@ impl MacOSWindow {
             None => return,
         };
 
-        let keyboard_state = &mut self.common.current_window_state.keyboard_state;
+        let keyboard_state = self.common.keyboard_state_mut();
 
         if is_down {
             // Add to pressed keys if not already present
@@ -1139,9 +1139,9 @@ impl MacOSWindow {
         use webrender::api::units::{DeviceIntRect, DeviceIntSize, DevicePixelScale};
 
         // Get new physical size
-        let physical_size = self.common.current_window_state.size.get_physical_size();
+        let physical_size = self.common.current_window_state().size.get_physical_size();
         let new_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-        let hidpi_factor = self.common.current_window_state.size.get_hidpi_factor();
+        let hidpi_factor = self.common.current_window_state().size.get_hidpi_factor();
 
         // Update WebRender document size
         let mut txn = webrender::Transaction::new();
@@ -1235,7 +1235,7 @@ impl MacOSWindow {
         );
 
         // Check if native context menus are enabled
-        if self.common.current_window_state.flags.use_native_context_menus {
+        if self.common.current_window_state().flags.use_native_context_menus {
             self.queue_native_context_menu_at_position(&context_menu, position);
         } else {
             self.show_window_based_context_menu(&context_menu, position);
@@ -1280,7 +1280,7 @@ impl MacOSWindow {
         // origin (neither view overrides isFlipped) — flip y once, the inverse
         // of macos_to_azul_coords. Unflipped, the menu opened vertically
         // mirrored (right-click near the top popped the menu near the bottom).
-        let window_height = self.common.current_window_state.size.dimensions.height;
+        let window_height = self.common.current_window_state().size.dimensions.height;
         let view_point = NSPoint {
             x: position.x as f64,
             y: (window_height - position.y) as f64,
@@ -1329,7 +1329,7 @@ impl MacOSWindow {
         position: LogicalPosition,
     ) {
         // Get parent window position
-        let parent_pos = match self.common.current_window_state.position {
+        let parent_pos = match self.common.current_window_state().position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 LogicalPosition::new(pos.x as f32, pos.y as f32)
             }

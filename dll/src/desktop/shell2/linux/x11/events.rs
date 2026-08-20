@@ -495,10 +495,10 @@ impl X11Window {
         // ungrabs). A press inside is an item click → fall through. event.x/y are
         // relative to the grab (menu) window, so outside = negative or >= size.
         if is_down
-            && self.common.current_window_state.flags.window_type
+            && self.common.current_window_state().flags.window_type
                 == azul_core::window::WindowType::Menu
         {
-            let size = self.common.current_window_state.size.dimensions;
+            let size = self.common.current_window_state().size.dimensions;
             if position.x < 0.0
                 || position.y < 0.0
                 || position.x >= size.width
@@ -559,13 +559,13 @@ impl X11Window {
         // WM cannot take over the pointer).
         if is_down
             && button == MouseButton::Left
-            && self.common.current_window_state.flags.decorations
+            && self.common.current_window_state().flags.decorations
                 == azul_core::window::WindowDecorations::None
         {
             use crate::desktop::shell2::common::event::{
                 csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
             };
-            let size = self.common.current_window_state.size.dimensions;
+            let size = self.common.current_window_state().size.dimensions;
             if let Some(edge) = csd_resize_edge_at(position, size, CSD_RESIZE_BAND_PX) {
                 // _NET_WM_MOVERESIZE directions: TOPLEFT=0 TOP=1 TOPRIGHT=2
                 // RIGHT=3 BOTTOMRIGHT=4 BOTTOM=5 BOTTOMLEFT=6 LEFT=7.
@@ -610,13 +610,13 @@ impl X11Window {
         self.update_modifiers_from_x11_state(event.state);
 
         // Update mouse state
-        self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
 
         // Set appropriate button flag
         match button {
-            MouseButton::Left => self.common.current_window_state.mouse_state.left_down = is_down,
-            MouseButton::Right => self.common.current_window_state.mouse_state.right_down = is_down,
-            MouseButton::Middle => self.common.current_window_state.mouse_state.middle_down = is_down,
+            MouseButton::Left => self.common.mouse_state_mut().left_down = is_down,
+            MouseButton::Right => self.common.mouse_state_mut().right_down = is_down,
+            MouseButton::Middle => self.common.mouse_state_mut().middle_down = is_down,
             _ => {}
         }
 
@@ -733,11 +733,11 @@ impl X11Window {
         self.update_modifiers_from_x11_state(event.state);
 
         // Update mouse state
-        self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
 
         // Record input sample for gesture detection (movement during button press)
         // X11 provides x_root/y_root as native screen-absolute coordinates
-        let ms = &self.common.current_window_state.mouse_state;
+        let ms = &self.common.current_window_state().mouse_state;
         let button_state =
             (ms.left_down as u8) | ((ms.right_down as u8) << 1) | ((ms.middle_down as u8) << 2);
         let screen_pos = self.to_logical_pos(event.x_root as f32, event.y_root as f32);
@@ -755,7 +755,7 @@ impl X11Window {
             {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 // Update the window state cursor type
-                self.common.current_window_state.mouse_state.mouse_cursor_type =
+                self.common.mouse_state_mut().mouse_cursor_type =
                     Some(cursor_test.cursor_icon).into();
                 // Set the actual OS cursor
                 self.set_cursor(cursor_test.cursor_icon);
@@ -788,11 +788,11 @@ impl X11Window {
 
         // Update mouse state based on enter/leave
         if event.type_ == EnterNotify {
-            self.common.current_window_state.mouse_state.cursor_position =
+            self.common.mouse_state_mut().cursor_position =
                 CursorPosition::InWindow(position);
             self.update_hit_test(position);
         } else if event.type_ == LeaveNotify {
-            self.common.current_window_state.mouse_state.cursor_position =
+            self.common.mouse_state_mut().cursor_position =
                 CursorPosition::OutOfWindow(position);
             // Clear hit test since mouse is out — unless a drag is in flight,
             // in which case the latch keeps the target (see
@@ -1014,7 +1014,7 @@ impl X11Window {
         // run loop drops the window on !is_open).
         if is_down
             && keysym == Some(XK_Escape as KeySym)
-            && self.common.current_window_state.flags.window_type
+            && self.common.current_window_state().flags.window_type
                 == azul_core::window::WindowType::Menu
         {
             // close() ungrabs + XDestroyWindow's the popup; setting is_open=false
@@ -1040,11 +1040,11 @@ impl X11Window {
         // this is a repeat. Clear current_virtual_keycode in the snapshot
         // so the state-diff system sees None → Some(key).
         let is_repeat = is_down && vk_pressed.map(|vk| {
-            self.common.current_window_state.keyboard_state
+            self.common.current_window_state().keyboard_state
                 .pressed_virtual_keycodes.as_ref().iter().any(|k| *k == vk)
         }).unwrap_or(false);
 
-        let mut prev_snapshot = self.common.current_window_state.clone();
+        let mut prev_snapshot = self.common.current_window_state().clone();
         if is_repeat {
             prev_snapshot.keyboard_state.current_virtual_keycode =
                 azul_core::window::OptionVirtualKeyCode::None;
@@ -1080,7 +1080,7 @@ impl X11Window {
 
         // Update keyboard state with virtual key and scancode
         apply_key_state_change(
-            &mut self.common.current_window_state.keyboard_state,
+            self.common.keyboard_state_mut(),
             &mut self.pressed_key_vks,
             event.keycode as u32,
             vk_pressed,
@@ -1109,7 +1109,7 @@ impl X11Window {
     pub(super) fn update_modifiers_from_x11_state(&mut self, state: std::ffi::c_uint) {
         let masks = self.modifier_masks;
         apply_modifier_mask_state(
-            &mut self.common.current_window_state.keyboard_state,
+            self.common.keyboard_state_mut(),
             masks,
             state,
         );
@@ -1126,7 +1126,7 @@ impl X11Window {
     pub(super) fn clear_keyboard_state(&mut self) {
         use azul_core::window::{OptionVirtualKeyCode, ScanCodeVec, VirtualKeyCodeVec};
 
-        let keyboard_state = &mut self.common.current_window_state.keyboard_state;
+        let keyboard_state = self.common.keyboard_state_mut();
         keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
         keyboard_state.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
         keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
@@ -1170,7 +1170,7 @@ impl X11Window {
     pub(super) fn resync_keyboard_state_from_vector(&mut self, key_vector: &[c_char; 32]) {
         let held = self
             .common
-            .current_window_state
+            .current_window_state()
             .keyboard_state
             .current_virtual_keycode
             .into_option();
@@ -1189,8 +1189,7 @@ impl X11Window {
                 continue;
             }
             self.common
-                .current_window_state
-                .keyboard_state
+                .keyboard_state_mut()
                 .pressed_scancodes
                 .insert_hm_item(keycode);
             // Group 0 / level 0: the unshifted keysym, which is what
@@ -1198,8 +1197,7 @@ impl X11Window {
             let keysym = unsafe { (to_keysym)(self.display, keycode as KeyCode, 0, 0) };
             if let Some(vk) = keysym_to_virtual_keycode(keysym) {
                 self.common
-                    .current_window_state
-                    .keyboard_state
+                    .keyboard_state_mut()
                     .pressed_virtual_keycodes
                     .insert_hm_item(vk);
                 // Record what was seeded, so the release the server has not sent
@@ -1215,14 +1213,11 @@ impl X11Window {
         if let Some(vk) = held {
             if self
                 .common
-                .current_window_state
+                .current_window_state()
                 .keyboard_state
                 .is_key_down(vk)
             {
-                self.common
-                    .current_window_state
-                    .keyboard_state
-                    .current_virtual_keycode = Some(vk).into();
+                self.common.keyboard_state_mut().current_virtual_keycode = Some(vk).into();
             }
         }
     }
@@ -1259,7 +1254,7 @@ impl X11Window {
     /// and an ordinary pointer-out with no button held still clears the hover
     /// chain as before.
     fn push_hit_test_latched(&mut self, hit_test: FullHitTest) {
-        let ms = &self.common.current_window_state.mouse_state;
+        let ms = &self.common.current_window_state().mouse_state;
         let any_button_down = ms.left_down || ms.right_down || ms.middle_down;
         let Some(ref mut layout_window) = self.common.layout_window else {
             return;
@@ -1283,7 +1278,7 @@ impl X11Window {
         paths: Vec<String>,
     ) -> ProcessEventResult {
         self.snapshot_window_state_baseline("x11.handle_file_drag_entered");
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::InWindow(position);
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -1321,7 +1316,7 @@ impl X11Window {
         paths: Vec<String>,
     ) -> ProcessEventResult {
         self.snapshot_window_state_baseline("x11.handle_file_drop");
-        self.common.current_window_state.mouse_state.cursor_position =
+        self.common.mouse_state_mut().cursor_position =
             CursorPosition::InWindow(position);
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -1425,7 +1420,7 @@ impl X11Window {
         position: LogicalPosition,
     ) {
         // Get parent window position
-        let parent_pos = match self.common.current_window_state.position {
+        let parent_pos = match self.common.current_window_state().position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
             }

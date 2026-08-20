@@ -130,7 +130,7 @@ fn record_headless_input(
     use crate::desktop::shell2::common::event::{
         BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
     };
-    let ms = &window.common.current_window_state.mouse_state;
+    let ms = &window.common.current_window_state().mouse_state;
     let mut button_state = BUTTON_STATE_NONE;
     if ms.left_down {
         button_state |= BUTTON_STATE_LEFT;
@@ -1329,31 +1329,18 @@ impl HeadlessWindow {
         let wake_condvar = Arc::new(Condvar::new());
         let wake_mutex = Arc::new(Mutex::new(WakeState { woken: false }));
 
+        let mut common = CommonWindowState::new(
+            full_window_state,
+            fc_cache,
+            Arc::new(crate::desktop::app::discover_system_style()),
+            app_data,
+            undo_manager,
+        );
+        common.layout_window = Some(layout_window);
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
+
         Ok(Self {
-            common: CommonWindowState {
-                layout_window: Some(layout_window),
-                current_window_state: full_window_state,
-                previous_window_state: None,
-                os_synced_state: None,
-                renderer_resources: RendererResources::default(),
-                fc_cache,
-                gl_context_ptr: OptionGlContextPtr::None,
-                system_style: Arc::new(crate::desktop::app::discover_system_style()),
-                app_data,
-                undo_manager,
-                scrollbar_drag_state: None,
-                hit_tester: None,
-                cpu_hit_tester: Some(azul_layout::headless::CpuHitTester::new()),
-                last_hovered_node: None,
-                document_id: None,
-                id_namespace: None,
-                render_api: None,
-                renderer: None,
-                regen: crate::desktop::shell2::common::event::RegenerationState::pending_initial(),
-                display_list_initialized: false,
-                display_list_dirty: false,
-                a11y_dirty: true,
-            },
+            common,
             cpu_backend: CpuBackend::new(),
             is_open: true,
             event_queue: VecDeque::new(),
@@ -1406,7 +1393,8 @@ impl HeadlessWindow {
         // the request (see CommonWindowState::request_regeneration).
         let relayout_reason = self.common.take_relayout_reason();
 
-        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
+        let borrows = self.common.layout_borrows();
+        let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
@@ -1419,13 +1407,13 @@ impl HeadlessWindow {
         // Call unified regenerate_layout from common module
         let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
-            &self.common.app_data,
-            &self.common.current_window_state,
-            &mut self.common.renderer_resources,
-            &self.common.gl_context_ptr,
-            &self.common.fc_cache,
+            borrows.app_data,
+            borrows.current_window_state,
+            borrows.renderer_resources,
+            borrows.gl_context_ptr,
+            borrows.fc_cache,
             &self.font_registry,
-            &self.common.system_style,
+            borrows.system_style,
             &self.icon_provider,
             &mut debug_messages,
             relayout_reason,
@@ -1471,7 +1459,7 @@ impl HeadlessWindow {
         // CPU-render the frame (retained compositor handles efficient resize)
         #[cfg(feature = "cpurender")]
         {
-            let ws = &self.common.current_window_state;
+            let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
@@ -1593,11 +1581,12 @@ impl HeadlessWindow {
         let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
 
         {
-            let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
+            let borrows = self.common.layout_borrows();
+            let layout_window = borrows.layout_window.ok_or("No layout window")?;
             crate::desktop::shell2::common::layout::incremental_relayout(
                 layout_window,
-                &self.common.current_window_state,
-                &mut self.common.renderer_resources,
+                borrows.current_window_state,
+                borrows.renderer_resources,
                 &mut debug_messages,
             )?;
         }
@@ -1625,7 +1614,7 @@ impl HeadlessWindow {
 
         #[cfg(feature = "cpurender")]
         {
-            let ws = &self.common.current_window_state;
+            let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
@@ -1718,7 +1707,7 @@ impl HeadlessWindow {
     /// not cost a relayout, and a test asserting "N relayouts" should not have to
     /// know whether the theme happened to differ.
     pub fn set_system_theme(&mut self, theme: azul_core::window::WindowTheme) -> bool {
-        if self.common.current_window_state.theme == theme {
+        if self.common.current_window_state().theme == theme {
             return false;
         }
 
@@ -1726,7 +1715,7 @@ impl HeadlessWindow {
         // decide that a ThemeChanged event fired; without this snapshot the
         // event is never determined and the callbacks never run.
         self.snapshot_window_state_baseline("headless.set_system_theme");
-        self.common.current_window_state.theme = theme;
+        self.common.update_unsynced_state(|ws| ws.theme = theme);
 
         // Same shape as the HeadlessEvent arms in `run()`: pump the events the
         // state change implies and let the result speak; there is no window
@@ -1780,7 +1769,10 @@ impl HeadlessWindow {
         // `WindowResize` exactly as a native configure does, and no live delta
         // is left behind for the validation check to flag.
         self.snapshot_window_state_baseline("headless.simulate_resize");
-        self.common.current_window_state.size.dimensions = LogicalSize { width, height };
+        self.common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = LogicalSize { width, height };
+            });
         self.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
         let _ = self.process_window_events(0);
     }
@@ -1812,7 +1804,7 @@ impl HeadlessWindow {
         // what dispatches TouchStart/Move/End, same as the native shells.
         self.snapshot_window_state_baseline("headless.inject_touch_points");
         let vec: TouchPointVec = points.into_iter().collect::<Vec<_>>().into();
-        let touch_state = &mut self.common.current_window_state.touch_state;
+        let touch_state = self.common.touch_state_mut();
         touch_state.num_touches = vec.len();
         touch_state.touch_points = vec;
         let _ = self.process_window_events(0);
@@ -1827,16 +1819,21 @@ impl HeadlessWindow {
     /// no-op for animation purposes but still recorded on the window state for
     /// observation.
     pub fn set_fullscreen_mode(&mut self, mode: FullScreenMode) {
-        let flags = &mut self.common.current_window_state.flags;
-        flags.fullscreen_mode = mode;
-        // Fold the request into the current frame state so headless callers
-        // can observe the transition without a real OS event loop.
-        flags.frame = match mode {
-            FullScreenMode::SlowFullScreen | FullScreenMode::FastFullScreen => {
-                WindowFrame::Fullscreen
-            }
-            FullScreenMode::SlowWindowed | FullScreenMode::FastWindowed => WindowFrame::Normal,
-        };
+        self.common
+            .update_window_state(event::WindowStateSource::App, |ws| {
+                let flags = &mut ws.flags;
+                flags.fullscreen_mode = mode;
+                // Fold the request into the current frame state so headless callers
+                // can observe the transition without a real OS event loop.
+                flags.frame = match mode {
+                    FullScreenMode::SlowFullScreen | FullScreenMode::FastFullScreen => {
+                        WindowFrame::Fullscreen
+                    }
+                    FullScreenMode::SlowWindowed | FullScreenMode::FastWindowed => {
+                        WindowFrame::Normal
+                    }
+                };
+            });
     }
 
     /// Returns `true` if every entry of `chord` is currently active in the
@@ -1844,7 +1841,7 @@ impl HeadlessWindow {
     /// shortcuts (e.g. `[Ctrl, Key(VirtualKeyCode::S)]`) on each key event.
     pub fn matches_accelerator(&self, chord: &[AcceleratorKey]) -> bool {
         self.common
-            .current_window_state
+            .current_window_state()
             .keyboard_state
             .matches_accelerator(chord)
     }
@@ -2094,7 +2091,7 @@ impl HeadlessWindow {
                         use azul_core::window::CursorPosition;
                         self.snapshot_window_state_baseline("headless.run.file_hover");
                         let pos = LogicalPosition { x, y };
-                        self.common.current_window_state.mouse_state.cursor_position =
+                        self.common.mouse_state_mut().cursor_position =
                             CursorPosition::InWindow(pos);
                         self.update_hit_test_at(pos);
                         if let Some(lw) = self.common.layout_window.as_mut() {
@@ -2112,7 +2109,7 @@ impl HeadlessWindow {
                         use azul_core::window::CursorPosition;
                         self.snapshot_window_state_baseline("headless.run.file_drop");
                         let pos = LogicalPosition { x, y };
-                        self.common.current_window_state.mouse_state.cursor_position =
+                        self.common.mouse_state_mut().cursor_position =
                             CursorPosition::InWindow(pos);
                         self.update_hit_test_at(pos);
                         if let Some(lw) = self.common.layout_window.as_mut() {
@@ -2152,7 +2149,7 @@ impl HeadlessWindow {
                         use azul_core::window::CursorPosition;
                         self.snapshot_window_state_baseline("headless.run.mouse_move");
                         let pos = LogicalPosition { x, y };
-                        self.common.current_window_state.mouse_state.cursor_position =
+                        self.common.mouse_state_mut().cursor_position =
                             CursorPosition::InWindow(pos);
                         // MWA-C-scroll: active scrollbar thumb drag (desktop
                         // pattern) — scrollbar interaction was untestable in
@@ -2186,7 +2183,7 @@ impl HeadlessWindow {
                         // MWA-C-scroll: scrollbar hit first (desktop pattern).
                         let sb_hit = if matches!(button, azul_core::events::MouseButton::Left) {
                             self.common
-                                .current_window_state
+                                .current_window_state()
                                 .mouse_state
                                 .cursor_position
                                 .get_position()
@@ -2198,7 +2195,7 @@ impl HeadlessWindow {
                             None
                         };
                         if let Some((hit, p)) = sb_hit {
-                            self.common.current_window_state.mouse_state.left_down = true;
+                            self.common.mouse_state_mut().left_down = true;
                             let r = PlatformWindow::handle_scrollbar_click(&mut self, hit, p);
                             events_result = events_result.max(r);
                             if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2215,13 +2212,13 @@ impl HeadlessWindow {
                         } else {
                         match button {
                             azul_core::events::MouseButton::Left => {
-                                self.common.current_window_state.mouse_state.left_down = true;
+                                self.common.mouse_state_mut().left_down = true;
                             }
                             azul_core::events::MouseButton::Right => {
-                                self.common.current_window_state.mouse_state.right_down = true;
+                                self.common.mouse_state_mut().right_down = true;
                             }
                             azul_core::events::MouseButton::Middle => {
-                                self.common.current_window_state.mouse_state.middle_down = true;
+                                self.common.mouse_state_mut().middle_down = true;
                             }
                             _ => {}
                         }
@@ -2242,13 +2239,13 @@ impl HeadlessWindow {
                         }
                         match button {
                             azul_core::events::MouseButton::Left => {
-                                self.common.current_window_state.mouse_state.left_down = false;
+                                self.common.mouse_state_mut().left_down = false;
                             }
                             azul_core::events::MouseButton::Right => {
-                                self.common.current_window_state.mouse_state.right_down = false;
+                                self.common.mouse_state_mut().right_down = false;
                             }
                             azul_core::events::MouseButton::Middle => {
-                                self.common.current_window_state.mouse_state.middle_down = false;
+                                self.common.mouse_state_mut().middle_down = false;
                             }
                             _ => {}
                         }
@@ -2261,9 +2258,9 @@ impl HeadlessWindow {
                     }
                     HeadlessEvent::KeyDown { virtual_keycode } => {
                         self.snapshot_window_state_baseline("headless.run.key_down");
-                        self.common.current_window_state.keyboard_state.current_virtual_keycode =
+                        self.common.keyboard_state_mut().current_virtual_keycode =
                             azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
-                        self.common.current_window_state.keyboard_state
+                        self.common.keyboard_state_mut()
                             .pressed_virtual_keycodes.insert_hm_item(virtual_keycode);
                         let r = self.process_window_events(0);
                         events_result = events_result.max(r);
@@ -2273,9 +2270,9 @@ impl HeadlessWindow {
                     }
                     HeadlessEvent::KeyUp { virtual_keycode } => {
                         self.snapshot_window_state_baseline("headless.run.key_up");
-                        self.common.current_window_state.keyboard_state.current_virtual_keycode =
+                        self.common.keyboard_state_mut().current_virtual_keycode =
                             azul_core::window::OptionVirtualKeyCode::None;
-                        self.common.current_window_state.keyboard_state
+                        self.common.keyboard_state_mut()
                             .pressed_virtual_keycodes.remove_hm_item(&virtual_keycode);
                         let r = self.process_window_events(0);
                         events_result = events_result.max(r);
@@ -2304,8 +2301,11 @@ impl HeadlessWindow {
                     }
                     HeadlessEvent::Resize { width, height } => {
                         self.snapshot_window_state_baseline("headless.run.resize");
-                        self.common.current_window_state.size.dimensions.width = width;
-                        self.common.current_window_state.size.dimensions.height = height;
+                        self.common
+                            .update_window_state(event::WindowStateSource::Os, |ws| {
+                                ws.size.dimensions.width = width;
+                                ws.size.dimensions.height = height;
+                            });
                         // Tag the upcoming regenerate_layout with the REAL
                         // reason, same as `simulate_resize()` — the two
                         // headless resize entry points used to disagree
@@ -2467,7 +2467,7 @@ impl HeadlessWindow {
             // and timers/threads (Phase 2), the three places a callback can
             // run — so a close requested anywhere this iteration exits before
             // the condvar wait instead of after a wake that may never come.
-            if self.common.current_window_state.flags.close_requested {
+            if self.common.current_window_state().flags.close_requested {
                 log_info!(
                     LogCategory::EventLoop,
                     "[Headless] close_requested by callback — closing window"
@@ -2510,7 +2510,7 @@ impl HeadlessWindow {
                 // Same close_requested contract as the parent window above: a
                 // callback that closes a child popup/dialog sets the flag and
                 // the loop must consume it.
-                if child.common.current_window_state.flags.close_requested {
+                if child.common.current_window_state().flags.close_requested {
                     child.close();
                 }
                 child.pending_window_creates.clear();
@@ -2613,21 +2613,19 @@ impl PlatformWindow for HeadlessWindow {
     }
 
     fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
-        let layout_window = self
-            .common
-            .layout_window
-            .as_mut()
-            .expect("Layout window must exist for callback invocation");
+        let borrows = self.common.layout_borrows();
 
         event::InvokeSingleCallbackBorrows {
-            layout_window,
+            layout_window: borrows
+                .layout_window
+                .expect("Layout window must exist for callback invocation"),
             window_handle: RawWindowHandle::Unsupported,
-            gl_context_ptr: &self.common.gl_context_ptr,
-            fc_cache_clone: (*self.common.fc_cache).clone(),
-            system_style: self.common.system_style.clone(),
-            previous_window_state: &self.common.previous_window_state,
-            current_window_state: &self.common.current_window_state,
-            renderer_resources: &mut self.common.renderer_resources,
+            gl_context_ptr: borrows.gl_context_ptr,
+            fc_cache_clone: (**borrows.fc_cache).clone(),
+            system_style: borrows.system_style.clone(),
+            previous_window_state: borrows.previous_window_state,
+            current_window_state: borrows.current_window_state,
+            renderer_resources: borrows.renderer_resources,
         }
     }
 
@@ -2998,7 +2996,9 @@ mod tests {
                 LogicalSize::new(prev_w, 240.0),
                 LogicalSize::new(w, 240.0),
             );
-            window.common.current_window_state.size.dimensions = LogicalSize::new(w, 240.0);
+            window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = LogicalSize::new(w, 240.0);
+            });
             if full {
                 window.regenerate_layout().expect("regen");
             } else {
@@ -3123,7 +3123,9 @@ mod tests {
                 LogicalSize::new(prev_w, 260.0),
                 LogicalSize::new(w, 260.0),
             );
-            window.common.current_window_state.size.dimensions = LogicalSize::new(w, 260.0);
+            window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = LogicalSize::new(w, 260.0);
+            });
             if full {
                 window.regenerate_layout().expect("regen");
             } else {
@@ -3380,7 +3382,9 @@ mod tests {
                     LogicalSize::new(prev_w, 300.0),
                     LogicalSize::new(w, 300.0),
                 );
-                window.common.current_window_state.size.dimensions = LogicalSize::new(w, 300.0);
+                window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+                    ws.size.dimensions = LogicalSize::new(w, 300.0);
+                });
                 if full {
                     window.regenerate_layout().expect("regen");
                 } else {
@@ -3527,7 +3531,9 @@ mod tests {
                 LogicalSize::new(800.0, 600.0),
                 LogicalSize::new(750.0, 600.0),
             );
-        window.common.current_window_state.size.dimensions = LogicalSize::new(750.0, 600.0);
+        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+            ws.size.dimensions = LogicalSize::new(750.0, 600.0);
+        });
         assert!(
             !full,
             "768 is not a threshold of this DOM — the hardcoded guess list must not fire"
@@ -3551,7 +3557,9 @@ mod tests {
                 LogicalSize::new(750.0, 600.0),
                 LogicalSize::new(600.0, 600.0),
             );
-        window.common.current_window_state.size.dimensions = LogicalSize::new(600.0, 600.0);
+        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+            ws.size.dimensions = LogicalSize::new(600.0, 600.0);
+        });
         window.regenerate_layout().expect("regen at 600");
         assert!(full, "crossing the harvested 720 must regenerate (shrink side!)");
         let after_600 = state
@@ -3573,7 +3581,9 @@ mod tests {
                 LogicalSize::new(600.0, 600.0),
                 LogicalSize::new(800.0, 600.0),
             );
-        window.common.current_window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
+            ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        });
         window.regenerate_layout().expect("regen back at 800");
         assert!(full, "growing back across 720 regenerates too");
         assert_eq!(first_box_color(&window), Some((0, 0, 255)), "desktop again");
@@ -5437,7 +5447,7 @@ mod tests {
         match event {
             HeadlessEvent::MouseMove { x, y } => {
                 let pos = LogicalPosition { x, y };
-                window.common.current_window_state.mouse_state.cursor_position =
+                window.common.mouse_state_mut().cursor_position =
                     CursorPosition::InWindow(pos);
                 // MWA-C-scroll: active scrollbar thumb drag (desktop pattern).
                 if window.common.scrollbar_drag_state.is_some() {
@@ -5466,7 +5476,7 @@ mod tests {
                 let sb_hit = if matches!(button, MouseButton::Left) {
                     window
                         .common
-                        .current_window_state
+                        .current_window_state()
                         .mouse_state
                         .cursor_position
                         .get_position()
@@ -5477,7 +5487,7 @@ mod tests {
                     None
                 };
                 if let Some((hit, p)) = sb_hit {
-                    window.common.current_window_state.mouse_state.left_down = true;
+                    window.common.mouse_state_mut().left_down = true;
                     needs_redraw = !matches!(
                         PlatformWindow::handle_scrollbar_click(window, hit, p),
                         ProcessEventResult::DoNothing
@@ -5490,9 +5500,9 @@ mod tests {
                     );
                 } else {
                     match button {
-                        MouseButton::Left => window.common.current_window_state.mouse_state.left_down = true,
-                        MouseButton::Right => window.common.current_window_state.mouse_state.right_down = true,
-                        MouseButton::Middle => window.common.current_window_state.mouse_state.middle_down = true,
+                        MouseButton::Left => window.common.mouse_state_mut().left_down = true,
+                        MouseButton::Right => window.common.mouse_state_mut().right_down = true,
+                        MouseButton::Middle => window.common.mouse_state_mut().middle_down = true,
                         _ => {}
                     }
                     record_headless_input(window, true, false); // MWA-A4
@@ -5509,9 +5519,9 @@ mod tests {
                     window.common.scrollbar_drag_state = None;
                 }
                 match button {
-                    MouseButton::Left => window.common.current_window_state.mouse_state.left_down = false,
-                    MouseButton::Right => window.common.current_window_state.mouse_state.right_down = false,
-                    MouseButton::Middle => window.common.current_window_state.mouse_state.middle_down = false,
+                    MouseButton::Left => window.common.mouse_state_mut().left_down = false,
+                    MouseButton::Right => window.common.mouse_state_mut().right_down = false,
+                    MouseButton::Middle => window.common.mouse_state_mut().middle_down = false,
                     _ => {}
                 }
                 record_headless_input(window, false, true); // MWA-A4
@@ -5522,9 +5532,9 @@ mod tests {
                 needs_redraw = ended_scrollbar_drag || pass_changed;
             }
             HeadlessEvent::KeyDown { virtual_keycode } => {
-                window.common.current_window_state.keyboard_state.current_virtual_keycode =
+                window.common.keyboard_state_mut().current_virtual_keycode =
                     azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
-                window.common.current_window_state.keyboard_state
+                window.common.keyboard_state_mut()
                     .pressed_virtual_keycodes.insert_hm_item(virtual_keycode);
                 needs_redraw = !matches!(
                     window.process_window_events(0),
@@ -5532,9 +5542,9 @@ mod tests {
                 );
             }
             HeadlessEvent::KeyUp { virtual_keycode } => {
-                window.common.current_window_state.keyboard_state.current_virtual_keycode =
+                window.common.keyboard_state_mut().current_virtual_keycode =
                     azul_core::window::OptionVirtualKeyCode::None;
-                window.common.current_window_state.keyboard_state
+                window.common.keyboard_state_mut()
                     .pressed_virtual_keycodes.remove_hm_item(&virtual_keycode);
                 needs_redraw = !matches!(
                     window.process_window_events(0),
@@ -6188,7 +6198,7 @@ mod tests {
             .map(|p| (p.width(), p.height()))
             .unwrap_or((1, 1));
         let dpi = {
-            let ws = &w.common.current_window_state;
+            let ws = w.common.current_window_state();
             ws.size.dpi as f32 / 96.0
         };
         let mut reference = azul_layout::cpurender::AzulPixmap::new(pw, ph).expect("ref pixmap");

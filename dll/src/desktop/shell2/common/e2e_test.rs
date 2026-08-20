@@ -231,7 +231,7 @@ pub fn run_e2e_scenario(
                         let mut debug_messages = None;
                         if let Err(e) = super::layout::incremental_relayout(
                             layout_window,
-                            &window.common.current_window_state,
+                            window.common.current_window_state(),
                             &mut window.common.renderer_resources,
                             &mut debug_messages,
                         ) {
@@ -367,7 +367,10 @@ fn set_size(window: &mut HeadlessWindow, width: f32, height: f32) {
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.current_window_state.size.dimensions = dim;
     }
-    window.common.current_window_state.size.dimensions = dim;
+    window.common.update_window_state(
+        crate::desktop::shell2::common::event::WindowStateSource::Os,
+        |ws| ws.size.dimensions = dim,
+    );
 }
 
 /// Emit one flat `mem` event that attributes every byte we can measure.

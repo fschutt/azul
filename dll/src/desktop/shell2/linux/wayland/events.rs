@@ -246,7 +246,7 @@ pub(super) extern "C" fn wl_surface_enter_handler(
 
     // Check if scale factor changed (entered monitor with different DPI)
     let new_scale = window.calculate_current_scale_factor();
-    let old_dpi = window.common.current_window_state.size.dpi;
+    let old_dpi = window.common.current_window_state().size.dpi;
     let new_dpi = (new_scale * 96.0) as u32;
 
     // Only regenerate if DPI changed significantly
@@ -284,7 +284,7 @@ fn apply_os_dpi_change(window: &mut WaylandWindow, new_dpi: u32) {
     // the old buffers are sized for the previous scale and the copy clamp would
     // truncate every frame.
     let (w, h) = {
-        let d = &window.common.current_window_state.size.dimensions;
+        let d = &window.common.current_window_state().size.dimensions;
         (d.width as i32, d.height as i32)
     };
     window.resize_surface(w, h);
@@ -314,7 +314,7 @@ pub(super) extern "C" fn wl_surface_leave_handler(
 
     // Check if scale factor changed (left monitor, now on different monitor)
     let new_scale = window.calculate_current_scale_factor();
-    let old_dpi = window.common.current_window_state.size.dpi;
+    let old_dpi = window.common.current_window_state().size.dpi;
     let new_dpi = (new_scale * 96.0) as u32;
 
     // Only regenerate if DPI changed significantly
@@ -344,7 +344,7 @@ pub(super) extern "C" fn wp_fractional_scale_preferred_scale_handler(
     if scale_120 == 0 || window.preferred_scale_120 == Some(scale_120) {
         return;
     }
-    let old_dpi = window.common.current_window_state.size.dpi;
+    let old_dpi = window.common.current_window_state().size.dpi;
     // dpi = scale × 96 = scale_120 × 96 / 120, rounded to the nearest integer
     // (size.dpi is u32; the exact ×120 value stays in preferred_scale_120).
     let new_dpi = (scale_120 * 96 + 60) / 120;
@@ -737,12 +737,17 @@ pub(super) extern "C" fn toplevel_decoration_configure_handler(
     }
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     const CLIENT_SIDE: u32 = 1;
-    let flags = &mut window.common.current_window_state.flags;
-    if mode == CLIENT_SIDE
-        && flags.decorations != azul_core::window::WindowDecorations::None
-    {
-        flags.decorations = azul_core::window::WindowDecorations::None;
-        flags.has_decorations = true;
+    let refuses_ssd = mode == CLIENT_SIDE
+        && window.common.current_window_state().flags.decorations
+            != azul_core::window::WindowDecorations::None;
+    if refuses_ssd {
+        window.common.update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |ws| {
+                ws.flags.decorations = azul_core::window::WindowDecorations::None;
+                ws.flags.has_decorations = true;
+            },
+        );
         window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         window.request_redraw();
     }
@@ -2145,11 +2150,11 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
     // re-sends the current size on every state-only change) cost neither a full
     // window-state clone nor an event pass.
     let frame_changed =
-        new_frame.is_some_and(|f| window.common.current_window_state.flags.frame != f);
+        new_frame.is_some_and(|f| window.common.current_window_state().flags.frame != f);
     let size_changed = width > 0
         && height > 0
-        && (width != window.common.current_window_state.size.dimensions.width as i32
-            || height != window.common.current_window_state.size.dimensions.height as i32);
+        && (width != window.common.current_window_state().size.dimensions.width as i32
+            || height != window.common.current_window_state().size.dimensions.height as i32);
 
     if frame_changed || size_changed {
         window.snapshot_window_state_baseline("wayland.xdg_toplevel_configure_handler");
@@ -2175,8 +2180,8 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
 
     // If width/height are non-zero, the compositor is requesting a specific size
     if width > 0 && height > 0 {
-        let current_width = window.common.current_window_state.size.dimensions.width as i32;
-        let current_height = window.common.current_window_state.size.dimensions.height as i32;
+        let current_width = window.common.current_window_state().size.dimensions.width as i32;
+        let current_height = window.common.current_window_state().size.dimensions.height as i32;
 
         super::wl_trace!(
             "xdg_toplevel.configure {}x{} (current {}x{}) changed={} — configures={} {}",

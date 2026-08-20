@@ -457,7 +457,7 @@ fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
         .regenerate_layout()
         .expect("regenerate_layout must succeed");
 
-    let before = window.common.current_window_state.theme;
+    let before = window.common.current_window_state().theme;
     let switch_to = match before {
         WindowTheme::DarkMode => WindowTheme::LightMode,
         WindowTheme::LightMode => WindowTheme::DarkMode,
@@ -468,7 +468,7 @@ fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
         "set_system_theme reported no change while switching from {before:?} to {switch_to:?}",
     );
     assert_eq!(
-        window.common.current_window_state.theme, switch_to,
+        window.common.current_window_state().theme, switch_to,
         "the window kept its old theme after a switch, so prefers-color-scheme styling would \
          still evaluate against {before:?}",
     );
@@ -492,7 +492,7 @@ fn re_asserting_the_current_theme_costs_nothing() {
         .regenerate_layout()
         .expect("regenerate_layout must succeed");
 
-    let current = window.common.current_window_state.theme;
+    let current = window.common.current_window_state().theme;
     // Retire whatever the initial layout raised, so the assertion below is about
     // the no-op switch and not about leftover startup state.
     let epoch = window.common.regen_epoch();
