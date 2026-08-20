@@ -173,6 +173,122 @@ jobs:
           fi
           echo "shell2 backends keep blocking waits off the UI thread"
 
+  documentation_paths:
+    name: Documentation paths (docproof)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    # The workflow grants `pages: write` and `id-token: write` at the top. This
+    # job runs THIRD-PARTY code, so it takes read-only contents and nothing else:
+    # a job-level block REPLACES the workflow default rather than adding to it.
+    # No secret is referenced anywhere below, so none is in the environment.
+    permissions:
+      contents: read
+    steps:
+      # `fetch-depth: 0`, and this is load-bearing rather than tidy. docproof
+      # decides "this documented path is stale" by asking git what happened to
+      # it; a truncated clone cannot tell a file the project DELETED from one it
+      # never had, so every judgement degrades to a skip and the job goes green
+      # having checked nothing. The explicit guard below turns that into a
+      # failure instead of a lie, but the fix is the full history.
+      #
+      # `persist-credentials: false`: checkout otherwise leaves the run's
+      # GITHUB_TOKEN in `.git/config`, readable by anything that runs afterwards
+      # in this job — which here includes code from another repository.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # PINNED TO A COMMIT, not to `v1` or `v0.2.0`. A tag is a mutable pointer:
+      # whoever owns the upstream repository can move it to any commit at any
+      # time, and CI would fetch and execute the new content without a diff on
+      # our side. A SHA is the content. To bump: read the upstream diff, then
+      # change this line and nothing else.
+      #
+      # Reviewed at this commit (2026-08-20): no network access, no filesystem
+      # writes, no eval/exec, subprocess is `git` only with list-argv (never
+      # `shell=True`) and a timeout, and claimed paths are resolved then checked
+      # with `relative_to(root)` before use. ~3.3k lines of Python.
+      - name: Fetch docproof at a pinned commit
+        uses: actions/checkout@v7
+        with:
+          repository: melbinjp/docproof
+          ref: 8b135f6ca2ce18cd2ea5298fc48111e4b7e21e9e
+          path: .docproof
+          persist-credentials: false
+
+      # `ref:` accepts a branch name too, so prove what actually landed. If the
+      # pin above is ever edited to something mutable this fails loudly rather
+      # than running whatever arrived.
+      - name: Verify the pin
+        run: |
+          set -e
+          want=8b135f6ca2ce18cd2ea5298fc48111e4b7e21e9e
+          got=$(git -C .docproof rev-parse HEAD)
+          if [ "$got" != "$want" ]; then
+            echo "::error::docproof checkout is $got, expected the pinned $want"
+            exit 1
+          fi
+          echo "docproof pinned at $got"
+
+      # 3.12 for one reason: docproof's single dependency (`tomli`) is declared
+      # `python_version < "3.11"`, so on 3.12 it needs nothing at all and this
+      # job resolves NO packages from PyPI. The runner's own python is 3.10,
+      # where that dependency would be real.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Run from the checked-out source rather than `pip install`. Installing
+      # would fetch the build backend and its dependencies from PyPI at run
+      # time — unpinned, and a far larger surface than the thing being pinned.
+      # `PYTHONPATH` means the only third-party bytes that execute are the ones
+      # at the SHA above.
+      - name: Check documented paths against the repository
+        run: |
+          set -e
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+            echo "::error::This checkout is shallow, so docproof cannot tell a deleted path from one that never existed and would pass having judged nothing. Restore fetch-depth: 0."
+            exit 1
+          fi
+          # Deliberately NOT `docproof | tee log`: a pipeline's status is the
+          # LAST command's, so `tee` would return 0 and swallow every finding
+          # this job exists to catch. Capture the code, then print, then re-raise.
+          status=0
+          PYTHONPATH="$PWD/.docproof/src" python -m docproof.cli . > docproof.log 2>&1 || status=$?
+          cat docproof.log
+          {
+            echo '### Documented paths'
+            echo
+            echo '```'
+            cat docproof.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # A verifier that reported itself inapplicable is not a pass. If the
+          # `paths` line is missing entirely, nothing was checked, and a green
+          # tick would mean the opposite of what it looks like.
+          if ! grep -qE '^(ok|BROKEN) paths: ' docproof.log; then
+            echo "::error::docproof did not run its path verifier at all - the gate checked nothing."
+            exit 1
+          fi
+          exit $status
+
+      # docproof only ever reads. If a future version writes, that is a change
+      # of character, and this run is where we find out.
+      - name: The checker must not have modified the tree
+        if: always()
+        run: |
+          set -e
+          if ! git diff --quiet; then
+            echo "::error::docproof modified tracked files; it is documented as read-only."
+            git diff --stat
+            exit 1
+          fi
+          echo "working tree untouched"
+
   lint_and_check:
     name: Lint & Static Checks
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
@@ -286,7 +402,12 @@ jobs:
       # TRUE LEAVES (custom Drop or an owned raw pointer); plain aggregates get no
       # mirror Drop and free each field once via field-glue. A raw-heap-owning
       # type reachable by-value must stay idempotent. See doc/src/main.rs Lint 2.
-      - name: Double-drop invariant check (azul-doc)
+      # Also the guide-pointer lint (Lint 3): every `[text](page.md)`, `#anchor`,
+      # image and backticked repo path under doc/guide/en must resolve against
+      # the worktree. It is in the same command deliberately — a contributor
+      # running `azul-doc check` locally before pushing should meet every gate
+      # this job enforces, not a subset of it.
+      - name: Double-drop invariant + guide links (azul-doc)
         run: cargo run -r -p azul-doc check
 
       # Double-drop RUNTIME regression gate. Exercises the real FFI drop path

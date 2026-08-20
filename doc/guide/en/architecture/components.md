@@ -256,7 +256,7 @@ There's a second authoring surface in the same pipeline. A component can be decl
 </app>
 ```
 
-The runtime path is `Dom::create_from_parsed_xml`, introduced in [The DOM - Loading XML and XHTML](../dom.md#loading-xml-and-xhtml). It walks the parsed XML, resolves each tag against the registered component libraries, and produces the corresponding `Dom`.
+The runtime path is `Dom::create_from_parsed_xml`, introduced in [The DOM - Parsing from XHTML](../dom.md#parsing-from-xhtml). It walks the parsed XML, resolves each tag against the registered component libraries, and produces the corresponding `Dom`.
 
 Whether a component is hand-written Rust or XML-defined, the value is the same. It's a function from arguments and a `RefAny` to a `Dom`. The rest of this section is about *registering* those functions so the framework can look them up by name.
 

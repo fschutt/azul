@@ -76,7 +76,7 @@ curl -s -X POST http://127.0.0.1:8765/ \
   | base64 -d > screenshot.png
 ```
 
-This is the pattern the screenshot harness in `scripts/screenshot.sh` uses to render `azul-render` fences in the documentation.
+This is the pattern `azul-doc autoreview autodoc-screenshots` uses to render `azul-render` fences in the documentation.
 
 ## Driving a headless app
 

@@ -159,7 +159,7 @@ curl -s -X POST http://localhost:8765/ \
 ```
 
 This is the path covered in [Headless Rendering](../headless/rendering.md).
-The DOM-side example is in [Document Object Model](../dom.md#inline-svg).
+The DOM-side example is in [Document Object Model](../dom.md#parsing-from-svg).
 
 **Standalone SVG file.** When you have an `.svg` on disk and want a
 raster out, parse with `Svg::from_string` (or `Svg::from_bytes`) and

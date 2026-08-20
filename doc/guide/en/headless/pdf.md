@@ -59,7 +59,7 @@ layout splits the document across as many pages as it needs, each
 
 ## A complete example
 
-`examples/azul-doc` is the P5 goal app. Its export callback builds the document
+`examples/azul-writer` is the P5 goal app. Its export callback builds the document
 `Dom` and exports it - no window involved in the conversion:
 
 ```rust

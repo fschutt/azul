@@ -15,7 +15,7 @@ XHTML source
   → layout/src/solver3/taffy_bridge.rs   flex/grid delegated to Taffy crate
   → layout/src/solver3/positioning.rs    relative + absolute positioning
   → layout/src/solver3/display_list.rs   build flat display list (draw commands)
-  → layout/src/cpurender.rs          render display list to pixels via tiny-skia
+  → layout/src/cpurender/            render display list to pixels via tiny-skia
 ```
 
 ## Crate: azul-css  (`css/`)
@@ -133,9 +133,13 @@ Layout engine, text layout, and rendering.
 - `paged_layout.rs` / `pagination.rs` — paged media
 - `scrollbar.rs` — scrollbar rendering
 
-### CPU rendering — `layout/src/cpurender.rs`
+### CPU rendering — `layout/src/cpurender/`
 Renders the flat `DisplayList` to pixels via tiny-skia. If colors, borders, or
 backgrounds render wrong (but layout positions are correct), look here.
+- `raster.rs` — display-list draw commands to pixels
+- `compositor.rs` — layer composition
+- `pixmap.rs` — the target surface
+- `svg.rs` — SVG node rendering
 
 ### Text layout — `layout/src/text3/`
 - `mod.rs` — text layout orchestration
@@ -198,5 +202,5 @@ cat '<path>.debug.json' | jq '.render_warnings[]' | grep -i 'width\|margin\|clea
 | Wrong CSS value picked | `core/src/prop_cache.rs` | cascade specificity, duplicate properties |
 | Flex/grid sizing wrong | `taffy_bridge.rs` | value conversion TO Taffy |
 | Text position wrong | `text3/glyphs.rs` | line height, baseline alignment |
-| Colors/borders wrong | `cpurender.rs` | display list rendering |
-| Background missing | `display_list.rs` + `cpurender.rs` | draw command generation |
+| Colors/borders wrong | `cpurender/raster.rs` | display list rendering |
+| Background missing | `display_list.rs` + `cpurender/raster.rs` | draw command generation |

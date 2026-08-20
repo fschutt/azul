@@ -74,7 +74,7 @@ block that contains text. You usually don't choose it explicitly.
 
 A few properties apply regardless of the formatting mode:
 
-- `width` / `height` and the `min-` / `max-` constraints. See [Sizing](layout/blocks.md#sizing-width-height-and-min--max--constraints).
+- `width` / `height` and the `min-` / `max-` constraints. See [Sizing](layout/blocks.md#sizing-width-height-and-min---max--constraints).
 - `padding` and `margin`. See [`margin` and `padding`](layout/blocks.md#margin-and-padding).
 - `box-sizing`. See [`box-sizing`](layout/blocks.md#box-sizing).
 - `position`, `z-index`, and `overflow`. See [`position`](layout/blocks.md#position) and [`overflow`](layout/blocks.md#overflow).

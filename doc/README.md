@@ -400,20 +400,19 @@ azul-doc autoreview autodoc-screenshots      # Render azul-render fences to PNG
 ### Pipeline stages
 
 ```
-autoreview ──► reference.md ──► autodoc ──► autodoc-screenshots ──► deploy
-(per-file)     (amalgamated)    (per-group)  (PNG renders)         (website)
+autoreview ──► autodoc ──► autodoc-screenshots ──► deploy
+(per-file)     (per-group)  (PNG renders)         (website)
 ```
 
 1. `autoreview` produces per-file reports under `doc/target/autoreview/reports/`.
-2. Reports are amalgamated into `doc/guide/en/reference.md` (one-time, hand-curated).
-3. `autodoc` reads `autodoc-groups.toml`, builds one prompt per group with
-   the group's tracked source, the matching reference.md sections, the
-   per-group `design_docs` (intent, not truth), and the global
-   writing-style + max-effort thinking rules from `[meta]`.
-4. Agents write pages to their declared paths under `doc/guide/en/`.
-5. `autodoc-screenshots` renders any `azul-render` fences via `HeadlessWindow`
+2. `autodoc` reads `autodoc-groups.toml`, builds one prompt per group with
+   the group's tracked source, the per-group `design_docs` (intent, not
+   truth), and the global writing-style + max-effort thinking rules from
+   `[meta]`.
+3. Agents write pages to their declared paths under `doc/guide/en/`.
+4. `autodoc-screenshots` renders any `azul-render` fences via `HeadlessWindow`
    into `doc/guide/en/screenshots/<page-slug>/<name>.png`.
-6. `deploy` walks `doc/guide/en/` at runtime, parses each page's
+5. `deploy` walks `doc/guide/en/` at runtime, parses each page's
    frontmatter for ordering, and emits the final HTML. The guide index
    page is built from the frontmatter (`title`, `short_desc`, `audience`,
    `guide_order`, slug hierarchy) — no separate SUMMARY file is involved.
@@ -434,7 +433,7 @@ and one or more `[[group.outputs]]` with `slug`, `path`, `title`,
 `maturity`, optional `guide_order` and `prerequisites`. The global
 `[meta.writing_style]` and `[meta.agent_thinking]` blocks ship into
 every prompt; agents are anchored on the Servo book style and the
-project's existing `shared_context_files` (AUTODOC.md, reference.md,
+project's existing `shared_context_files` (AUTODOC.md,
 architecture.md, scripts/ARCHITECTURE.md, api.json).
 
 `design_docs` lists files in `scripts/` (e.g. `TEXT_INPUT_ARCHITECTURE_V4.md`)
@@ -463,7 +462,6 @@ it page-for-page with localized slugs.
 ```
 doc/guide/
 ├── en/                                  # canonical (the only tree autodoc writes)
-│   ├── reference.md
 │   ├── architecture.md                  # slug: architecture
 │   ├── hello-world.md                   # slug: hello-world
 │   ├── layout/flex.md                   # slug: layout/flex
@@ -523,7 +521,6 @@ doc/target/autoreview/autodoc/
 └── screenshots-manifest-<lang>.json  # Cached render manifest
 
 doc/guide/<lang>/
-├── reference.md                   # per-source-file backlog (en only — canonical)
 ├── architecture.md                # Canonical architecture doc (en only)
 ├── <slug>.md                      # Generated guide pages
 ├── <parent>/<child>.md            # Nested pages render as a sub-tree under <parent>.md

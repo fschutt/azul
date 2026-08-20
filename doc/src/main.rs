@@ -16,6 +16,7 @@ pub mod dllgen;
 pub mod e2erun;
 pub mod gene2e;
 pub mod lint_examples;
+pub mod lint_links;
 pub mod docgen;
 pub mod patch;
 pub mod print;
@@ -126,6 +127,21 @@ fn main() -> anyhow::Result<()> {
             let output_dir = project_root.join("target").join("autofix");
             let api_data = load_api_json(&api_path)?;
             autofix::autofix_api(&api_data, &project_root, &output_dir, true)?;
+            return Ok(());
+        }
+        ["check", "links"] => {
+            // The guide-pointer half of `check`, on its own. Fast (no api.json
+            // scan): every `[text](page.md)`, `#anchor`, image and backticked
+            // repo path under doc/guide/en must land on something real.
+            let problems = lint_links::check_guide_links(&project_root);
+            if !problems.is_empty() {
+                eprintln!("[FAIL] dangling pointers in the guide ({}):", problems.len());
+                for p in &problems {
+                    eprintln!("    {}:{}: {}", p.file, p.line, p.detail);
+                }
+                anyhow::bail!("azul-doc check links failed: {} problem(s)", problems.len());
+            }
+            println!("[ok] every guide link, anchor and documented path resolves");
             return Ok(());
         }
         ["check"] | ["check", "layout"] => {
@@ -327,6 +343,24 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
                 problems += stale.len();
+            }
+
+            // Lint 3: guide pointers. A `[text](../dom.md)` whose page moved,
+            // an image that is not on disk, a `#anchor` with no heading behind
+            // it, or a backticked `core/src/foo.rs` that was renamed — each is
+            // a link the deployed site serves broken. Skipped under
+            // `check layout`, which is the ABI-only subset.
+            if args.get(2).is_none() {
+                let dangling = lint_links::check_guide_links(&project_root);
+                if dangling.is_empty() {
+                    println!("[ok] every guide link, anchor and documented path resolves");
+                } else {
+                    eprintln!("[FAIL] dangling pointers in the guide ({}):", dangling.len());
+                    for p in &dangling {
+                        eprintln!("    {}:{}: {}", p.file, p.line, p.detail);
+                    }
+                    problems += dangling.len();
+                }
             }
 
             if problems > 0 {

@@ -350,7 +350,7 @@ this section with `moq-lite`, leaving §6 intact.
 3. **Stub engine first:** loopback echo → build azul-meet UI with no server. Verify `cargo build`
    native + wasm32.
 4. **Wire format:** the 16-byte header + per-kind framing as a small pure module in `azul-core`
-   (alongside/superseding `core/src/udp_framing.rs`), unit-tested.
+   (superseding the UDP framing module, since removed in 1f5cbd437), unit-tested.
 5. **Real native engine** behind `webtransport-native` (`web-transport-quinn` + `tokio`): connect
    (URL `/r/<room>?t=<token>`, dev self-signed cert hash), 3 async loops, QUIC stats → `WtStats`.
 6. **Audio codec:** Opus encode/decode (`opus` crate or dlopen libopus, azul-style); raw-f32-over-
