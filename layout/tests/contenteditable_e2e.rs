@@ -1942,3 +1942,92 @@ fn focus_set_before_the_first_layout_survives_until_layout_exists() {
         "queue drained, not re-queued"
     );
 }
+
+// =========================================================================
+// REGRESSION (B2): a keystroke must not inherit the previous layout pass's
+// patch bookkeeping
+// =========================================================================
+
+/// REGRESSION (B2): typing does not redraw the edited text.
+///
+/// A keystroke goes `apply_text_changeset` -> `reapply_dirty_text_node` ->
+/// `LayoutWindow::regenerate_display_list_for_dom`, which rebuilds the display
+/// list WHOLESALE from the current layout tree. It used to leave
+/// `LayoutCache::last_build_was_patched` / `last_patch_damage` /
+/// `last_patch_move` exactly as the previous LAYOUT pass left them.
+///
+/// Those three are read by the compositor, not by layout. `last_patch_move`
+/// becomes a `cpurender::TranslateHint`: the CPU backend BLITS the previous
+/// frame by `dominant_delta` and repaints only the exceptions plus the damage
+/// (`dll/src/desktop/shell2/headless/mod.rs:532`, E2E twin
+/// `layout/src/e2e/cpu_backend.rs:329`). The rebuild also mints a fresh
+/// display-list `Arc`, which is what clears the backend's
+/// `last_patch_shift_dl` re-shift guard — so the hint was live again. The
+/// frame was then shifted by a delta belonging to an earlier reflow and the
+/// newly typed glyphs were never painted where they actually are: the damage
+/// rect is right, the pixels in it are a translated copy of the old frame.
+///
+/// Asserts the invariant directly: after a keystroke, no patch bookkeeping
+/// from an earlier pass may survive.
+#[test]
+fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    let mut h = ContentEditableHarness::new(400.0, 300.0);
+
+    let mut editor = Dom::create_div();
+    editor = editor.with_ids_and_classes(cls("editor").into());
+    editor.set_contenteditable(true);
+    editor.set_tab_index(TabIndex::Auto);
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"));
+
+    h.layout_dom(Dom::create_body().with_child(editor), CE_CSS);
+
+    let dom_id = DomId { inner: 0 };
+    let ce_node_id = h.find_contenteditable_nodes()[0];
+    h.focus_node(dom_id, ce_node_id);
+
+    // Stand in for "the previous layout pass was a PATCHED build that moved
+    // content by 40px" — the state a scroll / incremental reflow leaves behind.
+    {
+        let lw = h.layout_window.as_mut().unwrap();
+        lw.layout_cache.last_build_was_patched = true;
+        lw.layout_cache.last_patch_damage = Some(vec![LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(400.0, 40.0),
+        )]);
+        lw.layout_cache.last_patch_move = Some(
+            azul_layout::solver3::display_list::PatchMoveSummary {
+                dominant_delta: LogicalPosition::new(0.0, -40.0),
+                moved_region_old: LogicalRect::new(
+                    LogicalPosition::new(0.0, 40.0),
+                    LogicalSize::new(400.0, 260.0),
+                ),
+                exceptions: Vec::new(),
+                mover_rects_old: Vec::new(),
+            },
+        );
+    }
+
+    let (_affected, _old, inserted) = h.type_text("X");
+    assert_eq!(inserted, "X", "sanity: the keystroke must have been applied");
+
+    let lw = h.layout_window.as_ref().unwrap();
+    assert!(
+        !lw.layout_cache.last_build_was_patched,
+        "a wholesale display-list rebuild is not a patched build"
+    );
+    assert!(
+        lw.layout_cache.last_patch_damage.is_none(),
+        "the rebuilt list inherited damage rects describing a DIFFERENT list: {:?}",
+        lw.layout_cache.last_patch_damage
+    );
+    assert!(
+        lw.layout_cache.last_patch_move.is_none(),
+        "the rebuilt list inherited a translate hint ({:?}) — the compositor \
+         will BLIT the previous frame by that delta instead of painting the \
+         glyphs the user just typed",
+        lw.layout_cache.last_patch_move
+    );
+}
+

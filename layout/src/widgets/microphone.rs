@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 
 use azul_core::audio::{AudioConfig, AudioFrame};
 
-use super::capture_common::mic_backend;
+use super::capture_common::{mic_backend, terminate_requested};
 use azul_core::callbacks::Update;
 use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
 use azul_core::refany::{OptionRefAny, RefAny};
@@ -195,7 +195,11 @@ extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// widget unmounts. The real `AVAudioEngine` / `AAudio` / cpal capture loop
 /// replaces it (dll-side).
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
-extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn mic_worker(
+    mut init: RefAny,
+    mut sender: ThreadSender,
+    mut recv: ThreadReceiver,
+) {
     let (rate, channels) = init
         .downcast_ref::<MicThreadInit>()
         .map_or((48_000, 1), |i| (i.sample_rate, i.channels));
@@ -207,6 +211,12 @@ extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thre
         if handle != 0 {
             let mut buf: Vec<f32> = Vec::new();
             loop {
+                // See `capture_common::terminate_requested`: an ALSA read is
+                // not interruptible from the terminate channel, so the check
+                // has to happen between reads.
+                if terminate_requested(&mut recv) {
+                    break;
+                }
                 let frames = (backend.read)(handle, &mut buf);
                 if frames == 0 {
                     break;
@@ -255,6 +265,9 @@ extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thre
     let step = 2.0 * core::f32::consts::PI * 440.0 / rate as f32;
     let mut phase: f32 = 0.0;
     loop {
+        if terminate_requested(&mut recv) {
+            break;
+        }
         let mut samples = Vec::with_capacity(frames_per_chunk * channels as usize);
         for _ in 0..frames_per_chunk {
             let s = phase.sin() * 0.2;
@@ -1271,6 +1284,57 @@ mod autotest_generated {
             read_state(&mut merged),
             (cfg(44_100, 2), true, true),
             "the rebuilt widget keeps its new config + hook but inherits the thread"
+        );
+    }
+
+    /// REGRESSION (B3): a capture worker must ACKNOWLEDGE `TerminateThread`.
+    ///
+    /// Reported from azul-meet on macOS after using camera + screenshare — the
+    /// framework printed, twice (once per capture worker):
+    ///
+    /// ```text
+    /// [azul][thread] a background thread did not acknowledge TerminateThread
+    /// within 2000ms and was DETACHED rather than joined.
+    /// ```
+    ///
+    /// Root cause: the worker took its receiver as `_recv` and never polled it,
+    /// so the terminate message was never observed. The only exit was
+    /// `sender.send()` returning false, which does NOT happen at shutdown
+    /// because the main thread still owns the receiving end while it waits out
+    /// the grace period. Fixed by `capture_common::terminate_requested`.
+    ///
+    /// The budget here is the framework's own:
+    /// `THREAD_TERMINATE_GRACE_STEPS (200) * 10ms = 2000ms`.
+    #[test]
+    fn mic_worker_acknowledges_terminate_within_the_grace_budget() {
+        use crate::thread::{Thread, ThreadCallback};
+
+        let t = Thread::create(
+            RefAny::new(MicThreadInit {
+                sample_rate: 8_000,
+                channels: 1,
+            }),
+            RefAny::new(0_usize),
+            ThreadCallback::new(mic_worker),
+        );
+        assert!(
+            t.send_message(ThreadSendMsg::TerminateThread),
+            "the worker holds its receiver alive, so the send must succeed"
+        );
+        let finished = || {
+            t.ptr
+                .lock()
+                .expect("thread mutex must not be poisoned")
+                .is_finished()
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2_000);
+        while !finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            finished(),
+            "mic_worker did not acknowledge TerminateThread within 2000ms — at shutdown it \
+             would be DETACHED rather than joined"
         );
     }
 }

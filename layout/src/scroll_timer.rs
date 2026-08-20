@@ -177,9 +177,25 @@ pub extern "C" fn scroll_physics_timer_callback(
         match input.source {
             ScrollInputSource::TrackpadContinuous => {
                 // Trackpad: OS handles momentum. Apply delta directly as position change.
-                let current = timer_info
-                    .get_scroll_node_info(input.dom_id, input.node_id)
-                    .map(|info| info.current_offset)
+                //
+                // ACCUMULATE onto whatever this tick already staged for the
+                // node, falling back to the committed offset. `current_offset`
+                // does NOT move while this callback runs — the ScrollTo changes
+                // are applied after it returns — so basing every event of the
+                // batch on it and then `insert`ing meant N events in one tick
+                // collapsed to the LAST delta. A 120 Hz trackpad against the
+                // 16 ms tick routinely queues two events, i.e. half the gesture
+                // was silently dropped, which is what "scrolling fights itself"
+                // feels like from the outside.
+                let current = physics
+                    .pending_trackpad_positions
+                    .get(&key)
+                    .copied()
+                    .or_else(|| {
+                        timer_info
+                            .get_scroll_node_info(input.dom_id, input.node_id)
+                            .map(|info| info.current_offset)
+                    })
                     .unwrap_or_default();
 
                 let new_pos = LogicalPosition {
@@ -251,10 +267,17 @@ pub extern "C" fn scroll_physics_timer_callback(
                 }
             }
             ScrollInputSource::Programmatic => {
-                // Programmatic: Set position directly
-                let current = timer_info
-                    .get_scroll_node_info(input.dom_id, input.node_id)
-                    .map(|info| info.current_offset)
+                // Programmatic: Set position directly. Accumulates within the
+                // tick for the same reason as TrackpadContinuous above.
+                let current = physics
+                    .pending_positions
+                    .get(&key)
+                    .copied()
+                    .or_else(|| {
+                        timer_info
+                            .get_scroll_node_info(input.dom_id, input.node_id)
+                            .map(|info| info.current_offset)
+                    })
                     .unwrap_or_default();
 
                 let new_pos = LogicalPosition {
@@ -281,7 +304,20 @@ pub extern "C" fn scroll_physics_timer_callback(
                 // Trackpad gesture ended (fingers lifted).
                 // If the scroll position is past the bounds (rubber-banding overshoot),
                 // start a spring-back animation to snap back to the boundary.
-                let pos = physics.pending_positions.remove(&key)
+                // Peek (do NOT remove) the position this tick has staged for
+                // the node. It used to read `pending_positions`, the
+                // PROGRAMMATIC map, which a trackpad gesture never writes — so
+                // the overshoot decision was made from the stale, pre-tick
+                // offset and the spring-back fought the finger's last delta.
+                // Peeking rather than removing leaves step 3 to apply the
+                // rubber-band clamp, which is the write that must win.
+                let staged = physics
+                    .pending_trackpad_positions
+                    .get(&key)
+                    .copied()
+                    .or_else(|| physics.pending_positions.get(&key).copied());
+                let already_staged = staged.is_some();
+                let pos = staged
                     .or_else(|| timer_info.get_scroll_node_info(input.dom_id, input.node_id)
                         .map(|info| info.current_offset));
 
@@ -303,8 +339,16 @@ pub extern "C" fn scroll_physics_timer_callback(
 
                         // Preserve the overshot position for the spring-back animation.
                         // Must use unclamped so the overshot position is NOT clamped to bounds.
-                        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(input.node_id));
-                        timer_info.scroll_to_unclamped(input.dom_id, hierarchy_id, pos);
+                        //
+                        // Skipped when step 3 is already going to write this
+                        // node from a staged position: that write is the
+                        // rubber-band-clamped one and must be the only one, or
+                        // the node gets two conflicting offsets in one tick.
+                        if !already_staged {
+                            let hierarchy_id =
+                                NodeHierarchyItemId::from_crate_internal(Some(input.node_id));
+                            timer_info.scroll_to_unclamped(input.dom_id, hierarchy_id, pos);
+                        }
                     }
                 }
             }
@@ -321,8 +365,19 @@ pub extern "C" fn scroll_physics_timer_callback(
     // mutated after the loop via `converged_targets`).
     let animate_targets = physics.animate_targets.clone();
     let mut converged_targets: Vec<(DomId, NodeId)> = Vec::new();
+    // Nodes the finger moved THIS tick. Both writers below end in a
+    // `scroll_to_unclamped` for the same node and the velocity one is applied
+    // last, so without this the spring silently overwrote the gesture's delta
+    // with a position integrated from the STALE pre-tick offset — the direct
+    // "physics fighting the actual scroll" the user reported. The finger wins
+    // while it is down; the spring resumes next tick from the committed offset.
+    let moved_by_finger_this_tick: alloc::collections::BTreeSet<(DomId, NodeId)> =
+        physics.pending_trackpad_positions.keys().copied().collect();
 
     for ((dom_id, node_id), node_physics) in &mut physics.node_velocities {
+        if moved_by_finger_this_tick.contains(&(*dom_id, *node_id)) {
+            continue;
+        }
         // Get current scroll info for clamping and per-node CSS config
         let Some(info) = timer_info.get_scroll_node_info(*dom_id, *node_id) else {
             continue;
@@ -2174,6 +2229,345 @@ mod autotest_generated {
                      wheel {wheel_y} vs bounce {bounce_y}"
                 );
             },
+        );
+    }
+
+    // ==================================================================
+    // REGRESSION (B1): the physics must not fight the real scroll
+    // ==================================================================
+    //
+    // Reported on macOS: "physics based scrolling probably leading to external
+    // scroll events and constantly fighting with the actual scroll".
+    //
+    // The harness above deliberately freezes the `LayoutWindow` behind a shared
+    // reference, so it can only inspect the `ScrollTo` changes a tick EMITS —
+    // it never applies them back. That is exactly why the bugs below were
+    // invisible to the suite: they only show up once the loop is CLOSED, i.e.
+    // once tick N+1 reads the offset tick N wrote. `closed_loop` does that.
+
+    /// One tick with the loop closed: run the callback, then apply every
+    /// emitted `ScrollTo` back into the `ScrollManager`, exactly as
+    /// `dll/src/desktop/shell2/common/event.rs` does after a callback returns.
+    /// Returns the `(node index, position, unclamped)` triples of that tick.
+    fn closed_loop_tick(
+        layout_window: &mut LayoutWindow,
+        data: &RefAny,
+    ) -> Vec<(usize, LogicalPosition, bool)> {
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+        {
+            let renderer_resources = RendererResources::default();
+            let previous_window_state: Option<FullWindowState> = None;
+            let current_window_state = FullWindowState::default();
+            let gl_context = OptionGlContextPtr::None;
+            let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+                BTreeMap::new();
+            let window_handle = RawWindowHandle::Unsupported;
+            let system_callbacks = ExternalSystemCallbacks::rust_internal();
+            let ref_data = CallbackInfoRefData {
+                layout_window: &*layout_window,
+                renderer_resources: &renderer_resources,
+                previous_window_state: &previous_window_state,
+                current_window_state: &current_window_state,
+                gl_context: &gl_context,
+                current_scroll_manager: &scroll_states,
+                current_window_handle: &window_handle,
+                system_callbacks: &system_callbacks,
+                system_style: Arc::new(SystemStyle::default()),
+                monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+                #[cfg(feature = "icu")]
+                icu_localizer: IcuLocalizerHandle::default(),
+                ctx: OptionRefAny::None,
+            };
+            let info = CallbackInfo::new(
+                &ref_data,
+                &changes,
+                DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: NodeHierarchyItemId::NONE,
+                },
+                OptionLogicalPosition::None,
+                OptionLogicalPosition::None,
+            );
+            let timer_info =
+                TimerCallbackInfo::create(info, OptionDomNodeId::None, Instant::now(), 0, false);
+            let _ = scroll_physics_timer_callback(data.clone(), timer_info);
+        }
+
+        let emitted: Vec<(usize, LogicalPosition, bool)> = changes
+            .lock()
+            .map(|c| {
+                c.iter()
+                    .map(|change| {
+                        let CallbackChange::ScrollTo {
+                            node_id,
+                            position,
+                            unclamped,
+                            ..
+                        } = change
+                        else {
+                            panic!("expected only ScrollTo changes, got {change:?}");
+                        };
+                        (
+                            node_id
+                                .into_crate_internal()
+                                .expect("ScrollTo must name a concrete node")
+                                .index(),
+                            *position,
+                            *unclamped,
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        for (idx, position, unclamped) in &emitted {
+            let node = NodeId::new(*idx);
+            if *unclamped {
+                layout_window.scroll_manager.set_scroll_position_unclamped(
+                    DomId::ROOT_ID,
+                    node,
+                    *position,
+                    Instant::now(),
+                );
+            } else {
+                layout_window.scroll_manager.set_scroll_position(
+                    DomId::ROOT_ID,
+                    node,
+                    *position,
+                    Instant::now(),
+                );
+            }
+        }
+        emitted
+    }
+
+    fn offset_of(layout_window: &LayoutWindow, idx: usize) -> LogicalPosition {
+        layout_window
+            .scroll_manager
+            .get_current_offset(DomId::ROOT_ID, NodeId::new(idx))
+            .unwrap_or_default()
+    }
+
+    /// REGRESSION (B1): one finger gesture must land on a STABLE offset.
+    ///
+    /// Drives five 10px trackpad deltas plus the gesture end, then lets the
+    /// physics run 120 ticks with the loop closed. The offset must settle and
+    /// stay settled — no oscillation, no drift.
+    #[test]
+    fn a_single_trackpad_gesture_converges_to_a_stable_offset() {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 1000.0));
+        let queue = layout_window.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(
+            queue.clone(),
+            ScrollPhysics::default(),
+        ));
+
+        for _ in 0..5 {
+            queue.push(input_dev(
+                1,
+                (0.0, 10.0),
+                ScrollInputSource::TrackpadContinuous,
+                ScrollInputDevice::Touchpad,
+            ));
+        }
+        queue.push(input_dev(
+            1,
+            (0.0, 0.0),
+            ScrollInputSource::TrackpadEnd,
+            ScrollInputDevice::Touchpad,
+        ));
+
+        let mut trace = Vec::new();
+        for _ in 0..120 {
+            let _ = closed_loop_tick(&mut layout_window, &data);
+            trace.push(offset_of(&layout_window, 1).y);
+        }
+
+        let settled = trace[trace.len() - 1];
+        // Five 10px deltas, well inside the 900px range: the gesture must land
+        // on their SUM. Losing deltas (they used to overwrite each other inside
+        // a tick) shows up here as a smaller number.
+        assert!(
+            (settled - 50.0).abs() < 0.5,
+            "a 5 x 10px gesture must land on 50px, landed on {settled} (trace tail: {:?})",
+            &trace[trace.len().saturating_sub(6)..]
+        );
+        // Stable: the last 30 ticks must not move it at all.
+        for (i, y) in trace.iter().enumerate().skip(trace.len() - 30) {
+            assert!(
+                (*y - settled).abs() < 0.01,
+                "offset still moving at tick {i}: {y} vs settled {settled}"
+            );
+        }
+    }
+
+    /// REGRESSION (B1): a physics-produced update must NEVER come back as a
+    /// fresh scroll input. If it did, every tick would re-integrate its own
+    /// output and the gesture could never converge.
+    #[test]
+    fn physics_output_is_not_re_consumed_as_fresh_input() {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 1000.0));
+        let queue = layout_window.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(
+            queue.clone(),
+            ScrollPhysics::default(),
+        ));
+
+        queue.push(input_dev(
+            1,
+            (0.0, 40.0),
+            ScrollInputSource::TrackpadContinuous,
+            ScrollInputDevice::Touchpad,
+        ));
+        queue.push(input_dev(
+            1,
+            (0.0, 0.0),
+            ScrollInputSource::TrackpadEnd,
+            ScrollInputDevice::Touchpad,
+        ));
+
+        // First tick drains the user's gesture...
+        let _ = closed_loop_tick(&mut layout_window, &data);
+        // ...and from then on nothing may re-appear in the input queue, however
+        // many offsets the physics writes.
+        for tick in 0..60 {
+            let _ = closed_loop_tick(&mut layout_window, &data);
+            assert!(
+                !queue.has_pending(),
+                "tick {tick}: applying a physics ScrollTo put input back on the \
+                 scroll input queue — that is the feedback loop"
+            );
+        }
+    }
+
+    /// REGRESSION (B1): two trackpad events inside ONE 16ms tick must add up.
+    ///
+    /// `current_offset` does not move while the callback runs, so computing
+    /// `current + delta` per event and `insert`ing collapsed the batch to the
+    /// LAST delta. A 120Hz trackpad against the 16ms tick puts two events in a
+    /// tick routinely, i.e. half the gesture was dropped.
+    #[test]
+    fn two_trackpad_events_in_one_tick_accumulate_instead_of_overwriting() {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 1000.0));
+        let queue = layout_window.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(
+            queue.clone(),
+            ScrollPhysics::default(),
+        ));
+
+        for _ in 0..3 {
+            queue.push(input_dev(
+                1,
+                (0.0, 10.0),
+                ScrollInputSource::TrackpadContinuous,
+                ScrollInputDevice::Touchpad,
+            ));
+        }
+        let _ = closed_loop_tick(&mut layout_window, &data);
+
+        let y = offset_of(&layout_window, 1).y;
+        assert!(
+            (y - 30.0).abs() < 0.01,
+            "three 10px deltas in one tick must move 30px, moved {y}"
+        );
+    }
+
+    /// REGRESSION (B1): only ONE writer may claim a node's offset in a tick.
+    ///
+    /// The trackpad staging position and the velocity/spring position are both
+    /// applied as `scroll_to_unclamped` for the same node, velocity LAST — so
+    /// on any tick where the finger moved AND the spring was armed, the
+    /// gesture's delta was silently overwritten by a position integrated from
+    /// the stale, pre-tick offset. That is the "constantly fighting" symptom.
+    #[test]
+    fn the_spring_does_not_also_write_a_node_the_finger_moved_this_tick() {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        // max_scroll_y = 100, so a 150px flick overshoots and arms the spring.
+        register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 200.0));
+        let queue = layout_window.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(
+            queue.clone(),
+            ScrollPhysics::macos(),
+        ));
+
+        queue.push(input_dev(
+            1,
+            (0.0, 150.0),
+            ScrollInputSource::TrackpadContinuous,
+            ScrollInputDevice::Touchpad,
+        ));
+        queue.push(input_dev(
+            1,
+            (0.0, 0.0),
+            ScrollInputSource::TrackpadEnd,
+            ScrollInputDevice::Touchpad,
+        ));
+
+        let emitted = closed_loop_tick(&mut layout_window, &data);
+        let writes_for_node_1 = emitted.iter().filter(|(idx, ..)| *idx == 1).count();
+        assert_eq!(
+            writes_for_node_1, 1,
+            "the finger moved node 1 this tick, so exactly one writer may claim \
+             it; got {writes_for_node_1} ScrollTos: {emitted:?}"
+        );
+    }
+
+    /// REGRESSION (B1): after an overscroll flick the offset must spring back
+    /// to the boundary.
+    ///
+    /// `TrackpadEnd` used to look for the gesture's position in
+    /// `pending_positions` — the PROGRAMMATIC map, which a trackpad gesture
+    /// never writes — and so decided "no overshoot" from the stale pre-tick
+    /// offset. The rubber band was never armed and the view stayed parked
+    /// outside its own bounds.
+    #[test]
+    fn an_overscrolled_gesture_springs_back_to_the_boundary() {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 200.0));
+        let queue = layout_window.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(
+            queue.clone(),
+            ScrollPhysics::macos(),
+        ));
+
+        queue.push(input_dev(
+            1,
+            (0.0, 150.0),
+            ScrollInputSource::TrackpadContinuous,
+            ScrollInputDevice::Touchpad,
+        ));
+        queue.push(input_dev(
+            1,
+            (0.0, 0.0),
+            ScrollInputSource::TrackpadEnd,
+            ScrollInputDevice::Touchpad,
+        ));
+
+        let after_gesture = {
+            let _ = closed_loop_tick(&mut layout_window, &data);
+            offset_of(&layout_window, 1).y
+        };
+        assert!(
+            after_gesture > 100.5,
+            "the flick must overshoot past max_scroll_y=100 first, got {after_gesture}"
+        );
+
+        for _ in 0..240 {
+            let _ = closed_loop_tick(&mut layout_window, &data);
+        }
+        let settled = offset_of(&layout_window, 1).y;
+        assert!(
+            (settled - 100.0).abs() < 1.0,
+            "the rubber band must pull the view back to max_scroll_y=100, \
+             it stayed at {settled}"
         );
     }
 }

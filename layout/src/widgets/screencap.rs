@@ -21,8 +21,8 @@ use azul_core::task::{ThreadId, ThreadReceiver};
 use azul_core::video::VideoFrame;
 
 use super::capture_common::{
-    invoke_on_frame, present_frame, screen_backend, OnVideoFrame, OnVideoFrameCallback,
-    OptionOnVideoFrame,
+    invoke_on_frame, present_frame, screen_backend, terminate_requested, OnVideoFrame,
+    OnVideoFrameCallback, OptionOnVideoFrame,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
@@ -144,7 +144,11 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
 
 /// Background worker (test pattern): a downward-moving white band on dark grey,
 /// ~30x/s. Replaced by the real `ScreenCaptureKit` / `MediaProjection` worker.
-extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn screencap_worker(
+    _init: RefAny,
+    mut sender: ThreadSender,
+    mut recv: ThreadReceiver,
+) {
     // Real platform capture if the dll registered a screen backend
     // (ScreenCaptureKit / X11 / DXGI; Wayland stays a dummy); else the test pattern.
     if let Some(backend) = screen_backend() {
@@ -152,6 +156,12 @@ extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: T
         if handle != 0 {
             let mut buf: Vec<u8> = Vec::new();
             loop {
+                // See `capture_common::terminate_requested`: without this the
+                // screen worker never observed `TerminateThread` and was
+                // DETACHED at shutdown.
+                if terminate_requested(&mut recv) {
+                    break;
+                }
                 let (fw, fh) = (backend.read)(handle, &mut buf);
                 if fw == 0 || fh == 0 {
                     break;
@@ -199,6 +209,9 @@ extern "C" fn screencap_worker(_init: RefAny, mut sender: ThreadSender, _recv: T
     let (w, h) = (DEFAULT_W as usize, DEFAULT_H as usize);
     let mut tick: u32 = 0;
     loop {
+        if terminate_requested(&mut recv) {
+            break;
+        }
         let band = (tick as usize) % h;
         let mut bytes = Vec::with_capacity(w * h * 4);
         for y in 0..h {
@@ -1424,5 +1437,53 @@ mod autotest_generated {
         assert!(started);
         assert_eq!(texture, Some(5));
         assert_eq!(read_state(&mut data), (DEFAULT_CFG, true, Some(5), false));
+    }
+
+    /// REGRESSION (B3): a capture worker must ACKNOWLEDGE `TerminateThread`.
+    ///
+    /// Reported from azul-meet on macOS after using camera + screenshare — the
+    /// framework printed, twice (once per capture worker):
+    ///
+    /// ```text
+    /// [azul][thread] a background thread did not acknowledge TerminateThread
+    /// within 2000ms and was DETACHED rather than joined.
+    /// ```
+    ///
+    /// Root cause: the worker took its receiver as `_recv` and never polled it,
+    /// so the terminate message was never observed. The only exit was
+    /// `sender.send()` returning false, which does NOT happen at shutdown
+    /// because the main thread still owns the receiving end while it waits out
+    /// the grace period. Fixed by `capture_common::terminate_requested`.
+    ///
+    /// The budget here is the framework's own:
+    /// `THREAD_TERMINATE_GRACE_STEPS (200) * 10ms = 2000ms`.
+    #[test]
+    fn screencap_worker_acknowledges_terminate_within_the_grace_budget() {
+        use crate::thread::{Thread, ThreadCallback};
+
+        let t = Thread::create(
+            RefAny::new(0_usize),
+            RefAny::new(0_usize),
+            ThreadCallback::new(screencap_worker),
+        );
+        assert!(
+            t.send_message(ThreadSendMsg::TerminateThread),
+            "the worker holds its receiver alive, so the send must succeed"
+        );
+        let finished = || {
+            t.ptr
+                .lock()
+                .expect("thread mutex must not be poisoned")
+                .is_finished()
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2_000);
+        while !finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            finished(),
+            "screencap_worker did not acknowledge TerminateThread within 2000ms — at shutdown it \
+             would be DETACHED rather than joined"
+        );
     }
 }

@@ -102,6 +102,59 @@ fn echo_to_stderr() -> bool {
     super::debug_server::log_active() && !stderr_explicitly_disabled()
 }
 
+/// Whether `debug_server::log` will put this record on stderr TOO.
+///
+/// In the lean build (`debug-server` OFF — the shipped default) the stub
+/// forwards every record to the `log` facade, and azul's own
+/// `desktop::logging::StderrLogger` prints it. Combined with `emit_at`'s own
+/// `eprintln!` that made EVERY line appear twice, with two clocks and two
+/// formats — the reported symptom:
+///
+/// ```text
+/// [   127424410us][Debug][Input] [Event] Focus check: focus_changed=false, ...
+/// [ 127485511us] [DEBUG] [azul::input] [Event] Focus check: ...  (stub.rs:125)
+/// ```
+///
+/// In the `debug-server` build `azul_layout::e2e::log` only fills the debugger
+/// queue and the `AZ_RECORD` file — it never touches the `log` facade — so the
+/// gate keeps ownership of stderr there.
+#[cfg(all(feature = "std", feature = "logging", not(feature = "debug-server")))]
+fn facade_writes_stderr(level: LogLevel) -> bool {
+    super::debug_server::log_active()
+        && crate::desktop::logging::builtin_stderr_logger_prints(match level {
+            LogLevel::Trace => log::Level::Trace,
+            LogLevel::Debug => log::Level::Debug,
+            LogLevel::Info => log::Level::Info,
+            LogLevel::Warn => log::Level::Warn,
+            LogLevel::Error => log::Level::Error,
+        })
+}
+
+/// No second stderr writer: either the debug-server build (whose `log` does not
+/// reach the `log` facade) or a build with no `log` facade at all.
+#[cfg(not(all(feature = "std", feature = "logging", not(feature = "debug-server"))))]
+const fn facade_writes_stderr(_level: LogLevel) -> bool {
+    false
+}
+
+/// Whether THIS module owns the stderr copy of a record — i.e. it should run
+/// its own `eprintln!`. False when the `log`-facade path below will print the
+/// same record, so a record is written to stderr exactly once.
+fn gate_writes_stderr(level: LogLevel) -> bool {
+    echo_to_stderr() && !facade_writes_stderr(level)
+}
+
+/// How many times a record at `level` would be written to stderr.
+///
+/// `emit_at` is implemented in terms of the same predicates, so this IS the
+/// number of lines a user sees. Anything above 1 is the duplicate-logging bug;
+/// 0 means logging is off. Exposed so a regression test can assert it without
+/// having to capture a file descriptor.
+#[must_use]
+pub fn stderr_writer_count(level: LogLevel) -> u8 {
+    u8::from(gate_writes_stderr(level)) + u8::from(facade_writes_stderr(level))
+}
+
 /// `AZ_LOG_STDERR=0`-style opt-out, read once.
 fn stderr_explicitly_disabled() -> bool {
     #[cfg(feature = "std")]
@@ -258,7 +311,10 @@ pub fn emit_at(
             let _ = writeln!(f, "[{us:>12}us][{level:?}][{category:?}] {message}");
         }
     }
-    if echo_to_stderr() {
+    // EXACTLY ONE stderr writer per record. `debug_server::log` forwards to the
+    // `log` facade in the lean build, which lands in azul's own StderrLogger —
+    // so printing here unconditionally duplicated every single line.
+    if gate_writes_stderr(level) {
         eprintln!("[{us:>12}us][{level:?}][{category:?}] {message}");
     }
     super::debug_server::log(level, category, message, window_id);
@@ -417,6 +473,98 @@ mod tests {
             assert_eq!(span_depth(), before + 1);
         }
         assert_eq!(span_depth(), before, "depth must return to where it started");
+        log_filter::set_stderr_echo(false);
+    }
+
+    // ==================================================================
+    // REGRESSION (B4): every log record must be printed EXACTLY ONCE
+    // ==================================================================
+
+    /// Unique needle so the parent can count the child's lines without being
+    /// confused by libtest's own output.
+    const DUP_PROBE: &str = "AZ-DUP-LOG-PROBE-a7f3";
+
+    /// The child re-runs THIS test; the name has to match `--exact`.
+    const DUP_TEST_PATH: &str =
+        "desktop::shell2::common::log_gate::tests::a_record_reaches_stderr_exactly_once";
+
+    /// REGRESSION (B4): a single record must reach stderr ONCE, not twice.
+    ///
+    /// Reported from a real run — the same message printed by two sinks with
+    /// two different clocks and two different formats:
+    ///
+    /// ```text
+    /// [   127424410us][Debug][Input] [Event] Focus check: focus_changed=false, ...
+    /// [ 127485511us] [DEBUG] [azul::input] [Event] Focus check: ...  (stub.rs:125)
+    /// ```
+    ///
+    /// Root cause: `emit_at` ran its own `eprintln!` AND handed the record to
+    /// `debug_server::log`, whose lean-build stub forwards to the `log` facade —
+    /// straight into `desktop::logging::StderrLogger`, the same stderr.
+    ///
+    /// This captures REAL stderr by re-executing the test binary, so it cannot
+    /// pass by agreeing with the implementation's own bookkeeping.
+    #[test]
+    fn a_record_reaches_stderr_exactly_once() {
+        // --- child half: install the logger, emit one record, exit ---
+        if std::env::var_os("AZ_DUP_LOG_PROBE_CHILD").is_some() {
+            crate::desktop::logging::init_default_logger();
+            emit(
+                LogLevel::Debug,
+                LogCategory::Input,
+                format!("{DUP_PROBE} [Event] Focus check: focus_changed=false"),
+            );
+            return;
+        }
+
+        // --- parent half: run the child and count ---
+        let exe = std::env::current_exe().expect("the test binary must have a path");
+        let out = std::process::Command::new(exe)
+            .args([DUP_TEST_PATH, "--exact", "--nocapture", "--test-threads=1"])
+            .env("AZ_DUP_LOG_PROBE_CHILD", "1")
+            .env("AZ_LOG", "debug")
+            .env("AZ_LOG_STDERR", "1")
+            .env("NO_COLOR", "1")
+            .env_remove("AZ_DEBUG")
+            .env_remove("AZ_E2E")
+            .output()
+            .expect("re-running the test binary must succeed");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            stdout.contains("1 passed"),
+            "the child did not run the probe test (filter `{DUP_TEST_PATH}` stale?)\n\
+             --- child stdout ---\n{stdout}\n--- child stderr ---\n{stderr}"
+        );
+        let hits = stderr.lines().filter(|l| l.contains(DUP_PROBE)).count();
+        assert_eq!(
+            hits, 1,
+            "one `emit` must produce exactly one stderr line, got {hits}\n\
+             --- child stderr ---\n{stderr}"
+        );
+    }
+
+    /// The bookkeeping behind the test above: at most one stderr writer may
+    /// claim a record. `emit_at` is implemented in terms of the same
+    /// predicates, so this is the count of lines a user sees.
+    #[test]
+    fn at_most_one_stderr_writer_claims_a_record() {
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        crate::desktop::logging::init_default_logger();
+        log_filter::set_stderr_echo(true);
+        for level in [
+            LogLevel::Trace,
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warn,
+            LogLevel::Error,
+        ] {
+            assert!(
+                stderr_writer_count(level) <= 1,
+                "{level:?} would be written to stderr {} times",
+                stderr_writer_count(level)
+            );
+        }
         log_filter::set_stderr_echo(false);
     }
 }

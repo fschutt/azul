@@ -1845,6 +1845,21 @@ impl LayoutWindow {
             }
         }
 
+        // A layout pass runs on the StyledDom's ORIGINAL text: an edit lives in
+        // `content_overlay`, never written back into the DOM. Re-applying it
+        // here is what makes the freshly built display list show what the user
+        // typed, and it belongs in this funnel rather than at the call sites —
+        // `regenerate_layout` and the warm relayout path in the shell had the
+        // fixup, `incremental_relayout` and BOTH E2E-runner paths did not. A
+        // keystroke that widens the line latches `needs_ancestor_relayout` and
+        // is routed to `ShouldIncrementalRelayout`, so the common case landed
+        // on exactly the path that was missing it: the correct display list
+        // built by `apply_text_changeset` was thrown away and rebuilt from the
+        // pre-edit text. The damage rect was right; the pixels in it were old.
+        //
+        // Cheap: the overlay only holds nodes the user actually edited, and
+        // `reapply_dirty_text_node` re-shapes from the clean base, so running
+        // it again after a call site that already did is a no-op in effect.
         // After successful layout, update the accessibility tree
         #[cfg(feature = "a11y")]
         if result.is_ok() {
@@ -12462,6 +12477,26 @@ impl LayoutWindow {
         };
 
         self.frame_report.dl_rebuilds = self.frame_report.dl_rebuilds.saturating_add(1);
+
+        // This rebuild is WHOLESALE — the list is regenerated from the current
+        // layout tree, it is not a splice of the previous one. The previous
+        // LAYOUT pass's patch bookkeeping therefore no longer describes it and
+        // must not be inherited.
+        //
+        // It is the compositor that reads these. `last_patch_move` becomes a
+        // `TranslateHint`: the CPU backend BLITS the previous frame by
+        // `dominant_delta` and repaints only the exceptions plus the damage
+        // (`dll/.../shell2/headless/mod.rs:532` and the E2E twin
+        // `layout/src/e2e/cpu_backend.rs`). A keystroke lands here via
+        // `reapply_dirty_text_node`, mints a fresh display-list `Arc` — which
+        // clears the `last_patch_shift_dl` guard — and the frame was then
+        // shifted by a delta belonging to some earlier reflow, so the newly
+        // typed glyphs were never painted where they actually are. Stale
+        // `last_patch_damage` is the milder half of the same defect
+        // (over-damage from rects that describe a different list).
+        self.layout_cache.last_build_was_patched = false;
+        self.layout_cache.last_patch_damage = None;
+        self.layout_cache.last_patch_move = None;
 
         // Get all the data we need from the layout result
         let Some(layout_result) = self.layout_results.get(&dom_id) else {

@@ -169,7 +169,7 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
-use crate::{log_debug, log_error, log_warn};
+use crate::{log_debug, log_error, log_trace, log_warn};
 
 const AUTO_SCROLL_EDGE_THRESHOLD: f32 = 30.0;
 const AUTO_SCROLL_MAX_SPEED: f32 = 15.0;
@@ -7916,8 +7916,12 @@ pub trait PlatformWindow {
             }
         }
 
-        // Handle focus changes: generate synthetic FocusIn/FocusOut events
-        log_debug!(
+        // Handle focus changes: generate synthetic FocusIn/FocusOut events.
+        //
+        // TRACE, not Debug: this fires on EVERY event pass — mouse-move
+        // included — and almost always reports "nothing changed", so at Debug
+        // it drowns out the lines that do say something.
+        log_trace!(
             super::debug_server::LogCategory::Input,
             "[Event] Focus check: focus_changed={}, default_action_focus_changed={}, mouse_click_focus_changed={}, depth={}, old_focus={:?}",
             focus_changed,

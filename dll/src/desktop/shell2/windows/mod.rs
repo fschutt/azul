@@ -4640,7 +4640,19 @@ unsafe extern "system" fn window_proc(
                             now,
                         )
                     {
-                        should_start_timer = start_timer;
+                        // GUARD: `start_timer` only means "the input queue was drained
+                        // when this event arrived", which the 16 ms physics tick
+                        // makes true for almost every event of a gesture. Without
+                        // also checking that the timer is not already registered,
+                        // `start_timer` below REPLACED the live `ScrollPhysicsState`
+                        // — throwing away velocity, animate targets and pending
+                        // positions mid-gesture, and resetting the tick phase. The
+                        // shared arming site in `common/event.rs` has always had
+                        // this check.
+                        should_start_timer = start_timer
+                            && !layout_window
+                                .timers
+                                .contains_key(&azul_core::task::SCROLL_MOMENTUM_TIMER_ID);
                         if start_timer {
                             input_queue_clone = Some(
                                 layout_window.scroll_manager.get_input_queue()

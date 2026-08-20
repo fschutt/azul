@@ -27,8 +27,8 @@ use azul_core::task::{ThreadId, ThreadReceiver};
 use azul_core::video::VideoFrame;
 
 use super::capture_common::{
-    camera_backend, invoke_on_frame, present_frame, OnVideoFrame, OnVideoFrameCallback,
-    OptionOnVideoFrame,
+    camera_backend, invoke_on_frame, present_frame, terminate_requested, OnVideoFrame,
+    OnVideoFrameCallback, OptionOnVideoFrame,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{
@@ -165,7 +165,11 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
 /// Background worker (test pattern): a colour-cycling solid frame ~30x/s until
 /// the widget unmounts. The real AVFoundation/Camera2 capture loop replaces it.
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
-extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn camera_worker(
+    mut init: RefAny,
+    mut sender: ThreadSender,
+    mut recv: ThreadReceiver,
+) {
     let (w, h) = init
         .downcast_ref::<CameraThreadInit>()
         .map_or((640, 480), |i| (i.width, i.height));
@@ -177,6 +181,13 @@ extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: T
         if handle != 0 {
             let mut buf: Vec<u8> = Vec::new();
             loop {
+                // Ask before every device read, so `TerminateThread` costs at
+                // most ONE read (bounded at ~960ms in the AVFoundation/v4l2
+                // backends) rather than never being seen at all — see
+                // `capture_common::terminate_requested`.
+                if terminate_requested(&mut recv) {
+                    break;
+                }
                 let (fw, fh) = (backend.read)(handle, &mut buf);
                 if fw == 0 || fh == 0 {
                     break;
@@ -224,6 +235,9 @@ extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, _recv: T
     let px = (w as usize) * (h as usize);
     let mut tick: u32 = 0;
     loop {
+        if terminate_requested(&mut recv) {
+            break;
+        }
         let color = [
             (tick % 256) as u8,
             (tick.wrapping_mul(2) % 256) as u8,
@@ -1014,5 +1028,56 @@ mod autotest_generated {
         assert!(started);
         assert_eq!(texture, Some(5));
         assert_eq!(read_state(&mut data), (cfg(800, 600), true, Some(5), false));
+    }
+
+    /// REGRESSION (B3): a capture worker must ACKNOWLEDGE `TerminateThread`.
+    ///
+    /// Reported from azul-meet on macOS after using camera + screenshare — the
+    /// framework printed, twice (once per capture worker):
+    ///
+    /// ```text
+    /// [azul][thread] a background thread did not acknowledge TerminateThread
+    /// within 2000ms and was DETACHED rather than joined.
+    /// ```
+    ///
+    /// Root cause: the worker took its receiver as `_recv` and never polled it,
+    /// so the terminate message was never observed. The only exit was
+    /// `sender.send()` returning false, which does NOT happen at shutdown
+    /// because the main thread still owns the receiving end while it waits out
+    /// the grace period. Fixed by `capture_common::terminate_requested`.
+    ///
+    /// The budget here is the framework's own:
+    /// `THREAD_TERMINATE_GRACE_STEPS (200) * 10ms = 2000ms`.
+    #[test]
+    fn camera_worker_acknowledges_terminate_within_the_grace_budget() {
+        use crate::thread::{Thread, ThreadCallback};
+
+        let t = Thread::create(
+            RefAny::new(CameraThreadInit {
+                width: 8,
+                height: 8,
+            }),
+            RefAny::new(0_usize),
+            ThreadCallback::new(camera_worker),
+        );
+        assert!(
+            t.send_message(ThreadSendMsg::TerminateThread),
+            "the worker holds its receiver alive, so the send must succeed"
+        );
+        let finished = || {
+            t.ptr
+                .lock()
+                .expect("thread mutex must not be poisoned")
+                .is_finished()
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2_000);
+        while !finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            finished(),
+            "camera_worker did not acknowledge TerminateThread within 2000ms — at shutdown it \
+             would be DETACHED rather than joined"
+        );
     }
 }

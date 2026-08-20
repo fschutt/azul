@@ -241,6 +241,24 @@ pub fn az_log_level() -> Option<LevelFilter> {
 // `set_max_level`), which the `log` macros also consult to skip work early.
 static LOG_COLOR: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 static LOG_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+/// True once [`StderrLogger`] is THE installed `log` sink for this process.
+///
+/// This is the second half of the duplicate-logging fix: azul has two stderr
+/// writers, `log_gate::emit_at`'s own `eprintln!` and — in the lean build —
+/// `debug_server::stub::log` forwarding to the `log` facade, which lands right
+/// back here. When both fired, every record printed TWICE, with two different
+/// clocks:
+///
+/// ```text
+/// [   127424410us][Debug][Input] [Event] Focus check: focus_changed=false, ...
+/// [ 127485511us] [DEBUG] [azul::input] [Event] Focus check: ...  (stub.rs:125)
+/// ```
+///
+/// A HOST logger (android_logger, pyo3-log, env_logger) is a DIFFERENT sink and
+/// must keep receiving records, which is why this tracks specifically "is the
+/// installed logger ours" rather than "is any logger installed".
+static BUILTIN_LOGGER_INSTALLED: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 struct StderrLogger;
 static STDERR_LOGGER: StderrLogger = StderrLogger;
@@ -328,6 +346,7 @@ pub fn init_default_logger() {
     // and works with `log`'s default-features-off build. It fails if the host
     // already installed a logger — that's fine, theirs wins.
     if log::set_logger(&STDERR_LOGGER).is_ok() {
+        BUILTIN_LOGGER_INSTALLED.store(true, core::sync::atomic::Ordering::SeqCst);
         log::set_max_level(level);
         log::info!(
             target: "azul",
@@ -335,6 +354,18 @@ pub fn init_default_logger() {
             level
         );
     }
+}
+
+/// Whether a record at `level` handed to the `log` facade would be printed to
+/// stderr by azul's OWN built-in logger.
+///
+/// `log_gate::emit_at` asks this before running its `eprintln!`, so exactly one
+/// of the two writers prints each record. False when the host installed their
+/// own logger (their sink is not this stderr), when `AZ_LOG=off` kept any
+/// logger from being installed, or when the level is below `log::max_level()`.
+#[must_use]
+pub fn builtin_stderr_logger_prints(level: log::Level) -> bool {
+    BUILTIN_LOGGER_INSTALLED.load(core::sync::atomic::Ordering::SeqCst) && level <= log::max_level()
 }
 
 #[cfg(test)]

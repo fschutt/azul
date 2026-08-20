@@ -208,6 +208,42 @@ pub fn mic_backend() -> Option<AudioCaptureVTable> {
     MIC_BACKEND.get().copied()
 }
 
+/// Poll the main->worker channel and report whether the worker was asked to
+/// stop.
+///
+/// Every capture worker (camera / screencap / microphone) sits in a
+/// `loop { read_device(); send_frame(); }`. Before this existed, none of them
+/// ever looked at their `ThreadReceiver`, so `ThreadSendMsg::TerminateThread`
+/// was never observed and the only way out was `sender.send()` failing — which
+/// does NOT happen at shutdown, because the main thread still owns the
+/// receiving end while it waits. The result was the 2 s grace period in
+/// `crate::thread::default_thread_destructor_fn` expiring and the worker being
+/// DETACHED:
+///
+/// ```text
+/// [azul][thread] a background thread did not acknowledge TerminateThread
+/// within 2000ms and was DETACHED rather than joined.
+/// ```
+///
+/// (Reported twice from azul-meet on macOS after using camera + screenshare —
+/// one line per capture worker.)
+///
+/// `ThreadReceiver::recv` is a `try_recv` under the hood, so this never blocks.
+/// Non-terminate messages are drained and ignored: these workers have no other
+/// commands, and leaving them queued would hide a `TerminateThread` sent behind
+/// them.
+#[must_use]
+pub fn terminate_requested(recv: &mut azul_core::task::ThreadReceiver) -> bool {
+    use azul_core::task::{OptionThreadSendMsg, ThreadSendMsg};
+    loop {
+        match recv.recv() {
+            OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) => return true,
+            OptionThreadSendMsg::Some(_) => {}
+            OptionThreadSendMsg::None => return false,
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::too_many_lines)] // table-driven cases; splitting them hides the case list
 mod autotest_generated {
