@@ -19,6 +19,77 @@
 
    Light is the default; dark is the same room at night.
    ========================================================================== */
+/* ==========================================================================
+   THE FACES - self-hosted, latin subset, SIL OFL 1.1
+
+   Served from /ui/fonts rather than the Google CDN. The CDN hands a visitor's
+   IP to a third party on every page load, and when it is blocked the whole
+   three-hand type rule collapses to system fonts - these five files ARE the
+   theme. Each is the LATIN slice of the family's variable font, taken from
+   the same css2 endpoint the old <link> pointed at: ~208 KB for all five,
+   against an unbounded third-party dependency.
+
+   Latin is the whole set the site needs. The only characters in the built
+   pages outside that range are box-drawing and arrows, which none of these
+   faces carry anyway - they fell back to a system font under the CDN too.
+
+   The paths are absolute because this file is served from / AND inlined into
+   the landing pages; a relative url() would resolve against two bases.
+   Licences sit next to the files: doc/fonts/<Family>-OFL.txt.
+   ========================================================================== */
+@font-face {
+    font-family: 'EB Garamond';
+    font-style: normal;
+    font-weight: 400 800;
+    font-display: swap;
+    src: url('/ui/fonts/EBGaramond-Variable.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'EB Garamond';
+    font-style: italic;
+    font-weight: 400 800;
+    font-display: swap;
+    src: url('/ui/fonts/EBGaramond-Variable-Italic.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'Grenze Gotisch';
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('/ui/fonts/GrenzeGotisch-Variable.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'Grenze';
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('/ui/fonts/Grenze-Variable.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'Grenze';
+    font-style: italic;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url('/ui/fonts/Grenze-Variable-Italic.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'Red Hat Mono';
+    font-style: normal;
+    font-weight: 300 700;
+    font-display: swap;
+    src: url('/ui/fonts/RedHatMono-VariableFont_wght.ttf') format('truetype-variations');
+}
+
 :root {
     color-scheme: light;
 

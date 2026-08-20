@@ -873,27 +873,15 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       <meta name='keywords' content='gui, rust, user interface'>
 
       {theme_boot}
-      <link rel='preconnect' href='https://fonts.googleapis.com'>
-      <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
-      <link href='{fonts_href}' rel='stylesheet'>
-      <link rel='preload' as='font' href='{base_url}/fonts/RedHatMono-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
-      <style>
-      /* Red Hat Mono for the code panels (self-hosted, same file as the docs site). */
-      @font-face {{
-          font-family: \"Red Hat Mono\";
-          font-style: normal;
-          font-weight: 300 700;
-          src: url(\"{base_url}/fonts/RedHatMono-VariableFont_wght.ttf\") format(\"truetype-variations\");
-      }}
-      </style>
       {css_tag}
       <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
       <script defer src='{base_url}/azul-review.js'></script>
-    ", base_url=base_url, css_tag=css_tag,
-       fonts_href=AZLIN_FONTS_HREF, theme_boot=get_theme_boot_script())
+    ", base_url=base_url, css_tag=css_tag, theme_boot=get_theme_boot_script())
 }
 
 /// RETIRED. Every page now goes through `get_docs_head_tags` (Flora Design:
@@ -1094,18 +1082,6 @@ pub struct AzlinPage {
     pub main_html: String,
 }
 
-/// The Azlin type stack - three hands, three jobs, never mixed up:
-///   Grenze Gotisch - the display hand. Important headings ONLY (h1/h2).
-///   Grenze         - the UI hand. Nav, sidebars, buttons, labels, h3-h6.
-///                    Same skeleton as the Gotisch without the blackletter
-///                    joins, so chrome and headings read as one family.
-///   EB Garamond    - the document hand. Running text, and nothing else.
-/// Red Hat Mono is self-hosted (see the @font-face in the head tags).
-pub const AZLIN_FONTS_HREF: &str = "https://fonts.googleapis.com/css2?\
-     family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&\
-     family=Grenze+Gotisch:wght@400;500;600;700&\
-     family=Grenze:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap";
-
 /// Inline boot script for the light/dark switch. This MUST run before first
 /// paint (it is emitted in `<head>`, not deferred): reading the stored choice
 /// afterwards would flash the wrong ground for a frame.
@@ -1164,27 +1140,17 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> S
       <meta name='keywords' content='gui, rust, user interface'>
 
       {theme_boot}
-      <link rel='preconnect' href='https://fonts.googleapis.com'>
-      <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
-      <link href='{fonts_href}' rel='stylesheet'>
-      <link rel='preload' as='font' href='{base_url}/fonts/RedHatMono-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
+      <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
-      <style>
-      @font-face {{
-          font-family: \"Red Hat Mono\";
-          font-style: normal;
-          font-weight: 300 700;
-          src: url(\"{base_url}/fonts/RedHatMono-VariableFont_wght.ttf\") format(\"truetype-variations\");
-      }}
-      </style>
       {css_tag}
       {anchor_link}
       <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
       <script defer src='{base_url}/azul-review.js'></script>
     ", base_url=base_url, css_tag=css_tag, anchor_link=get_anchor_link_script(),
-       fonts_href=AZLIN_FONTS_HREF, theme_boot=get_theme_boot_script())
+       theme_boot=get_theme_boot_script())
 }
 
 /// The floating nav strip + mobile menu, identical to the /ui landing's
