@@ -1817,18 +1817,23 @@ fn main() -> anyhow::Result<()> {
                 println!("  [OK] Generated: {}", path);
             }
 
-            // Re-render any azul-render screenshots whose source XML has
-            // changed since the last deploy. The hash sidecars under
-            // doc/guide/en/screenshots/<name>.png.hash track the inputs.
-            match reftest::autodoc::render_stale_screenshots(&project_root) {
-                Ok((re, sk)) if re > 0 => {
-                    println!("  [OK] Re-rendered {} screenshot(s), {} up-to-date", re, sk);
+            // Render every azul-render figure in the guide, every time. The
+            // whole set is 5.9s; see render_all_screenshots for why there is no
+            // longer a cache. A failure is FATAL: these figures are part of the
+            // page, and a docs site with missing ones is worse than a late one.
+            match reftest::autodoc::render_all_screenshots(&project_root) {
+                Ok((ok, 0)) => {
+                    println!("  [OK] Rendered {} guide screenshot(s)", ok);
                 }
-                Ok((_, sk)) => {
-                    println!("  [OK] {} screenshot(s) already up-to-date", sk);
+                Ok((ok, failed)) => {
+                    anyhow::bail!(
+                        "{} of {} guide screenshot(s) failed to render",
+                        failed,
+                        ok + failed,
+                    );
                 }
                 Err(e) => {
-                    eprintln!("  [WARN] Screenshot regeneration failed: {}", e);
+                    anyhow::bail!("Screenshot rendering failed: {e}");
                 }
             }
 

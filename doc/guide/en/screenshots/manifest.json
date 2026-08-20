@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-05-02T06:34:59.637542+00:00",
+  "generated_at": "2026-08-20T15:39:51.784825+00:00",
   "screenshots": [
     {
       "name": "hello-world",
@@ -11,28 +11,28 @@
       "source_page": "doc/guide/en/hello-world.md"
     },
     {
-      "name": "text-heading",
+      "name": "inline-prose",
       "width": 480,
       "height": 200,
-      "subtitle": "A heading and paragraph using system fonts",
+      "subtitle": "Default inline flow with hyphens: auto",
       "slideshow": null,
-      "source_page": "doc/guide/en/text-and-fonts.md"
+      "source_page": "doc/guide/en/layout/inline.md"
     },
     {
-      "name": "text-justify",
-      "width": 400,
-      "height": 200,
-      "subtitle": "text-align: justify with default text-justify: auto",
+      "name": "inline-tags",
+      "width": 480,
+      "height": 140,
+      "subtitle": "display: inline-block tags inside flowing text",
       "slideshow": null,
-      "source_page": "doc/guide/en/text-and-fonts.md"
+      "source_page": "doc/guide/en/layout/inline.md"
     },
     {
-      "name": "text-weights",
-      "width": 400,
+      "name": "inline-multicol",
+      "width": 520,
       "height": 200,
-      "subtitle": "lighter / normal / bold weights side by side",
+      "subtitle": "column-count: 2 with column-gap and column-rule",
       "slideshow": null,
-      "source_page": "doc/guide/en/text-and-fonts.md"
+      "source_page": "doc/guide/en/layout/inline.md"
     },
     {
       "name": "flex-sidebar",
@@ -72,7 +72,7 @@
       "height": 300,
       "subtitle": "Modal centred over a fixed-position backdrop",
       "slideshow": null,
-      "source_page": "doc/guide/en/layout/positioning.md"
+      "source_page": "doc/guide/en/layout/blocks.md"
     },
     {
       "name": "pos-sticky",
@@ -80,7 +80,7 @@
       "height": 300,
       "subtitle": "position: sticky pins the header within a scroll container",
       "slideshow": null,
-      "source_page": "doc/guide/en/layout/positioning.md"
+      "source_page": "doc/guide/en/layout/blocks.md"
     },
     {
       "name": "pos-badge",
@@ -88,7 +88,15 @@
       "height": 160,
       "subtitle": "Absolute-positioned badge on a relatively-positioned card",
       "slideshow": null,
-      "source_page": "doc/guide/en/layout/positioning.md"
+      "source_page": "doc/guide/en/layout/blocks.md"
+    },
+    {
+      "name": "layout-block",
+      "width": 480,
+      "height": 200,
+      "subtitle": "Default block flow. Each element on its own line",
+      "slideshow": null,
+      "source_page": "doc/guide/en/layout/blocks.md"
     },
     {
       "name": "grid-holy-grail",
@@ -115,12 +123,36 @@
       "source_page": "doc/guide/en/layout/grid.md"
     },
     {
-      "name": "headless-hello",
+      "name": "icons-toolbar",
+      "width": 400,
+      "height": 120,
+      "subtitle": "A toolbar mixing app and material icons",
+      "slideshow": null,
+      "source_page": "doc/guide/en/styling/icon-packs.md"
+    },
+    {
+      "name": "text-heading",
+      "width": 480,
+      "height": 200,
+      "subtitle": "A heading and paragraph using system fonts",
+      "slideshow": null,
+      "source_page": "doc/guide/en/styling/text-and-fonts.md"
+    },
+    {
+      "name": "text-justify",
       "width": 400,
       "height": 200,
-      "subtitle": "A free-standing render — no window, no display server",
+      "subtitle": "text-align: justify with default text-justify: auto",
       "slideshow": null,
-      "source_page": "doc/guide/en/headless-rendering.md"
+      "source_page": "doc/guide/en/styling/text-and-fonts.md"
+    },
+    {
+      "name": "text-weights",
+      "width": 400,
+      "height": 200,
+      "subtitle": "lighter / normal / bold weights side by side",
+      "slideshow": null,
+      "source_page": "doc/guide/en/styling/text-and-fonts.md"
     },
     {
       "name": "styling-gradients",
@@ -134,7 +166,7 @@
       "name": "themes-light",
       "width": 400,
       "height": 180,
-      "subtitle": "Light theme — system colors resolve to OS defaults",
+      "subtitle": "Light theme",
       "slideshow": "themes-toggle",
       "source_page": "doc/guide/en/styling/themes.md"
     },
@@ -142,9 +174,17 @@
       "name": "themes-dark",
       "width": 400,
       "height": 180,
-      "subtitle": "Dark theme — same selectors, OS-supplied palette",
+      "subtitle": "Dark theme, OS-supplied palette",
       "slideshow": "themes-toggle",
       "source_page": "doc/guide/en/styling/themes.md"
+    },
+    {
+      "name": "headless-hello",
+      "width": 400,
+      "height": 200,
+      "subtitle": "A free-standing render — no window, no display server",
+      "slideshow": null,
+      "source_page": "doc/guide/en/headless/rendering.md"
     },
     {
       "name": "styling-panel",
@@ -158,7 +198,7 @@
       "name": "layout-block",
       "width": 480,
       "height": 200,
-      "subtitle": "Default block flow — each element on its own line",
+      "subtitle": "Default block flow. Each element on its own line",
       "slideshow": null,
       "source_page": "doc/guide/en/layout.md"
     },

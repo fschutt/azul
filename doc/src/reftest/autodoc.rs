@@ -1970,37 +1970,23 @@ fn window_chrome_html(
     )
 }
 
-// Bumped when the rendering pipeline (envelope, layout, default fonts, …)
-// changes in a way that should invalidate every cached screenshot.
-const SCREENSHOT_RENDERER_VERSION: &str = "v1";
-
-/// Hash of the inputs that determine the *pixel content* of a rendered
-/// screenshot. `subtitle` and `slideshow` are deliberately excluded — they
-/// only affect the surrounding HTML, not the PNG.
-pub fn block_render_hash(block: &RenderBlock) -> String {
-    let mut h = Sha256::new();
-    h.update(SCREENSHOT_RENDERER_VERSION.as_bytes());
-    h.update([0u8]);
-    h.update(block.name.as_bytes());
-    h.update([0u8]);
-    h.update(block.width.to_le_bytes());
-    h.update(block.height.to_le_bytes());
-    h.update([0u8]);
-    h.update(block.xml.as_bytes());
-    let result = h.finalize();
-    let mut hex = String::with_capacity(64);
-    for b in result {
-        use std::fmt::Write;
-        let _ = write!(hex, "{:02x}", b);
-    }
-    hex
-}
-
-/// Walk every guide page, collect `azul-render` blocks, and re-render any
-/// PNG whose sidecar hash file is missing or stale. Returns
-/// `(re_rendered, skipped)` counts. Initialises the heavy font context
-/// lazily — only if at least one block needs to be (re-)rendered.
-pub fn render_stale_screenshots(project_root: &Path) -> Result<(usize, usize), String> {
+/// Walk every guide page, collect `azul-render` blocks, and render every one
+/// of them to PNG. Returns `(rendered, failed)`.
+///
+/// There is NO CACHE, deliberately. There used to be: a `<name>.png.hash`
+/// sidecar holding a hash of the block's XML plus a hand-maintained
+/// `SCREENSHOT_RENDERER_VERSION` constant. It could not work, because what
+/// decides these pixels is the renderer, and the sidecar could not see it. The
+/// constant was set on 2026-05-02 and never bumped again while layout/src took
+/// 911 commits — 173 of them in text3, including the July shaping and hinting
+/// fixes. So the guide still shipped the May renders: hello-world showed the
+/// body jammed into the top-left corner with no margins, which is precisely
+/// the bug those commits fixed.
+///
+/// The whole set renders in 5.9 seconds with azul-doc already built. That is
+/// not worth a cache, and certainly not one that silently serves three-month-old
+/// pictures of fixed bugs.
+pub fn render_all_screenshots(project_root: &Path) -> Result<(usize, usize), String> {
     let guide_dir = project_root.join("doc/guide");
 
     let mut pages = Vec::new();
@@ -2021,53 +2007,36 @@ pub fn render_stale_screenshots(project_root: &Path) -> Result<(usize, usize), S
         }
     }
 
-    // First pass: figure out which blocks are stale, without paying for
-    // font-context init if everything is already up-to-date.
-    let mut stale: Vec<(String, RenderBlock, String)> = Vec::new();
-    let mut skipped = 0usize;
+    let mut work: Vec<(String, RenderBlock)> = Vec::new();
     for (lang, blocks) in &by_lang {
-        let dir = guide_dir.join(lang).join("screenshots");
         for block in blocks {
-            let png = dir.join(format!("{}.png", block.name));
-            let hash_file = dir.join(format!("{}.png.hash", block.name));
-            let want = block_render_hash(block);
-            let have = fs::read_to_string(&hash_file).ok();
-            if png.exists() && have.as_deref() == Some(want.as_str()) {
-                skipped += 1;
-            } else {
-                stale.push((lang.clone(), block.clone(), want));
-            }
+            work.push((lang.clone(), block.clone()));
         }
     }
 
-    if stale.is_empty() {
-        return Ok((0, skipped));
+    if work.is_empty() {
+        return Ok((0, 0));
     }
 
-    println!(
-        "Regenerating {} stale screenshot(s) ({} up-to-date)...",
-        stale.len(),
-        skipped,
-    );
+    println!("Rendering {} guide screenshot(s)...", work.len());
     let font_context = init_screenshot_font_context()?;
     let mut rendered = 0usize;
-    for (lang, block, want_hash) in &stale {
+    let mut failed = 0usize;
+    for (lang, block) in &work {
         let dir = guide_dir.join(lang).join("screenshots");
         fs::create_dir_all(&dir)
             .map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
         let png = dir.join(format!("{}.png", block.name));
-        let hash_file = dir.join(format!("{}.png.hash", block.name));
         match render_xml_to_png(&font_context, &block.xml, &png, block.width, block.height) {
             Ok(()) => {
-                fs::write(&hash_file, want_hash)
-                    .map_err(|e| format!("write {}: {}", hash_file.display(), e))?;
-                println!("  [{}/regen] {}.png ({}x{})", lang, block.name, block.width, block.height);
+                println!("  [{}/ok] {}.png ({}x{})", lang, block.name, block.width, block.height);
                 rendered += 1;
             }
             Err(e) => {
                 eprintln!("  [{}/fail] {}: {}", lang, block.name, e);
+                failed += 1;
             }
         }
     }
-    Ok((rendered, skipped))
+    Ok((rendered, failed))
 }
