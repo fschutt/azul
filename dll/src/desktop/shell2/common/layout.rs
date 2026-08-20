@@ -233,7 +233,24 @@ phases.mark("before_registry_check");
         let current_cache_empty = layout_window.font_manager.fc_cache.is_empty();
         let build_complete = registry.is_build_complete();
 
-        if current_cache_empty || build_complete {
+        // Request while the build is INCOMPLETE, not merely while the cache is
+        // EMPTY. The old condition was `current_cache_empty || build_complete`,
+        // and on macOS both disjuncts are false on the first layout: the cache
+        // already holds 2 patterns (so it is not "empty") while the scan of
+        // ~370 system fonts has not finished (so the build is not "complete").
+        // It therefore took the else branch, never called request_fonts(), and
+        // laid out against a two-font cache holding none of "Helvetica Neue",
+        // "Lucida Grande" or "System Font" — every macOS UI family missed and
+        // text fell through to LAST-RESORT. Linux happened to win the race and
+        // looked fine, which is why this read as a macOS-only bug.
+        //
+        // Requesting while incomplete is safe and is the entire point of the
+        // call: request_fonts() BLOCKS until the requested families are parsed
+        // (measured 186 ms cold on macOS), so the snapshot taken after it
+        // contains them. The original worry — replacing a COMPLETE cache with
+        // an INCOMPLETE snapshot — is addressed by skipping once the build is
+        // complete, not by treating any non-empty cache as good enough.
+        if !build_complete || current_cache_empty {
             log_debug!(LogCategory::Layout, "[regenerate_layout] Requesting fonts from registry...");
             let font_stacks = rust_fontconfig::config::tokenize_common_families(rust_fontconfig::OperatingSystem::current());
             azul_layout::probe::emit_phase_heap_extra("after_tokenize", registry.chain_cache_len() as u64);
