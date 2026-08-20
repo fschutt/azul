@@ -885,54 +885,6 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
     ", base_url=base_url, css_tag=css_tag, theme_boot=get_theme_boot_script())
 }
 
-/// RETIRED. Every page now goes through `get_docs_head_tags` (Flora Design:
-/// flora.css + azul-docs.css) or `get_landing_head_tags`; nothing calls this
-/// and `main.css` is NOT part of the Flora theme. Kept only so an older
-/// generator path can be revived if needed - do not wire new pages to it.
-///
-/// # Arguments
-/// * `inline_css` - If true, the CSS from main.css is inlined in a <style> tag
-///                  to prevent flash of unstyled content (FOUC).
-///                  If false, only a <link> to main.css is used (faster for development).
-pub fn get_common_head_tags(inline_css: bool) -> String {
-    // Base URL - use absolute paths for both production and development
-    // This ensures subpages like /blog/foo.html correctly reference /fonts, /main.css etc.
-    // The whole docs site lives under /ui, so static assets resolve there too.
-    // Prod uses the fully-qualified HTML_ROOT (= https://azul.rs/ui); debug uses
-    // the root-relative /ui prefix (works against the local http.server).
-    let base_url: &str = if inline_css {
-        HTML_ROOT
-    } else {
-        UI_PATH // Root-relative paths like /ui/fonts/..., /ui/main.css
-    };
-
-    let css_tag = if inline_css {
-        // Read and inline the CSS file to prevent FOUC
-        let css_content = include_str!("../../templates/main.css");
-        format!("<style>\n{}\n</style>", css_content)
-    } else {
-        // Link to local stylesheet for development (main.css is copied to deploy folder)
-        format!("<link rel='stylesheet' type='text/css' href='{UI_PATH}/main.css'>")
-    };
-
-    format!("
-      <meta charset='utf-8'/>
-      <meta name='viewport' content='width=device-width, initial-scale=1'>
-      <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
-      <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
-      <meta name='keywords' content='gui, rust, user interface'>
-
-      <link rel='preload' as='font' href='{base_url}/fonts/RedHatDisplay-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
-      <link rel='preload' as='font' href='{base_url}/fonts/InstrumentSerif-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
-      <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
-      <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
-      <link rel='stylesheet' href='{base_url}/azul-search.css'>
-      {css_tag}
-      {anchor_link}
-      <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
-      <script defer src='{base_url}/azul-review.js'></script>
-    ", base_url=base_url, css_tag=css_tag, anchor_link=get_anchor_link_script())
-}
 
 /// Script tag + init for the search panel.
 ///

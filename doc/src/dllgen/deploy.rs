@@ -2074,7 +2074,6 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     fs::create_dir_all(&images_dir)?;
 
     // Copy CSS file at runtime (so edits take effect without recompiling)
-    fs::copy(templates_dir.join("main.css"), output_dir.join("main.css"))?;
 
     // Copy JavaScript file at runtime
     fs::copy(
@@ -2135,9 +2134,6 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     // CDN <link> used; Red Hat Mono is the code face. Licences ride next to
     // the files in doc/fonts (SIL OFL 1.1).
     //
-    // Imbue / Instrument Serif / Red Hat Display stay in doc/fonts but are no
-    // longer deployed: their only caller was main.css, which the Flora shell
-    // retired.
     for f in [
         "EBGaramond-Variable.woff2",
         "EBGaramond-Variable-Italic.woff2",
