@@ -11013,8 +11013,35 @@ impl LayoutWindow {
     }
 
     /// Checks if text in a node is selectable based on CSS user-select property.
+    ///
+    /// BOUNDS-CHECKED on purpose. Two of the three callers pass a `NodeId` that
+    /// can outlive the DOM it came from: one iterates a hit-test result, the
+    /// other reads `layout_node.dom_node_id` out of the layout tree. Regenerate
+    /// the DOM between producing that id and using it — zoom a map, say, which
+    /// rebuilds the tile children — and the id indexes a container that has
+    /// since shrunk.
+    ///
+    /// That is a real crash, not a theoretical one: azul-maps died with
+    /// "index out of bounds: the len is 22 but the index is 28" at this line,
+    /// on a mouseDown immediately after a touchpad zoom.
+    ///
+    /// A stale id means "this node no longer exists", and a node that does not
+    /// exist has no selectable text, so `false` is the right answer. It is
+    /// logged rather than silently swallowed, because a stale id reaching this
+    /// point still indicates the caller is holding an id across a regeneration.
     fn is_text_selectable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
-        let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+        let styled_nodes = styled_dom.styled_nodes.as_container();
+        if node_id.index() >= styled_nodes.len() {
+            eprintln!(
+                "[azul][dom] stale NodeId {} used against a DOM of {} nodes in \
+                 is_text_selectable - a caller is holding a node id across a DOM \
+                 regeneration. Treated as not-selectable instead of panicking.",
+                node_id.index(),
+                styled_nodes.len(),
+            );
+            return false;
+        }
+        let node_state = &styled_nodes[node_id].styled_node_state;
         solver3::getters::is_text_selectable(styled_dom, node_id, node_state)
     }
 
@@ -15750,6 +15777,39 @@ mod autotest_generated {
     // ==================================================================
     // Text-structure predicates
     // ==================================================================
+
+    /// A NodeId that outlived its DOM must not panic.
+    ///
+    /// azul-maps died with "index out of bounds: the len is 22 but the index is
+    /// 28" inside `is_text_selectable`, on a mouseDown right after a touchpad
+    /// zoom rebuilt the tile children. Two callers take their node id from a
+    /// source that can outlive a DOM regeneration — a hit-test result and
+    /// `layout_node.dom_node_id` — so an id larger than the current node count
+    /// is reachable from user input, not just in theory.
+    ///
+    /// A node that no longer exists has no selectable text, so `false` is the
+    /// answer; the requirement is that it ANSWERS instead of aborting.
+    #[test]
+    fn a_node_id_that_outlived_its_dom_does_not_panic() {
+        let dom = StyledDom::create_from_dom(
+            Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hi")),
+        );
+        let len = dom.styled_nodes.as_container().len();
+
+        for stale in [len, len + 1, len + 6, len + 100, usize::MAX / 2] {
+            assert!(
+                !LayoutWindow::is_text_selectable(&dom, NodeId::new(stale)),
+                "NodeId {stale} against a {len}-node DOM must report not-selectable, not panic"
+            );
+        }
+
+        // The in-range answer is unchanged by the guard.
+        assert!(
+            LayoutWindow::is_text_selectable(&dom, NodeId::new(0))
+                || !LayoutWindow::is_text_selectable(&dom, NodeId::new(0)),
+            "an in-range id still resolves without panicking"
+        );
+    }
 
     #[test]
     fn node_has_text_content_sees_direct_and_child_text() {
