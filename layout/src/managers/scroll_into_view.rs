@@ -64,7 +64,7 @@ struct ScrollableAncestor {
     /// What to ADD to the target rect to express it in this ancestor's dom.
     ///
     /// Zero within one dom, where everything already shares an absolute space.
-    /// Non-zero once the walk has crossed out of a VirtualView's nested dom,
+    /// Non-zero once the walk has crossed out of a `VirtualView`'s nested dom,
     /// whose display list is 0-relative and composited at
     /// `host.origin + content_offset`.
     target_lift: LogicalPosition,
@@ -76,7 +76,7 @@ struct ScrollableAncestor {
     scroll_y: bool,
 }
 
-/// Resolve a nested dom to the VirtualView that hosts it:
+/// Resolve a nested dom to the `VirtualView` that hosts it:
 /// `(host's dom, host node, offset that converts nested geometry to the host's
 /// space)`.
 ///
@@ -350,7 +350,7 @@ fn find_scrollable_ancestors(
     ancestors
 }
 
-/// How many VirtualView boundaries [`find_scrollable_ancestors`] will cross.
+/// How many `VirtualView` boundaries [`find_scrollable_ancestors`] will cross.
 /// Nesting is shallow; the bound only stops a cycle.
 const NESTED_DOM_CROSSING_LIMIT: usize = 32;
 
@@ -586,7 +586,7 @@ fn get_node_rect(
 
 #[cfg(test)]
 mod autotest_generated {
-    /// The fixtures here are single-dom: there is no VirtualView boundary to
+    /// The fixtures here are single-dom: there is no `VirtualView` boundary to
     /// cross, so the walk stops at the root exactly as it always did.
     fn no_hop(_: DomId) -> Option<(DomId, NodeId, LogicalPosition)> {
         None
@@ -1567,7 +1567,7 @@ mod autotest_generated {
         assert!(find_scrollable_ancestors(dom_id(0), nid(0), &lrs, &sm, &no_hop).is_empty());
     }
 
-    /// A node inside a VirtualView's nested dom must be revealed through the
+    /// A node inside a `VirtualView`'s nested dom must be revealed through the
     /// containers that clip the HOST, not just the ones in its own dom.
     ///
     /// The walk used to stop at the nested dom's root, so a caret inside a

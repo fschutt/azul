@@ -24,7 +24,7 @@ const EDGE_THRESHOLD: f32 = 200.0;
 /// the container bounds expand or the user scrolls near an edge).
 #[derive(Debug, Clone, Default)]
 pub struct VirtualViewManager {
-    /// Per-VirtualView state keyed by (parent `DomId`, `NodeId` of virtualized view element)
+    /// Per-`VirtualView` state keyed by (parent `DomId`, `NodeId` of virtualized view element)
     states: BTreeMap<(DomId, NodeId), VirtualViewState>,
     /// Counter for generating unique nested DOM IDs
     next_dom_id: usize,
@@ -288,14 +288,14 @@ impl VirtualViewManager {
     /// least once). Used to re-invoke *all* views after a shared-dataset change
     /// arrives out-of-band (e.g. a background tile-fetch writeback) without
     /// needing to know which node the data belongs to.
-    /// Which VirtualView HOSTS a nested dom: the inverse of
+    /// Which `VirtualView` HOSTS a nested dom: the inverse of
     /// [`Self::get_nested_dom_id`].
     ///
     /// A nested dom's display list is 0-relative — the rasteriser composites
     /// it at `host_bounds.origin + content_offset` — so every geometry
     /// accessor that must answer in WINDOW space has to walk back up through
     /// its hosts. Without this there was no way to ask "where does this dom
-    /// actually sit", and a caret rect inside a VirtualView was handed to the
+    /// actually sit", and a caret rect inside a `VirtualView` was handed to the
     /// platform IME as if the host were at the window origin.
     #[must_use]
     pub fn host_of_nested_dom(&self, nested: DomId) -> Option<(DomId, NodeId)> {
@@ -709,7 +709,7 @@ mod autotest_generated {
     /// never fire on this fixture, because `mat_min_x == doc_min_x` and
     /// `mat_max_x == doc_max_x` — there is no document to either side, so
     /// there is nothing to load and silence is the correct answer. That is the
-    /// shape a VirtualView actually ships in (a vertically-scrolling list),
+    /// shape a `VirtualView` actually ships in (a vertically-scrolling list),
     /// and it keeps the vertical assertions free of cross-axis noise: any edge
     /// these tests observe is unambiguously the one they aimed at.
     /// `invoked_state_2d` is the both-axes fixture, used wherever left/right is

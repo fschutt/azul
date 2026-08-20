@@ -166,7 +166,7 @@ impl PendingTextEditQueue {
     }
 
     /// Mutable access to the oldest queued edit.
-    pub fn front_mut(&mut self) -> Option<&mut QueuedTextEdit> {
+    pub const fn front_mut(&mut self) -> Option<&mut QueuedTextEdit> {
         self.head.as_mut()
     }
 

@@ -2524,6 +2524,7 @@ pub trait EventProvider {
 // Exhaustive EventType -> Vec<EventFilter> mapping table; some event types map to
 // the same filter set as intentional 1:1 rows — merging would collapse the table.
 #[allow(clippy::match_same_arms)]
+#[allow(clippy::too_many_lines)] // exhaustive EventType -> EventFilter mapping table
 #[must_use] pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
     use EventFilter as EF;
     use EventType as E;
@@ -3594,7 +3595,7 @@ fn process_event_for_internal(
             ctx.keyboard_state,
             ctx.focused_node,
         ),
-        EventType::MouseUp => handle_mouse_up(),
+        EventType::MouseUp => Some(handle_mouse_up()),
         _ => None,
     }
 }
@@ -3608,12 +3609,10 @@ fn process_event_for_internal(
 /// loses the release — a grab broken by the window manager, a crossing that
 /// swallows it — left a timer running at 60Hz for the life of the window.
 ///
-/// It passes to callbacks: a MouseUp is a user event, and stopping an
+/// It passes to callbacks: a `MouseUp` is a user event, and stopping an
 /// internal timer must not swallow it.
-fn handle_mouse_up() -> Option<InternalEventAction> {
-    Some(InternalEventAction::AddAndPass(
-        SystemChange::StopAutoScrollTimer,
-    ))
+const fn handle_mouse_up() -> InternalEventAction {
+    InternalEventAction::AddAndPass(SystemChange::StopAutoScrollTimer)
 }
 
 /// Action to take after processing an event for internal system events
@@ -6371,7 +6370,7 @@ mod autotest_generated {
     #[test]
     fn releasing_the_button_stops_the_autoscroll_timer() {
         match handle_mouse_up() {
-            Some(InternalEventAction::AddAndPass(SystemChange::StopAutoScrollTimer)) => {}
+            InternalEventAction::AddAndPass(SystemChange::StopAutoScrollTimer) => {}
             _ => panic!("expected AddAndPass(StopAutoScrollTimer)"),
         }
     }
