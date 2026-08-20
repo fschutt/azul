@@ -1195,10 +1195,8 @@ impl LayoutCallbackInfo {
     /// AzString pattern = AzLayoutCallbackInfo_getRoutePattern(&info);
     /// ```
     #[must_use] pub fn get_route_pattern(&self) -> AzString {
-        match self.get_active_route() {
-            Some(route) => route.pattern.clone(),
-            None => AzString::from_const_str("/"),
-        }
+        self.get_active_route()
+            .map_or_else(|| AzString::from_const_str("/"), |route| route.pattern.clone())
     }
 
     /// A route parameter by key, empty when the parameter or the route is

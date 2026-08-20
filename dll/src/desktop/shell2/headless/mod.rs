@@ -2784,7 +2784,7 @@ mod tests {
     /// the system-font scan was both a flakiness source and a contributor to the
     /// build-machine lockup (every test forking a full font enumeration).
     const HARNESS_FONT: &[u8] =
-        include_bytes!("../../../../../doc/fonts/InstrumentSerif-Regular.ttf");
+        include_bytes!("../../../../../assets/fonts/InstrumentSerif-Regular.ttf");
 
     /// Parse [`HARNESS_FONT`] and insert it straight into the window's
     /// `FontManager` so text shapes without any system-font scan.

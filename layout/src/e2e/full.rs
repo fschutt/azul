@@ -6543,6 +6543,12 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          nothing between calls",
     ),
     (
+        "scroll_registration",
+        "stateless — one free function that reads the finished layout and publishes each \
+         scrollable node into ScrollManager. It owns no field on LayoutWindow, so nothing can \
+         latch in it; everything it writes is asserted as `scroll`",
+    ),
+    (
         "drag_drop",
         "no LayoutWindow field exists; the live drag lives in gesture_drag_manager, which IS \
          covered",
@@ -7586,6 +7592,12 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
         "stateless — free functions that compute ScrollAdjustments, write them into ScrollManager \
          and return; there is no state of its own to move. Its effect shows up as a `scroll` \
          change, which IS fingerprinted",
+    ),
+    (
+        "scroll_registration",
+        "stateless — `register_scroll_nodes` publishes layout's scroll containers into \
+         ScrollManager and returns; it keeps nothing between calls. What it wrote is hashed as \
+         `scroll`, so fingerprinting it separately would hash the same bytes twice",
     ),
     (
         "drag_drop",
