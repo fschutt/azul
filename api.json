@@ -1,8 +1,8 @@
 {
     "0.2.0": {
         "apiversion": 1,
-        "git": "8130d13fa",
-        "date": "2026-08-13",
+        "git": "d1bae2382",
+        "date": "2026-08-20",
         "installation": {
             "tabOrder": [
                 "python",
