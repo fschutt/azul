@@ -1,11 +1,11 @@
 ---
-slug: headless-rendering
+slug: headless/rendering
 title: Headless Rendering
 language: en
-canonical_slug: headless-rendering
+canonical_slug: headless/rendering
 audience: external
 maturity: wip
-guide_order: 290
+guide_order: 220
 topic_only: false
 short_desc: Running the pipeline without a window
 prerequisites: [dom]
@@ -59,7 +59,7 @@ A binary built for desktop runs unchanged in a server-side container with these 
 
 ## Capturing screenshots over HTTP
 
-When the process boots with `AZ_DEBUG=<port>`, the debug server (covered in [Debugging](debugging.md)) exposes two screenshot ops:
+When the process boots with `AZ_DEBUG=<port>`, the debug server (covered in [Debugging](../debugging.md)) exposes two screenshot ops:
 
 - `take_screenshot`. Returns a CPU-rasterised PNG of the current DOM, no window decorations.
 - `take_native_screenshot`. Returns the current framebuffer with whatever the OS is drawing.
@@ -80,7 +80,7 @@ This is the pattern the screenshot harness in `scripts/screenshot.sh` uses to re
 
 ## Driving a headless app
 
-Drive interactions through the same HTTP API documented in [Debugging](debugging.md). A headless run blocks on a wait condition just like a normal window blocks on `WaitMessage()` / `XNextEvent()` / `NSEvent`, so an idle process uses zero CPU. Inject events, query state, capture pixels:
+Drive interactions through the same HTTP API documented in [Debugging](../debugging.md). A headless run blocks on a wait condition just like a normal window blocks on `WaitMessage()` / `XNextEvent()` / `NSEvent`, so an idle process uses zero CPU. Inject events, query state, capture pixels:
 
 ```bash
 post() { curl -s -X POST "http://127.0.0.1:8765/" -d "$1"; }
@@ -92,7 +92,7 @@ post '{"op":"wait_frame"}'
 post '{"op":"take_screenshot"}' | jq -r '.data.value' > out.b64
 ```
 
-For repeatable scenarios crystallised into a JSON file, see [End-to-End Testing](e2e-testing.md).
+For repeatable scenarios crystallised into a JSON file, see [End-to-End Testing](../debugging/e2e-testing.md).
 
 ## Determinism and CI
 
@@ -108,8 +108,3 @@ CPU rendering is consistent in concept across platforms, but pixel-exact output 
 - Wayland: the compositor does not expose other windows' contents to applications. Use the headless backend rather than trying to capture a visible window.
 
 The reftest harness in `layout/tests/` is the reference implementation of these patterns.
-
-## Coming Up Next
-
-- [End-to-End Testing](e2e-testing.md) — Driving an Azul app from a script for tests
-- [Deploying to the web](deploying-web.md) — Building for the browser via WASM

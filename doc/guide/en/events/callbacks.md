@@ -1,11 +1,11 @@
 ---
-slug: callbacks
+slug: events/callbacks
 title: Callbacks
 language: en
-canonical_slug: callbacks
+canonical_slug: events/callbacks
 audience: external
 maturity: mature
-guide_order: 31
+guide_order: 61
 topic_only: false
 short_desc: What CallbackInfo exposes — state, DOM mutation, focus, async work
 prerequisites: [dom]
@@ -25,7 +25,7 @@ default-search-keys:
 
 # Callbacks
 
-[DOM](dom.md) showed how to attach a callback to a node. The other
+[DOM](../dom.md) showed how to attach a callback to a node. The other
 side of the wire — what a callback receives, can read, can change,
 and returns — is what this page documents.
 
@@ -170,7 +170,7 @@ faster path:
 These produce a `CallbackChange` queued on the info; the framework
 applies them between the callback returning and the next paint. The
 restyle and damage-rect machinery covered in
-[Reconciliation](dom/reconciliation.md) keeps the work proportional
+[Reconciliation](../dom/reconciliation.md) keeps the work proportional
 to what changed.
 
 For structural edits (insert a child, delete a node), use
@@ -215,7 +215,7 @@ the same name for the same idea.
 
 Event filtering — `EventFilter::Hover(...)` vs `Focus(...)` vs
 `Window(...)`, propagation order, NotEvent — is in
-[Events and Input](events.md).
+[Events and Input](..md).
 
 ## Async work: timers and threads
 
@@ -236,7 +236,7 @@ For background work, `add_thread` spawns a worker thread tied to a
 `RefAny`. The thread sends messages back to a `merge_callback` on the
 main thread — the framework already understands cross-thread message
 delivery, so you don't need a manual mutex. See
-[Background Tasks](background-tasks.md).
+[Background Tasks](../data/background-tasks.md).
 
 ## Window control
 
@@ -290,7 +290,7 @@ virtual view's source data changed but the parent layout hasn't.
 
 `info.update_image_callback(dom_id, node_id)` triggers a re-render
 of an `ImageCallback`-backed node — the GPU canvas pattern documented
-in [SVG and Canvas](images/svg.md).
+in [SVG and Canvas](../images/svg.md).
 
 ## A complete example
 
@@ -335,10 +335,3 @@ extern "C" fn on_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
 The pattern — dataset on the row, generic callback that walks up to
 find its row marker, mutate the model, return `RefreshDom` — works for
 nearly every "this widget acts on its container" interaction.
-
-## Coming Up Next
-
-- [Events and Input](events.md) — Event filters, propagation, NotEvent
-- [Background Tasks](background-tasks.md) — Timers, threads, and merge callbacks
-- [Datasets](dom/datasets.md) — Per-node state and the navigation patterns that read it
-- [Reconciliation](dom/reconciliation.md) — How RefreshDom maps old to new

@@ -1,14 +1,14 @@
 ---
-slug: device-input
-title: Device Input (Sensors, Gamepad, Geolocation)
+slug: system/device-input
+title: Device Input
 language: en
-canonical_slug: device-input
+canonical_slug: system/device-input
 audience: external
 maturity: beta
-guide_order: 275
+guide_order: 123
 topic_only: false
 short_desc: React to motion sensors, gamepads, and location as events - no polling
-prerequisites: [events, callbacks]
+prerequisites: [events, events/callbacks]
 tracked_files:
   - core/src/events.rs
   - core/src/sensors.rs
@@ -31,15 +31,15 @@ default-search-keys:
   - WindowEventFilter
 ---
 
-# Device Input (Sensors, Gamepad, Geolocation)
+# Device Input
 
 ## Introduction
 
 Motion sensors (accelerometer / gyroscope / magnetometer), gamepads, and
 geolocation are **event-driven**: you attach a callback to a window-level event
 filter and the framework invokes it when a new sample arrives. You do **not**
-poll on a [Timer](timers.md). Inside the callback you read the current value
-through an accessor on [`CallbackInfo`](callbacks.md). This is the same
+poll on a [Timer](../animations/timers.md). Inside the callback you read the current value
+through an accessor on [`CallbackInfo`](../events/callbacks.md). This is the same
 "react to an event, then read the detail" shape as a key press or a mouse move.
 
 This avoids the busy-loop a poll would cause and keeps the device's sample rate
@@ -180,11 +180,11 @@ Every path above is exercised synthetically (no device) by
 same `push_sensor_reading` / `push_gamepad_state` / `push_location_fix` channels
 the real platform backends use, then asserts the manager folds them and the
 `EventProvider` yields `SensorChanged` / `GamepadInput`. See
-[e2e-testing](e2e-testing.md). The pen path is exercised via
+[e2e-testing](../debugging/e2e-testing.md). The pen path is exercised via
 `GestureAndDragManager::update_pen_state` -> `get_pen_state`.
 
 ## See also
 
-- [events](events.md) - the event-filter + dispatch model.
-- [callbacks](callbacks.md) - `CallbackInfo` accessors + `RefAny`.
+- [events](../events.md) - the event-filter + dispatch model.
+- [callbacks](../events/callbacks.md) - `CallbackInfo` accessors + `RefAny`.
 - [Realtime Media and Devices](realtime-media.md) - camera/mic capture.

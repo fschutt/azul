@@ -131,7 +131,7 @@ DYLD_LIBRARY_PATH=. luajit hello-world.lua
 LD_LIBRARY_PATH=. luajit hello-world.lua
 ```
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md).
+You should see the window pictured on the [hello-world landing page](..md).
 Click the button: the counter increments and the layout callback re-runs.
 
 ## Common errors
@@ -150,9 +150,3 @@ Click the button: the counter increments and the layout callback re-runs.
   workaround short of a by-pointer C-ABI, so the E2E board marks Lua `⊘ SKIP` on
   x86-64.
 - **Counter does not advance** — `on_click` returned `azul.Update.DoNothing`.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Ruby]](ruby.md)

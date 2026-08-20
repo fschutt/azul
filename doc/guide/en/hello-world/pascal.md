@@ -304,7 +304,7 @@ Compiling `azul.pas` takes about two seconds and prints two
 quoted inside the generated header comment and are harmless.
 
 You should see the window pictured on the
-[hello-world landing page](../hello-world.md). Click the button: the
+[hello-world landing page](..md). Click the button: the
 counter increments, `TMyLayoutHandler.Invoke` re-runs, and the new
 value renders.
 
@@ -341,9 +341,3 @@ value renders.
   `azul_register_*` is not synchronized. Register callbacks and create
   RefAnys from the main thread only; do not register/release from
   `AzThread` callbacks concurrently.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Scala]](scala.md)

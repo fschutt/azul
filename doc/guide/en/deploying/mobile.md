@@ -1,11 +1,11 @@
 ---
-slug: mobile
-title: Mobile (iOS & Android) in Rust
+slug: deploying/mobile
+title: Mobile (iOS & Android)
 language: en
-canonical_slug: mobile
+canonical_slug: deploying/mobile
 audience: external
 maturity: beta
-guide_order: 285
+guide_order: 231
 topic_only: false
 short_desc: Build, package, sign and install an Azul app as an .apk / .ipa — all Rust, from any OS, no Xcode or Android Studio
 prerequisites: [hello-world]
@@ -27,7 +27,7 @@ default-search-keys:
   - aarch64-apple-ios
 ---
 
-# Mobile (iOS & Android) in Rust
+# Mobile (iOS & Android)
 
 Your Azul app **is** the mobile app. The same `App::create(...).run(...)` you
 wrote for desktop ships as an `.apk` or `.ipa` — there is no Java/Kotlin or
@@ -62,7 +62,7 @@ runs `cargo check` across all five — the gate kept green as the port lands.
 ## How an Azul app maps onto each platform
 
 Everything — layout, rendering (CPU), callbacks, the
-[realtime-media](realtime-media.md) / sensor / gamepad / geolocation device APIs
+[realtime-media](../system/realtime-media.md) / sensor / gamepad / geolocation device APIs
 — is identical to desktop. The one structural difference is the **entry point**:
 
 - **iOS** keeps a normal `fn main()`. Your `main` calls `App::run(...)`, which on
@@ -354,11 +354,11 @@ macOS (only the final iOS *signing* prefers a Mac, and even that has the
 
 `scripts/mobile-check-all.sh` proves all five targets `cargo check` clean;
 event/runtime paths are covered by the synthetic-event harness (no hardware) —
-see [e2e-testing](e2e-testing.md). The iOS simulator runs unsigned `.app`s.
+see [e2e-testing](../debugging/e2e-testing.md). The iOS simulator runs unsigned `.app`s.
 
 ## See also
 
-- [Realtime Media and Devices](realtime-media.md) — camera/mic/sensors/gamepad/
+- [Realtime Media and Devices](../system/realtime-media.md) — camera/mic/sensors/gamepad/
   geolocation on mobile, and the permissions you declare.
-- [Deploying to the web](deploying-web.md) — the WASM target, by comparison.
-- [hello-world](hello-world.md) — the app you're shipping.
+- [Deploying to the web](web.md) — the WASM target, by comparison.
+- [hello-world](../hello-world.md) — the app you're shipping.

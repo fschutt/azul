@@ -31,7 +31,7 @@ default-search-keys:
 
 ## Introduction
 
-The C++ binding is a thin, header-only wrapper over the [C ABI](./c.md): same DLL, same `azul.h` underneath,
+The C++ binding is a thin, header-only wrapper over the [C ABI](c.md): same DLL, same `azul.h` underneath,
 but on top you get RAII types, builder methods, integration with `std::string` / `std::optional` /
 `std::expected` / `std::span`, and template-based reflection. The wrapper is generated separately for
 each C++ standard, so it scales from `-std=c++03` (Colvin-Gibbons move emulation) all the way to
@@ -47,7 +47,7 @@ called out below.
 
 ### Pre-built DLL (recommended)
 
-Same as the [C installation](./c.md#installation): on Debian/Ubuntu and
+Same as the [C installation](c.md#installation): on Debian/Ubuntu and
 Fedora/RHEL, install the prebuilt package from the GitHub release
 (it installs `libazul.so` and `azul.h` into standard system locations):
 
@@ -310,7 +310,7 @@ Things we did not use that you may want to explore next.
 
 - `AzLayoutCallbackInfo` — read-only access to the system font cache, image cache, GL context, current window size, routing, and localization dictionaries.
 - `AzCallbackInfo` — many functions for navigating the DOM, mutating CSS without rebuilding the tree, querying computed layout / styles, etc.
-- `WindowCreateOptions` — title, size, decorations, transparency, monitor pinning. Same fields as in C; covered in [windowing](../windowing.md).
+- `WindowCreateOptions` — title, size, decorations, transparency, monitor pinning. Same fields as in C; covered in [windowing](../system/windowing.md).
 
 ### What changes for older / newer standards
 
@@ -372,7 +372,7 @@ clang++ -std=c++20 -fmodules -c azul.cppm
 clang++ -std=c++20 -fmodules hello-world.cpp -lazul -o hello-world
 ```
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](..md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
 
 1. `app.run(std::move(window))` opened a native window and ran `layout()` once with your `RefAny` on startup.
 2. The returned `AzDom` was styled, laid out, and rendered (default: CPU-rendered; can be GPU-rendered if needed).
@@ -405,9 +405,3 @@ cargo build -p azul-dll --release --features build-dll
 ```
 
 The DLL lands at `target/release/libazul.{so,dylib}` (or `azul.dll`). The wrappers live at `target/codegen/azul<NN>.hpp`, plus `target/codegen/azul.cppm` for the C++20+ module partition. Copy the wrapper for your standard plus the DLL somewhere your C++ compiler can find them.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application
-- [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
-- [Hello World [Rust]](rust.md)

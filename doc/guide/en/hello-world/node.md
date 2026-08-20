@@ -158,7 +158,7 @@ deno run --allow-ffi --unstable-ffi hello-world.js
 
 With the download steps above (library and `azul.js` in the same directory) it is
 found automatically — no environment variables needed. You should see the window
-pictured on the [hello-world landing page](../hello-world.md).
+pictured on the [hello-world landing page](..md).
 
 ## Common errors
 
@@ -171,9 +171,3 @@ pictured on the [hello-world landing page](../hello-world.md).
 - **Process aborts on click with no stack** — a callback threw; the
   `uncaughtException` logger surfaces it. Counter not advancing usually means you
   returned `Update.DoNothing`.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [OCaml]](ocaml.md)

@@ -29,7 +29,7 @@ default-search-keys:
 
 *WIP.* The flag set, the HTTP debug server, and the in-browser debugger all work today; names of endpoints and env vars may shift.
 
-Azul ships an HTTP debug server that runs inside your application process. Set `AZ_DEBUG=<port>` and a thread binds `127.0.0.1:<port>`, serves an inspector UI at `/`, and accepts JSON commands at `POST /` that drive the application as if a user were clicking it. The same channel powers programmatic E2E tests (covered in [End-to-End Testing](e2e-testing.md)) and memory probes (covered in [Memory and Profiling](memory-profiling.md)).
+Azul ships an HTTP debug server that runs inside your application process. Set `AZ_DEBUG=<port>` and a thread binds `127.0.0.1:<port>`, serves an inspector UI at `/`, and accepts JSON commands at `POST /` that drive the application as if a user were clicking it. The same channel powers programmatic E2E tests (covered in [End-to-End Testing](debugging/e2e-testing.md)) and memory probes (covered in [Memory and Profiling](debugging/profiling.md)).
 
 ```bash
 AZ_DEBUG=8765 ./my_app &
@@ -46,8 +46,8 @@ Every flag is read once at process start. Unset means off — **except `AZ_LOG`,
 - `AZ_BACKEND=<mode>`. One of `auto`, `gpu`, `cpu`, or `headless`. Resolves the rendering backend. `headless` skips the OS window and is required by the E2E runner. Default `auto`.
 - `AZUL_HEADLESS=1`. Legacy alias for `AZ_BACKEND=headless`.
 - `AZ_RECORD=<path>`. Appends every internal log message to `<path>` as plain text.
-- `AZ_E2E=<path>`. Reads JSON tests from `<path>`, runs them, exits `0` (all pass) or `1` (any fail). See [End-to-End Testing](e2e-testing.md).
-- `AZ_PROFILE=<tokens>`. Comma-separated profiler tokens for per-frame instrumentation. See [Memory and Profiling](memory-profiling.md).
+- `AZ_E2E=<path>`. Reads JSON tests from `<path>`, runs them, exits `0` (all pass) or `1` (any fail). See [End-to-End Testing](debugging/e2e-testing.md).
+- `AZ_PROFILE=<tokens>`. Comma-separated profiler tokens for per-frame instrumentation. See [Memory and Profiling](debugging/profiling.md).
 - `AZ_PROFILE_OUT=<path>`. JSONL output destination paired with `AZ_PROFILE=heap,jsonl`.
 - `RUST_LOG=<filter>`. Standard `log` crate filter (env_logger syntax).
 
@@ -135,7 +135,7 @@ post '{"op":"take_native_screenshot"}' \
   | base64 -d > out.png
 ```
 
-This pattern — `AZ_DEBUG`, wait, drive, query — is the foundation for both ad-hoc debugging and the JSON-described E2E tests in [End-to-End Testing](e2e-testing.md).
+This pattern — `AZ_DEBUG`, wait, drive, query — is the foundation for both ad-hoc debugging and the JSON-described E2E tests in [End-to-End Testing](debugging/e2e-testing.md).
 
 ## The in-browser inspector
 
@@ -153,9 +153,4 @@ If `App::run` returns an error (e.g. no display server could be opened), it is a
 
 ## When the timer is not running
 
-`AZ_DEBUG` requires that the application reaches the event loop. If `App::run` is never called — for example, in a Rust unit test that builds a `Dom` and asserts its shape — the debug timer is never registered, and a `POST /` request hangs until `timeout_secs` elapses (default 30 s). For pure layout assertions, prefer the headless renderer covered in [End-to-End Testing](e2e-testing.md) or the reftest harness rather than `AZ_DEBUG`.
-
-## Coming Up Next
-
-- [End-to-End Testing](e2e-testing.md) — Driving an Azul app from a script for tests
-- [Profiling](memory-profiling.md) — Tracking allocations and per-frame budgets
+`AZ_DEBUG` requires that the application reaches the event loop. If `App::run` is never called — for example, in a Rust unit test that builds a `Dom` and asserts its shape — the debug timer is never registered, and a `POST /` request hangs until `timeout_secs` elapses (default 30 s). For pure layout assertions, prefer the headless renderer covered in [End-to-End Testing](debugging/e2e-testing.md) or the reftest harness rather than `AZ_DEBUG`.

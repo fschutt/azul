@@ -1,11 +1,11 @@
 ---
-slug: windowing
-title: Windows, Menus, Decorations
+slug: system/windowing
+title: Windows & Menus
 language: en
-canonical_slug: windowing
+canonical_slug: system/windowing
 audience: external
 maturity: mature
-guide_order: 130
+guide_order: 120
 topic_only: false
 short_desc: Windows, menus, decorations, and per-window state
 prerequisites: [hello-world, events]
@@ -29,7 +29,7 @@ default-search-keys:
   - Titlebar
 ---
 
-# Windows, Menus, Decorations
+# Windows & Menus
 
 ## Overview
 
@@ -355,10 +355,3 @@ Linux options carry X11-specific hints (`x11_window_types`, `x11_wm_classes`, `x
 - **Title bar disappears** — `decorations: WindowDecorations::None` without `has_decorations: true` produces a borderless window with no way to drag. Either set `has_decorations: true` (and draw your own title bar) or use `Normal` / `NoTitleAutoInject`.
 - **Native menus on Linux** — `use_native_menus` defaults to false on Linux because Linux has no universal menu protocol. The framework renders a borderless azul popup instead.
 - **Close button does nothing** — you registered a close callback that returned `Update::DoNothing` but didn't clear `flags.close_requested`. Clear it explicitly to veto the close.
-
-## Coming Up Next
-
-- [Events](events.md) — Callbacks, event filters, and how state triggers relayout
-- [File Dialogs](file-dialogs.md) — Native open/save dialogs and folder pickers
-- [Accessibility](accessibility.md) — Screen reader integration and ARIA roles
-- [Built-in Widgets](widgets.md) — Built-in widgets and how to write your own

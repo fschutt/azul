@@ -1,11 +1,14 @@
 # azul-doc autodoc — group manifest (schema v3)
 #
-# Locks down the 3-tree shape of the azul book so that ~13 subagents can
-# each produce a coherent batch of guide pages in parallel.
+# Locks down the 2-tree shape of the azul book so that subagents can each
+# produce a coherent batch of guide pages in parallel.
 #
 #   Tree 1 "getting-started" — core GUI, linear teaching order
-#   Tree 2 "advanced"        — non-core systems, ramps to web deployment
-#   Tree 3 "contributor"     — code architecture and per-system internals
+#   Tree 2 "advanced"        — tooling, data, headless and deployment
+#
+# Every page belongs to a topic DIRECTORY that owns a card on the guide
+# index (`events/`, `system/`, `data/`, `headless/`, `deploying/`); a page
+# with no directory would be a card with nothing under it.
 #
 # Schema (per-group):
 #   id, tree, audience[], agent_strategy, tracked_files[], tracked_globs[]
@@ -17,20 +20,20 @@
 #   topic_only      bool — routes to /guide/topics/<slug>
 #   prerequisites   [slug] — earlier slugs the reader is assumed to know
 #
-# guide_order is sparse so insertions are cheap. Sub-pages of a topic share
-# the parent's tens digit (e.g. layout=50, layout/flex=51, layout/grid=52).
+# guide_order runs in one band per index card: the card at N0, its articles
+# at N1.. (layout=80, layout/blocks=81, layout/grid=84). 10-199 is Tree 1,
+# 200+ is Tree 2 — that split is what `classify_tree` reads.
 
 [meta]
-generated_from = "doc/guide/en/reference.md"
+generated_from = "doc/guide/en/architecture.md"
 schema_version = 3
-existing_guides = ["architecture", "reference"]
+existing_guides = ["architecture"]
 
 # Files every agent must read before starting, to anchor on the project's
 # big picture and writing conventions.
 shared_context_files = [
   "doc/AUTODOC.md",                  # operational pipeline reference
   "doc/autodoc-groups.toml",         # this manifest — the page tree, prerequisites, design_docs
-  "doc/guide/en/reference.md",       # per-source-file backlog
   "doc/guide/en/architecture.md",    # canonical architecture doc
   "scripts/ARCHITECTURE.md",         # contributor-side code map
   "api.json",                        # FFI surface (read for type names)
@@ -57,22 +60,10 @@ title = "Advanced"
 audience = "external"
 description = """
 Topics beyond the core GUI loop: developer tooling (debugging, profiling, \
-e2e testing), I/O (clipboard, file dialogs), systems (XML, networking, \
-accessibility), packaging (bindings, codegen, web deployment), and \
-finally the security model. Pages are mostly standalone; a reader can \
-jump to any topic after finishing Tree 1.
-"""
-
-[[meta.trees]]
-id = "contributor"
-title = "Contributors"
-audience = "contributor"
-description = """
-For people hacking on azul itself. Starts with the overall code map and \
-build pipeline, then per-system internals (DOM, CSS, layout, text, \
-images, events, rendering, shell2 backends, menus, a11y, async, web). \
-Pages cite source paths with line numbers and assume Rust + systems-\
-programming background. No teaching order — read on demand.
+e2e testing), data (SQL, networking, background work), headless use \
+(rendering, PDF, XML) and deployment (web, mobile, signed updates). \
+Pages are mostly standalone; a reader can jump to any topic after \
+finishing Tree 1.
 """
 
 # ──────────────────────────────────────────────────────────────────────
@@ -209,16 +200,8 @@ slug = "architecture"
 path = "doc/guide/en/architecture.md"
 title = "Architecture"
 maturity = "mature"
-guide_order = 20
+guide_order = 40
 prerequisites = ["hello-world"]
-
-[[group.outputs]]
-slug = "understanding-refany"
-path = "doc/guide/en/understanding-refany.md"
-title = "Understanding RefAny"
-maturity = "mature"
-guide_order = 25
-prerequisites = ["architecture"]
 
 # ----
 
@@ -235,15 +218,15 @@ slug = "dom"
 path = "doc/guide/en/dom.md"
 title = "The DOM"
 maturity = "mature"
-guide_order = 30
-prerequisites = ["understanding-refany"]
+guide_order = 50
+prerequisites = []
 
 [[group.outputs]]
-slug = "dom/components"
-path = "doc/guide/en/dom/components.md"
+slug = "architecture/components"
+path = "doc/guide/en/architecture/components.md"
 title = "Components"
 maturity = "mature"
-guide_order = 31
+guide_order = 42
 prerequisites = ["dom"]
 
 # ----
@@ -266,7 +249,7 @@ slug = "styling"
 path = "doc/guide/en/styling.md"
 title = "Styling with CSS"
 maturity = "mature"
-guide_order = 40
+guide_order = 70
 prerequisites = ["dom"]
 
 [[group.outputs]]
@@ -274,7 +257,7 @@ slug = "styling/properties"
 path = "doc/guide/en/styling/properties.md"
 title = "CSS Properties Cheatsheet"
 maturity = "mature"
-guide_order = 41
+guide_order = 71
 prerequisites = ["styling"]
 
 [[group.outputs]]
@@ -282,7 +265,7 @@ slug = "styling/themes"
 path = "doc/guide/en/styling/themes.md"
 title = "System Themes"
 maturity = "wip"
-guide_order = 42
+guide_order = 72
 prerequisites = ["styling"]
 
 [[group.outputs]]
@@ -290,7 +273,7 @@ slug = "styling/text-and-fonts"
 path = "doc/guide/en/styling/text-and-fonts.md"
 title = "Text and Fonts"
 maturity = "wip"
-guide_order = 43
+guide_order = 73
 prerequisites = ["styling"]
 
 [[group.outputs]]
@@ -298,7 +281,7 @@ slug = "styling/icon-packs"
 path = "doc/guide/en/styling/icon-packs.md"
 title = "Icon Packs"
 maturity = "wip"
-guide_order = 44
+guide_order = 74
 prerequisites = ["styling"]
 
 # ----
@@ -324,7 +307,7 @@ slug = "layout"
 path = "doc/guide/en/layout.md"
 title = "Layout"
 maturity = "mature"
-guide_order = 50
+guide_order = 80
 prerequisites = ["styling"]
 
 [[group.outputs]]
@@ -332,7 +315,7 @@ slug = "layout/blocks"
 path = "doc/guide/en/layout/blocks.md"
 title = "Blocks, Sizing, and Positioning"
 maturity = "mature"
-guide_order = 51
+guide_order = 81
 prerequisites = ["layout"]
 
 [[group.outputs]]
@@ -340,7 +323,7 @@ slug = "layout/inline"
 path = "doc/guide/en/layout/inline.md"
 title = "Inline, Inline-Block, and Text Flow"
 maturity = "mature"
-guide_order = 52
+guide_order = 82
 prerequisites = ["layout/blocks"]
 
 [[group.outputs]]
@@ -348,7 +331,7 @@ slug = "layout/flex"
 path = "doc/guide/en/layout/flex.md"
 title = "Flexbox"
 maturity = "mature"
-guide_order = 53
+guide_order = 83
 prerequisites = ["layout"]
 
 [[group.outputs]]
@@ -356,7 +339,7 @@ slug = "layout/grid"
 path = "doc/guide/en/layout/grid.md"
 title = "Grid"
 maturity = "mature"
-guide_order = 54
+guide_order = 84
 prerequisites = ["layout"]
 
 # ----
@@ -382,7 +365,7 @@ slug = "images"
 path = "doc/guide/en/images.md"
 title = "Images and Drawing"
 maturity = "wip"
-guide_order = 70
+guide_order = 90
 prerequisites = ["dom"]
 
 [[group.outputs]]
@@ -390,7 +373,7 @@ slug = "images/svg"
 path = "doc/guide/en/images/svg.md"
 title = "SVG"
 maturity = "wip"
-guide_order = 71
+guide_order = 91
 prerequisites = ["images"]
 
 [[group.outputs]]
@@ -398,7 +381,7 @@ slug = "images/canvas-gl"
 path = "doc/guide/en/images/canvas-gl.md"
 title = "Canvas and GL Textures"
 maturity = "wip"
-guide_order = 72
+guide_order = 92
 prerequisites = ["images"]
 
 # ----
@@ -424,7 +407,7 @@ slug = "events"
 path = "doc/guide/en/events.md"
 title = "Events and Input"
 maturity = "mature"
-guide_order = 90
+guide_order = 60
 prerequisites = ["dom"]
 
 # ----
@@ -448,20 +431,20 @@ design_docs = [
 notes = "Foundational text-editing layer between events and widgets. text-input covers the dual-path (Full DOM vs Incremental Display List) contenteditable architecture. text-selection covers the W3C Selection model — range-based, multi-node — that ranges over arbitrary DOM, not just inside a text-input widget. These are prerequisite for understanding the widgets/inputs page later in the tree."
 
 [[group.outputs]]
-slug = "text-input"
-path = "doc/guide/en/text-input.md"
+slug = "events/text-input"
+path = "doc/guide/en/events/text-input.md"
 title = "Text Input and Contenteditable"
 maturity = "wip"
-guide_order = 92
+guide_order = 62
 prerequisites = ["events"]
 
 [[group.outputs]]
-slug = "text-selection"
-path = "doc/guide/en/text-selection.md"
+slug = "events/text-selection"
+path = "doc/guide/en/events/text-selection.md"
 title = "Text Selection"
 maturity = "wip"
-guide_order = 94
-prerequisites = ["events", "text-input"]
+guide_order = 63
+prerequisites = ["events", "events/text-input"]
 
 # ----
 
@@ -484,11 +467,11 @@ design_docs = [
 notes = "Frame-driven Timer + animation runtime + scroll-and-drag user-side. Design docs cover scroll-clip vs content size (viewport-free design, virtualized IFrame scrolling) and the three-part drag architecture (visual feedback, drop-zone filtering, CSS pseudo-classes)."
 
 [[group.outputs]]
-slug = "timers"
-path = "doc/guide/en/timers.md"
+slug = "animations/timers"
+path = "doc/guide/en/animations/timers.md"
 title = "Timers"
 maturity = "wip"
-guide_order = 100
+guide_order = 101
 prerequisites = ["events"]
 
 [[group.outputs]]
@@ -496,15 +479,23 @@ slug = "animations"
 path = "doc/guide/en/animations.md"
 title = "Animations"
 maturity = "stub"
-guide_order = 110
-prerequisites = ["timers"]
+guide_order = 100
+prerequisites = ["animations/timers"]
 
 [[group.outputs]]
-slug = "scrolling-and-drag"
-path = "doc/guide/en/scrolling-and-drag.md"
-title = "Scrolling and Drag-and-Drop"
+slug = "animations/zombie-animations"
+path = "doc/guide/en/animations/zombie-animations.md"
+title = "Zombie Animations"
 maturity = "wip"
-guide_order = 120
+guide_order = 102
+prerequisites = ["animations", "dom/reconciliation"]
+
+[[group.outputs]]
+slug = "events/scrolling"
+path = "doc/guide/en/events/scrolling.md"
+title = "Scrolling & Drag"
+maturity = "wip"
+guide_order = 64
 prerequisites = ["events"]
 
 # ----
@@ -523,11 +514,11 @@ tracked_globs = ["layout/src/widgets/*.rs"]
 notes = "Closes Tree 1. Windowing: multi-window, menus, decorations from the user side. Widgets: the built-in widget set, picked up after the reader has seen events, text-input, text-selection."
 
 [[group.outputs]]
-slug = "windowing"
-path = "doc/guide/en/windowing.md"
-title = "Windows, Menus, Decorations"
+slug = "system/windowing"
+path = "doc/guide/en/system/windowing.md"
+title = "Windows & Menus"
 maturity = "mature"
-guide_order = 130
+guide_order = 120
 prerequisites = ["hello-world", "events"]
 
 [[group.outputs]]
@@ -535,23 +526,23 @@ slug = "widgets"
 path = "doc/guide/en/widgets.md"
 title = "Built-in Widgets"
 maturity = "wip"
-guide_order = 140
-prerequisites = ["styling", "events", "text-input"]
+guide_order = 110
+prerequisites = ["styling", "events", "events/text-input"]
 
 [[group.outputs]]
 slug = "widgets/inputs"
 path = "doc/guide/en/widgets/inputs.md"
 title = "Input Widgets"
 maturity = "wip"
-guide_order = 141
-prerequisites = ["widgets", "text-input", "text-selection"]
+guide_order = 111
+prerequisites = ["widgets", "events/text-input", "events/text-selection"]
 
 [[group.outputs]]
 slug = "widgets/structural"
 path = "doc/guide/en/widgets/structural.md"
 title = "Structural Widgets"
 maturity = "wip"
-guide_order = 142
+guide_order = 112
 prerequisites = ["widgets"]
 
 # ──────────────────────────────────────────────────────────────────────
@@ -583,19 +574,19 @@ guide_order = 200
 prerequisites = ["hello-world"]
 
 [[group.outputs]]
-slug = "memory-profiling"
-path = "doc/guide/en/memory-profiling.md"
+slug = "debugging/profiling"
+path = "doc/guide/en/debugging/profiling.md"
 title = "Memory and Profiling"
 maturity = "wip"
-guide_order = 210
+guide_order = 201
 prerequisites = ["debugging"]
 
 [[group.outputs]]
-slug = "e2e-testing"
-path = "doc/guide/en/e2e-testing.md"
+slug = "debugging/e2e-testing"
+path = "doc/guide/en/debugging/e2e-testing.md"
 title = "End-to-End Testing"
 maturity = "wip"
-guide_order = 220
+guide_order = 202
 prerequisites = ["debugging"]
 
 # ----
@@ -614,27 +605,27 @@ tracked_globs = ["dll/src/desktop/shell2/*/clipboard*.rs"]
 notes = "User-side I/O: standalone XML parser (works without GUI), file dialogs (open/save/folder), clipboard (text/image/custom)."
 
 [[group.outputs]]
-slug = "xml"
-path = "doc/guide/en/xml.md"
-title = "XML Parsing (Standalone)"
+slug = "headless/xml"
+path = "doc/guide/en/headless/xml.md"
+title = "XML Parsing"
 maturity = "wip"
-guide_order = 230
+guide_order = 222
 prerequisites = []
 
 [[group.outputs]]
-slug = "file-dialogs"
-path = "doc/guide/en/file-dialogs.md"
+slug = "system/file-dialogs"
+path = "doc/guide/en/system/file-dialogs.md"
 title = "File Dialogs"
 maturity = "wip"
-guide_order = 240
+guide_order = 121
 prerequisites = ["events"]
 
 [[group.outputs]]
-slug = "clipboard"
-path = "doc/guide/en/clipboard.md"
+slug = "system/clipboard"
+path = "doc/guide/en/system/clipboard.md"
 title = "Clipboard"
 maturity = "wip"
-guide_order = 250
+guide_order = 122
 prerequisites = ["events"]
 
 # ----
@@ -648,20 +639,20 @@ tracked_files = ["core/src/task.rs"]
 notes = "Background tasks (Threads, Timer-based polling, async-without-runtime). Networking will become its own concern when AzTcp/AzUdp land — for now document what you can do today via Threads, with explicit notes on what's coming."
 
 [[group.outputs]]
-slug = "background-tasks"
-path = "doc/guide/en/background-tasks.md"
+slug = "data/background-tasks"
+path = "doc/guide/en/data/background-tasks.md"
 title = "Background Tasks"
 maturity = "wip"
-guide_order = 260
-prerequisites = ["timers"]
+guide_order = 212
+prerequisites = ["animations/timers"]
 
 [[group.outputs]]
-slug = "networking"
-path = "doc/guide/en/networking.md"
+slug = "data/networking"
+path = "doc/guide/en/data/networking.md"
 title = "Networking"
 maturity = "stub"
-guide_order = 270
-prerequisites = ["background-tasks"]
+guide_order = 211
+prerequisites = ["data/background-tasks"]
 
 # ----
 
@@ -680,73 +671,27 @@ tracked_globs = ["dll/src/desktop/shell2/*/accessibility*.rs"]
 notes = "Accessibility from the app dev's POV (roles, labels, screen-reader testing). Headless rendering: cpurender, native screenshots, server-side use without a window manager."
 
 [[group.outputs]]
-slug = "accessibility"
-path = "doc/guide/en/accessibility.md"
+slug = "system/accessibility"
+path = "doc/guide/en/system/accessibility.md"
 title = "Accessibility"
 maturity = "wip"
-guide_order = 280
+guide_order = 125
 prerequisites = ["dom"]
 
 [[group.outputs]]
-slug = "headless-rendering"
-path = "doc/guide/en/headless-rendering.md"
+slug = "headless/rendering"
+path = "doc/guide/en/headless/rendering.md"
 title = "Headless Rendering"
 maturity = "wip"
-guide_order = 290
+guide_order = 220
 prerequisites = ["dom"]
 
 # ----
 
-[[group]]
-id = "codegen-and-bindings"
-tree = "advanced"
-audience = ["external"]
-agent_strategy = "split"
-tracked_files = ["dll/build.rs", "doc/src/dllgen/mod.rs", "api.json"]
-tracked_globs = ["doc/src/dllgen/*.rs"]
-notes = "First page: `code-generation` covers using azul's api.json + dllgen as a tool for your own FFI projects. Then four short language pages: how to set up Rust / C / C++ / Python bindings for your own azul-based app."
-
-[[group.outputs]]
-slug = "code-generation"
-path = "doc/guide/en/code-generation.md"
-title = "Code Generation"
-maturity = "wip"
-guide_order = 300
-prerequisites = []
-
-[[group.outputs]]
-slug = "bindings/rust"
-path = "doc/guide/en/bindings/rust.md"
-title = "Rust Bindings"
-maturity = "mature"
-guide_order = 310
-prerequisites = []
-
-[[group.outputs]]
-slug = "bindings/c"
-path = "doc/guide/en/bindings/c.md"
-title = "C Bindings"
-maturity = "wip"
-guide_order = 320
-prerequisites = []
-
-[[group.outputs]]
-slug = "bindings/cpp"
-path = "doc/guide/en/bindings/cpp.md"
-title = "C++ Bindings"
-maturity = "wip"
-guide_order = 330
-prerequisites = []
-
-[[group.outputs]]
-slug = "bindings/python"
-path = "doc/guide/en/bindings/python.md"
-title = "Python Bindings"
-maturity = "wip"
-guide_order = 340
-prerequisites = []
-
-# ----
+# The `codegen-and-bindings` group is gone. Its first page (`code-generation`)
+# was deleted as internal-only, and the four planned `bindings/<lang>` pages
+# repeat what the 28 `hello-world/<lang>` pages already carry: install, link,
+# first window. Per-language setup belongs there, not in a second tree of it.
 
 [[group]]
 id = "web-and-security"
@@ -758,396 +703,17 @@ tracked_globs = ["dll/src/web/*.rs"]
 notes = "Closes Tree 2 with the hardest topics. signing-updates: the release side of the self-updater (manifest v1, the root/signing key chain, scripts/sign-release.sh, the local-HTTP test recipe). web-deployment: WASM bundle, SSR, transpiler limits, deploying. security: trust boundaries, FFI safety, what RefAny does/doesn't guarantee, sandboxing assumptions for the web target."
 
 [[group.outputs]]
-slug = "web-deployment"
-path = "doc/guide/en/web-deployment.md"
-title = "Web Deployment"
+slug = "deploying/web"
+path = "doc/guide/en/deploying/web.md"
+title = "Web"
 maturity = "wip"
-guide_order = 400
+guide_order = 230
 prerequisites = ["hello-world", "architecture"]
 
 [[group.outputs]]
-slug = "signing-updates"
-path = "doc/guide/en/signing-updates.md"
-title = "Shipping Signed Updates"
+slug = "deploying/signing-updates"
+path = "doc/guide/en/deploying/signing-updates.md"
+title = "Signed Updates"
 maturity = "wip"
-guide_order = 450
-prerequisites = ["hello-world", "security"]
-
-[[group.outputs]]
-slug = "security"
-path = "doc/guide/en/security.md"
-title = "Security Model"
-maturity = "wip"
-guide_order = 500
-prerequisites = ["architecture", "web-deployment"]
-
-# ──────────────────────────────────────────────────────────────────────
-# TREE 3 — Contributors (no order, read on demand)
-# ──────────────────────────────────────────────────────────────────────
-
-[[group]]
-id = "contributor-architecture"
-tree = "contributor"
-audience = ["contributor"]
-agent_strategy = "split"
-tracked_files = [
-  "core/src/lib.rs",
-  "css/src/lib.rs",
-  "layout/src/lib.rs",
-  "dll/src/lib.rs",
-  "dll/build.rs",
-  "doc/src/dllgen/mod.rs",
-  "api.json",
-  "scripts/ARCHITECTURE.md",
-]
-notes = "Big-picture entry point for new maintainers. code-organization: workspace crates and why they exist. build-and-codegen: api.json → dll/build.rs → all language bindings, including how to add a new type."
-
-[[group.outputs]]
-slug = "internals/code-organization"
-path = "doc/guide/en/internals/code-organization.md"
-title = "Code Organization"
-maturity = "mature"
-
-[[group.outputs]]
-slug = "internals/build-and-codegen"
-path = "doc/guide/en/internals/build-and-codegen.md"
-title = "Build System and FFI Codegen"
-maturity = "mature"
-
-# ----
-
-[[group]]
-id = "contributor-dom-and-css"
-tree = "contributor"
-audience = ["contributor"]
-agent_strategy = "split"
-tracked_files = [
-  "core/src/dom.rs",
-  "core/src/id_tree.rs",
-  "core/src/diff.rs",
-  "css/src/parser.rs",
-  "css/src/css_property.rs",
-  "core/src/compact_cache_builder.rs",
-  "css/src/compact_cache.rs",
-]
-tracked_globs = [
-  "css/src/props/**/*.rs",
-  "layout/src/restyle_unified.rs",
-  "layout/src/css_inheritance.rs",
-  "layout/src/state_preservation.rs",
-  "layout/src/dom_reconciliation.rs",
-  "layout/src/fingerprint.rs",
-]
-design_docs = [
-  "DEFERRED_CASCADE_DESIGN.md",
-  "COMPACT_CACHE_PLAN.md",
-  "COMPONENT_TYPE_SYSTEM_DESIGN.md",
-]
-notes = "DOM internals (id_tree, diff, fingerprinting) + CSS parser + cascade/inheritance/restyle pipeline + compact property cache + component-type system. Design docs cover the deferred-cascade architecture (per-component styling efficiency), the L2-cache-friendly tier architecture (67.5% CPU time elimination), and the ComponentFieldType/ComponentDef widget extension model."
-
-[[group.outputs]]
-slug = "internals/dom"
-path = "doc/guide/en/internals/dom.md"
-title = "DOM Internals"
-maturity = "mature"
-
-[[group.outputs]]
-slug = "internals/styling"
-path = "doc/guide/en/internals/styling.md"
-title = "Styling Subsystem"
-maturity = "mature"
-
-[[group.outputs]]
-slug = "internals/styling/css-parser"
-path = "doc/guide/en/internals/styling/css-parser.md"
-title = "CSS Parser"
-maturity = "mature"
-
-[[group.outputs]]
-slug = "internals/styling/cascade"
-path = "doc/guide/en/internals/styling/cascade.md"
-title = "Cascade, Inheritance, Restyle"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/styling/compact-cache"
-path = "doc/guide/en/internals/styling/compact-cache.md"
-title = "Compact Property Cache"
-maturity = "mature"
-
-[[group.outputs]]
-slug = "internals/dom/component-types"
-path = "doc/guide/en/internals/dom/component-types.md"
-title = "Component Type System"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "contributor-layout-text-image"
-tree = "contributor"
-audience = ["contributor"]
-agent_strategy = "split"
-tracked_files = [
-  "layout/src/lib.rs",
-  "layout/src/window.rs",
-  "core/src/text2.rs",
-  "core/src/app_resources.rs",
-  "dll/src/desktop/gl_texture_cache.rs",
-  "dll/src/desktop/shader_cache.rs",
-]
-tracked_globs = [
-  "layout/src/solver*.rs",
-  "layout/src/text*/**/*.rs",
-]
-design_docs = [
-  "INCREMENTAL_LAYOUT_ARCHITECTURE.md",
-  "PERCENTAGE_LAYOUT_ANALYSIS.md",
-  "FONT_INVALIDATION_AND_MEMORY_LAYOUT_ANALYSIS.md",
-]
-notes = "The numerical heart of azul: layout solver (flex/grid + fragmentation), inline layout and text shaping (text3), text pipeline (font loading, glyph cache), image pipeline (resource manager, GL texture cache, shader cache). Design docs cover incremental relayout (RelayoutScope, instant typing perf), percentage units & taffy integration, and the font_stacks_hash XOR fingerprint that skips the font pipeline when fonts are unchanged."
-
-[[group.outputs]]
-slug = "internals/layout"
-path = "doc/guide/en/internals/layout.md"
-title = "Layout Solver (Flex/Grid)"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/layout/inline-text"
-path = "doc/guide/en/internals/layout/inline-text.md"
-title = "Inline Layout and Text Shaping"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/layout/fragmentation"
-path = "doc/guide/en/internals/layout/fragmentation.md"
-title = "Fragmentation"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/rendering/text-pipeline"
-path = "doc/guide/en/internals/rendering/text-pipeline.md"
-title = "Text Pipeline"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/rendering/image-pipeline"
-path = "doc/guide/en/internals/rendering/image-pipeline.md"
-title = "Image Pipeline"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "contributor-events-and-virtualview"
-tree = "contributor"
-audience = ["contributor"]
-agent_strategy = "split"
-tracked_files = [
-  "core/src/callbacks.rs",
-  "core/src/events.rs",
-  "core/src/hit_test.rs",
-  "core/src/hit_test_tag.rs",
-  "core/src/drag.rs",
-  "core/src/selection.rs",
-  "core/src/scrolling.rs",
-  "layout/src/hit_test.rs",
-  "layout/src/default_actions.rs",
-  "layout/src/managers/virtual_view.rs",
-  "core/src/virtualized_view_manager.rs",
-]
-design_docs = [
-  "CALLBACK_INVOCATION_UNIFICATION.md",
-  "CURSOR_HIT_TEST_ARCHITECTURE_REPORT.md",
-  "HIT_TEST_TAG_ANALYSIS.md",
-  "SCROLL_COORDINATE_ARCHITECTURE.md",
-  "IFRAME_SCROLL_DISPLAY_LIST_ARCHITECTURE.md",
-]
-notes = "Event flow from OS to callback (hit-testing, default actions, drag, selection, scrolling) and VirtualView lazy-loading manager. Design docs cover the four callback paths and unification proposal, the three hit-test depth-logic problems, the bit-field tag-id migration, the absolute→relative scroll coordinate fix, and the IFrame scroll spatial-node ordering."
-
-[[group.outputs]]
-slug = "internals/events"
-path = "doc/guide/en/internals/events.md"
-title = "Event System Internals"
-maturity = "mature"
-
-[[group.outputs]]
-slug = "internals/events/hit-testing"
-path = "doc/guide/en/internals/events/hit-testing.md"
-title = "Hit Testing and Scrolling"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/dom/iframe-scroll"
-path = "doc/guide/en/internals/dom/iframe-scroll.md"
-title = "IFrame Scroll and Display Lists"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/dom/virtual-view"
-path = "doc/guide/en/internals/dom/virtual-view.md"
-title = "VirtualView Lazy Loading"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "contributor-rendering"
-tree = "contributor"
-audience = ["contributor"]
-agent_strategy = "split"
-tracked_files = [
-  "dll/src/desktop/compositor2.rs",
-  "core/src/gl.rs",
-  "core/src/gl_fxaa.rs",
-  "core/src/glconst.rs",
-  "core/src/gpu.rs",
-]
-tracked_globs = [
-  "dll/src/desktop/shell2/common/gl*.rs",
-  "dll/src/desktop/shell2/common/*compositor*.rs",
-  "webrender/webrender/src/lib.rs",
-]
-design_docs = [
-  "WEBRENDER_CLIPPING_ANALYSIS.md",
-]
-notes = "Rendering pipeline: compositor2 (display lists → GPU), GL function loading via dlopen, the WebRender bridge. Design doc covers the WebRender clip chain & spatial node integration."
-
-[[group.outputs]]
-slug = "internals/rendering"
-path = "doc/guide/en/internals/rendering.md"
-title = "Rendering Pipeline"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/rendering/gl-loading"
-path = "doc/guide/en/internals/rendering/gl-loading.md"
-title = "GL Function Loading"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/rendering/webrender-bridge"
-path = "doc/guide/en/internals/rendering/webrender-bridge.md"
-title = "WebRender Bridge"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "contributor-shell2"
-tree = "contributor"
-audience = ["contributor"]
-agent_strategy = "split"
-tracked_globs = ["dll/src/desktop/shell2/**/*.rs"]
-design_docs = [
-  "PLATFORM_WINDOW_REFACTORING.md",
-]
-notes = "Per-OS shell layer. Common abstraction first, then each backend. Linux gets two pages (X11 + Wayland) plus DBus/GNOME menu integration as its own page because it's huge. Design doc covers the PlatformWindow V1/V2 abstraction debt — 28 duplicated getters across 5 platforms."
-
-[[group.outputs]]
-slug = "internals/windowing"
-path = "doc/guide/en/internals/windowing.md"
-title = "Windowing"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/windowing/common"
-path = "doc/guide/en/internals/windowing/common.md"
-title = "Shell2 Common Layer"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/windowing/linux-x11"
-path = "doc/guide/en/internals/windowing/linux-x11.md"
-title = "Shell2 — Linux X11"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/windowing/linux-wayland"
-path = "doc/guide/en/internals/windowing/linux-wayland.md"
-title = "Shell2 — Linux Wayland"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/windowing/linux-dbus"
-path = "doc/guide/en/internals/windowing/linux-dbus.md"
-title = "Shell2 — Linux DBus and GNOME Menus"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/windowing/windows"
-path = "doc/guide/en/internals/windowing/windows.md"
-title = "Shell2 — Windows"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/windowing/macos"
-path = "doc/guide/en/internals/windowing/macos.md"
-title = "Shell2 — macOS"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "contributor-menus-a11y-system"
-tree = "contributor"
-audience = ["contributor"]
-agent_strategy = "split"
-tracked_files = [
-  "core/src/menu.rs",
-  "core/src/a11y.rs",
-  "dll/src/desktop/menu.rs",
-  "dll/src/desktop/menu_renderer.rs",
-  "dll/src/desktop/csd.rs",
-  "css/src/system.rs",
-  "css/src/system_native_linux.rs",
-  "css/src/system_native_macos.rs",
-  "css/src/system_native_windows.rs",
-]
-tracked_globs = [
-  "dll/src/desktop/shell2/*/menu*.rs",
-  "dll/src/desktop/shell2/*/accessibility*.rs",
-]
-notes = "Cross-cutting OS integration: menus + CSD (client-side decorations), per-OS a11y backends (atspi, NSAccessibility, UIA), and the system style discovery layer."
-
-[[group.outputs]]
-slug = "internals/windowing/menus-and-csd"
-path = "doc/guide/en/internals/windowing/menus-and-csd.md"
-title = "Menus and Client-Side Decorations"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/windowing/accessibility"
-path = "doc/guide/en/internals/windowing/accessibility.md"
-title = "Accessibility Backends"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/styling/system-style"
-path = "doc/guide/en/internals/styling/system-style.md"
-title = "System Style Discovery"
-maturity = "wip"
-
-# ----
-
-[[group]]
-id = "contributor-async-and-web"
-tree = "contributor"
-audience = ["contributor"]
-agent_strategy = "split"
-tracked_files = ["core/src/task.rs"]
-tracked_globs = ["dll/src/web/*.rs"]
-notes = "Async/timer/threading runtime in core/src/task.rs, and the web target backend (transpiler, classify, mini_gen, server, loader_js)."
-
-[[group.outputs]]
-slug = "internals/async"
-path = "doc/guide/en/internals/async.md"
-title = "Async, Timers, Threading"
-maturity = "wip"
-
-[[group.outputs]]
-slug = "internals/web"
-path = "doc/guide/en/internals/web.md"
-title = "Web Backend Internals"
-maturity = "wip"
+guide_order = 232
+prerequisites = ["hello-world"]

@@ -1,14 +1,14 @@
 ---
-slug: signing-updates
-title: Shipping Signed Updates
+slug: deploying/signing-updates
+title: Signed Updates
 language: en
-canonical_slug: signing-updates
+canonical_slug: deploying/signing-updates
 audience: external
 maturity: wip
-guide_order: 450
+guide_order: 232
 topic_only: false
 short_desc: The update manifest, the signing chain, and the release script
-prerequisites: [hello-world, security]
+prerequisites: [hello-world]
 tracked_files:
   - layout/src/updater.rs
   - layout/src/dialogs/update_version.rs
@@ -24,7 +24,7 @@ default-search-keys:
   - SysDialogType
 ---
 
-# Shipping Signed Updates
+# Signed Updates
 
 Azul apps can check for, download and install their own updates. This page
 covers the release side: the manifest you publish, the signature chain that

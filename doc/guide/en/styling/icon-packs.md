@@ -5,7 +5,7 @@ language: en
 canonical_slug: styling/icon-packs
 audience: external
 maturity: wip
-guide_order: 44
+guide_order: 74
 topic_only: false
 short_desc: Register icons and use them with `Dom::create_icon` or `<icon>`
 prerequisites: [styling]
@@ -183,9 +183,3 @@ End-user ricing of icons (replacing `material/home` with a user-chosen
 SVG without recompiling) is on the road map alongside the existing
 `AZ_RICING` CSS hook described in
 [System Themes](themes.md#how-user-theming-layers-with-component-css).
-
-## Coming Up Next
-
-- [Images](../images.md) — Loading raster images and CSS backgrounds
-- [Built-in Widgets](../widgets.md) — Built-in widgets and how to write your own
-- [Layout](../layout.md) — Overview of the layout solver

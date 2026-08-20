@@ -1,11 +1,11 @@
 ---
-slug: file-dialogs
+slug: system/file-dialogs
 title: File Dialogs
 language: en
-canonical_slug: file-dialogs
+canonical_slug: system/file-dialogs
 audience: external
 maturity: wip
-guide_order: 240
+guide_order: 121
 topic_only: false
 short_desc: Native open/save dialogs and folder pickers
 prerequisites: [events]
@@ -185,9 +185,3 @@ The picker returns RGB only; alpha is forced to opaque. Pass
 - Filter format is extension-only.
 - Pass one `FileTypeList` per call. If you need multiple labelled groups,
   present them in a custom in-window picker instead.
-
-## Coming Up Next
-
-- [Clipboard](clipboard.md) — Reading and writing the system clipboard
-- [Networking](networking.md) — HTTP from a callback
-- [Windows, Menus, Decorations](windowing.md) — Windows, menus, decorations, and per-window state

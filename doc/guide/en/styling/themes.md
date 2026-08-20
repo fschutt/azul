@@ -5,7 +5,7 @@ language: en
 canonical_slug: styling/themes
 audience: external
 maturity: wip
-guide_order: 42
+guide_order: 72
 topic_only: false
 short_desc: System colors, `@theme`, `@os`, and accessibility queries
 prerequisites: [styling]
@@ -389,9 +389,3 @@ isn't a theming concern — it picks `x11` vs `wayland` etc. for the
 real OS the app is actually running on). For the full list of `AZ_*`
 runtime env vars (debug server, profiling, layout tracing, headless
 rendering), see [Debugging](../debugging.md).
-
-## Coming Up Next
-
-- [Styling Text](text-and-fonts.md) — Font family, size, weight, alignment, decoration, and the system font keywords
-- [Icon Packs](icon-packs.md) — Register icons and use them with `Dom::create_icon` or `<icon>`
-- [Accessibility](../accessibility.md) — Screen reader integration and ARIA roles

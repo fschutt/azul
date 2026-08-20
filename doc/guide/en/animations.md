@@ -4,127 +4,146 @@ title: Animations
 language: en
 canonical_slug: animations
 audience: external
-maturity: stub
-guide_order: 110
+maturity: wip
+guide_order: 100
 topic_only: false
-short_desc: CSS transitions and @keyframes
-prerequisites: [hello-world, events, timers]
+short_desc: Transitions, @keyframes, and the enter/exit animation properties
+prerequisites: [hello-world, events]
 tracked_files:
+  - css/src/props/basic/animation.rs
   - core/src/animation.rs
-  - layout/src/timer.rs
+  - layout/src/window.rs
   - core/src/task.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
-generated_at: 2026-05-02T06:00:00Z
+last_generated_rev: e33ef81cc56d8a7dac357d6c0610ff5e26d02e26
+generated_at: 2026-08-20T00:00:00Z
 default-search-keys:
+  - StyleAnimation
+  - AnimationTiming
+  - AnimationTimingBezier
+  - AnimationIterationCount
+  - Keyframes
+  - CssProperty
   - Timer
   - TimerCallbackInfo
   - TimerCallbackReturn
-  - Instant
-  - Duration
   - Update
-  - CallbackInfo
-  - Css
-  - StyledDom
 ---
 
 # Animations
 
-## Introduction
+Three properties drive everything the engine animates:
 
-*WIP.* Azul has no CSS-animation runtime today — CSS `animation:` and `transition:` properties parse but don't interpolate. This page documents the shape of the user-facing API. Until the runtime is wired up, drive interpolation by hand from a [timer](timers.md).
+| Property | Runs when | Names |
+| --- | --- | --- |
+| `animation` | a property's computed value changes between DOM rebuilds | `all`, or the property to scope to |
+| `-azul-animation-in` | the node mounts | a `@keyframes` block or an attached function |
+| `-azul-animation-out` | the node unmounts | a `@keyframes` block or an attached function |
 
-The user-facing API is plain CSS. You write `transition: opacity 200ms ease-out` or a `@keyframes` block, and the framework interpolates between values. Until the runtime lands, the same effect is achieved with a [timer](timers.md) that mutates your model and returns `Update::RefreshDom` per frame.
+There is no `transition` property. `animation` is where that job lives.
 
-## CSS transitions (planned)
+## The shorthand
+
+```
+<name> <duration> [<delay>] [<timing>] [infinite | <count>] [no-clip]
+```
 
 ```css
-.button {
-    opacity: 0.5;
-    transition: opacity 200ms ease-out;
-}
-.button:hover {
-    opacity: 1.0;
+animation: all 200ms ease-out;               /* every change transitions */
+animation: width 1s, background-color 2s;    /* per-property scopes      */
+-azul-animation-in:  slideIn 220ms spring;
+-azul-animation-out: slideOut 180ms 50ms ease-in no-clip;
+```
+
+The first time value is the duration, the second the delay — CSS order. A
+list is read last-match-wins, so a later entry overrides an earlier one for
+the properties it covers.
+
+## Transitions
+
+`animation` turns covered property changes into timed interpolations instead
+of instant updates. The property list is read off the **old** cascade: adding
+`animation` in the same rebuild that changes a value does not retro-animate
+that change.
+
+```css
+.row          { background-color: #fff; animation: all 150ms ease-out; }
+.row.selected { background-color: #dce8ff; }
+```
+
+Rebuild the DOM with `selected` on the row and the colour walks over 150 ms.
+Change it again mid-flight and the animation **retargets** from its current
+value rather than stacking a second run — rapid A→B→C stays smooth. A
+transition on a paint-only property (colour, opacity, transform) patches the
+display list; one on `width` or `font-size` re-runs layout per frame.
+
+## Presence: enter and exit
+
+`-azul-animation-in` and `-azul-animation-out` animate a node's arrival and
+departure. Both name a `@keyframes` block or a function attached to the node,
+resolved in that order.
+
+```css
+.toast {
+    -azul-animation-in:  toastIn 200ms spring-snappy;
+    -azul-animation-out: toastOut 150ms ease-in;
 }
 ```
 
-When `:hover` toggles, `opacity` interpolates from `0.5` to `1.0` over 200 milliseconds with an `ease-out` curve. Multiple properties separate with commas:
+An exit needs something to draw after layout has removed the node, so a
+declared `-azul-animation-out` makes the engine retain the previous frame's
+subtree for the duration — the zombie. Retention, catching an exit that
+remounts mid-flight, and per-frame native animation functions are
+[Zombie Animations](animations/zombie-animations.md).
+
+`infinite` on an enter track is how a spinner is expressed; on an exit it is
+clamped to one run.
+
+## `@keyframes`
 
 ```css
-transition: opacity 200ms ease-out, transform 300ms ease-in-out;
-```
-
-The cheapest properties to animate are GPU-uploaded ones (opacity, transform) because the layout pass doesn't need to re-run. Width, height, padding, and font-size force a relayout per frame.
-
-## CSS keyframes (planned)
-
-```css
+@keyframes toastIn {
+    from { transform: translateY(24px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
 @keyframes pulse {
     0%   { opacity: 1.0; }
     50%  { opacity: 0.4; }
     100% { opacity: 1.0; }
 }
-.notice {
-    animation: pulse 1s infinite;
-}
 ```
 
-`@keyframes` blocks define named animations. Apply them with the `animation:` shorthand or its longhands.
+Stops accept `from`, `to`, and percentages. The compiled track reads
+`transform` (`translate`, `translateX`, `translateY`, `scale`, `rotate`),
+`opacity`, `width` and `height`; percentage translations resolve against the
+node's own rect. Other properties in a stop are ignored. When two blocks
+share a name, the last definition wins.
 
-## What works today: animate from a timer
+## Timing
 
-This pattern is the floor. Once the animation runtime is wired, the framework will provide a more declarative version of the same thing. Animations driven by application logic (game state, simulation, custom physics) will always need a timer-based path.
+`ease` (the default), `linear`, `ease-in`, `ease-out`, `ease-in-out`,
+`cubic-bezier(x1, y1, x2, y2)`, and three springs: `spring`,
+`spring-gentle`, `spring-snappy`.
 
-### 1. Pick the property to animate
+Springs settle on physics rather than on the clock — the declared duration is
+their retarget time base, not a stop watch. Reach for one when the animation
+can be interrupted (a panel the user re-opens mid-close); reach for a bezier
+when the motion has to land on an exact beat.
 
-Anything you can express as a CSS property in your DOM. Prefer GPU-uploaded properties (opacity, transform) for the same reason as above.
+## Driving an animation yourself
 
-### 2. Stash the animation start time and the target
-
-Put the animation parameters in your model so the timer callback can read them:
-
-```rust,ignore
-struct State {
-    /// When the current animation started; None when idle
-    anim_start: Option<Instant>,
-    anim_duration: Duration,
-    anim_from_opacity: f32,
-    anim_to_opacity: f32,
-    /// The current interpolated value the layout callback reads
-    current_opacity: f32,
-}
-```
-
-### 3. Install a timer when the animation should kick off
-
-```rust,ignore
-extern "C" fn on_click(data: RefAny, mut info: CallbackInfo) -> Update {
-    {
-        let mut state = data.downcast_mut::<State>().unwrap();
-        state.anim_start = Some(info.get_current_time());
-        state.anim_from_opacity = state.current_opacity;
-        state.anim_to_opacity = 1.0;
-    }
-    let timer = Timer::create(data.clone(), animate, info.get_system_time_fn())
-        .with_interval(Duration::System(SystemTimeDiff::from_millis(16)));
-    info.add_timer(TimerId::unique(), timer);
-    Update::DoNothing
-}
-```
-
-### 4. The timer interpolates and terminates itself
+Motion that follows application state — a simulation, a game loop, a value
+arriving over the network — belongs in a timer that mutates your model and
+returns `Update::RefreshDom` per frame:
 
 ```rust,ignore
 extern "C" fn animate(data: RefAny, info: TimerCallbackInfo) -> TimerCallbackReturn {
     let mut state = data.downcast_mut::<State>().unwrap();
-    let start = match state.anim_start {
-        Some(s) => s,
-        None => return TimerCallbackReturn::terminate_unchanged(),
+    let Some(start) = state.anim_start else {
+        return TimerCallbackReturn::terminate_unchanged();
     };
     let end = start.clone().add_duration(&state.anim_duration);
     let t = info.frame_start.linear_interpolate(start, end);
-    let eased = ease_out_cubic(t);
-    state.current_opacity =
-        state.anim_from_opacity + (state.anim_to_opacity - state.anim_from_opacity) * eased;
+    state.current_opacity = state.anim_from + (state.anim_to - state.anim_from) * ease_out(t);
     if t >= 1.0 {
         state.anim_start = None;
         TimerCallbackReturn::terminate_and_refresh_dom()
@@ -132,37 +151,25 @@ extern "C" fn animate(data: RefAny, info: TimerCallbackInfo) -> TimerCallbackRet
         TimerCallbackReturn::continue_and_refresh_dom()
     }
 }
-
-fn ease_out_cubic(t: f32) -> f32 {
-    let inv = 1.0 - t;
-    1.0 - inv * inv * inv
-}
 ```
 
-`Instant::linear_interpolate(start, end)` returns a clamped 0..=1 fraction. Layer easing on top.
-
-### 5. The layout callback reads the current value
-
-```rust,ignore
-extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
-    let state = data.downcast_ref::<State>().unwrap();
-    let style = format!("opacity: {};", state.current_opacity);
-    Dom::create_div().with_css(&style).with_component_css(Css::empty())
-}
-```
-
-The timer-driven path stays available even after the CSS runtime lands. Use it for animations driven by application state rather than CSS rules.
+`Instant::linear_interpolate(start, end)` returns the clamped `0..=1`
+fraction; layer easing on top. The layout callback then reads
+`state.current_opacity` and writes it into the style it builds. See
+[Timers](animations/timers.md) for scheduling, cancellation, and the 60 fps
+pattern end to end.
 
 ## Animating images, not the DOM
 
-For animations whose only effect is a pixel change (sprite sheet, video frame, GL texture), `info.update_all_image_callbacks()` re-invokes every image callback without touching layout.
+When the only thing that changes is pixels — a sprite sheet, a video frame, a
+GL texture — `info.update_all_image_callbacks()` re-invokes every image
+callback without touching layout or the display list.
 
 ## Cross-references
 
-- [`timers`](timers.md): the timer mechanics this page builds on.
-
-## Coming Up Next
-
-- [Events](events.md) — Callbacks, event filters, and how state triggers relayout
-- [Timers](timers.md) — Timers, threads, and scheduled work
-- [Scrolling](scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing
+- [Zombie Animations](animations/zombie-animations.md): exit retention and
+  native per-frame animation functions.
+- [Timers](animations/timers.md): the timer mechanics the manual path builds
+  on.
+- [Reconciliation](dom/reconciliation.md): the node identity that decides
+  what counts as a mount, an unmount, and a move.

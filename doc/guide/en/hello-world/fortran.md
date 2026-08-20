@@ -281,7 +281,7 @@ DYLD_LIBRARY_PATH=. ./hello_world   # macOS
 ```
 
 You should see the window pictured on the
-[hello-world landing page](../hello-world.md): the label renders "5",
+[hello-world landing page](..md): the label renders "5",
 and every click on the button increments it — the click callback bumps
 `model%counter`, returns `AzUpdate_RefreshDom`, and the framework
 re-runs `my_layout` with the new value.
@@ -324,9 +324,3 @@ AZ_E2E=path/to/hello_world_counter.json AZ_BACKEND=headless make run
   supported by design: Fortran has no unions, so these types are opaque
   byte blobs. Construct and inspect them through the C-API helper
   functions only.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Haskell]](haskell.md)

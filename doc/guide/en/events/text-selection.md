@@ -1,14 +1,14 @@
 ---
-slug: text-selection
+slug: events/text-selection
 title: Text Selection
 language: en
-canonical_slug: text-selection
+canonical_slug: events/text-selection
 audience: external
 maturity: wip
-guide_order: 94
+guide_order: 63
 topic_only: false
 short_desc: Selection ranges, cursors, and copy/paste
-prerequisites: [events, text-input]
+prerequisites: [events, events/text-input]
 tracked_files:
   - core/src/hit_test.rs
   - core/src/selection.rs
@@ -167,9 +167,3 @@ CSS `selection-background-color` and `selection-color` style the highlight:
 - **No primary-selection clipboard on Linux/X11.** Middle-click paste between Azul and other apps doesn't work yet.
 - **No RTL-aware direction handling.** `direction: rtl` isn't yet considered when ordering the visual highlight rectangles for the first/last line.
 - **No vertical writing mode.** `writing-mode: vertical-*` isn't respected by the selection axis.
-
-## Coming Up Next
-
-- [Clipboard](clipboard.md) — Reading and writing the system clipboard
-- [Text Input](text-input.md) — Editable text, IME, and the selection model
-- [Events](events.md) — Callbacks, event filters, and how state triggers relayout

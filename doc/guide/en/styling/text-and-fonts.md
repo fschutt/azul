@@ -5,7 +5,7 @@ language: en
 canonical_slug: styling/text-and-fonts
 audience: external
 maturity: wip
-guide_order: 43
+guide_order: 73
 topic_only: false
 short_desc: Font family, size, weight, alignment, decoration, and the system font keywords
 prerequisites: [styling]
@@ -259,9 +259,3 @@ double-click text selection from overlapping the click.
 - `text-decoration`. Default `none`.
 - `user-select`. Default `auto`.
 - `vertical-align`. Default `baseline`.
-
-## Coming Up Next
-
-- [Icon Packs](icon-packs.md) — Register icons and use them with `Dom::create_icon` or `<icon>`
-- [Inline Layout](../layout/inline.md) — Text flow, word breaks, writing modes, multi-column
-- [Text Input](../text-input.md) — Editable text, IME, and the selection model

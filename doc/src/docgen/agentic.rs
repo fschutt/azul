@@ -271,7 +271,7 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
            assert the rendered tree via the headless display list.\n\n",
     );
     s.push_str(&format!(
-        "Details: {HTML_ROOT}/guide/e2e-testing.md and {HTML_ROOT}/guide/headless-rendering.md.\n\n"
+        "Details: {HTML_ROOT}/guide/debugging/e2e-testing.md and {HTML_ROOT}/guide/headless/rendering.md.\n\n"
     ));
 
     // --- Per-language --------------------------------------------------------

@@ -1,11 +1,11 @@
 ---
-slug: memory-profiling
+slug: debugging/profiling
 title: Profiling
 language: en
-canonical_slug: memory-profiling
+canonical_slug: debugging/profiling
 audience: external
 maturity: wip
-guide_order: 210
+guide_order: 201
 topic_only: false
 short_desc: Tracking allocations and per-frame budgets
 prerequisites: [debugging]
@@ -145,9 +145,3 @@ cargo run --release --features e2e-test -- \
 ## Allocator selection
 
 The layout crate has feature flags for alternate allocators (`allocator_mimalloc`, `allocator_jemalloc`). They release freed pages to the OS before each RSS sample, otherwise the allocator holds onto pages and inflates RSS. Pick an allocator that matches your production deployment so the numbers match what users see — RSS curves change shape with the allocator.
-
-## Coming Up Next
-
-- [Debugging](debugging.md) — Debug overlays, the inspector, and structured logging
-- [End-to-End Testing](e2e-testing.md) — Driving an Azul app from a script for tests
-- [Headless Rendering](headless-rendering.md) — Running the pipeline without a window

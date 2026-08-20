@@ -326,7 +326,7 @@ DYLD_LIBRARY_PATH=$PWD/azul-haskell cabal run hello-world --extra-lib-dirs=$PWD/
 ```
 
 You should see the window pictured on the
-[hello-world landing page](../hello-world.md): the label renders "5";
+[hello-world landing page](..md): the label renders "5";
 each click runs the click inner, bumps the `IORef`, pokes
 `Update_RefreshDom` through the out-pointer, and the framework re-runs
 the layout closure with the new value.
@@ -377,9 +377,3 @@ the layout closure with the new value.
 - **First build takes minutes / lots of memory** — expected: the
   generated `Azul.Types` / `Azul.Internal.FFI` modules are several MB
   of Haskell each. Later builds are incremental.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [C]](c.md)

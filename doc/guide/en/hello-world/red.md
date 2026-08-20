@@ -170,8 +170,3 @@ Red/System directly, which is why the shipped example is Red/System.
   Red.
 - **Counter renders but never updates** — the click callback did not write
   `AzUpdate_RefreshDom` through the `out` pointer on every code path.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS

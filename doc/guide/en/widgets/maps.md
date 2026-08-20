@@ -1,14 +1,14 @@
 ---
-slug: maps
-title: Maps (MapWidget)
+slug: widgets/maps
+title: Maps
 language: en
-canonical_slug: maps
+canonical_slug: widgets/maps
 audience: external
 maturity: beta
-guide_order: 245
+guide_order: 113
 topic_only: false
 short_desc: A slippy map widget with pan/zoom, tap-to-pin hooks, and lat/lon projection
-prerequisites: [widgets, callbacks]
+prerequisites: [widgets, events/callbacks]
 tracked_files:
   - layout/src/widgets/map.rs
   - examples/azul-maps/src/main.rs
@@ -25,7 +25,7 @@ default-search-keys:
   - on_viewport_changed
 ---
 
-# Maps (MapWidget)
+# Maps
 
 ## Introduction
 
@@ -58,7 +58,7 @@ no wiring needed.
 
 ## Hooks: observing taps and the viewport
 
-Two backreference-DI hooks (see [architecture](architecture.md)) let your app
+Two backreference-DI hooks (see [architecture](../architecture.md)) let your app
 react without globals - the callback receives the data and writes back to *your*
 state:
 
@@ -112,7 +112,7 @@ to render dropped pins + a coordinate readout.
 
 To show "you are here", drop a `Dom::create_geolocation_probe(...)` into the map
 subtree and read the fix with `CallbackInfo::get_location_fix` - see
-[Device Input](device-input.md#geolocation).
+[Device Input](../system/device-input.md#geolocation).
 
 ## Notes
 
@@ -124,6 +124,6 @@ subtree and read the fix with `CallbackInfo::get_location_fix` - see
 
 ## See also
 
-- [widgets](widgets.md) - the widget model.
-- [callbacks](callbacks.md) - the hook + `RefAny` mechanism.
-- [Device Input](device-input.md) - geolocation for the "you are here" dot.
+- [widgets](..md) - the widget model.
+- [callbacks](../events/callbacks.md) - the hook + `RefAny` mechanism.
+- [Device Input](../system/device-input.md) - geolocation for the "you are here" dot.

@@ -154,7 +154,7 @@ dune exec ./hello_world.exe
 #   linux:  LD_LIBRARY_PATH=. ./_build/default/hello_world.exe
 ```
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md).
+You should see the window pictured on the [hello-world landing page](..md).
 Click the button: the counter increments and the layout callback re-runs.
 
 ## Common errors
@@ -166,9 +166,3 @@ Click the button: the counter increments and the layout callback re-runs.
 - **SIGABRT in `<U8Vec as Drop>::drop` on exit** — you forgot `azul_consume` on a
   wrapper whose bytes were moved into libazul; the GC finalizer double-freed it.
 - **Counter does not advance** — `on_click` returned `0` (DoNothing) instead of `1`.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Rust]](rust.md)

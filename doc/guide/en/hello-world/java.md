@@ -166,7 +166,7 @@ java -XstartOnFirstThread -Djna.library.path=. -jar target/hello-world-1.0.0.jar
 On Linux/Windows drop `-XstartOnFirstThread`. `-Djna.library.path=.` points
 JNA at the directory holding `libazul.dylib` / `libazul.so` / `azul.dll`.
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md).
+You should see the window pictured on the [hello-world landing page](..md).
 Click the button: the counter increments and the layout callback re-runs.
 
 ## Common errors
@@ -177,9 +177,3 @@ Click the button: the counter increments and the layout callback re-runs.
   `-XstartOnFirstThread`. Cocoa requires the event loop on the main thread.
 - **Counter does not advance** — the click handler wrote `Update.DoNothing.value`.
   Write `Update.RefreshDom.value` to `outPtr` after mutating.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Kotlin]](kotlin.md)

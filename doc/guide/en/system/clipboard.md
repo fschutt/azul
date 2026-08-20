@@ -1,11 +1,11 @@
 ---
-slug: clipboard
+slug: system/clipboard
 title: Clipboard
 language: en
-canonical_slug: clipboard
+canonical_slug: system/clipboard
 audience: external
 maturity: wip
-guide_order: 250
+guide_order: 122
 topic_only: false
 short_desc: Reading and writing the system clipboard
 prerequisites: [events]
@@ -140,9 +140,3 @@ overwriting it with empty content).
   reflects your change inside the same callback.
 - Styled runs are accepted but not yet committed. Only `plain_text` reaches
   another application today.
-
-## Coming Up Next
-
-- [File Dialogs](file-dialogs.md) — Native open/save dialogs and folder pickers
-- [Text Selection](text-selection.md) — Selection ranges, cursors, and copy/paste
-- [Networking](networking.md) — HTTP from a callback

@@ -686,7 +686,7 @@ pub fn start() {
 // `android_main` (via the android-activity glue). `android_main` reads the
 // window options that `App::run` stashed, so `start()` must run BEFORE
 // `ANativeActivity_onCreate` — i.e. from a library constructor that fires at
-// `dlopen` / `System.loadLibrary` time. See guide/mobile.md.
+// `dlopen` / `System.loadLibrary` time. See guide/deploying/mobile.md.
 #[cfg(target_os = "android")]
 #[ctor::ctor]
 fn azul_android_init() {

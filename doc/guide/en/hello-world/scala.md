@@ -206,7 +206,7 @@ scala run HelloWorld.scala --class-path classes:jna.jar \
 
 `--java-opt -Djna.library.path=.` points JNA at the directory holding
 `libazul.dylib` / `libazul.so` / `azul.dll`. You should see the window
-pictured on the [hello-world landing page](../hello-world.md). Click
+pictured on the [hello-world landing page](..md). Click
 the button: the counter increments and the layout callback re-runs.
 
 ## Common errors
@@ -238,9 +238,3 @@ the button: the counter increments and the layout callback re-runs.
 - **Unresolved `com.azul` symbols when compiling** — `classes` is
   missing from `--class-path`, or the `javac` step failed silently;
   re-run it and check that `classes/com/azul/Dom.class` exists.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Java]](java.md) — the binding Scala rides on

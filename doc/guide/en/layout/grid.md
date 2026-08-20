@@ -5,7 +5,7 @@ language: en
 canonical_slug: layout/grid
 audience: external
 maturity: mature
-guide_order: 54
+guide_order: 84
 topic_only: false
 short_desc: Two-axis container layout with tracks and areas
 prerequisites: [layout]
@@ -221,10 +221,3 @@ Grid uses two pairs of axes (rows by columns) and reuses the flex names:
 - `align-items` defaults to `stretch`.
 - `align-self` defaults to `auto`.
 - `gap` defaults to `0`.
-
-## Coming Up Next
-
-- [Events](../events.md) — Callbacks, event filters, and how state triggers relayout
-- [Images](../images.md) — Loading raster images and CSS backgrounds
-- [Flexbox](flex.md) — One-axis container layout with grow/shrink/basis
-- [Text Input](../text-input.md) — Editable text, IME, and the selection model

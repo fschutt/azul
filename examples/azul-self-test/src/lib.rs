@@ -443,7 +443,7 @@ fn finish() {
 
 // Android has no `main()`: the OS loads this cdylib and calls libazul's
 // `android_main`. `start()` must run BEFORE `ANativeActivity_onCreate`, i.e.
-// from a load-time constructor. See guide/mobile.md.
+// from a load-time constructor. See guide/deploying/mobile.md.
 #[cfg(target_os = "android")]
 #[ctor::ctor]
 fn azul_android_init() {

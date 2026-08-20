@@ -1,11 +1,11 @@
 ---
-slug: scrolling-and-drag
-title: Scrolling
+slug: events/scrolling
+title: Scrolling & Drag
 language: en
-canonical_slug: scrolling-and-drag
+canonical_slug: events/scrolling
 audience: external
 maturity: wip
-guide_order: 120
+guide_order: 64
 topic_only: false
 short_desc: Scroll containers, drag-and-drop, hit testing
 prerequisites: [hello-world, events]
@@ -32,7 +32,7 @@ default-search-keys:
   - scroll_to
 ---
 
-# Scrolling
+# Scrolling & Drag
 
 ## Introduction
 
@@ -47,7 +47,7 @@ macOS (dragging destination) — and dragging data *out* of an azul window is no
 implemented on any platform. The page covers both subjects because they share
 the input pipeline.
 
-Scrolling and drag are the two ways a pointer interacts with the layout rather than with a single element. Both are gestures: the framework tracks the mouse across multiple events, decides which gesture is in progress, and emits high-level events you handle the same way as any other event filter from [events](events.md).
+Scrolling and drag are the two ways a pointer interacts with the layout rather than with a single element. Both are gestures: the framework tracks the mouse across multiple events, decides which gesture is in progress, and emits high-level events you handle the same way as any other event filter from [events](..md).
 
 ## Making a node scrollable
 
@@ -252,11 +252,5 @@ extern "C" fn on_dropped_file(_: RefAny, info: CallbackInfo) -> Update {
 
 ## Cross-references
 
-- [`events`](events.md): the event filter system this page builds on.
-- [`timers`](timers.md): scrolling momentum and drag auto-scroll run on reserved timers.
-
-## Coming Up Next
-
-- [Events](events.md) — Callbacks, event filters, and how state triggers relayout
-- [Text Selection](text-selection.md) — Selection ranges, cursors, and copy/paste
-- [Virtual Views](dom/virtual-views.md) — A node that materialises lazily, for infinite lists and embedded sub-DOMs
+- [`events`](..md): the event filter system this page builds on.
+- [`timers`](../animations/timers.md): scrolling momentum and drag auto-scroll run on reserved timers.

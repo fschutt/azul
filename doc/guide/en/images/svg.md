@@ -1,11 +1,11 @@
 ---
-slug: svg
+slug: images/svg
 title: SVG
 language: en
-canonical_slug: svg
+canonical_slug: images/svg
 audience: external
 maturity: wip
-guide_order: 71
+guide_order: 91
 topic_only: false
 short_desc: Parsing and rendering SVG documents
 prerequisites: [images]
@@ -158,7 +158,7 @@ curl -s -X POST http://localhost:8765/ \
   | jq -r '.data.value' | base64 -d > out.png
 ```
 
-This is the path covered in [Headless Rendering](../headless-rendering.md).
+This is the path covered in [Headless Rendering](../headless/rendering.md).
 The DOM-side example is in [Document Object Model](../dom.md#inline-svg).
 
 **Standalone SVG file.** When you have an `.svg` on disk and want a
@@ -181,9 +181,3 @@ Both paths share the SVG renderer described above. The choice is just
 about whether you want the SVG rendered next to other Dom content
 (use the inline form) or as an isolated raster image (use the
 standalone form).
-
-## Coming Up Next
-
-- [GL Canvas](canvas-gl.md) — Embedding an OpenGL canvas inside a Dom node
-- [Images](../images.md) — Loading raster images and CSS backgrounds
-- [Styling with CSS](../styling.md) — Stylesheets, selectors, and the cascade

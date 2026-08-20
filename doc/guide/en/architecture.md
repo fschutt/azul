@@ -5,7 +5,7 @@ language: en
 canonical_slug: architecture
 audience: external
 maturity: mature
-guide_order: 20
+guide_order: 40
 topic_only: false
 short_desc: Explains the concepts of architecting a larger Azul application
 prerequisites: [hello-world]
@@ -737,9 +737,3 @@ way (the closest match to this approach is Apples SwiftUI, interestingly enough)
 
 This document should help developers understand not only the goal of Azul, but also the "why" of 
 their pain points in GUI programming - because someone who cannot articulate a problem cannot solve it.
-
-## Coming Up Next
-
-- [Document Object Model](dom.md) — The Dom tree - node types, hierarchy, and CSS
-- [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade
-- [Events](events.md) — Callbacks, event filters, and how state triggers relayout

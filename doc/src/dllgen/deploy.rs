@@ -1746,7 +1746,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               </div>
 
               <h3>Mobile (iOS &amp; Android): drop-in libraries</h3>
-              <p class='release-note'>For shipping on mobile, see the <a href='{HTML_ROOT}/guide/mobile'>mobile deploy guide</a>.</p>
+              <p class='release-note'>For shipping on mobile, see the <a href='{HTML_ROOT}/guide/deploying/mobile'>mobile deploy guide</a>.</p>
               <div class='docs-card-grid'>
                 <a class='docs-card' href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-arm64.a.tar.gz'><h4>Android arm64-v8a</h4><p class='docs-card-file'>libazul-android-arm64.a.tar.gz</p></a>
                 <a class='docs-card' href='https://github.com/fschutt/azul/releases/download/{version}/libazul-android-x64.a.tar.gz'><h4>Android x86_64 (emulator)</h4><p class='docs-card-file'>libazul-android-x64.a.tar.gz</p></a>
@@ -1781,7 +1781,7 @@ brew tap fschutt/azul {HTML_ROOT}/homebrew-azul.git
 brew install fschutt/azul/azul</code></pre>
 
               <h2 id='demos'>Demos</h2>
-              <p>For further instructions, see the <a href='{HTML_ROOT}/guide/mobile'>Mobile guide</a>.</p>
+              <p>For further instructions, see the <a href='{HTML_ROOT}/guide/deploying/mobile'>Mobile guide</a>.</p>
               <ul class='release-demos' id='demo-list'>
                 {demo_links}
               </ul>
@@ -1853,7 +1853,7 @@ tag = \"{version}\"
               </div>
 
               <h3>Web Apps (experimental)</h3>
-              <p><a href='{HTML_ROOT}/guide/deploying-web'>Guide: deploying azul web apps</a></p>
+              <p><a href='{HTML_ROOT}/guide/deploying/web'>Guide: deploying azul web apps</a></p>
               <pre><code class='language-bash'># prebuilt web base image (experimental; the web backend is not yet stable)
 docker pull ghcr.io/fschutt/azul:{version}</code></pre>
 

@@ -5,7 +5,7 @@ language: en
 canonical_slug: styling
 audience: external
 maturity: mature
-guide_order: 40
+guide_order: 70
 topic_only: false
 short_desc: Stylesheets, selectors, and the cascade
 prerequisites: [dom]
@@ -364,10 +364,3 @@ and the icon and text-styling primitives:
   style, alignment, plus the `system:` font keywords.
 - [Icon Packs](styling/icon-packs.md). Registering image and font icons
   under named packs.
-
-## Coming Up Next
-
-- [CSS Properties](styling/properties.md) — Reference of every CSS property azul recognises
-- [System Themes](styling/themes.md) — System colors, `@theme`, `@os`, and accessibility queries
-- [Layout](layout.md) — Overview of the layout solver
-- [Document Object Model](dom.md) — The Dom tree - node types, hierarchy, and CSS

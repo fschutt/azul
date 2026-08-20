@@ -5,7 +5,7 @@ language: en
 canonical_slug: events
 audience: external
 maturity: mature
-guide_order: 90
+guide_order: 60
 topic_only: false
 short_desc: Callbacks, event filters, and how state triggers relayout
 prerequisites: [hello-world]
@@ -334,10 +334,3 @@ fn main() {
 - **`Focus(...)` never fires.** The node has no tab index. Add `.with_tab_index(TabIndex::Auto)` so the node can receive focus.
 - **Counter doesn't update.** The callback returned `Update::DoNothing`. Return `Update::RefreshDom` after mutating the model.
 - **Default action still happens after `prevent_default`.** Verify the call is on `CallbackInfo`, not on a stale copy. The change is applied after the callback returns. Calling it twice is harmless.
-
-## Coming Up Next
-
-- [Text Input](text-input.md) — Editable text, IME, and the selection model
-- [Scrolling](scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing
-- [Timers](timers.md) — Timers, threads, and scheduled work
-- [Windows, Menus, Decorations](windowing.md) — Windows, menus, decorations, and per-window state
