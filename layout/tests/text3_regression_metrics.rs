@@ -7,8 +7,6 @@
 //! alphabetic baseline is 16px below the content-box top. line-height's half-
 //! leading L/2 = (line-height - (A+D))/2 is split above and below the glyph box.
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,7 +22,7 @@ use azul_layout::text3::cache::{
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
-use fakefont::simple_test_font;
+use crate::fakefont::simple_test_font;
 
 const FONT_SIZE: f32 = 20.0;
 

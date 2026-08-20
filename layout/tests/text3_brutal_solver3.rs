@@ -12,8 +12,6 @@
 //! 5px, line-height:normal = (800+200)*0.02 = 20px. So "aaaa" = 48px, the
 //! inter-word space = 5px, and "aaaa aaaa" max-content = 101px, min-content 48px.
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
@@ -28,7 +26,7 @@ use azul_layout::Solver3LayoutCache;
 use rust_fontconfig::{FcFont, FcFontCache, FcPattern};
 use std::collections::{BTreeMap, HashMap};
 
-use fakefont::{simple_test_font, FAKE_FAMILY};
+use crate::fakefont::{simple_test_font, FAKE_FAMILY};
 
 /// Deterministic built-in mock font, auto-registered by `FontManager::new`.
 /// Every glyph (space included) advances exactly 0.5 em = 10px at font-size 20,

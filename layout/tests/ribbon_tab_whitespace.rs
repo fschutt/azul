@@ -191,7 +191,7 @@ const GROUP_LABELS: &[&str] = &["Clipboard", "Font", "Paragraph", "Styles"];
 
 /// PROBE (ignored by default): sweeps window widths and prints every width
 /// where a tab label leaves one line or a caption drifts. Run with:
-///   cargo test --release -p azul-layout --test ribbon_tab_whitespace -- --ignored --nocapture
+///   cargo test --release -p azul-layout --test all -- ribbon_tab_whitespace:: --ignored --nocapture
 #[test]
 #[ignore]
 fn probe_tab_wrap_and_caption_centering_across_widths() {

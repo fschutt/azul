@@ -4,7 +4,7 @@
 //! 1. Binary pass: threshold to black/white, compare which pixels are "ink" vs "paper"
 //! 2. Grayscale pass: compare the actual anti-aliasing coverage values
 //!
-//! Run: cargo test -p azul-layout --features coretext_tests --test test_coretext_compare -- --nocapture
+//! Run: cargo test -p azul-layout --features coretext_tests --test all -- test_coretext_compare:: --nocapture
 
 #![cfg(all(target_os = "macos", feature = "coretext_tests"))]
 

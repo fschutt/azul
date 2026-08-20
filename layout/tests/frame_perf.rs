@@ -1,7 +1,7 @@
 //! What does one FRAME cost — layout *and* rendering together?
 //!
-//! Run: `cargo test --release -p azul-layout --features probe --test frame_perf
-//! -- --nocapture`
+//! Run: `cargo test --release -p azul-layout --features probe --test all --
+//! frame_perf:: --nocapture`
 //!
 //! `pagination_perf.rs` measures the layout half. The budget that matters to
 //! an interactive editor is the whole frame: relayout the document, then put
@@ -239,6 +239,13 @@ fn report(label: &str, frames: u32) {
 
 #[test]
 fn frame_cost_idle_edit_and_resize() {
+    // `Probe`'s recording flag is a process-global atomic (the buffer it gates
+    // is thread-local). This file shares a binary with `probe_gate`, which
+    // deliberately flips that flag on and off; without this lock the `report`
+    // calls below would attribute a truncated or a phantom profile depending
+    // on the interleaving. See `crate::PROBE_LOCK`.
+    let _serialised = crate::probe_lock();
+
     if cfg!(debug_assertions) {
         eprintln!(
             "[frame] *** DEBUG BUILD — these numbers are NOT the shipped cost. \

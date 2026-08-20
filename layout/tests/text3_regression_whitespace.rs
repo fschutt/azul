@@ -9,8 +9,6 @@
 //! Fake metrics @ size 20: 'a' 600u => 12px · space 250u => 5px · line-height
 //! normal 20px · default tab-size 8 * (0.5*20px space approx) => 80px tab stops.
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,7 +24,7 @@ use azul_layout::text3::cache::{
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
-use fakefont::simple_test_font;
+use crate::fakefont::simple_test_font;
 
 const FONT_SIZE: f32 = 20.0;
 

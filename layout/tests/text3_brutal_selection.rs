@@ -12,8 +12,6 @@
 //!   a@0..12 a@12..24 a@24..36 a@36..48 space@48..53 a@53..65 a@65..77 a@77..89
 //!   a@89..101 space@101..106 a@106..118 a@118..130 a@130..142 a@142..154
 
-#[path = "common/fakefont.rs"]
-mod fakefont;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,7 +33,7 @@ use azul_layout::text3::edit::{delete_backward, edit_text, insert_text, TextEdit
 use azul_layout::text3::selection::select_word_at_cursor;
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
-use fakefont::simple_test_font;
+use crate::fakefont::simple_test_font;
 
 const FONT_SIZE: f32 = 20.0;
 
