@@ -1183,6 +1183,40 @@ impl LayoutCallbackInfo {
         self.get_active_route()?.get_param(key)
     }
 
+    /// The pattern of the route this layout callback is rendering, e.g.
+    /// `"/user/:id"`.
+    ///
+    /// `"/"` when the app configured no routes: an app without routing is on
+    /// the default route, so a callback that branches on the pattern always
+    /// has one string to branch on rather than an empty one.
+    ///
+    /// # C API
+    /// ```c
+    /// AzString pattern = AzLayoutCallbackInfo_getRoutePattern(&info);
+    /// ```
+    #[must_use] pub fn get_route_pattern(&self) -> AzString {
+        match self.get_active_route() {
+            Some(route) => route.pattern.clone(),
+            None => AzString::from_const_str("/"),
+        }
+    }
+
+    /// A route parameter by key, empty when the parameter or the route is
+    /// absent. The owned-key, owned-return form the FFI needs;
+    /// [`Self::get_route_param`] is the borrowing Rust one.
+    ///
+    /// # C API
+    /// ```c
+    /// AzString id = AzLayoutCallbackInfo_getRouteParamOrEmpty(&info,
+    ///     AzString_fromConstStr("id"));
+    /// ```
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use] pub fn get_route_param_or_empty(&self, key: AzString) -> AzString {
+        self.get_route_param(key.as_str())
+            .cloned()
+            .unwrap_or_else(|| AzString::from_const_str(""))
+    }
+
     // Responsive layout helper methods.
     //
     // These are THE sanctioned way for `layout()` to branch on window size

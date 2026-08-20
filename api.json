@@ -13151,6 +13151,53 @@
                                 },
                                 "fn_body": "object.get_dpi_factor()"
                             },
+                            "get_route_pattern": {
+                                "doc": [
+                                    "The pattern of the route this layout callback is rendering, e.g. `\"/user/:id\"`.",
+                                    "",
+                                    "`\"/\"` when the app configured no routes: an app without routing is on the",
+                                    "default route, so a callback that branches on the pattern always has one",
+                                    "string to branch on.",
+                                    "",
+                                    "# C API",
+                                    "```c",
+                                    "AzString pattern = AzLayoutCallbackInfo_getRoutePattern(&info);",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.get_route_pattern()"
+                            },
+                            "get_route_param": {
+                                "doc": [
+                                    "A route parameter by key (`\"id\"` for `/user/:id`).",
+                                    "",
+                                    "Empty string when the parameter or the route is absent.",
+                                    "",
+                                    "# C API",
+                                    "```c",
+                                    "AzString id = AzLayoutCallbackInfo_getRouteParam(&info, AzString_fromConstStr(\"id\"));",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.get_route_param_or_empty(key)"
+                            },
                             "viewport_bigger_than": {
                                 "doc": [
                                     "Is the window's LOGICAL viewport wider than `width_px`?",
@@ -18081,6 +18128,25 @@
                                     }
                                 ],
                                 "fn_body": "object.add_component_css(css)"
+                            },
+                            "with_component_css": {
+                                "doc": [
+                                    "Builder form of `add_component_css`: attach a parsed stylesheet to this",
+                                    "subtree and hand the Dom back, so a component builds in one expression.",
+                                    "`with_css(&str)` is the same thing for a string that still needs parsing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "css": "Css"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_component_css(css)"
                             },
                             "set_component_css": {
                                 "doc": [
@@ -106112,6 +106178,32 @@
                                     }
                                 ],
                                 "fn_body": "object.add_component_library(name, register_fn)"
+                            },
+                            "add_route": {
+                                "doc": [
+                                    "Register a route mapping a URL pattern to a layout callback.",
+                                    "",
+                                    "The first route (or `/`) is what the window starts on;",
+                                    "`CallbackInfo::switch_route` swaps the active one and triggers a relayout.",
+                                    "Registering the same pattern twice replaces the earlier entry.",
+                                    "",
+                                    "# C API",
+                                    "```c",
+                                    "AzAppConfig_addRoute(&config, AzString_fromConstStr(\"/user/:id\"), layout_user);",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pattern": "String"
+                                    },
+                                    {
+                                        "layout_callback": "LayoutCallback"
+                                    }
+                                ],
+                                "fn_body": "object.add_route(pattern, layout_callback)"
                             }
                         },
                         "repr": "C"

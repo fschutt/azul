@@ -6069,6 +6069,16 @@ impl Dom {
         self.css = v.into();
     }
 
+    /// Builder form of [`Self::add_component_css`]: attach a parsed
+    /// stylesheet and hand the `Dom` back, so a component builds in one
+    /// expression. `with_css(&str)` is the same thing for a string that still
+    /// has to be parsed.
+    #[must_use]
+    pub fn with_component_css(mut self, css: azul_css::css::Css) -> Self {
+        self.add_component_css(css);
+        self
+    }
+
     /// Replace the subtree's entire component-level CSS list with the
     /// provided one. Use `add_component_css` / `with_component_css` for
     /// stacking; this is the wholesale-replace form.

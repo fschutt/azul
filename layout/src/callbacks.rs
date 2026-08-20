@@ -1406,7 +1406,9 @@ impl CallbackInfo {
 
     /// Get the current active route pattern (e.g. `"/user/:id"`).
     ///
-    /// Returns empty string if no route is active.
+    /// `"/"` when the app configured no routes - an app without routing is on
+    /// the default route. Matches `LayoutCallbackInfo::get_route_pattern`, so
+    /// the same branch works in both callbacks.
     ///
     /// # C API
     /// ```c
@@ -1415,7 +1417,7 @@ impl CallbackInfo {
     #[must_use] pub fn get_route_pattern(&self) -> AzString {
         match &self.get_current_window_state().active_route {
             azul_core::resources::OptionRouteMatch::Some(rm) => rm.pattern.clone(),
-            azul_core::resources::OptionRouteMatch::None => AzString::from_const_str(""),
+            azul_core::resources::OptionRouteMatch::None => AzString::from_const_str("/"),
         }
     }
 
@@ -6850,10 +6852,13 @@ mod autotest_generated {
     // CallbackInfo: routing
     // ------------------------------------------------------------------
 
+    /// No routing configured is not "no route": the app is on `/`, and a
+    /// callback branching on the pattern gets one string to branch on. Params
+    /// still read empty - there is no pattern to take them from.
     #[test]
-    fn route_getters_return_empty_strings_when_no_route_is_active() {
+    fn route_getters_report_the_default_route_when_none_is_active() {
         with_info(node_none(), |info| {
-            assert_eq!(info.get_route_pattern().as_str(), "");
+            assert_eq!(info.get_route_pattern().as_str(), "/");
             assert_eq!(info.get_route_param(AzString::from("id")).as_str(), "");
             // Malformed / hostile keys must not panic either.
             assert_eq!(info.get_route_param(AzString::from("")).as_str(), "");

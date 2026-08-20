@@ -218,7 +218,7 @@ pub struct Dom {
 ```
 
 A `Dom` is a subtree: a root `NodeData`, its children, and any
-component-level stylesheets attached via `add_component_css(Css)`.
+component-level stylesheets attached via `.with_component_css(Css)`.
 The framework
 flattens the recursive form into the parallel `NodeHierarchyItem` /
 `NodeData` arrays once, at the start of the cascade. Every builder
@@ -416,15 +416,15 @@ each property to a single-declaration rule at INLINE priority.
 ### Component-level stylesheets
 
 Reusable components ship a parsed stylesheet that travels with the
-subtree. Attach it on the component's root with `add_component_css(Css)`:
+subtree. Attach it on the component's root with `.with_component_css(Css)`:
 
 ```rust,no_run
 use azul::prelude::*;
 
 let widgets = Css::from_string(".panel { padding: 8px; }".into());
-let mut panel: Dom = Dom::create_div()
-    .with_class("panel".into());
-panel.add_component_css(widgets);
+let panel: Dom = Dom::create_div()
+    .with_class("panel".into())
+    .with_component_css(widgets);
 ```
 
 A browser cascades every stylesheet against every node in one global
@@ -492,8 +492,7 @@ extern "C" fn layout(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
             .with_child(content_area(&strings))
     };
 
-    body.add_component_css(app_stylesheet());
-    body
+    body.with_component_css(app_stylesheet())
 }
 ```
 
@@ -512,10 +511,9 @@ called — `Resize`, `ThemeChange`, `RouteChange`, `RefreshDom`, or
 fetches, locale-pack loading) when the trigger was just a resize.
 
 Other helpers: `get_dpi_factor` returns 1.0 / 2.0 / etc. for asset
-selection, `get_monitors` / `get_max_monitor_size` describe the
-screens, and `get_gl_context()` backs canvas nodes. The route and
-system-style accessors live on `CallbackInfo`, not here - a layout
-callback reads what an event callback stashed in the model.
+selection; `get_route_pattern()` / `get_route_param(key)` for
+router-driven trees; `get_monitors` / `get_max_monitor_size` for the
+screens; `get_gl_context()` for canvas-backed nodes.
 
 A worked example covering window-size, DPI, theme, route, and
 Fluent localization in a single layout pass:
@@ -585,8 +583,7 @@ extern "C" fn layout(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
             .with_child(main)
     };
 
-    shell.add_component_css(app_stylesheet());
-    shell
+    shell.with_component_css(app_stylesheet())
 }
 ```
 
@@ -597,27 +594,23 @@ layout + paint.
 
 ## Routing
 
-A multi-page app registers a layout callback per URL pattern in
-`AppConfig.routes` — the framework picks the right one for the active
+A multi-page app registers a layout callback per URL pattern on the
+`AppConfig` — the framework picks the right one for the active
 route and re-runs it on `switch_route`:
 
 ```rust,no_run
 use azul::prelude::*;
 
 extern "C" fn layout_home(_: &mut RefAny, _: LayoutCallbackInfo) -> Dom { todo!() }
-extern "C" fn layout_user(data: &mut RefAny, _: LayoutCallbackInfo) -> Dom {
-    // The layout callback has no route accessor; the id is read from the
-    // model, where the `switch_route` handler put it.
-    let id = data.downcast_ref::<Model>().map(|m| m.user_id.clone()).unwrap_or_default();
-    Dom::create_h1_with_text(format!("User #{}", id).into())
+extern "C" fn layout_user(_: &mut RefAny, info: LayoutCallbackInfo) -> Dom {
+    let id = info.get_route_param("id".into());
+    Dom::create_h1_with_text(format!("User #{}", id.as_str()).into())
 }
 
 fn main() {
     let mut config = AppConfig::create();
-    config.routes = vec![
-        Route { pattern: "/".into(), layout_callback: LayoutCallback { cb: layout_home } },
-        Route { pattern: "/user/:id".into(), layout_callback: LayoutCallback { cb: layout_user } },
-    ].into();
+    config.add_route("/".into(), layout_home.into());
+    config.add_route("/user/:id".into(), layout_user.into());
 
     let app = App::create(initial_data, config);
     app.run(WindowCreateOptions::new(layout_home));

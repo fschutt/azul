@@ -60,7 +60,7 @@ default-search-keys:
 ## Overview
 
 A `Css` is a parsed stylesheet. You build one from a string, attach it to a
-`Dom` subtree with `add_component_css(css)`, and the cascade applies it on the next
+`Dom` subtree with `.with_component_css(css)`, and the cascade applies it on the next
 layout pass. The dialect is a strict subset of standard CSS: tag, class, id,
 and attribute selectors; descendant, child, sibling, and pseudo-class
 combinators; the `@media`, `@os`, `@theme`, and `@lang` at-rules; and
@@ -75,9 +75,9 @@ let css = Css::from_string("
     .panel:hover { background: #e8e8e8; }
 ".into());
 
-let mut body = Dom::create_body()
-    .with_child(Dom::create_div().with_class("panel".into()));
-body.add_component_css(css);
+let _ = Dom::create_body()
+    .with_child(Dom::create_div().with_class("panel".into()))
+    .with_component_css(css);
 ```
 
 ```azul-render screenshot=styling-panel width=400 height=160 subtitle="A class-styled panel with hover-ready rules"
@@ -123,9 +123,10 @@ let _ = Dom::create_body()
     );
 ```
 
-> **Note:** `with_css(&str)` is the builder form and parses the string for
-> you. `add_component_css(css)` is the mutating form for a `Css` you already
-> parsed; both push onto the subtree's `.css` vec, which the cascade reads.
+> **Note:** `with_css(&str)` parses a string; `with_component_css(Css)` takes
+> a stylesheet you already parsed. Both are builder forms and both push onto
+> the subtree's `.css` vec, which the cascade reads; `add_component_css` is
+> the mutating twin for when you are not chaining.
 
 Matching and inheritance happen once after `layout()` returns, in a single
 cascade pass. [The DOM page](dom.md#when-does-css-actually-apply-not-until-after-layout)
