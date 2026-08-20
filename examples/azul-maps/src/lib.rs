@@ -359,7 +359,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 callable: OptionRefAny::None,
             },
         )
-        // `.dom()` wires the built-in tile-fetch worker internally: it HTTP-GETs
+        // `.dom()` wires the built-in tile-fetch worker internally (api.json
+        // routes it through map_widget_dom): it HTTP-GETs
         // each visible tile's MVT (.pbf), decodes it, renders it to SVG, and writes
         // the SVG back into the MapTileCache dataset (which the VirtualView then
         // draws). The fetch starts on mount and is freed when the widget unmounts.

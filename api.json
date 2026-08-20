@@ -46260,7 +46260,7 @@
                                 "returns": {
                                     "type": "Dom"
                                 },
-                                "fn_body": "object.dom()"
+                                "fn_body": "crate::unified::map::map_widget_dom(map_widget)"
                             },
                             "with_on_viewport_changed": {
                                 "doc": [

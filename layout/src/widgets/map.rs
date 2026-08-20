@@ -295,6 +295,11 @@ impl MapWidget {
     ///
     /// No tile-fetch worker is wired - tiles render as placeholders.
     /// Use [`dom_with_fetch`](Self::dom_with_fetch) to supply one.
+    ///
+    /// The FFI `MapWidget::dom()` does NOT land here: api.json routes it to
+    /// `azul_dll::unified::map::map_widget_dom`, which calls `dom_with_fetch`
+    /// with the built-in worker. It used to route here, which is why the map
+    /// panned but never painted a tile on every desktop platform.
     #[must_use] pub fn dom(self) -> Dom {
         self.build_dom(None)
     }
