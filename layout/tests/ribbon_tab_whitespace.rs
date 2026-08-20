@@ -193,7 +193,12 @@ const GROUP_LABELS: &[&str] = &["Clipboard", "Font", "Paragraph", "Styles"];
 /// where a tab label leaves one line or a caption drifts. Run with:
 ///   cargo test --release -p azul-layout --test all -- ribbon_tab_whitespace:: --ignored --nocapture
 #[test]
-#[ignore]
+#[ignore = "diagnostic PROBE, not a gate: it asserts NOTHING, it prints the \
+            widths at which a tab label wraps or a caption drifts. The LAW it \
+            probes IS enforced, by the non-ignored \
+            `tab_labels_never_wrap_and_captions_stay_centered` right below. \
+            Runs green headless in ~37s (verified 2026-08-20); stays ignored \
+            because 801 layouts of printout is not something CI should pay for."]
 fn probe_tab_wrap_and_caption_centering_across_widths() {
     let wide = layout_dom(azwriter_like_ribbon(), 1400.0, 300.0);
     let base_h: Vec<f32> = TAB_LABELS

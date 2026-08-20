@@ -18,6 +18,30 @@ struct DecodedInstr {
     push_data: Vec<i32>,
 }
 
+/// Every test in this file reads a macOS system font by absolute path
+/// (`/System/Library/Fonts/Supplemental/Times New Roman.ttf`, `Times.ttc`),
+/// and used to `eprintln!("Skipping"); return` when it was not there — which
+/// on the ubuntu runners that host every `cargo test` job in this workflow
+/// meant four permanently green no-ops that looked exactly like four passes.
+///
+/// `AZ_REQUIRE_TEST_FONTS=1` makes the skip fatal, but only on macOS: the fonts
+/// are Apple-shipped and CANNOT be installed on Linux, so demanding them there
+/// would be a lie of a different shape. On Linux the skip stays a skip and says
+/// so out loud.
+fn missing_macos_font() {
+    assert!(
+        !(cfg!(target_os = "macos") && std::env::var_os("AZ_REQUIRE_TEST_FONTS").is_some()),
+        "AZ_REQUIRE_TEST_FONTS=1 on macOS but neither \
+         /System/Library/Fonts/Supplemental/Times New Roman.ttf nor \
+         /System/Library/Fonts/Times.ttc could be read. Silently skipping is NOT a pass."
+    );
+    eprintln!(
+        "SKIP: no macOS Times font on this host ({}) — this test asserts nothing here. \
+         On macOS, set AZ_REQUIRE_TEST_FONTS=1 to make it a failure instead.",
+        std::env::consts::OS
+    );
+}
+
 /// Decode TrueType bytecode into a list of instructions.
 /// This mirrors the interpreter's dispatch logic but only decodes, doesn't execute.
 fn decode_bytecode(bytecode: &[u8]) -> Vec<DecodedInstr> {
@@ -202,7 +226,7 @@ fn test_bytecode_decode_u() {
     let font_bytes = fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
         .or_else(|_| fs::read("/System/Library/Fonts/Times.ttc")).ok();
     let font_bytes = match font_bytes {
-        Some(b) => b, None => { eprintln!("Skipping"); return; }
+        Some(b) => b, None => { missing_macos_font(); return; }
     };
     let mut warnings = Vec::new();
     let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
@@ -251,7 +275,7 @@ fn test_bytecode_decode_l() {
     let font_bytes = fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
         .or_else(|_| fs::read("/System/Library/Fonts/Times.ttc")).ok();
     let font_bytes = match font_bytes {
-        Some(b) => b, None => { eprintln!("Skipping"); return; }
+        Some(b) => b, None => { missing_macos_font(); return; }
     };
     let mut warnings = Vec::new();
     let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
@@ -300,7 +324,7 @@ fn test_push_values() {
     let font_bytes = fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
         .or_else(|_| fs::read("/System/Library/Fonts/Times.ttc")).ok();
     let font_bytes = match font_bytes {
-        Some(b) => b, None => { eprintln!("Skipping"); return; }
+        Some(b) => b, None => { missing_macos_font(); return; }
     };
     let mut warnings = Vec::new();
     let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {
@@ -358,7 +382,7 @@ fn test_decode_all_lorem_glyphs() {
     let font_bytes = fs::read("/System/Library/Fonts/Supplemental/Times New Roman.ttf")
         .or_else(|_| fs::read("/System/Library/Fonts/Times.ttc")).ok();
     let font_bytes = match font_bytes {
-        Some(b) => b, None => { eprintln!("Skipping"); return; }
+        Some(b) => b, None => { missing_macos_font(); return; }
     };
     let mut warnings = Vec::new();
     let font = match ParsedFont::from_bytes(&font_bytes, 0, &mut warnings) {

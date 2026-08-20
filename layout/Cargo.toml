@@ -381,9 +381,23 @@ e2e-server-http = ["e2e-server", "dep:spmc"]
 # default — their `#![cfg(feature = "DISABLED_*")]` never matches normal builds).
 # Declared here so the cfg is expected (silences unexpected_cfgs); enable with
 # --features <name> to compile/run the corresponding test.
-DISABLED_event_tests = []
+# `DISABLED_event_tests` and `DISABLED_selection_tests` are GONE (2026-08-20).
+# Both gated integration files that were straight duplicates of unit tests
+# already living next to the code they test, and which run (and pass) in
+# `cargo test --lib`:
+#   tests/selection.rs           -> layout/src/text3/selection.rs `mod tests`
+#                                   (all 5 asserts, verbatim; 7 tests there)
+#   tests/event_determination.rs -> layout/src/event_determination.rs
+#                                   `mod tests` / `mod autotest_generated`
+#                                   (window-resize + provider dedup, and far
+#                                   more besides). The tests/ copies could not
+#                                   even compile: they called the PRIVATE
+#                                   `detect_window_state_events` and glob-
+#                                   imported types that live in
+#                                   `azul_core::events`, not in this module.
+# The files were deleted rather than revived; there was nothing in them the
+# library tests do not already assert.
 DISABLED_hint_vs_freetype = []
-DISABLED_selection_tests = []
 
 # Live telemetry demo (see examples/telemetry-grafana/ for the Grafana stack).
 # `required-features` keeps `cargo test --all-targets` on a default build from
@@ -454,6 +468,14 @@ path = "tests/icu_parity.rs"
 [[test]]
 name = "coretext_autoregression"
 path = "tests/coretext_autoregression.rs"
+# ADDED 2026-08-20. The file is `#![cfg(all(target_os = "macos", feature =
+# "coretext_tests"))]`, so on every ubuntu `cargo test -p azul-layout --tests`
+# it compiled to an EMPTY harness and printed a green `running 0 tests`.
+# `required-features` makes cargo SKIP the target instead; the driver script
+# passes `--features coretext_tests`, so it is unaffected. (The `target_os`
+# half cannot be expressed here — on a Mac WITHOUT the feature the target is
+# skipped too, and with it, it builds and runs.)
+required-features = ["coretext_tests"]
 
 [[test]]
 name = "contenteditable_e2e"
@@ -467,7 +489,11 @@ path = "tests/text3/mod.rs"
 # T0), ported 2026-08-10 from the dead FontProviderTrait generation to
 # the LoadedFonts pipeline via the compat wrappers in tests/text3/mod.rs.
 # 45 live (incl. the only shape-outside + dictionary-hyphenation pins in
-# the repo); 12 #[ignore]d pending old-vs-new behavioral triage.
+# the repo); 12 #[ignore]d. Those 12 were TRIAGED 2026-08-20 by actually
+# running them (`--test text3_suite -- --ignored`): all 12 are RED, each
+# pinning a hard-coded coordinate from the old generation. They are not
+# hardware-gated and run in milliseconds, so this is a real behavioural
+# delta someone must adjudicate per test — see the reason strings.
 required-features = ["text_layout"]
 
 [[test]]

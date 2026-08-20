@@ -3790,7 +3790,21 @@ impl CallbackInfo {
     ///
     /// Returns a description when the DOM has no layout, the node has no
     /// bounds, or encoding fails.
-    #[cfg(all(feature = "std", feature = "cpurender"))]
+    // `widgets` + `text_layout` are in the gate because the crop goes through
+    // `crate::dialogs::report::crop_png`, and the whole `dialogs` module is
+    // `#[cfg(all(std, widgets, text_layout))]` (lib.rs). Without them this body
+    // referenced a module that was configured out, so the combination
+    // `std,font_loading,text_layout,cpurender` — which is exactly what
+    // `wr_azul_glyph_rasterizer` asks for — did not compile at all. Nothing
+    // noticed because no CI job ever built azul-layout on that feature set on
+    // its own; every job that touches webrender also pulls azul-dll, whose
+    // default features unify `widgets` back in.
+    #[cfg(all(
+        feature = "std",
+        feature = "cpurender",
+        feature = "widgets",
+        feature = "text_layout"
+    ))]
     pub fn take_screenshot_of_node(&self, node_id: DomNodeId) -> Result<Vec<u8>, AzString> {
         let full = self.take_screenshot(node_id.dom)?;
         let Some(position) = self.get_node_position(node_id) else {

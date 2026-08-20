@@ -31,3 +31,15 @@ parser = ["dep:azul-simplecss"]
 # Opt-in: integration tests that perform live system/theme IO
 # (tests/test_system_style.rs). Off by default so CI doesn't probe the host.
 io = []
+
+# `tests/test_system_style.rs` is entirely `#[cfg(feature = "io")]` inside, so
+# WITHOUT this entry cargo happily built it on a default `cargo test -p azul-css`
+# and produced an EMPTY binary that printed a green `running 0 tests`. With
+# `required-features`, cargo SKIPS the target instead of faking a pass, and the
+# zero-test guard (scripts/zero_test_guard.sh) no longer has to allowlist it.
+# CI runs it explicitly with `--features io`; see the workflow's
+# "System-style IO test" step.
+[[test]]
+name = "test_system_style"
+path = "tests/test_system_style.rs"
+required-features = ["io"]

@@ -51,5 +51,10 @@ topological-sort = "0.2"
 allocator-api2 = { version = "0.3.1", features = ["alloc"] }
 
 [dev-dependencies]
-mozangle = "0.5.3"
+# `mozangle` was here and is GONE (2026-08-20). It is upstream's ANGLE shader
+# validator, used only by upstream's tests/angle_shader_validation.rs — a file
+# this fork does not have, and `mozangle` appears in NO Rust source under
+# webrender/. It is a full ANGLE C++ build, and it does not compile on
+# macOS/arm64, so it made `cargo test -p webrender` impossible to run at all.
+# That is why webrender's 96 unit tests were in no CI job.
 rand = "0.9"

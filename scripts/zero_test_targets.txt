@@ -1,0 +1,46 @@
+# scripts/zero_test_targets.txt — test binaries permitted to run 0 tests.
+#
+# Read by scripts/zero_test_guard.sh. One SUBSTRING per line, matched against
+# cargo's `Running <path> (<binary>)` line. `#` starts a comment.
+#
+# Adding a line here is a decision, not a workaround: it says "this target is
+# dead and we know it". Every entry needs a reason and a date. If you cannot
+# write the reason, the target should be fixed or deleted instead.
+#
+# ---------------------------------------------------------------------------
+
+# layout/tests/test_hint_vs_freetype.rs — 36 tests, whole file is
+# `#![cfg(feature = "DISABLED_hint_vs_freetype")]` and that feature is enabled
+# by no job and no default, so the target builds an empty harness.
+#
+# TRIAGED 2026-08-20, kept dead deliberately (the full reasoning is in the
+# file's own header):
+#   * it does not compile — 16 errors: 11 uses of `tiny_skia`, a crate that is
+#     no longer a dependency of this workspace at all, plus allsorts-azul 0.17
+#     API drift (`gsub::Features` moved, `gpos::apply` grew a parameter) and
+#     three `Arc<OwnedGlyph>` vs `&OwnedGlyph` mismatches;
+#   * every one of the 36 tests opens a hard-coded macOS system font and
+#     `eprintln!("Skipping"); return`s when absent, so on the ubuntu runners
+#     that host every `cargo test` job here, reviving it buys 36 green no-ops.
+# It survives only as the captured freetype-py reference tables. Live hinting
+# coverage: the fake-font batteries in layout/src/text3/ and
+# tests/coretext_autoregression.rs.
+tests/test_hint_vs_freetype.rs
+
+# layout/tests/icu_parity.rs — EMPTY only in the DEFAULT feature set, and that
+# is correct, not a gap. Its whole-file cfg is
+#   #![cfg(any(feature = "icu",
+#              all(target_os = "macos",   feature = "icu_macos"),
+#              all(target_os = "windows", feature = "icu_windows")))]
+# i.e. one of three MUTUALLY EXCLUSIVE i18n backends, none of them a default
+# feature. `required-features` cannot express "any of three" (it is an AND), so
+# the target cannot be made to skip; it builds an empty harness under
+# `test_lib`'s `--tests`.
+#
+# The coverage is NOT lost, and this allowlist entry does not hide it: the
+# dedicated `icu_parity` job runs the target BY NAME on each backend
+# (`--no-default-features --features icu|icu_macos|icu_windows`, all three OSes)
+# and that step is itself piped through this guard — so an icu_parity that
+# stopped containing tests fails THERE, on the feature set where it means
+# something. 2026-08-20.
+tests/icu_parity.rs

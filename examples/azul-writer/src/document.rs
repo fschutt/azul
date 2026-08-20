@@ -857,12 +857,29 @@ mod tests {
 mod sample_tests {
     use super::*;
 
+    /// The demo document, generated. It used to be `read_to_string` of an
+    /// absolute path under one machine's scratchpad directory, which meant the
+    /// test failed everywhere else and had never run in CI — the crate is in no
+    /// test job (fixed 2026-08-20). Generating it keeps the assertion honest and
+    /// machine-independent.
+    pub(super) fn sample_markdown() -> String {
+        let mut md = String::from("# AzWriter sample document\n\n");
+        for section in 0..8 {
+            md.push_str(&format!("## Section {section}\n\n"));
+            for para in 0..6 {
+                md.push_str(&format!(
+                    "Paragraph {para} of section {section}. The quick brown fox jumps over \
+                     the lazy dog, repeatedly, so that this document is long enough to be \
+                     paginated into more than a single page by the layout engine.\n\n"
+                ));
+            }
+        }
+        md
+    }
+
     #[test]
     fn the_sample_doc_spans_two_pages() {
-        let md = std::fs::read_to_string(
-            "/tmp/claude-1000/-home-fs-Development-azul/b2d37ae1-17ec-4211-bfd3-896553354b4b/scratchpad/sample.md",
-        )
-        .expect("sample.md");
+        let md = sample_markdown();
         let dom = markdown_to_content_dom(&md);
         let pages = paginate(dom);
         assert!(
@@ -1528,8 +1545,10 @@ mod resize_cost_tests {
 
     #[test]
     fn pagination_cost_per_layout_call() {
-        let md = std::fs::read_to_string("/tmp/azwriter-sample.md")
-            .unwrap_or_else(|_| "# T\n\nbody text here.\n".to_string());
+        // Was `read_to_string("/tmp/azwriter-sample.md")` with a two-line
+        // fallback, i.e. on every machine but one it timed a document that is
+        // not a document. Use the same generated sample the pagination test uses.
+        let md = super::sample_tests::sample_markdown();
         let content = markdown_to_content_dom(&md);
         // Warm (first call parses fonts).
         let _ = paginate(content.clone());

@@ -178,8 +178,6 @@ mod e2e_pixel_diff;
 mod embedded_font_renders;
 #[path = "empty_cells.rs"]
 mod empty_cells;
-#[path = "event_determination.rs"]
-mod event_determination;
 #[path = "flexbox_integration.rs"]
 mod flexbox_integration;
 #[path = "flexbox_stretch_bugs.rs"]
@@ -260,8 +258,6 @@ mod ribbon_group_overlap;
 mod ribbon_tab_whitespace;
 #[path = "root_box_sizing_regression.rs"]
 mod root_box_sizing_regression;
-#[path = "selection.rs"]
-mod selection;
 #[path = "session_regression.rs"]
 mod session_regression;
 #[path = "struct_sizes.rs"]

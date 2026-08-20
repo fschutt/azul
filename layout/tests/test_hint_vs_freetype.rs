@@ -1,6 +1,39 @@
 #![cfg(feature = "DISABLED_hint_vs_freetype")]
 //! Compare allsorts hinted output against FreeType reference values.
 //!
+//! # STATUS: DEAD ON PURPOSE (triaged 2026-08-20) — do not "just enable it"
+//!
+//! `DISABLED_hint_vs_freetype` is enabled by no job and no default, so this
+//! target compiles to an EMPTY binary that prints `running 0 tests`. That is
+//! now recorded explicitly in `scripts/zero_test_targets.txt`, the allowlist
+//! the zero-test guard reads, instead of passing unnoticed.
+//!
+//! The triage, so the next person does not repeat it. Building it with
+//! `--features DISABLED_hint_vs_freetype` yields **16 compile errors**:
+//!
+//!   * 11 x `tiny_skia` — the crate is no longer a dependency of this
+//!     workspace anywhere (the CPU rasteriser is `agg-rust` now). Every use is
+//!     a debug-PNG dump into `/tmp`, i.e. none of them assert anything.
+//!   * `allsorts::gsub::Features` moved, and `gpos::apply` grew a
+//!     `&[FeatureInfo]` parameter (allsorts-azul 0.17.2).
+//!   * `build_glyph_path` takes `&OwnedGlyph`; the call sites pass
+//!     `Arc<OwnedGlyph>` (3 sites).
+//!
+//! Even with those fixed it would not be a gate: every one of the 36 tests
+//! opens a hard-coded macOS system font
+//! (`/System/Library/Fonts/HelveticaNeue.ttc`,
+//! `.../Supplemental/Times New Roman.ttf`) and `eprintln!("Skipping: …");
+//! return`s when it is absent — so on the ubuntu runners that host every
+//! `cargo test` job in this workflow, reviving it would buy 36 green
+//! no-ops. It is the exact "self-skip is indistinguishable from a pass"
+//! disease the rest of this cleanup removed.
+//!
+//! It is KEPT, not deleted, only for the captured FreeType reference tables
+//! below (freetype-py output, reproduced by the snippets in this header).
+//! Live hinting coverage lives in the fake-font hinting batteries in
+//! `layout/src/text3/` and in `tests/coretext_autoregression.rs`
+//! (`scripts/coretext_regression.sh`), both of which are real gates.
+//!
 //! # How reference values were captured
 //!
 //! All FreeType reference points were captured using the **freetype-py** Python

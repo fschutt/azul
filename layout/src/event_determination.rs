@@ -1861,6 +1861,27 @@ mod autotest_generated {
         assert_eq!(events[0].timestamp, ts(3), "the later timestamp wins");
     }
 
+    /// PORTED 2026-08-20 from the deleted `layout/tests/event_determination.rs`
+    /// (`test_determine_events_deduplicates`). That file was gated behind
+    /// `DISABLED_event_tests`, a feature no job enabled, and it could not have
+    /// compiled anyway — it glob-imported `azul_layout::event_determination::*`
+    /// for `EventProvider`/`SyntheticEvent`/`EventType`, which live in
+    /// `azul_core::events`. Its scenario lives here instead, where it runs in
+    /// `cargo test --lib`: TWO DISTINCT provider objects claiming the same
+    /// (target, event_type) slot must collapse to one event. The sibling
+    /// `from_managers_dedup_keeps_the_latest_timestamp` covers one provider
+    /// emitting duplicates; this covers the across-providers case.
+    #[test]
+    fn two_distinct_providers_colliding_on_one_slot_dedup() {
+        let s = state();
+        let a = StaticProvider(vec![ev(EventType::Input, root(), 0)]);
+        let b = StaticProvider(vec![ev(EventType::Input, root(), 0)]);
+        let providers: Vec<&dyn EventProvider> = vec![&a, &b];
+        let events = determine_events_from_managers(&s, &s, &providers, ts(0));
+        assert_eq!(events.len(), 1, "two providers, one slot: {events:?}");
+        assert_eq!(events[0].event_type, EventType::Input);
+    }
+
     #[test]
     fn from_managers_forwards_its_timestamp_to_every_provider() {
         let s = state();

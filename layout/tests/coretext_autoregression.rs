@@ -675,8 +675,19 @@ fn coretext_autoregression() {
     let font_path = match resolve_font() {
         Some(p) => p,
         None => {
+            // A `SKIP: … ; return` reads as a PASS in the runner output. Under
+            // AZ_REQUIRE_TEST_FONTS the host is asserted to have the fonts, so
+            // the skip becomes the failure it actually is. (This whole file is
+            // macOS-gated and driven by scripts/coretext_regression.sh, which is
+            // why the default stays a soft skip.)
+            assert!(
+                std::env::var_os("AZ_REQUIRE_TEST_FONTS").is_none(),
+                "AZ_REQUIRE_TEST_FONTS=1 but no CoreText comparison font was found — \
+                 set AZ_CT_FONT to a .ttf path. Silently skipping is NOT a pass."
+            );
             eprintln!(
-                "[coretext_autoregression] SKIP: no font found — set AZ_CT_FONT to a .ttf path"
+                "[coretext_autoregression] SKIP: no font found — set AZ_CT_FONT to a .ttf \
+                 path (or AZ_REQUIRE_TEST_FONTS=1 to make this a failure)"
             );
             return;
         }

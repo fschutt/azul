@@ -1,0 +1,46 @@
+# scripts/workspace_test_members.txt — every workspace member, and who tests it.
+#
+# Read by scripts/workspace_test_coverage.sh, which FAILS if a member appears in
+# neither list. Cargo makes a path dependency of a member into a member too, so
+# this file catches crates nobody deliberately "added" (that is how the four
+# webrender crates arrived).
+#
+#   tested:   <name>   # the CI job that runs its tests
+#   no-tests: <name>   # why it has none — the script counts #[test] to check
+#
+# Written 2026-08-20, when azul-paint (3 tests), azul-writer (16) and webrender
+# (96) were in no job at all.
+
+# ── engines: the 12,500-test core, ubuntu-only by design (see test_lib's header)
+tested: azul-css                # test_lib  (--lib --tests, dev profile)
+tested: azul-core               # test_lib
+tested: azul-layout             # test_lib, plus icu_parity on all three OSes
+tested: webrender               # test_lib  (96 unit tests; added 2026-08-20)
+
+# ── FFI + tooling
+tested: azul-dll                # ffi_safety_tests (ubuntu+macos),
+                                #   dll_windows_unit_tests, dll_tests, export_code_e2e
+tested: azul-doc                # azul_doc_tests (`--bins`: azul-doc has NO lib target,
+                                #   so `--lib` ERRORS rather than running its 196 tests)
+
+# ── demo apps that carry real assertions
+tested: azul-paint              # dll_tests (reuses that job's azul-dll build)
+tested: azul-writer             # dll_tests (ditto)
+
+# ── members with genuinely no tests. The script verifies the claim by grepping
+#    for #[test]; if any of these grows one, it fails until it is moved up and
+#    wired into a job.
+no-tests: azul-examples         # examples/rust: hello-world binaries
+no-tests: azul-widgets          # widget showcase binary
+no-tests: azul-maps             # demo binary
+no-tests: azul-vault            # demo binary
+no-tests: azul-gamepad          # demo binary
+no-tests: azul-camera-app       # demo binary
+no-tests: azul-screenshare-app  # demo binary
+no-tests: azul-video-app        # demo binary
+no-tests: azul-meet             # demo binary
+no-tests: azul-self-test        # unattended platform-API smoke BINARY; it is the
+                                #   test, run by the per-OS smoke jobs, not by cargo test
+no-tests: webrender_api         # types only
+no-tests: webrender_build       # build-time shader plumbing
+no-tests: wr_azul_glyph_rasterizer  # thin adapter over azul-layout's rasteriser

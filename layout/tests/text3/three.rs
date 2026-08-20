@@ -174,7 +174,15 @@ fn test_long_word_overflow_no_hyphenation() {
 }
 
 #[test]
-#[ignore = "revived 2026-08-10 after years dormant: encodes the OLD text3 generation's numbers; triage vs the current engine (assert values may be legitimately stale OR a real regression) before un-ignoring"]
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
+            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
+            encodes a hard-coded coordinate from the OLD text3 generation \
+            (line-item counts, glyph x/y, cursor offsets). They run fine \
+            headless — they are not hardware-gated — so this is a real \
+            old-vs-new behavioural delta someone must adjudicate per test \
+            (stale expectation vs. genuine regression). Kept ignored, not \
+            deleted, because the numbers are the only record of the old \
+            behaviour."]
 fn test_multi_column_layout() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
@@ -431,7 +439,15 @@ fn test_layout_with_shape_exclusion() {
 }
 
 #[test]
-#[ignore = "revived 2026-08-10 after years dormant: encodes the OLD text3 generation's numbers; triage vs the current engine (assert values may be legitimately stale OR a real regression) before un-ignoring"]
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
+            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
+            encodes a hard-coded coordinate from the OLD text3 generation \
+            (line-item counts, glyph x/y, cursor offsets). They run fine \
+            headless — they are not hardware-gated — so this is a real \
+            old-vs-new behavioural delta someone must adjudicate per test \
+            (stale expectation vs. genuine regression). Kept ignored, not \
+            deleted, because the numbers are the only record of the old \
+            behaviour."]
 fn test_get_glyph_positions() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
@@ -511,7 +527,15 @@ fn test_bidi_with_right_alignment() {
 }
 
 #[test]
-#[ignore = "revived 2026-08-10 after years dormant: encodes the OLD text3 generation's numbers; triage vs the current engine (assert values may be legitimately stale OR a real regression) before un-ignoring"]
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
+            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
+            encodes a hard-coded coordinate from the OLD text3 generation \
+            (line-item counts, glyph x/y, cursor offsets). They run fine \
+            headless — they are not hardware-gated — so this is a real \
+            old-vs-new behavioural delta someone must adjudicate per test \
+            (stale expectation vs. genuine regression). Kept ignored, not \
+            deleted, because the numbers are the only record of the old \
+            behaviour."]
 fn test_bidi_with_start_alignment() {
     let manager = create_mock_font_manager();
     let text = "שלום"; // Shalom, 4 chars * 10px = 40px width
@@ -542,7 +566,15 @@ fn test_bidi_with_start_alignment() {
 }
 
 #[test]
-#[ignore = "revived 2026-08-10 after years dormant: encodes the OLD text3 generation's numbers; triage vs the current engine (assert values may be legitimately stale OR a real regression) before un-ignoring"]
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
+            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
+            encodes a hard-coded coordinate from the OLD text3 generation \
+            (line-item counts, glyph x/y, cursor offsets). They run fine \
+            headless — they are not hardware-gated — so this is a real \
+            old-vs-new behavioural delta someone must adjudicate per test \
+            (stale expectation vs. genuine regression). Kept ignored, not \
+            deleted, because the numbers are the only record of the old \
+            behaviour."]
 fn test_inline_object_baseline_alignment() {
     let manager = create_mock_font_manager();
     let text_style = default_style();
@@ -638,7 +670,15 @@ fn test_text_indent() {
 }
 
 #[test]
-#[ignore = "revived 2026-08-10 after years dormant: encodes the OLD text3 generation's numbers; triage vs the current engine (assert values may be legitimately stale OR a real regression) before un-ignoring"]
+#[ignore = "TRIAGED 2026-08-20 and still RED: `--test text3_suite -- --ignored` \
+            fails 12/12. Revived 2026-08-10 after years dormant; each of these \
+            encodes a hard-coded coordinate from the OLD text3 generation \
+            (line-item counts, glyph x/y, cursor offsets). They run fine \
+            headless — they are not hardware-gated — so this is a real \
+            old-vs-new behavioural delta someone must adjudicate per test \
+            (stale expectation vs. genuine regression). Kept ignored, not \
+            deleted, because the numbers are the only record of the old \
+            behaviour."]
 fn test_glyph_positions_rtl() {
     let manager = create_mock_font_manager();
     let text = "אבג"; // Aleph, Bet, Gimel. Each 10px wide.

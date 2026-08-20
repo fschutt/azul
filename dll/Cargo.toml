@@ -922,6 +922,34 @@ php-extension = ["build-dll", "ext-php-rs", "link-static", "once_cell"]
 e2e-test = ["serde_json", "azul-layout?/probe"]
 
 # -----------------------------------------------------------------------------
+# Integration tests that need a non-default feature
+# -----------------------------------------------------------------------------
+#
+# WHY THESE ENTRIES EXIST (2026-08-20). azul-dll's `default` is
+# std + link-static + logging + a11y + all_img_formats — no `build-dll`, no
+# `e2e-test`, no `xml`. Both files below are ENTIRELY inside a cfg that those
+# defaults do not satisfy, so the ubuntu `cd dll && cargo test` job compiled
+# each of them into an EMPTY test harness and printed a green `running 0 tests`.
+# With `required-features`, cargo SKIPS the target instead of faking a pass —
+# and the jobs that DO name them (`ffi_safety_tests` for leak_regression,
+# `export_code_e2e` for the xml codegen tests) now fail loudly if the feature is
+# ever renamed, rather than silently testing nothing.
+#
+# The `target_os` half of leak_regression's `#![cfg]` (macOS, or linux-gnu)
+# cannot be expressed as a required-feature; ffi_safety_tests runs it on macOS
+# only, which is where it is meaningful.
+
+[[test]]
+name = "leak_regression"
+path = "tests/leak_regression.rs"
+required-features = ["build-dll", "e2e-test"]
+
+[[test]]
+name = "xml_to_rust_compilation"
+path = "tests/xml_to_rust_compilation.rs"
+required-features = ["xml"]
+
+# -----------------------------------------------------------------------------
 # Examples
 # -----------------------------------------------------------------------------
 

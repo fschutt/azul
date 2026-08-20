@@ -750,6 +750,19 @@ jobs:
           cargo check -p azul-core
           cargo check -p azul-layout
 
+      # PREFLIGHT TIER on purpose: this is `cargo metadata` plus a grep, i.e.
+      # seconds and no compilation, and it guards a STRUCTURAL mistake that no
+      # later job can catch — a workspace member whose tests run in no job at
+      # all. Cargo makes a path dependency of a member into a member too, so
+      # crates arrive here without anyone "adding" them: that is how the four
+      # `webrender*` crates got in, and how azul-paint (3 tests), azul-writer
+      # (16) and webrender (97) sat untested until 2026-08-20. Every member must
+      # be in scripts/workspace_test_members.txt as `tested:` (with the job that
+      # runs it) or `no-tests:` (a claim the script verifies by grepping for
+      # `#[test]`).
+      - name: No workspace member may join untested
+        run: ./scripts/workspace_test_coverage.sh
+
       # Kept in the preflight tier because it is a grep over the worktree: it
       # needs no toolchain, no bindings and no build, and it is one of the two
       # checks in this file that can be wrong in a way `cargo check` cannot see.
@@ -885,8 +898,15 @@ jobs:
         with:
           toolchain: 1.88.0
 
+      # `--bins`, not `--lib`: azul-doc has NO library target, so `--lib` ERRORS
+      # instead of running these 196 tests. Piped through the zero-test guard
+      # because "azul-doc grew a second bin with no tests" and "the bin's test
+      # module got cfg'd out" both look like a green `running 0 tests`.
       - name: Run azul-doc tests
-        run: cargo test -p azul-doc --bins --no-fail-fast
+        run: |
+          set -o pipefail
+          cargo test -p azul-doc --bins --no-fail-fast 2>&1 | tee azul-doc-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-doc-tests.txt
 
       - name: Download the azul-doc binary
         uses: actions/download-artifact@v8
@@ -940,7 +960,37 @@ jobs:
           path: target/codegen
 
       - name: Run DLL tests
-        run: cd dll && cargo test
+        run: |
+          set -o pipefail
+          cd dll && cargo test 2>&1 | tee ../dll-default-tests.txt
+          cd .. && ./scripts/zero_test_guard.sh dll-default-tests.txt
+
+      # azul-paint (3) and azul-writer (16) are workspace members whose tests ran
+      # in NO job until 2026-08-20. They live HERE rather than in test_lib
+      # because both link azul-dll — ~1m40s of build that this job has already
+      # paid for — so adding them costs the compile of two small crates instead
+      # of a second azul-dll.
+      #
+      # azul-writer's `the_sample_doc_spans_two_pages` was reading an absolute
+      # path under one machine's scratchpad directory and failed everywhere
+      # else; it generates its sample document now.
+      #
+      # Two invocations, not `-p azul-paint -p azul-writer`, because the target
+      # kinds differ and the zero-test guard is only meaningful when the targets
+      # are named precisely: azul-paint's tests are in its LIB (its bin's
+      # main.rs harness is legitimately empty), azul-writer is bin-only
+      # (`azwriter`) so `--lib` would match nothing at all.
+      - name: Run azul-paint tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-paint --lib --no-fail-fast 2>&1 | tee azul-paint-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-paint-tests.txt
+
+      - name: Run azul-writer tests
+        run: |
+          set -o pipefail
+          cargo test -p azul-writer --bins --no-fail-fast 2>&1 | tee azul-writer-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-writer-tests.txt
 
       - name: Check azul-dll (release feature set)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
@@ -1104,10 +1154,10 @@ jobs:
         run: |
           set -o pipefail
           cargo test -p azul-dll --lib --features build-dll 2>&1 | tee dll-lib.txt
-          if grep -qE 'running 0 tests' dll-lib.txt; then
-            echo "::error::azul-dll --lib compiled to ZERO tests on Windows - this gate proved nothing."
-            exit 1
-          fi
+          # Shared implementation (scripts/zero_test_guard.sh): it reports WHICH
+          # binary was empty and honours the checked-in allowlist, where the
+          # inline grep could only say "something was empty".
+          ./scripts/zero_test_guard.sh --strict dll-lib.txt
           if ! grep -qE '^test desktop::shell2::windows::' dll-lib.txt; then
             echo "::error::no desktop::shell2::windows::* test ran - the Win32 backend is still untested."
             exit 1
@@ -1751,11 +1801,51 @@ jobs:
       # `every_fingerprint_moves_when_its_manager_moves`. The step below runs
       # `--test e2e_json`, which is the integration TARGET; it never ran the
       # library's own unit tests for the same module.
+      # `azul-core/serde-json` + `azul-layout/json` gate the JSON parse/serialise
+      # test modules. `azul-core/url` is here because 35 tests in core/src/url.rs
+      # are `#[cfg(feature = "url")]` and NO job passed that feature, so they ran
+      # nowhere at all (added 2026-08-20; all 35 green). `-p webrender` is here
+      # because webrender is a workspace member whose 96 unit tests were in no
+      # job either — it needs no generated bindings and no azul-dll, so this is
+      # the cheapest place it can live.
+      #
+      # AZ_REQUIRE_TEST_FONTS=1 makes a missing test font FATAL instead of a
+      # green skip. `layout/tests/variable_font_disk_path.rs` used to print
+      # `SKIP: no variable Ubuntu font installed` and return Ok — the runner
+      # prints the identical `ok` line for that as for a real pass, so the only
+      # test in the repo that drives a VARIABLE font through the disk path had
+      # never asserted anything here. It looked for the variable Ubuntu family,
+      # which ubuntu-22.04's `fonts-ubuntu` does not ship (that package installs
+      # the static instances; the variable faces arrived in 23.10). Rather than
+      # chase a runner-image package, the test now falls back to
+      # `doc/fonts/RedHatMono-VariableFont_wght.ttf`, which is checked into this
+      # repository — so there is nothing to install and the flag can be
+      # unconditional. `layout/tests/test_bytecode_decode.rs` and
+      # `coretext_autoregression.rs` honour the same flag, but only on macOS:
+      # their fonts are Apple-shipped and cannot exist here.
       - name: Run workspace lib + integration tests (debug-assertions + overflow-checks ON)
+        env:
+          AZ_REQUIRE_TEST_FONTS: "1"
         run: |
-          cargo test -p azul-css -p azul-core -p azul-layout --lib --tests \
-            --features azul-core/serde-json,azul-layout/json,azul-layout/e2e-server \
-            --no-fail-fast
+          set -o pipefail
+          cargo test -p azul-css -p azul-core -p azul-layout -p webrender --lib --tests \
+            --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server \
+            --no-fail-fast 2>&1 | tee workspace-tests.txt
+          ./scripts/zero_test_guard.sh workspace-tests.txt
+
+      # `css/tests/test_system_style.rs` is one test, entirely inside
+      # `#[cfg(feature = "io")]`. Until its `[[test]]` entry gained
+      # `required-features = ["io"]` (2026-08-20) the step above built it as an
+      # EMPTY binary and printed a green `running 0 tests`; now cargo skips the
+      # target unless the feature is on, and naming it explicitly here means a
+      # removed `io` feature ERRORS instead of vanishing. It probes the host
+      # theme, which is why it is opt-in and not in the default feature set.
+      - name: Run the system-style IO test (required-features gate)
+        run: |
+          set -o pipefail
+          cargo test -p azul-css --features io --test test_system_style 2>&1 \
+            | tee css-io-test.txt
+          ./scripts/zero_test_guard.sh --strict css-io-test.txt
 
       # Separate step, and NOT merged into the one above: `e2e_json` declares
       # `required-features = ["e2e-server"]`. Naming the target explicitly makes
@@ -1773,7 +1863,11 @@ jobs:
       # pin came off. Keeping it on dev is the point: this is the only place the
       # corpus meets debug-assertions and overflow-checks.
       - name: Run the JSON-driven E2E scenario target (required-features gate)
-        run: cargo test -p azul-layout --test e2e_json --features e2e-server
+        run: |
+          set -o pipefail
+          cargo test -p azul-layout --test e2e_json --features e2e-server 2>&1 \
+            | tee e2e-json.txt
+          ./scripts/zero_test_guard.sh --strict e2e-json.txt
 
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
@@ -2047,10 +2141,7 @@ jobs:
           # A whole-file cfg that evaluates false still exits 0 with "0 passed".
           # Require that tests actually RAN, or this step re-becomes the no-op it
           # exists to replace.
-          if grep -qE 'running 0 tests' leak.txt; then
-            echo "::error::leak_regression compiled to ZERO tests - its cfg is not satisfied, so this gate proved nothing."
-            exit 1
-          fi
+          ./scripts/zero_test_guard.sh --strict leak.txt
 
       # Every test under dll/src/desktop/shell2/macos/ had NEVER executed. The
       # only azul-dll unit-test invocation in this workflow is `cd dll && cargo
@@ -2066,10 +2157,7 @@ jobs:
           cargo test -p azul-dll --lib --features build-dll 2>&1 | tee dll-lib.txt
           # A cfg'd-out module still exits 0. Require that the macOS tests
           # actually ran, or this step re-becomes the no-op it replaces.
-          if grep -qE 'running 0 tests' dll-lib.txt; then
-            echo "::error::azul-dll --lib compiled to ZERO tests on macOS - this gate proved nothing."
-            exit 1
-          fi
+          ./scripts/zero_test_guard.sh --strict dll-lib.txt
           if ! grep -qE '^test desktop::shell2::macos::' dll-lib.txt; then
             echo "::error::no desktop::shell2::macos::* test ran - the macOS backend is still untested."
             exit 1
@@ -2186,9 +2274,17 @@ jobs:
         with:
           toolchain: 1.88.0
 
+      # Guarded: `icu_parity` is selected BY NAME on a --no-default-features
+      # feature set, which is exactly the shape that produces an empty harness
+      # when a `#[cfg]` inside the file stops matching — and an empty harness
+      # exits 0 with a green `running 0 tests`.
       - name: Run ICU parity tests (${{ matrix.backend.feature }})
         if: steps.icu-cache.outputs.cache-hit != 'true' && matrix.backend.run
-        run: cargo test -p azul-layout --test icu_parity --no-default-features --features ${{ matrix.backend.feature }}
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p azul-layout --test icu_parity --no-default-features --features ${{ matrix.backend.feature }} 2>&1 | tee icu-parity.txt
+          ./scripts/zero_test_guard.sh --strict icu-parity.txt
 
       - name: Compile-check ICU parity test (${{ matrix.backend.feature }})
         if: steps.icu-cache.outputs.cache-hit != 'true' && !matrix.backend.run
@@ -2333,8 +2429,15 @@ jobs:
       - name: Build azul-dll (release, with debug-server)
         run: cargo build --release -p azul-dll --features build-dll,debug-server
 
+      # Two `--test` targets named explicitly, both behind `--features xml`:
+      # if that feature is ever renamed, cargo builds two empty harnesses and
+      # reports success. The guard turns that into a failure.
       - name: Codegen unit tests (HTML→code, incl. mixed text+element children)
-        run: cargo test -p azul-dll --test xml_to_rust_compilation --test kitchen_sink_integration --features xml
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p azul-dll --test xml_to_rust_compilation --test kitchen_sink_integration --features xml 2>&1 | tee xml-codegen-tests.txt
+          ./scripts/zero_test_guard.sh --strict xml-codegen-tests.txt
 
       - name: Run export-code E2E (export live page → compile 4 languages)
         run: bash tests/e2e/test_export_code.sh

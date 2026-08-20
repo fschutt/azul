@@ -37,12 +37,14 @@ cd "$REPO_ROOT"
 # --------------------------------------------------------------------------
 STAGES=(
   "arch-lint|fast|shell2 architecture greps (content_state_lint job)"
+  "member-coverage|fast|no workspace member may join untested (check_crates job)"
   "check|fast|cargo check azul-css / azul-core / azul-layout"
   "clippy|fast|clippy -D warnings on core/css/layout --all-targets"
   "doc-check|fast|azul-doc check (double-drop invariant + guide links)"
   "doc-tests|fast|cargo test -p azul-doc --bins"
-  "unit-tests|fast|css+core+layout --lib, WITH the feature gates CI uses"
-  "integration-tests|slow|css+core+layout --tests (93 targets; all.rs is 28m)"
+  "unit-tests|fast|css+core+layout+webrender --lib, WITH the feature gates CI uses"
+  "css-io|fast|--test test_system_style --features io (required-features gate)"
+  "integration-tests|slow|css+core+layout+webrender --tests (93 targets; all.rs is 28m)"
   "e2e-json|slow|--test e2e_json (required-features = e2e-server)"
   "dll-tests|slow|cargo test -p azul-dll --lib --features build-dll"
   "dll-default|slow|cd dll && cargo test (the ubuntu lint_and_check job)"
@@ -66,6 +68,7 @@ STAGES (measured warm, on an M-series Mac)
   first run after switching feature sets — including a `--slow` run right
   before this one — adds ~3 min of azul-layout rebuild; see FEATURE THRASH.
     arch-lint         the three shell2 architecture greps CI runs first     0s
+    member-coverage   scripts/workspace_test_coverage.sh                     1s
     check             cargo check -p azul-css -p azul-core -p azul-layout   5s
     clippy            cargo clippy -p azul-core -p azul-css -p azul-layout
                         --all-targets -- -D warnings                        20s
@@ -73,7 +76,11 @@ STAGES (measured warm, on an M-series Mac)
     doc-tests         cargo test -p azul-doc --bins --no-fail-fast          130s
     unit-tests        cargo test -p azul-css -p azul-core -p azul-layout
                         --lib --features azul-core/serde-json,\
-                        azul-layout/json,azul-layout/e2e-server             60s
+                        azul-core/url,azul-layout/json,\
+                        azul-layout/e2e-server, -p webrender, and
+                        AZ_REQUIRE_TEST_FONTS=1                             60s
+    css-io            cargo test -p azul-css --features io
+                        --test test_system_style                             6s
 
   slow tier (NOT in the default run; --slow or --only <name>):
     integration-tests same crates, `--tests` instead of `--lib`.            34m
@@ -103,6 +110,34 @@ FEATURE THRASH
   The stage order above groups the default-feature stages first to pay that
   cost exactly once per run. Do not reorder casually.
 
+THE 28 `#[ignore]`d TESTS, AND WHY NO JOB RUNS `-- --ignored` (triaged 2026-08-20)
+  There is deliberately no `cargo test -- --ignored` step anywhere, because
+  every one of the 28 was checked and NONE of them would be green:
+
+    14 in dll/  hardware. The 5 menu:: ones panic inside display.rs:443 —
+                real display enumeration — on a Mac with a display attached,
+                let alone on a headless runner, and the 3 display:: ones fail
+                the same way; 2 video_codec::provision need a real Linux
+                desktop's /lib/modules + apt metadata; 1 screencap::dmabuf
+                needs a GPU/libEGL; 1 headless:: is a documented
+                damage-tracking gap. Measured: 9 of the 14 even compile on
+                macOS, and 9 of 9 fail.
+    12 in layout/tests/text3/  RED, and not for want of hardware. They run
+                headless in milliseconds and fail 12/12: each pins a hard-coded
+                coordinate from the OLD text3 generation. Someone must
+                adjudicate each one (stale expectation vs. real regression);
+                the reason string on each now says so and says it was measured.
+     1 flex_intrinsic_text::frame_around_overflow_hidden_strip_shrinks_too
+                RED: the documented taffy 0.10 nested-scroll-container gap.
+     1 ribbon_tab_whitespace::probe_tab_wrap_and_caption_centering_across_widths
+                GREEN in 37s, but it asserts NOTHING — it prints the widths at
+                which a label wraps. The LAW it probes IS enforced by the
+                non-ignored test directly below it. Not worth 801 layouts of
+                runner time.
+
+  So `-- --ignored` cannot be a gate today. Fix the 12 text3 pins and it can be,
+  for that target.
+
 NOT COVERED HERE (needs a runner, a display, or another OS):
   reftests, the JSON E2E scenario corpus under e2e/, Miri, the cross-compile
   matrix, icu_parity, coretext_autoregression, the language-binding matrix,
@@ -117,7 +152,10 @@ a check script that hides its own known failures has the disease it cures):
   * dll-tests:
       desktop::shell2::headless::tests::real_ribbon_resize_sweep_matches_fresh_at_every_step
     Fails deterministically on macOS in ~2s.
-  * clippy: three `clippy::missing_const_for_fn` errors in layout/src/probe.rs
+  (The three `clippy::missing_const_for_fn` errors in layout/src/probe.rs that
+  used to be listed here are FIXED — the `#[allow]`s landed in 72c888bbc and
+  this stage is green on macOS. Left as a note so the next reader does not go
+  looking for a failure that is not there.)
     (rss_census, malloc_trim, allocator_stats). These fire ONLY off Linux: on
     Linux those functions have real bodies, so CI's ubuntu clippy job is green
     and a Mac is red. The inverse of the usual gap, same root cause — a gate
@@ -239,6 +277,13 @@ stage_arch_lint() {
   return $bad
 }
 
+# `cargo metadata` + a grep, i.e. seconds. Mirrors check_crates' step of the
+# same name: every workspace member must be accounted for in
+# scripts/workspace_test_members.txt, so a new member cannot arrive untested.
+stage_member_coverage() {
+  "$REPO_ROOT/scripts/workspace_test_coverage.sh"
+}
+
 stage_check() {
   # `&&`-chained on purpose: run_stage calls these from an `if`, which
   # suppresses errexit inside the function body, so a bare sequence would
@@ -253,7 +298,9 @@ stage_doc_tests() {
   # `--bins`, not `--lib`: azul-doc is binary-only.
   cargo test -p azul-doc --bins --no-fail-fast 2>&1 | tee "$log"
   local rc=${PIPESTATUS[0]}
-  assert_ran_tests "$log" "azul-doc --bins" || rc=1
+  # --strict: this names its targets (`--bins`), so an empty harness is always
+  # a bug and no allowlist entry may excuse it.
+  "$REPO_ROOT/scripts/zero_test_guard.sh" --strict "$log" || rc=1
   return $rc
 }
 
@@ -271,17 +318,44 @@ stage_doc_check() {
 # `non_interference_can_fail`, the proof that the non-interference primitive
 # CAN go red. `azul-core/serde-json` + `azul-layout/json` do the same job for
 # the JSON parse/serialise modules.
-CI_TEST_FEATURES=azul-core/serde-json,azul-layout/json,azul-layout/e2e-server
+# `azul-core/url` joined the list on 2026-08-20: the 35 tests in core/src/url.rs
+# are all `#[cfg(feature = "url")]` and NO job passed that feature, so they ran
+# nowhere in CI and nowhere here either.
+CI_TEST_FEATURES=azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server
+
+# The packages CI's test_lib job names. `webrender` joined on 2026-08-20 — it is
+# a workspace member (a path dependency of azul-dll, which is how cargo made it
+# one) whose 96 unit tests were in no job at all. It needs no generated bindings.
+CI_TEST_PACKAGES=(-p azul-css -p azul-core -p azul-layout -p webrender)
 
 stage_unit_tests() {
   local log="$LOGDIR/unit-tests.raw"
-  cargo test -p azul-css -p azul-core -p azul-layout --lib \
+  AZ_REQUIRE_TEST_FONTS=1 \
+  cargo test "${CI_TEST_PACKAGES[@]}" --lib \
     --features "$CI_TEST_FEATURES" --no-fail-fast 2>&1 | tee "$log"
   local rc=${PIPESTATUS[0]}
-  assert_ran_tests "$log" "the css/core/layout --lib suite" || rc=1
+  # NOTE: no `assert_ran_tests` here — `zero_test_guard.sh` below subsumes it
+  # AND honours scripts/zero_test_targets.txt, which the old helper cannot.
   # If this assertion ever fires, someone dropped the feature and the suite
   # silently shrank. That is the exact failure mode this script exists for.
   assert_module_ran "$log" 'e2e::' || rc=1
+  assert_module_ran "$log" 'url::' || rc=1
+  # --strict: `--lib` produces exactly one harness per crate; none of them may
+  # be empty, and the allowlist (written for feature-gated INTEGRATION targets)
+  # must not be able to excuse one that is.
+  "$REPO_ROOT/scripts/zero_test_guard.sh" --strict "$log" || rc=1
+  return $rc
+}
+
+# One test, entirely inside `#[cfg(feature = "io")]`. Until its `[[test]]` entry
+# gained `required-features = ["io"]` (2026-08-20), a default `cargo test -p
+# azul-css` built it as an EMPTY binary and printed a green `running 0 tests`.
+# Named explicitly so a removed `io` feature ERRORS instead of vanishing.
+stage_css_io() {
+  local log="$LOGDIR/css-io.raw"
+  cargo test -p azul-css --features io --test test_system_style 2>&1 | tee "$log"
+  local rc=${PIPESTATUS[0]}
+  assert_ran_tests "$log" "azul-css --test test_system_style --features io" || rc=1
   return $rc
 }
 
@@ -293,10 +367,15 @@ stage_integration_tests() {
   #   layout/tests/e2e_json.rs        ~3.6 min  (also its own stage, by name)
   #   layout/tests/contenteditable_e2e.rs ~1 min
   # That is why this is the slow tier and not the fast one.
-  cargo test -p azul-css -p azul-core -p azul-layout --tests \
+  AZ_REQUIRE_TEST_FONTS=1 \
+  cargo test "${CI_TEST_PACKAGES[@]}" --tests \
     --features "$CI_TEST_FEATURES" --no-fail-fast 2>&1 | tee "$log"
   local rc=${PIPESTATUS[0]}
-  assert_ran_tests "$log" "the css/core/layout integration suite" || rc=1
+  # `assert_ran_tests` deliberately NOT used here: this stage builds
+  # layout/tests/test_hint_vs_freetype.rs, which is dead on purpose and whose
+  # empty harness is allowlisted. The old helper flags any `running 0 tests`
+  # and would fail the stage for it; the guard reads the allowlist.
+  "$REPO_ROOT/scripts/zero_test_guard.sh" "$log" || rc=1
   return $rc
 }
 
@@ -390,9 +469,11 @@ for s in "${STAGES[@]}"; do
   fi
   case "$name" in
     arch-lint)       run_stage "$name" "$desc" stage_arch_lint ;;
+    member-coverage) run_stage "$name" "$desc" stage_member_coverage ;;
     check)           run_stage "$name" "$desc" stage_check ;;
     doc-tests)       run_stage "$name" "$desc" stage_doc_tests ;;
     doc-check)       run_stage "$name" "$desc" stage_doc_check ;;
+    css-io)          run_stage "$name" "$desc" stage_css_io ;;
     unit-tests)        run_stage "$name" "$desc" stage_unit_tests ;;
     integration-tests) run_stage "$name" "$desc" stage_integration_tests ;;
     e2e-json)        run_stage "$name" "$desc" stage_e2e_json ;;
