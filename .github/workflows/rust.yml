@@ -2682,7 +2682,13 @@ jobs:
         run: cargo check --verbose -p azul-examples --examples --features serde,icu,fluent,http,zip
 
       - name: Take screenshots (Linux)
-        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
+        # NOT gated on the build cache. It used to be, and that is why the
+        # website shipped January screenshots: a cache hit skipped this step,
+        # the artifact uploaded empty (`if-no-files-found: ignore`), and the
+        # deploy silently fell back to examples/assets/screenshots. A cache hit
+        # means the DLL and headers are ALREADY BUILT in target/release, which
+        # is precisely when this step is cheapest to run.
+        if: matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         run: |
           chmod +x scripts/screenshot_single.sh
@@ -2702,7 +2708,13 @@ jobs:
           ls -la target/screenshots/ || echo "No screenshots directory"
 
       - name: Take screenshots (macOS)
-        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'macos-14'
+        # NOT gated on the build cache. It used to be, and that is why the
+        # website shipped January screenshots: a cache hit skipped this step,
+        # the artifact uploaded empty (`if-no-files-found: ignore`), and the
+        # deploy silently fell back to examples/assets/screenshots. A cache hit
+        # means the DLL and headers are ALREADY BUILT in target/release, which
+        # is precisely when this step is cheapest to run.
+        if: matrix.os == 'macos-14'
         continue-on-error: true
         run: |
           chmod +x scripts/screenshot_single.sh
@@ -2721,7 +2733,13 @@ jobs:
           ls -la target/screenshots/ || echo "No screenshots directory"
 
       - name: Take screenshots (Windows)
-        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'windows-2022'
+        # NOT gated on the build cache. It used to be, and that is why the
+        # website shipped January screenshots: a cache hit skipped this step,
+        # the artifact uploaded empty (`if-no-files-found: ignore`), and the
+        # deploy silently fell back to examples/assets/screenshots. A cache hit
+        # means the DLL and headers are ALREADY BUILT in target/release, which
+        # is precisely when this step is cheapest to run.
+        if: matrix.os == 'windows-2022'
         continue-on-error: true
         shell: bash
         run: |
@@ -2747,7 +2765,10 @@ jobs:
           name: screenshots-${{ matrix.os }}
           path: target/screenshots/*.png
           retention-days: 7
-          if-no-files-found: ignore
+          # `warn`, not `ignore`: an empty screenshot artifact means the website
+          # falls back to committed PNGs, which is exactly the failure that went
+          # unnoticed from January to August.
+          if-no-files-found: warn
 
       # The LEAN lib only. libazuldbg.* and azul.so/.pyd arrive from the two
       # sibling jobs; build_binaries assembles all three into the artifact
@@ -6661,9 +6682,18 @@ jobs:
                     *macos*) os="mac" ;;
                     *windows*) os="windows" ;;
                   esac
-                  # Convert "hello-world-linux.png" to "hello-world.linux.png"
-                  # The filename already has the OS in it, so we just rename
-                  newname=$(echo "$filename" | sed "s/-${os}/.${os}/")
+                  # "hello-world-linux.png" -> "hello-world.linux.png".
+                  # The SOURCE suffix is the runner name (-linux/-macos/-windows)
+                  # and the TARGET suffix is the site's (.linux/.mac/.windows).
+                  # They differ for macOS, and substituting `-${os}` -> `.${os}`
+                  # with os=mac produced "hello-world.macos.png" — a name the
+                  # page never references, so every mac image fell back to the
+                  # committed January PNG while looking like it had been copied.
+                  case "$os" in
+                    mac) src_sfx="-macos" ;;
+                    *)   src_sfx="-${os}" ;;
+                  esac
+                  newname="${filename%%${src_sfx}.png}.${os}.png"
                   cp "$png" "website/images/$newname"
                   echo "  [OK] Copied screenshot: $newname"
                 fi
@@ -6681,6 +6711,11 @@ jobs:
                 fallback="examples/assets/screenshots/${example}.${os}.png"
                 if [ -f "$fallback" ]; then
                   cp "$fallback" "$target"
+                  # LOUD on purpose. A fallback means CI produced no screenshot
+                  # for this example/OS, i.e. the site is about to ship whatever
+                  # was committed months ago. That was previously an `echo` lost
+                  # in the log, which is how January images shipped until August.
+                  echo "::warning::screenshot fallback: $target came from $fallback, not from this run"
                   echo "  [FALLBACK] Copied $fallback -> $target"
                 else
                   # Try mac screenshot as fallback for all platforms
