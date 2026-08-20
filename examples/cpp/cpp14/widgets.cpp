@@ -1,5 +1,3 @@
-// g++ -std=c++14 -o widgets widgets.cpp -lazul
-
 #include "azul14.hpp"
 #include <string>
 
@@ -23,17 +21,14 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     const WidgetShowcase* d = data_wrapper.downcast_ref<WidgetShowcase>();
     if (!d) return AzDom_createBody();
 
-    // Create button
     Dom button = Dom::create_div();
     button.set_css(String("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white;"));
     button.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(String("Click me!")));
     button.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), data_wrapper.clone(), on_button_click);
 
-    // Create title
     Dom title = Dom::create_text_do_not_use_without_block_level_wrapper(String("Widget Showcase"));
     title.set_css(String("font-size: 24px; margin-bottom: 20px;"));
 
-    // Compose body
     Dom body = Dom::create_body();
     body.set_css(String("padding: 20px; font-family: sans-serif;"));
     body.add_child(std::move(title));

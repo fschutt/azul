@@ -1,18 +1,6 @@
-# Azul counter example — Crystal.
-#
-# Build (libazul on the link path, generated ./azul.cr next to this file):
-#   crystal build hello-world.cr --link-flags "-L."
-#   LD_LIBRARY_PATH=. ./hello-world      # linux
-#
-# The callbacks (ON_CLICK, LAYOUT) live on the `MyData` module and reach
-# their helpers through *constant* lookups, never capturing an outer local.
-# That keeps them non-closure procs — a hard requirement for passing a
-# Crystal proc as a bare C function pointer.
-
 require "./azul"
 
 module MyData
-  # Plain-old-data application state.
   struct Model
     property counter : UInt32
 
@@ -20,14 +8,12 @@ module MyData
     end
   end
 
-  # Process-unique, stable type token: its address is the RefAny type id.
   TOKEN = Pointer(UInt8).malloc(1)
 
   def self.type_id : UInt64
     TOKEN.address.to_u64
   end
 
-  # Empty destructor: Model is plain old data.
   DESTRUCTOR = ->(_ptr : Void*) { }
 
   def self.upcast(model : Model) : LibAzul::AzRefAny
@@ -75,7 +61,6 @@ LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : L
   m = MyData.downcast(pointerof(d))
   next LibAzul.azDom_createBody if m.null?
 
-  # Counter label (wrapped in a div so the font-size sticks).
   text = m.value.counter.to_s
   counter_str = LibAzul.azString_fromUtf8(text.to_unsafe, LibC::SizeT.new(text.bytesize))
   label = LibAzul.azDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str)
@@ -87,7 +72,6 @@ LAYOUT = ->(data : LibAzul::AzRefAny, _info : LibAzul::AzLayoutCallbackInfo) : L
   LibAzul.azDom_addCssProperty(pointerof(label_wrapper), cond)
   LibAzul.azDom_addChild(pointerof(label_wrapper), label)
 
-  # AzButton_setOnClick takes the bare fn-pointer typedef directly.
   btn_label = "Increase counter"
   button = LibAzul.azButton_create(
     LibAzul.azString_fromUtf8(btn_label.to_unsafe, LibC::SizeT.new(btn_label.bytesize))
@@ -112,8 +96,6 @@ window.window_state.title = LibAzul.azString_fromUtf8(title.to_unsafe, LibC::Siz
 window.window_state.size.dimensions.width = 400.0_f32
 window.window_state.size.dimensions.height = 300.0_f32
 
-# NoTitleAutoInject: OS draws the window buttons; the framework
-# auto-injects a draggable titlebar.
 window.window_state.flags.decorations = LibAzul::AzWindowDecorations::NoTitleAutoInject
 window.window_state.flags.background_material = LibAzul::AzWindowBackgroundMaterial::Sidebar
 

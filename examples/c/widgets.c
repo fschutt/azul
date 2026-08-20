@@ -1,5 +1,3 @@
-// cc -o widgets widgets.c -lazul
-
 #include "azul.h"
 #include <stdio.h>
 #include <string.h>
@@ -30,7 +28,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         return AzDom_createBody();
     }
 
-    // Create button
     AzDom button = AzDom_createDiv();
     AzString btn_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setCss(&button, btn_style);
@@ -39,17 +36,14 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzDom_addCallback(&button, event, AzRefAny_clone(&data), on_button_click);
 
-    // Create checkbox
     AzDom checkbox = AzCheckBox_dom(AzCheckBox_create(d.ptr->checkbox_checked));
     AzString chk_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setCss(&checkbox, chk_style);
 
-    // Create progress bar
     AzDom progress = AzProgressBar_dom(AzProgressBar_create(d.ptr->progress_value));
     AzString prog_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setCss(&progress, prog_style);
 
-    // Create text input
     AzString placeholder = AzString_copyFromBytes((const uint8_t*)"Enter text here...", 0, 18);
     AzTextInput ti = AzTextInput_create();
     ti = AzTextInput_withPlaceholder(ti, placeholder);
@@ -57,18 +51,15 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString txt_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setCss(&text_input, txt_style);
 
-    // Create color input
     AzColorU color = { .r = 100, .g = 150, .b = 200, .a = 255 };
     AzDom color_input = AzColorInput_dom(AzColorInput_create(color));
     AzString col_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setCss(&color_input, col_style);
 
-    // Create number input
     AzDom number_input = AzNumberInput_dom(AzNumberInput_create(42.0));
     AzString num_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setCss(&number_input, num_style);
 
-    // Create list view with clickable rows (on_row_click gets the row index)
     static const char* row_data[3][3] = {
         { "report.pdf",  "120 KB", "PDF"   },
         { "photo.png",   "2.4 MB", "Image" },
@@ -90,7 +81,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom list_view = AzListView_dom(lv);
     AzDom_setCss(&list_view, str("height: 150px; margin-bottom: 10px;"));
 
-    // Compose body
     AzDom body = AzDom_createBody();
     AzString body_style = AzString_copyFromBytes((const uint8_t*)"padding: 20px;", 0, 14);
     AzDom_setCss(&body, body_style);
@@ -130,8 +120,6 @@ AzUpdate on_list_row_click(AzRefAny data, AzCallbackInfo info, AzListViewState s
     d.ptr->selected_row = row_index;
     printf("row %zu clicked\n", row_index);
 
-    // Headless measure: lay out a DOM off-screen to get its natural size
-    // (the building block for virtual-list item sizing)
     AzDom probe = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(str("How tall is this text at 200px width?"));
     AzLogicalSize avail = { .width = 200.0f, .height = 1000000.0f };
     AzLogicalSize measured = AzCallbackInfo_measureDom(&info, probe, avail);

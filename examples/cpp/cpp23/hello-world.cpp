@@ -1,5 +1,3 @@
-// g++ -std=c++23 -o hello-world hello-world.cpp -lazul
-
 #include "azul23.hpp"
 #include <expected>
 #include <string>

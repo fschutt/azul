@@ -1,14 +1,3 @@
---  ============================================================================
---  GNAT project file for the Azul Ada hello-world example.
---
---  Build:
---      gprbuild -P hello_world.gpr
---
---  Place libazul.so / libazul.dylib / azul.dll alongside this file (or any
---  directory in $LD_LIBRARY_PATH / $DYLD_LIBRARY_PATH / %PATH%).
---  Drop the generated azul.ads / azul.adb in this directory too.
---  ============================================================================
-
 project Hello_World is
 
    for Languages    use ("Ada");

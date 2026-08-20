@@ -1,5 +1,3 @@
-// g++ -std=c++11 -o hello-world hello-world.cpp -lazul
-
 #include "azul11.hpp"
 #include <string>
 

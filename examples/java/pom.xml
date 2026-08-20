@@ -3,29 +3,6 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <!--
-         Hello-world Maven project for the Azul Java bindings.
-
-         The generated Java bindings are *per-class* files emitted by
-         `cargo run -r -p azul-doc codegen all` into
-         `target/codegen/java/*.java` (package `com.azul`). Rather than
-         copying ~6000 files into this directory, the build adds that
-         generated directory as an extra source root via
-         build-helper-maven-plugin, so `HelloWorld.java` compiles
-         against the freshly-generated API directly.
-
-         Build + run (macOS):
-             cargo run -r -p azul-doc codegen all
-             cargo build (release, -p azul-dll, feature build-dll)
-             cd examples/java
-             mvn -q package
-             DYLD_LIBRARY_PATH=../../target/release
-                 AZ_E2E=../../tests/e2e/hello_world_counter.json AZ_BACKEND=headless
-                 mvn -q exec:java
-
-         The codegen output root is overridable via the system property
-         azul.codegen.dir (point it at your target/codegen/java).
-      -->
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.azul.examples</groupId>
     <artifactId>hello-world</artifactId>

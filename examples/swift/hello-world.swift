@@ -1,12 +1,4 @@
-// Azul counter example — Swift.
-//
-// Build:  swiftc -I. hello-world.swift azul.swift -L. -lazul -o hello-world
-// See README.md for the per-OS invocation and library-path prefix.
-
 import CAzul
-
-// Process-unique type id: the address of a one-byte heap allocation we
-// never read or write. POD model → no-op destructor.
 
 struct MyDataModel {
     var counter: UInt32
@@ -17,8 +9,6 @@ private let myDataTypeId = UInt64(UInt(bitPattern: myDataToken))
 
 func myDataDestructor(_ ptr: UnsafeMutableRawPointer?) {}
 
-// AzString copies the bytes into a refcounted heap buffer, so a temporary
-// source buffer is fine.
 func azString(_ s: String) -> AzString {
     let bytes = Array(s.utf8)
     return bytes.withUnsafeBufferPointer { AzString_fromUtf8($0.baseAddress, $0.count) }
@@ -54,8 +44,7 @@ func myDataDowncast(_ refany: inout AzRefAny) -> UnsafeMutablePointer<MyDataMode
     return UnsafeMutableRawPointer(mutating: ptr).assumingMemoryBound(to: MyDataModel.self)
 }
 
-// A plain (non-capturing) top-level func converts to a `@convention(c)`
-// pointer, so onClick/layout are passed C-direct — no host-invoker.
+// A plain (non-capturing) top-level func converts to a `@convention(c)` pointer.
 
 func onClick(_ data: AzRefAny, _ info: AzCallbackInfo) -> AzUpdate {
     var d = data
@@ -72,7 +61,6 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
         return AzDom_createBody()
     }
 
-    // Counter label (wrapped in a div so the font-size sticks).
     let counterStr = azString(String(m.pointee.counter))
     let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counterStr)
 
@@ -83,23 +71,19 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
     AzDom_addCssProperty(&labelWrapper, cond)
     AzDom_addChild(&labelWrapper, label)
 
-    // AzButton_setOnClick takes the bare fn-pointer typedef directly.
     var button = AzButton_create(azString("Increase counter"))
     AzButton_setButtonType(&button, AzButtonType_Primary)
     let dataClone = AzRefAny_clone(&d)
     AzButton_setOnClick(&button, dataClone, onClick)
     let buttonDom = AzButton_dom(button)
 
-    // Body.
     var body = AzDom_createBody()
     AzDom_addChild(&body, labelWrapper)
     AzDom_addChild(&body, buttonDom)
     return body
 }
 
-// `@main` supplies the entry point — top-level statements are only allowed
-// in a file literally named `main.swift`, and this compiles alongside
-// `azul.swift` as one module.
+// `@main`: top-level statements are only allowed in a file named `main.swift`.
 
 @main
 struct HelloWorld {
@@ -112,8 +96,6 @@ struct HelloWorld {
         window.window_state.size.dimensions.width = 400.0
         window.window_state.size.dimensions.height = 300.0
 
-        // NoTitleAutoInject: OS draws the window buttons; framework injects a
-        // draggable Titlebar.
         window.window_state.flags.decorations = AzWindowDecorations_NoTitleAutoInject
         window.window_state.flags.background_material = AzWindowBackgroundMaterial_Sidebar
 

@@ -1,5 +1,3 @@
-# python infinity.py
-
 from azul import *
 
 

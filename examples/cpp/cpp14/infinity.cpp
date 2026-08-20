@@ -1,5 +1,3 @@
-// g++ -std=c++14 -o infinity infinity.cpp -lazul
-
 #include "azul14.hpp"
 #include <vector>
 #include <string>

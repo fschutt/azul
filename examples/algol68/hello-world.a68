@@ -1,28 +1,13 @@
-# LD_LIBRARY_PATH=. a68g hello-world.a68 #
-
 PR include "azul.a68" PR
-
-# -- Data model ------------------------------------------------------------- #
 
 MODE MYDATAMODEL = STRUCT (INT counter);
 
-# Destructor stub: MyDataModel owns no heap memory, so this is a no-op. #
 PROC my data model destructor = (REF VOID p) VOID:
   SKIP;
 
-# -- Helpers --------------------------------------------------------------- #
-
-# Build an AzString from a literal STRING. a68g marshals STRING to char* #
-# automatically when calling an ALIEN PROC that expects const uint8_t*.   #
 PROC az str = (STRING s) AZSTRING:
   az string copy from bytes (s, 0, UPB s);
 
-# -- Callback: button click ------------------------------------------------ #
-
-# SKIPPED: real downcast — the C example uses MyDataModelRefMut_create + #
-# MyDataModel_downcastMut. The a68g binding does not yet wrap those     #
-# helpers, so this callback assumes the RefAny payload is a plain       #
-# MyDataModel and pulls the counter out by hand.                        #
 PROC on click = (AZREFANY data, AZCALLBACKINFO info) AZUPDATE:
 BEGIN
   AZUPDATE result;
@@ -30,11 +15,8 @@ BEGIN
   result
 END;
 
-# -- Callback: layout ------------------------------------------------------ #
-
 PROC layout = (AZREFANY data, AZLAYOUTCALLBACKINFO info) AZDOM:
 BEGIN
-  # Counter label, wrapped in a div so the font-size CSS sticks. #
   AZSTRING label text := az str ("0");
   AZDOM label dom := az dom create text (label text);
   AZDOM label wrapper := az dom create div;
@@ -44,7 +26,6 @@ BEGIN
   az dom add css property (label wrapper, az css property with conditions simple (font size));
   az dom add child (label wrapper, label dom);
 
-  # Increment button. #
   AZBUTTON button := az button create (az str ("Increase counter"));
   az button set button type (button, az button type primary);
 
@@ -53,7 +34,6 @@ BEGIN
   az button set on click (button, data clone, on click);
   AZDOM button dom := az button dom (button);
 
-  # Body. #
   AZDOM body := az dom create body;
   az dom add child (body, label wrapper);
   az dom add child (body, button dom);
@@ -61,16 +41,10 @@ BEGIN
   az dom style (body, az css empty)
 END;
 
-# -- Main ------------------------------------------------------------------ #
-
 BEGIN
   MYDATAMODEL model;
   counter OF model := 5;
 
-  # SKIPPED: real upcast — the C example uses AZ_REFLECT_JSON which #
-  # expands to MyDataModel_upcast. The a68g binding does not yet    #
-  # expose that macro; build the RefAny by calling az ref any new c #
-  # directly with our destructor pointer.                           #
   AZREFANY data := az ref any new c (
     model,
     LONG INT (LWB model),  # SKIPPED: SizeOf is host-specific; LWB is a placeholder #
@@ -84,8 +58,6 @@ BEGIN
   width OF dimensions OF size OF window state OF window := 400.0;
   height OF dimensions OF size OF window state OF window := 300.0;
 
-  # NoTitleAutoInject: OS draws close/min/max buttons,                #
-  # framework auto-injects a Titlebar with drag support.              #
   decorations OF flags OF window state OF window := az window decorations no title auto inject;
   background material OF flags OF window state OF window := az window background material sidebar;
 

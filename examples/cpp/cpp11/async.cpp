@@ -1,5 +1,3 @@
-// g++ -std=c++11 -o async async.cpp -lazul
-
 #include "azul11.hpp"
 #include <vector>
 #include <string>
@@ -82,7 +80,6 @@ AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
     if (!d) return AzUpdate_DoNothing;
     d->stage = Stage_Connecting;
     d->progress = 0.0f;
-    // Timer setup would go here
     return AzUpdate_RefreshDom;
 }
 

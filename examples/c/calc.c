@@ -1,5 +1,3 @@
-// cc -o calc calc.c -lazul
-
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -218,47 +216,39 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     strcpy(display_text, c.ptr->display);
     CalculatorRef_delete(&c);
 
-    // Display
     AzDom display = AzDom_createDiv();
     AzString display_style = AzString_copyFromBytes((const uint8_t*)DISPLAY_STYLE, 0, strlen(DISPLAY_STYLE));
     AzDom_setCss(&display, display_style);
     AzDom_addChild(&display, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AzString_copyFromBytes((uint8_t*)display_text, 0, strlen(display_text))));
 
-    // Buttons grid
     AzDom buttons = AzDom_createDiv();
     AzString buttons_style = AzString_copyFromBytes((const uint8_t*)BUTTONS_STYLE, 0, strlen(BUTTONS_STYLE));
     AzDom_setCss(&buttons, buttons_style);
     
-    // Row 1
     AzDom_addChild(&buttons, create_button(&data, "C", EVT_CLEAR, 0, OP_NONE, FN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "+/-", EVT_INVERT, 0, OP_NONE, FN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "%", EVT_PERCENT, 0, OP_NONE, FN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "\xc3\xb7", EVT_OPERATION, 0, OP_DIVIDE, OP_STYLE));
     
-    // Row 2
     AzDom_addChild(&buttons, create_button(&data, "7", EVT_DIGIT, '7', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "8", EVT_DIGIT, '8', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "9", EVT_DIGIT, '9', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "\xc3\x97", EVT_OPERATION, 0, OP_MULTIPLY, OP_STYLE));
     
-    // Row 3
     AzDom_addChild(&buttons, create_button(&data, "4", EVT_DIGIT, '4', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "5", EVT_DIGIT, '5', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "6", EVT_DIGIT, '6', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "-", EVT_OPERATION, 0, OP_SUBTRACT, OP_STYLE));
     
-    // Row 4
     AzDom_addChild(&buttons, create_button(&data, "1", EVT_DIGIT, '1', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "2", EVT_DIGIT, '2', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "3", EVT_DIGIT, '3', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "+", EVT_OPERATION, 0, OP_ADD, OP_STYLE));
     
-    // Row 5
     AzDom_addChild(&buttons, create_button(&data, "0", EVT_DIGIT, '0', OP_NONE, ZERO_STYLE));
     AzDom_addChild(&buttons, create_button(&data, ".", EVT_DIGIT, '.', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "=", EVT_EQUALS, 0, OP_NONE, EQ_STYLE));
 
-    // Main container
     AzDom body = AzDom_createDiv();
     AzString body_style = AzString_copyFromBytes((const uint8_t*)CALC_STYLE, 0, strlen(CALC_STYLE));
     AzDom_setCss(&body, body_style);

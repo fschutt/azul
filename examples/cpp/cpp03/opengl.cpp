@@ -1,5 +1,3 @@
-// g++ -std=c++03 -o opengl opengl.cpp -lazul
-
 #include "azul03.hpp"
 
 using namespace azul;

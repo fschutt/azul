@@ -1,16 +1,10 @@
-// Azul counter example — D.
-//
-// Build (libazul on the link path, generated azul.d next to this file):
-//   dmd hello-world.d azul.d -L-L. -L-lazul        // or ldc2
-
 import azul;
 
 struct MyDataModel {
     uint counter;
 }
 
-// The type id is the address of a process-wide token (__gshared → one
-// instance, not thread-local), matching what the C AZ_REFLECT macro does.
+// __gshared: one process-wide instance (a plain D global is thread-local).
 __gshared ubyte MY_DATA_TYPE_TOKEN = 0;
 
 ulong my_data_type_id() {
@@ -18,11 +12,8 @@ ulong my_data_type_id() {
 }
 
 extern(C) void my_data_destructor(void* ptr) {
-    // MyDataModel is plain old data: nothing to free.
 }
 
-// AzString_fromUtf8 copies the bytes into a refcounted heap buffer, so
-// passing a stack/literal pointer is safe.
 AzString azString(string s) {
     return AzString_fromUtf8(cast(ubyte*) s.ptr, s.length);
 }
@@ -98,7 +89,6 @@ extern(C) AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         return AzDom_createBody();
     }
 
-    // Counter label, wrapped in a div so the font-size sticks.
     ubyte[16] buf;
     size_t n = u32_write(m.counter, buf[]);
     AzString counter_str = AzString_fromUtf8(buf.ptr, n);
@@ -111,7 +101,6 @@ extern(C) AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addCssProperty(&label_wrapper, cond);
     AzDom_addChild(&label_wrapper, label);
 
-    // AzButton_setOnClick takes the bare fn-pointer typedef directly.
     AzButton button = AzButton_create(azString("Increase counter"));
     AzButton_setButtonType(&button, AzButtonType.Primary);
     AzRefAny data_clone = AzRefAny_clone(&d);
@@ -134,8 +123,6 @@ void main() {
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
 
-    // NoTitleAutoInject: OS draws the window buttons; the framework
-    // auto-injects a draggable titlebar.
     window.window_state.flags.decorations = AzWindowDecorations.NoTitleAutoInject;
     window.window_state.flags.background_material = AzWindowBackgroundMaterial.Sidebar;
 

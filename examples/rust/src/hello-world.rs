@@ -1,5 +1,3 @@
-// cargo run --example hello-world
-
 use azul::prelude::*;
 use azul::widgets::Button;
 
@@ -13,8 +11,6 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
 
-    // Canonical hello-world shape shared by every language binding:
-    // body > div{font-size:32px} > text(counter), then the button.
     let label = Dom::create_div()
         .with_css("font-size: 32px")
         .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(counter.as_str()));
@@ -32,7 +28,7 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
 extern "C" fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<DataModel>() {
         Some(s) => s,
-        None => return Update::DoNothing, // error
+        None => return Update::DoNothing,
     };
 
     data.counter += 1;

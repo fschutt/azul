@@ -1,5 +1,3 @@
-// g++ -std=c++03 -o calc calc.cpp -lazul
-
 #include "azul03.hpp"
 #include <cstdio>
 #include <cstdlib>

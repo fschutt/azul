@@ -1,5 +1,3 @@
-# python opengl.py
-
 from azul import *
 
 

@@ -1,21 +1,3 @@
-// examples/scala/HelloWorld.scala — idiomatic Scala port of the hello-world
-// counter, riding on the Java codegen's `com.azul.*` JNA bindings.
-//
-// Everything goes through the non-prefixed wrapper classes (Dom, Button,
-// App, AppConfig, WindowCreateOptions) plus the AzulHostInvoker helpers.
-// The typed `AzulHostInvoker.LayoutCallback` SAM returns a `Dom` directly;
-// the host-invoker bridge does the struct-byte splice internally, so user
-// code never touches `Structure.newInstance` / `getByteArray`. Enum types
-// are unprefixed too (Update, ButtonType) — nothing Az-prefixed remains
-// in user code.
-//
-// Build the JNA bindings, then run with the Scala 3 runner:
-//   javac -cp jna.jar -d classes azul-java/*.java
-//   scala run HelloWorld.scala --class-path classes:jna.jar \
-//       --java-opt -Djna.library.path=. --java-opt -XstartOnFirstThread
-//
-// macOS requires `-XstartOnFirstThread` (Cocoa main-thread rule).
-
 package com.azul
 
 import com.sun.jna.Pointer

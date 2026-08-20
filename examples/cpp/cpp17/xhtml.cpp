@@ -1,11 +1,8 @@
-// g++ -std=c++17 -o xhtml xhtml.cpp -lazul
-
 #include "azul17.hpp"
 using namespace azul;
 
 struct AppData { int x; };
 
-// Embedded XHTML content
 static const char* XHTML_CONTENT = "<html><body><h1>Test XHTML</h1><p>This is a test spreadsheet.</p></body></html>";
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {

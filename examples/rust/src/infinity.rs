@@ -1,5 +1,3 @@
-// cargo run --example infinity
-
 use azul::prelude::*;
 use azul::option::OptionDom;
 
@@ -11,7 +9,6 @@ struct InfinityState {
 }
 
 extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
-    // Extract value and drop the guard before using data.clone()
     let file_count = {
         let d = match data.downcast_ref::<InfinityState>() {
             Some(s) => s,
@@ -23,7 +20,6 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let title = Dom::create_div_with_text(format!("Pictures - {} images", file_count))
         .with_css("font-size: 20px; margin-bottom: 10px;");
 
-    // Now we can pass the function pointer directly - the API builds the wrapper internally
     let vview = Dom::create_virtual_view(data.clone(), render_virtual_view)
         .with_css("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
         .with_callback(
@@ -69,15 +65,9 @@ extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInf
         container.add_child(item);
     }
 
-    // Calculate virtual scroll height based on total items
-    let rows = (d.file_paths.len() + 3) / 4; // 4 items per row
-    let virtual_height = rows as f32 * 160.0; // 150px + 10px gap
+    let rows = (d.file_paths.len() + 3) / 4;
+    let virtual_height = rows as f32 * 160.0;
 
-    // Each size+offset pair is one rect now: `materialized` is what was
-    // rendered and where it sits, `virtual_rect` is how big the document is.
-    // The old values are carried across unchanged -- this example already
-    // passed the same height for both, and migrating is not the place to
-    // redesign what it measures.
     VirtualViewReturn {
         dom: OptionDom::Some(container),
         materialized: LogicalRect::create(
@@ -91,7 +81,6 @@ extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInf
     }
 }
 
-/// Handle scroll events to update visible items
 extern "C" fn on_scroll(mut data: RefAny, info: CallbackInfo) -> Update {
     let scroll_pos = match info.get_scroll_offset() {
         OptionLogicalPosition::Some(pos) => pos,
@@ -103,9 +92,8 @@ extern "C" fn on_scroll(mut data: RefAny, info: CallbackInfo) -> Update {
         None => return Update::DoNothing,
     };
 
-    // Calculate which items should be visible based on scroll position
     let items_per_row = 4;
-    let item_height = 160.0; // 150px + 10px gap
+    let item_height = 160.0;
     let new_start = ((scroll_pos.y / item_height) as usize) * items_per_row;
 
     if new_start != d.visible_start {
@@ -123,7 +111,6 @@ fn main() {
         visible_count: 20,
     };
 
-    // Generate dummy file names
     for i in 0..1000 {
         state.file_paths.push(format!("image_{:04}.png", i));
     }

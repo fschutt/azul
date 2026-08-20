@@ -1,14 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Hello-world for the Azul C# bindings.
-       Self-contained: compiles hello-world.cs + the generated Azul.cs
-       (copy from `target/codegen/Azul.cs` next to this file). The native
-       library `libazul.dylib` / `azul.dll` / `libazul.so` must sit in
-       the same directory or on the dynamic-loader search path.
-       Build + run:
-           dotnet run
-  -->
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>

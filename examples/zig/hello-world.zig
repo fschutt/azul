@@ -1,11 +1,6 @@
-// zig build run
-
 const std = @import("std");
 const azul = @import("azul.zig");
 const C = azul.C;
-
-// Compile-time-unique type id: the address of a `var` we never read or
-// write. POD model → no-op destructor.
 
 const MyDataModel = struct {
     counter: u32,
@@ -42,8 +37,6 @@ fn myDataDowncast(refany: *const C.AzRefAny) ?*MyDataModel {
     return @constCast(@as(*const MyDataModel, @ptrCast(@alignCast(ptr))));
 }
 
-// ── Callback: button click ────────────────────────────────────────────
-
 fn onClick(data: C.AzRefAny, _: C.AzCallbackInfo) callconv(.c) C.AzUpdate {
     var d = data;
     const m = myDataDowncast(&d) orelse return C.AzUpdate_DoNothing;
@@ -51,13 +44,10 @@ fn onClick(data: C.AzRefAny, _: C.AzCallbackInfo) callconv(.c) C.AzUpdate {
     return C.AzUpdate_RefreshDom;
 }
 
-// ── Layout callback ───────────────────────────────────────────────────
-
 fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     var d = data;
     const m = myDataDowncast(&d) orelse return C.AzDom_createBody();
 
-    // Counter label (wrapped in a div so the font-size sticks).
     var buf: [16]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return C.AzDom_createBody();
     const counter_str = C.AzString_fromUtf8(slice.ptr, slice.len);
@@ -70,8 +60,6 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     C.AzDom_addCssProperty(&label_wrapper, cond);
     C.AzDom_addChild(&label_wrapper, label);
 
-    // AzButton_setOnClick takes the bare fn-pointer typedef directly.
-    // `onClick` is comptime-known + `callconv(.c)`, so it passes C-direct.
     const btn_label_bytes = "Increase counter";
     const btn_label = C.AzString_fromUtf8(btn_label_bytes.ptr, btn_label_bytes.len);
     var button = C.AzButton_create(btn_label);
@@ -80,14 +68,11 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     C.AzButton_setOnClick(&button, data_clone, onClick);
     const button_dom = C.AzButton_dom(button);
 
-    // Body.
     var body = C.AzDom_createBody();
     C.AzDom_addChild(&body, label_wrapper);
     C.AzDom_addChild(&body, button_dom);
     return body;
 }
-
-// ── Main ──────────────────────────────────────────────────────────────
 
 pub fn main() !void {
     const model = MyDataModel{ .counter = 5 };
@@ -99,8 +84,6 @@ pub fn main() !void {
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
 
-    // NoTitleAutoInject: OS draws the window buttons; framework injects a
-    // draggable Titlebar.
     window.window_state.flags.decorations = C.AzWindowDecorations_NoTitleAutoInject;
     window.window_state.flags.background_material = C.AzWindowBackgroundMaterial_Sidebar;
 

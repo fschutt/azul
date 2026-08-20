@@ -1,9 +1,5 @@
-// Run: node hello-world.js   (after `npm install`)
-
 'use strict';
 
-// Works both ways: the installed package (`npm install <azul tarball>`) and the
-// local binding file (`azul.js` next to this script).
 let azul;
 try { azul = require('azul'); } catch (_) { azul = require('./azul.js'); }
 const {

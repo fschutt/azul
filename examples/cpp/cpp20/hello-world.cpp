@@ -1,5 +1,3 @@
-// g++ -std=c++20 -o hello-world hello-world.cpp -lazul
-
 #include "azul20.hpp"
 #include <string>
 #include <string_view>

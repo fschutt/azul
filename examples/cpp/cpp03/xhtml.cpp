@@ -1,5 +1,3 @@
-// g++ -std=c++03 -o xhtml xhtml.cpp -lazul
-
 #include "azul03.hpp"
 #include <cstdio>
 

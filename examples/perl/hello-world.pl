@@ -1,7 +1,3 @@
-# Full-GUI Perl hello-world: counter label + "Increase counter" button.
-#   perl -Ilib hello-world.pl        (requires FFI::Platypus 2.x)
-#
-# Callbacks route through Azul.pm's host-invoker layer (register_callback).
 # Build the DOM with raw Azul::FFI::* record calls so no idiomatic-wrapper
 # destructors run on the moved-out by-value structs.
 
@@ -19,11 +15,8 @@ sub mk_str {
     return Azul::FFI::AzString_fromUtf8($ptr, $len);
 }
 
-# Shared data model. refany_create pins the ref in the handle table until
-# libazul's releaser fires; every RefAny wrapping it observes the same counter.
 my $model = { counter => 5 };
 
-# ButtonOnClick: bump the counter, ask for a DOM refresh. Returns AzUpdate.
 my $on_click = sub {
     my ($data, $info) = @_;
     my $m = Azul::refany_get($data);
@@ -32,7 +25,6 @@ my $on_click = sub {
     return Azul::AzUpdate::RefreshDom();
 };
 
-# Layout: build body > [ div.font-size-32 > text(counter), button ].
 my $layout = sub {
     my ($data, $info) = @_;
     my $m = Azul::refany_get($data);
@@ -67,8 +59,8 @@ my $layout_cb = Azul::register_callback('LayoutCallback', $layout);
 # for it, then overwrite that slot with the real callback bytes.
 my $wco = Azul::FFI::AzWindowCreateOptions_default();
 {
-    no warnings 'portable';               # the 64-bit sentinel literal is fine on LP64
-    my $SENTINEL = 0x0123456789ABCDEF;    # improbable-as-real-data pointer value
+    no warnings 'portable';
+    my $SENTINEL = 0x0123456789ABCDEF;
     my $probe = Azul::FFI::AzWindowCreateOptions_create($SENTINEL);
     my $off = index($$probe, pack('Q', $SENTINEL));
     die "could not locate layout_callback slot" if $off < 0;

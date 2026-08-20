@@ -1,5 +1,3 @@
-// g++ -std=c++17 -o hello-world hello-world.cpp -lazul
-
 #include "azul17.hpp"
 #include <optional>
 #include <string>

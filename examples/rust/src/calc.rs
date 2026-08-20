@@ -1,8 +1,5 @@
-// cargo run --example calc
-
 use azul::prelude::*;
 
-/// Calculator state
 struct Calculator {
     display: String,
     current_value: f64,
@@ -17,34 +14,28 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .map(|calc| calc.get_display())
         .unwrap_or_else(|| "0".to_string());
 
-    // Build the calculator DOM using CSS Grid
     let display = Dom::create_div()
         .with_css(DISPLAY_STYLE)
         .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(display_text));
 
     let buttons = Dom::create_div()
         .with_css(BUTTONS_STYLE)
-        // Row 1: C, +/-, %, ÷
         .with_child(calc_button(&data, "C", CalcEvent::Clear, BUTTON_STYLE))
         .with_child(calc_button(&data, "+/-", CalcEvent::InvertSign, BUTTON_STYLE))
         .with_child(calc_button(&data, "%", CalcEvent::Percent, BUTTON_STYLE))
         .with_child(calc_button(&data, "÷", CalcEvent::Operation(Operation::Divide), OPERATOR_STYLE))
-        // Row 2: 7, 8, 9, ×
         .with_child(calc_button(&data, "7", CalcEvent::Digit('7'), BUTTON_STYLE))
         .with_child(calc_button(&data, "8", CalcEvent::Digit('8'), BUTTON_STYLE))
         .with_child(calc_button(&data, "9", CalcEvent::Digit('9'), BUTTON_STYLE))
         .with_child(calc_button(&data, "×", CalcEvent::Operation(Operation::Multiply), OPERATOR_STYLE))
-        // Row 3: 4, 5, 6, -
         .with_child(calc_button(&data, "4", CalcEvent::Digit('4'), BUTTON_STYLE))
         .with_child(calc_button(&data, "5", CalcEvent::Digit('5'), BUTTON_STYLE))
         .with_child(calc_button(&data, "6", CalcEvent::Digit('6'), BUTTON_STYLE))
         .with_child(calc_button(&data, "-", CalcEvent::Operation(Operation::Subtract), OPERATOR_STYLE))
-        // Row 4: 1, 2, 3, +
         .with_child(calc_button(&data, "1", CalcEvent::Digit('1'), BUTTON_STYLE))
         .with_child(calc_button(&data, "2", CalcEvent::Digit('2'), BUTTON_STYLE))
         .with_child(calc_button(&data, "3", CalcEvent::Digit('3'), BUTTON_STYLE))
         .with_child(calc_button(&data, "+", CalcEvent::Operation(Operation::Add), OPERATOR_STYLE))
-        // Row 5: 0 (spans 2), ., =
         .with_child(calc_button(&data, "0", CalcEvent::Digit('0'), ZERO_STYLE))
         .with_child(calc_button(&data, ".", CalcEvent::Digit('.'), BUTTON_STYLE))
         .with_child(calc_button(&data, "=", CalcEvent::Equals, OPERATOR_STYLE));
@@ -130,7 +121,6 @@ extern "C" fn on_button_click(mut data: RefAny, _info: CallbackInfo) -> Update {
         None => return Update::DoNothing,
     };
 
-    // Clone the event before borrowing calc mutably
     let event = button_data.event.clone();
 
     let mut calc = match button_data.calc.downcast_mut::<Calculator>() {
@@ -257,13 +247,11 @@ enum CalcEvent {
     Percent,
 }
 
-/// Data associated with each calculator button
 struct ButtonData {
     calc: RefAny,
     event: CalcEvent,
 }
 
-/// Creates a calculator button with the given label and event
 fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, style: &str) -> Dom {
     let button_data = RefAny::new(ButtonData {
         calc: calc.clone(),

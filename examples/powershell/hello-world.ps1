@@ -1,21 +1,12 @@
-# pwsh -File ./hello-world.ps1
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'Azul.psd1') -Force
 Set-AzulLibraryPath -Path $PSScriptRoot
 
-# ── Data model ────────────────────────────────────────────────────────
-# PSCustomObject works as the model. RefAny holds an opaque Object
-# reference in the host-handle table.
 $model = [PSCustomObject]@{ Counter = 5 }
 $data  = [Azul.HostInvoker]::RefanyCreate($model)
 
-# ── Helper ────────────────────────────────────────────────────────────
-# Build an AzString from a PowerShell string. The wrapper class
-# constructor isn't exposed for AzString (`internal`), so we call the
-# C# `Azul.String.FromUtf8` factory which copies the bytes.
 function Convert-AzulString {
     param([Parameter(Mandatory=$true)][string]$Value)
     $bytes  = [System.Text.Encoding]::UTF8.GetBytes($Value)
@@ -30,11 +21,6 @@ function Convert-AzulString {
         $handle.Free()
     }
 }
-
-# ── Callbacks ─────────────────────────────────────────────────────────
-# PowerShell scriptblocks wrap as .NET delegates via the `-as`
-# conversion operator. Signatures match the C# delegate types declared
-# in `Azul.HostInvoker`.
 
 $onClick = {
     param([IntPtr]$dataPtr, [IntPtr]$infoPtr)
@@ -53,12 +39,10 @@ $layout = {
         return ([Azul.Dom]::CreateBody()).Raw
     }
 
-    # Counter label, wrapped in a font-size-32 div.
     $counterDom = [Azul.Dom]::CreateTextDoNotUseWithoutBlockLevelWrapper((Convert-AzulString -Value ([string]$m.Counter)))
     $labelDiv   = [Azul.Dom]::CreateDiv().WithCss((Convert-AzulString -Value 'font-size: 32px;'))
     $labelDiv   = $labelDiv.WithChild($counterDom.Raw)
 
-    # Increment button.
     $button = [Azul.Button]::Create((Convert-AzulString -Value 'Increase counter'))
     $button = $button.WithButtonType([Azul.Native.AzButtonType]::Primary)
     $clickCb = [Azul.HostInvoker]::RegisterCallback($onClick)
@@ -66,12 +50,10 @@ $layout = {
     $button = $button.WithOnClick($dataClone, $clickCb)
     $buttonDom = $button.Dom()
 
-    # Body.
     $body = [Azul.Dom]::CreateBody().WithChild($labelDiv.Raw).WithChild($buttonDom)
     return $body.Raw
 }.GetNewClosure()
 
-# ── Main ──────────────────────────────────────────────────────────────
 # `WindowCreateOptions::Create(layout_callback)` discards host-invoker
 # ctx (takes a raw AzLayoutCallbackType fn pointer). Use the default
 # value then assign the layout_callback via reflection on Raw.
@@ -89,10 +71,8 @@ Write-Host "[ps] WCO created: type=$($wco.GetType().FullName)"
 $wcoRaw = $wco.Raw
 Write-Host "[ps] wcoRaw type=$($wcoRaw.GetType().FullName)"
 
-# AzWindowCreateOptions and AzFullWindowState are public C# structs
-# (StructLayout=Sequential). PowerShell can read their public fields
-# directly. Boxed structs need mutation through a temp copy then
-# write-back since PowerShell unboxes on field access.
+# Boxed structs need mutation through a temp copy then write-back:
+# PowerShell unboxes on field access.
 $ws = $wcoRaw.window_state
 Write-Host "[ps] ws type=$($ws.GetType().FullName)"
 $ws.layout_callback = $layoutCb

@@ -1,5 +1,3 @@
-# python widgets.py
-
 from azul import *
 
 

@@ -1,5 +1,3 @@
-(* Run: dune build && LD_LIBRARY_PATH=. ./_build/default/hello_world.exe *)
-
 type my_data_model = { mutable counter : int }
 let model = { counter = 5 }
 
@@ -17,8 +15,6 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
   match Azul.azul_refany_get ref_ptr with
   | None -> Azul.raw_dom (Azul.Dom.create_body ())
   | Some (m : my_data_model) ->
-      (* Button.onClick is TYPED since the typed-callback API change:
-         register through the button-specific host-invoker kind. *)
       let click_cb = Azul.azul_register_button_on_click_callback on_click in
       let click_data = Azul.azul_refany_create m in
 

@@ -1,5 +1,3 @@
-// cargo run --example widgets
-
 use azul::prelude::*;
 use azul::widgets::*;
 use azul::css::ColorU;
@@ -31,41 +29,33 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let padding = if enable_padding { "padding: 10px;" } else { "" };
     let margin = "margin-bottom: 10px;";
 
-    // Button
     let mut button = Button::create(toggle_text);
     button.set_on_click(data.clone(), toggle_padding);
     let button_dom = button.dom().with_css(margin);
 
-    // Checkbox
     let mut checkbox = CheckBox::create(enable_padding);
     checkbox.set_on_toggle(data.clone(), toggle_padding_checkbox);
     let checkbox_dom = checkbox.dom().with_css("margin-bottom: 10px;");
 
-    // Progress Bar
     let progress_bar = ProgressBar::create(progress)
         .dom()
         .with_css("margin-bottom: 10px; width: 200px;");
 
-    // Text Input
     let text_input = TextInput::create()
         .with_placeholder("Type something...")
         .dom()
         .with_css(margin);
 
-    // Number Input
     let number_input = NumberInput::create(42.0).dom().with_css(margin);
 
-    // Color Input
     let color_input = ColorInput::create(ColorU::from_str("#FF5733"))
         .dom()
         .with_css(margin);
 
-    // Increase progress button (with callback)
     let mut increase_button = Button::create("Increase Progress");
     increase_button.set_on_click(data.clone(), increase_progress);
     let increase_dom = increase_button.dom().with_css(margin);
 
-    // Dropdown (opens a popup menu; selecting fires on_choice_change)
     let choices: Vec<azul::str::String> = CHOICES.iter().map(|s| (*s).into()).collect();
     let dropdown_dom = DropDown::create(choices)
         .with_on_choice_change(data.clone(), on_dropdown_change)
@@ -76,12 +66,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     )
     .with_css("margin-bottom: 10px; color: #2a6;");
 
-    // Heading
     let heading = Dom::create_p()
         .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Widget Showcase"))
         .with_css("font-size: 24px; font-weight: bold; margin-bottom: 20px;");
 
-    // Final DOM composition
     Dom::create_body()
         .with_css(padding)
         .with_child(heading)
@@ -130,7 +118,6 @@ extern "C" fn increase_progress(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-// Fired when the user picks a dropdown item (the third arg is the choice index).
 extern "C" fn on_dropdown_change(mut data: RefAny, _: CallbackInfo, choice: usize) -> Update {
     let mut data = match data.downcast_mut::<WidgetShowcase>() {
         Some(s) => s,

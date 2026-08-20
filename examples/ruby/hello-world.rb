@@ -1,5 +1,3 @@
-# ruby -I. hello-world.rb   (requires the ffi gem)
-
 require 'azul'
 
 class MyDataModel

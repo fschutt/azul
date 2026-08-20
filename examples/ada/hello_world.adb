@@ -1,5 +1,3 @@
--- gnatmake -gnat2012 hello_world.adb -largs -L. -lazul && LD_LIBRARY_PATH=. ./hello_world
-
 with Ada.Text_IO;
 with System;
 with System.Address_To_Access_Conversions;
@@ -7,9 +5,6 @@ with Azul; use Azul;
 
 procedure Hello_World is
 
-   --  Fortran-/Pascal-style model: an Ada-side payload whose address
-   --  we hand the host-invoker table. We read it back via Azul_RefAny_Get
-   --  and confirm the recovered address matches.
    type My_Model is record
       Counter : Integer;
    end record;
@@ -24,12 +19,10 @@ procedure Hello_World is
 begin
    Ada.Text_IO.Put_Line ("[azul] Ada FFI smoke test starting.");
 
-   --  Register the releaser + per-kind invokers.
    Azul.Azul_Host_Invoker_Init;
    Ada.Text_IO.Put_Line
      ("[azul] Azul_Host_Invoker_Init registered releaser + invokers.");
 
-   --  RefAny round-trip — proves the host-invoker prelude is wired.
    RefAny := Azul.Azul_RefAny_Create (Model'Address);
    Ada.Text_IO.Put_Line
      ("[azul] Azul_RefAny_Create ran; RefAny opaque-handle id stored.");

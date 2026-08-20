@@ -1,6 +1,3 @@
-;;;; hello-world.lisp — Azul counter example (Common Lisp / CFFI).
-;;;; Loaded as the :azul-example ASDF system's component; run via
-;;;; (ql:quickload :azul-example) then (azul-hello:run-app).
 ;;;; Do NOT (load "azul.lisp") here — ASDF already loaded it via the :azul
 ;;;; dependency; a manual load resolves into the fasl-cache dir and fails.
 
@@ -30,11 +27,9 @@
 (defun on-click (data-ptr info-ptr)
   (declare (ignore info-ptr))
   (let ((m (azul:refany-get data-ptr)))
-    (cond ((consp m) (incf (model-counter m)) 1)   ; Update.RefreshDom
-          (t 0))))                                 ; Update.DoNothing
+    (cond ((consp m) (incf (model-counter m)) 1)
+          (t 0))))
 
-;; layout-cb: returns a DOM CLOS instance; the host-invoker memcpys its
-;; AzDom struct bytes through the out-pointer.
 (defun layout-cb (data-ptr info-ptr)
   (declare (ignore info-ptr))
   (let ((m (azul:refany-get data-ptr)))
@@ -57,12 +52,9 @@
            (body         (azul:dom-with-child body button-dom-s)))
       body)))
 
-;; Opaque WCO transport: AzWindowCreateOptions (1336 bytes) is full of nested
-;; tagged unions whose inactive-variant bytes aren't valid enum values, so
-;; CFFI's by-value struct translation errors validating them. We never read
-;; those fields, so we transport the WCO as a same-sized struct of plain
-;; :uint64 words — ABI-identical (a >16-byte struct is passed by hidden
-;; pointer regardless of field types) but with no enum walking.
+;; AzWindowCreateOptions holds tagged unions whose inactive-variant bytes fail
+;; CFFI's enum validation, so transport it as a same-sized struct of :uint64
+;; words — ABI-identical for a >16-byte struct, with no enum walking.
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro def-word-struct (name n)
     `(cffi:defcstruct ,name

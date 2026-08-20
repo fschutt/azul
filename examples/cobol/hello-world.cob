@@ -1,6 +1,4 @@
 >>SOURCE FORMAT IS FREE
-*> cobc -x -free hello-world.cob -L. -lazul -o hello-world && LD_LIBRARY_PATH=. ./hello-world
-
        IDENTIFICATION DIVISION.
        PROGRAM-ID. HELLO-WORLD.
 

@@ -1,13 +1,3 @@
-! Full-GUI Fortran hello-world: counter label + "Increase counter" button.
-!
-! Build & run:  make && ./hello_world     (Makefile ships next to azul.f90)
-!
-! Callbacks go through azul.f90's host-invoker dispatch: register a
-! bind(C) module procedure via azul_register_<kind>() and the returned
-! Az<Kind>Callback value round-trips its handle id back into the
-! registered procedure. Callbacks MUST live in a module (not as internal
-! procedures) so c_funloc() needs no executable-stack trampoline.
-
 module hello_impl
   use, intrinsic :: iso_c_binding
   use azul
@@ -32,8 +22,6 @@ contains
     r = az_string_from_utf8(c_loc(buf(1)), int(len(s), c_size_t))
   end function mk_str
 
-  ! ButtonOnClick user callback: bump the counter, request a DOM refresh.
-  ! arg0 = AzRefAny* (model handle), arg1 = CallbackInfo*, out_ptr = AzUpdate*.
   subroutine my_on_click(arg0, arg1, out_ptr) bind(C)
     type(c_ptr), value :: arg0, arg1, out_ptr
     type(c_ptr) :: praw
@@ -51,8 +39,6 @@ contains
     if (c_associated(arg1)) return
   end subroutine my_on_click
 
-  ! Layout user callback: build body > [ div.font-size-32 > text(counter),
-  ! button ]. arg0 = AzRefAny*, arg1 = LayoutCallbackInfo*, out_ptr = AzDom*.
   subroutine my_layout(arg0, arg1, out_ptr) bind(C)
     type(c_ptr), value :: arg0, arg1, out_ptr
     type(c_ptr) :: praw

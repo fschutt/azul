@@ -1,24 +1,18 @@
-// cc -o opengl opengl.c -L../../target/release -lazul
-
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
 
-// Helper to create AzString from C string
 static AzString az_str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
 }
 
-// Application state - mirrors the Rust OpenGlAppState
 typedef struct {
     float rotation_deg;
-    // Tessellated vertices (CPU side, uploaded on startup)
     AzTessellatedSvgNode fill_vertices;
     AzTessellatedSvgNode stroke_vertices;
     bool vertices_ready;
-    // GPU vertex buffers (uploaded after GL context available)
     AzTessellatedGPUSvgNode fill_gpu_node;
     AzTessellatedGPUSvgNode stroke_gpu_node;
     bool gpu_ready;
@@ -29,13 +23,11 @@ void OpenGlState_destructor(void* s) {
 }
 AZ_REFLECT(OpenGlState, OpenGlState_destructor);
 
-// Forward declarations
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info);
 AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info);
 AzUpdate startup_window(AzRefAny data, AzCallbackInfo info);
 AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info);
 
-// Dynamic array for collecting path elements before converting to Vec
 typedef struct {
     AzSvgPathElement* items;
     size_t len;
@@ -78,11 +70,9 @@ static void tess_push(TessNodeArray* arr, AzTessellatedSvgNode node) {
     arr->items[arr->len++] = node;
 }
 
-// Parse multipolygons from JSON - mirrors parse_multipolygons() in Rust
 bool parse_and_tessellate(OpenGlState* state) {
     printf("Reading testdata.json...\n");
     
-    // Read the JSON file
     AzFilePath path = AzFilePath_create(az_str("../assets/testdata.json"));
     AzResultU8VecFileError result = AzFilePath_readBytes(&path);
     AzFilePath_delete(&path);
@@ -114,23 +104,19 @@ bool parse_and_tessellate(OpenGlState* state) {
         return false;
     }
     
-    // Prepare tessellation styles
     AzSvgFillStyle fill_style = AzSvgFillStyle_default();
     AzSvgStrokeStyle stroke_style = AzSvgStrokeStyle_default();
     stroke_style.line_width = 4.0f;
     
-    // Collect tessellated nodes
     TessNodeArray fill_nodes = {0};
     TessNodeArray stroke_nodes = {0};
     
-    // Process each multipolygon (like Rust: parsed.iter().map(...))
     size_t max_polygons = arr_len < 100 ? arr_len : 100;
     for (size_t i = 0; i < max_polygons; i++) {
         AzOptionJson item_opt = AzJson_getIndex(&json, i);
         if (item_opt.Some.tag != AzOptionJson_Tag_Some) continue;
         AzJson item = item_opt.Some.payload;
         
-        // Get coordinates array
         AzOptionJson coords_opt = AzJson_getKey(&item, az_str("coordinates"));
         if (coords_opt.Some.tag != AzOptionJson_Tag_Some) {
             AzJson_delete(&item);
@@ -138,7 +124,6 @@ bool parse_and_tessellate(OpenGlState* state) {
         }
         AzJson coords = coords_opt.Some.payload;
         
-        // coords[0] is the polygon (like Rust: p.coordinates[0])
         AzOptionJson poly_opt = AzJson_getIndex(&coords, 0);
         if (poly_opt.Some.tag != AzOptionJson_Tag_Some) {
             AzJson_delete(&coords);
@@ -147,7 +132,6 @@ bool parse_and_tessellate(OpenGlState* state) {
         }
         AzJson poly = poly_opt.Some.payload;
         
-        // Collect rings for this multipolygon
         PathArray rings = {0};
         size_t ring_count = AzJson_len(&poly);
         
@@ -156,7 +140,6 @@ bool parse_and_tessellate(OpenGlState* state) {
             if (ring_opt.Some.tag != AzOptionJson_Tag_Some) continue;
             AzJson ring = ring_opt.Some.payload;
             
-            // Collect path elements (like Rust: r.iter().filter_map(...))
             PathElementArray path_elements = {0};
             AzSvgPoint last_point = {0};
             bool has_last = false;
@@ -167,7 +150,6 @@ bool parse_and_tessellate(OpenGlState* state) {
                 if (pt_opt.Some.tag != AzOptionJson_Tag_Some) continue;
                 AzJson pt = pt_opt.Some.payload;
                 
-                // pt[0] = x, pt[1] = y
                 AzOptionJson x_opt = AzJson_getIndex(&pt, 0);
                 AzOptionJson y_opt = AzJson_getIndex(&pt, 1);
                 
@@ -196,7 +178,6 @@ bool parse_and_tessellate(OpenGlState* state) {
                     continue;
                 }
                 
-                // Transform coordinates (exactly like Rust example)
                 float x = (float)x_val.Some.payload;
                 float y = (float)y_val.Some.payload;
                 x -= 13.804483f;
@@ -210,7 +191,6 @@ bool parse_and_tessellate(OpenGlState* state) {
                 
                 AzSvgPoint current = { .x = x, .y = y };
                 
-                // Like Rust: filter_map with last_point logic
                 if (has_last) {
                     AzSvgLine line = { .start = last_point, .end = current };
                     path_elem_push(&path_elements, AzSvgPathElement_line(line));
@@ -222,7 +202,6 @@ bool parse_and_tessellate(OpenGlState* state) {
             
             AzJson_delete(&ring);
             
-            // Create SvgPath from elements (like Rust: SvgPath { items: ... })
             if (path_elements.len > 0) {
                 AzSvgPathElementVec elem_vec = AzSvgPathElementVec_copyFromPtr(
                     path_elements.items, path_elements.len);
@@ -236,16 +215,13 @@ bool parse_and_tessellate(OpenGlState* state) {
         AzJson_delete(&coords);
         AzJson_delete(&item);
         
-        // Create SvgMultiPolygon and tessellate (like Rust example)
         if (rings.len > 0) {
             AzSvgPathVec rings_vec = AzSvgPathVec_copyFromPtr(rings.items, rings.len);
             AzSvgMultiPolygon mp = AzSvgMultiPolygon_create(rings_vec);
             
-            // Tessellate fill (like Rust: mp.tessellate_fill(SvgFillStyle::default()))
             AzTessellatedSvgNode fill_node = AzSvgMultiPolygon_tessellateFill(&mp, fill_style);
             tess_push(&fill_nodes, fill_node);
             
-            // Tessellate stroke (like Rust: mp.tessellate_stroke(stroke_style))
             AzTessellatedSvgNode stroke_node = AzSvgMultiPolygon_tessellateStroke(&mp, stroke_style);
             tess_push(&stroke_nodes, stroke_node);
             
@@ -265,7 +241,6 @@ bool parse_and_tessellate(OpenGlState* state) {
         return false;
     }
     
-    // Join all tessellated nodes (like Rust: TessellatedSvgNode::from_nodes(...))
     AzTessellatedSvgNodeVecRef fill_ref = { .ptr = fill_nodes.items, .len = fill_nodes.len };
     AzTessellatedSvgNodeVecRef stroke_ref = { .ptr = stroke_nodes.items, .len = stroke_nodes.len };
     
@@ -279,9 +254,7 @@ bool parse_and_tessellate(OpenGlState* state) {
     return true;
 }
 
-// Layout function - mirrors layout() in Rust
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    // Create body with gradient background (like Rust example)
     AzDom body = AzDom_createBody();
     AzDom_setCss(&body, az_str(
         "display: flex;"
@@ -293,7 +266,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "box-sizing: border-box;"
     ));
     
-    // Create OpenGL image with callback (like Rust: ImageRef::callback(...))
     AzCoreRenderImageCallback callback = { 
         .cb = (AzCoreRenderImageCallbackType)render_my_texture,
         .ctx = { .None = { .tag = AzOptionRefAny_Tag_None } }
@@ -310,7 +282,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "box-shadow: 0px 0px 10px black;"
     ));
     
-    // Button on top using proper Button widget (like Rust: Button::create("...").dom())
     AzButton button = AzButton_create(az_str("Button composited over OpenGL content!"));
     AzDom button_dom = AzButton_dom(button);
     AzDom_setCss(&button_dom, az_str(
@@ -324,7 +295,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     return body;
 }
 
-// Render texture callback - mirrors render_my_texture() in Rust
 AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     AzHidpiAdjustedBounds bounds = AzRenderImageCallbackInfo_getBounds(&info);
     AzPhysicalSizeU32 size = AzHidpiAdjustedBounds_getPhysicalSize(&bounds);
@@ -334,14 +304,12 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     AzU8VecRef empty = { .ptr = &dummy_byte, .len = 0 };
     AzImageRef invalid = AzImageRef_nullImage(size.width, size.height, AzRawImageFormat_R8, empty);
     
-    // Get GL context
     AzOptionGlContextPtr opt_gl = AzRenderImageCallbackInfo_getGlContext(&info);
     if (opt_gl.Some.tag != AzOptionGlContextPtr_Tag_Some) {
         return invalid;
     }
     AzGlContextPtr gl_context = opt_gl.Some.payload;
     
-    // Downcast state
     OpenGlStateRef d = OpenGlStateRef_create(&data);
     if (!OpenGlState_downcastRef(&data, &d)) {
         return invalid;
@@ -352,19 +320,16 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     
     if (!gpu_ready) {
         OpenGlStateRef_delete(&d);
-        // Return a simple colored texture while waiting for GPU upload
         AzColorU bg_color = AzColorU_red();
         AzTexture texture = AzTexture_allocateRgba8(gl_context, size, bg_color);
         AzTexture_clear(&texture);
         return AzImageRef_glTexture(texture);
     }
     
-    // Allocate texture (like Rust: Texture::allocate_rgba8(...))
     AzColorU bg_color = AzColorU_transparent();
     AzTexture texture = AzTexture_allocateRgba8(gl_context, size, bg_color);
     AzTexture_clear(&texture);
     
-    // Draw fill (like Rust: texture.draw_tesselated_svg_gpu_node(...))
     AzStyleTransform fill_transforms[2];
     AzStyleTransformTranslate2D translate = { 
         .x = AzPixelValue_px(400.0f), 
@@ -383,7 +348,6 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
         fill_vec
     );
     
-    // Draw stroke
     AzStyleTransform stroke_transforms[1];
     stroke_transforms[0] = AzStyleTransform_rotate(AzAngleValue_deg(rotation_deg));
     AzStyleTransformVec stroke_vec = AzStyleTransformVec_copyFromPtr(stroke_transforms, 1);
@@ -399,22 +363,18 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     
     OpenGlStateRef_delete(&d);
 
-    // Apply FXAA anti-aliasing to smooth edges
     AzTexture_applyFxaa(&texture);
 
     return AzImageRef_glTexture(texture);
 }
 
-// Window startup callback - mirrors startup_window() in Rust
 AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
-    // Get GL context
     AzOptionGlContextPtr opt_gl = AzCallbackInfo_getGlContext(&info);
     if (opt_gl.Some.tag != AzOptionGlContextPtr_Tag_Some) {
         return AzUpdate_DoNothing;
     }
     AzGlContextPtr gl_context = opt_gl.Some.payload;
     
-    // Downcast and upload vertices to GPU
     OpenGlStateRefMut d = OpenGlStateRefMut_create(&data);
     if (!OpenGlState_downcastMut(&data, &d)) {
         printf("Failed to downcast on startup\n");
@@ -427,7 +387,6 @@ AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
         return AzUpdate_DoNothing;
     }
     
-    // Upload to GPU (like Rust: TessellatedGPUSvgNode::new(...))
     d.ptr->fill_gpu_node = AzTessellatedGPUSvgNode_create(d.ptr->fill_vertices, gl_context);
     d.ptr->stroke_gpu_node = AzTessellatedGPUSvgNode_create(d.ptr->stroke_vertices, gl_context);
     d.ptr->gpu_ready = true;
@@ -436,7 +395,6 @@ AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
     
     OpenGlStateRefMut_delete(&d);
     
-    // Add timer for animation (like Rust: info.add_timer(...))
     AzTimerId timer_id = AzTimerId_unique();
     AzGetSystemTimeCallback time_fn = AzCallbackInfo_getSystemTimeFn(&info);
     AzTimer timer = AzTimer_create(AzRefAny_clone(&data), (AzTimerCallback){ .cb = animate, .ctx = AzOptionRefAny_none() }, time_fn);
@@ -450,8 +408,6 @@ AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
     return AzUpdate_RefreshDom;
 }
 
-// Animation callback - mirrors animate() in Rust
-// Uses updateAllImageCallbacks instead of full DOM rebuild for efficiency
 AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
     OpenGlStateRefMut d = OpenGlStateRefMut_create(&data);
     if (!OpenGlState_downcastMut(&data, &d)) {
@@ -465,7 +421,6 @@ AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
     
     OpenGlStateRefMut_delete(&d);
     
-    // Only re-render image callbacks (OpenGL textures), no DOM rebuild needed
     AzTimerCallbackInfo_updateAllImageCallbacks(&info);
     return AzTimerCallbackReturn_continueUnchanged();
 }
@@ -473,7 +428,6 @@ AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
 int main(void) {
     printf("Starting!\n");
     
-    // Initialize state
     OpenGlState state = {
         .rotation_deg = 0.0f,
         .fill_vertices = AzTessellatedSvgNode_empty(),
@@ -482,7 +436,6 @@ int main(void) {
         .gpu_ready = false
     };
     
-    // Parse and tessellate (like Rust: parse_multipolygons(DATA))
     if (!parse_and_tessellate(&state)) {
         printf("Failed to parse and tessellate\n");
         return 1;
@@ -490,17 +443,14 @@ int main(void) {
     
     printf("Starting app\n");
     
-    // Create app (like Rust: App::create(data, AppConfig::create()))
     AzRefAny data = OpenGlState_upcast(state);
     AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(data, config);
     
-    // Create window (like Rust: WindowCreateOptions::create(layout))
     AzWindowCreateOptions window = AzWindowCreateOptions_create((AzLayoutCallbackType)layout);
     window.window_state.title = az_str("OpenGL Integration");
     window.window_state.flags.frame = AzWindowFrame_Maximized;
     
-    // Set create callback (like Rust: window.create_callback = Some(...))
     AzCallback create_cb = { 
         .cb = (AzCallbackType)startup_window, 
         .ctx = AzOptionRefAny_some(AzRefAny_clone(&data))

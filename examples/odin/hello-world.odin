@@ -1,14 +1,6 @@
-// Azul counter example — Odin.
-//
-// Build: odin build . -out:hello-world -extra-linker-flags:"-L."
-// (needs libazul on the link path and the generated binding in ./azul/azul.odin)
-
 package main
 
 import azul "azul"
-
-// Data model wrapped in an AzRefAny: a process-unique type id (address of a
-// global we never read), an upcast that copies the struct in, and a downcast.
 
 MyDataModel :: struct {
 	counter: u32,
@@ -87,7 +79,6 @@ u32_write :: proc "contextless" (n: u32, buf: []u8) -> int {
 	return i
 }
 
-// Layout callback — `proc "c"`, re-run on every RefreshDom.
 layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azul.AzDom {
 	d := data
 	m := my_data_downcast(&d)
@@ -95,7 +86,6 @@ layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azu
 		return azul.AzDom_createBody()
 	}
 
-	// Counter label (wrapped in a div so the font-size sticks).
 	buf: [16]u8
 	n := u32_write(m.counter, buf[:])
 	counter_str := azul.AzString_fromUtf8(raw_data(buf[:]), uint(n))
@@ -108,7 +98,6 @@ layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azu
 	azul.AzDom_addCssProperty(&label_wrapper, cond)
 	azul.AzDom_addChild(&label_wrapper, label)
 
-	// Increment button. AzButton_setOnClick takes the bare fn pointer directly.
 	btn_label_bytes := "Increase counter"
 	btn_label := azul.AzString_fromUtf8(raw_data(btn_label_bytes), uint(len(btn_label_bytes)))
 	button := azul.AzButton_create(btn_label)
@@ -133,7 +122,6 @@ main :: proc() {
 	window.window_state.size.dimensions.width = 400.0
 	window.window_state.size.dimensions.height = 300.0
 
-	// NoTitleAutoInject: OS draws the window buttons; framework injects a draggable titlebar.
 	window.window_state.flags.decorations = azul.AzWindowDecorations.NoTitleAutoInject
 	window.window_state.flags.background_material = azul.AzWindowBackgroundMaterial.Sidebar
 

@@ -1,5 +1,3 @@
-# python xhtml.py
-
 from azul import *
 
 

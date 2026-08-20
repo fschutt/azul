@@ -1,5 +1,3 @@
-// g++ -std=c++17 -o opengl opengl.cpp -lazul
-
 #include "azul17.hpp"
 #include <string>
 

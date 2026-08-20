@@ -1,8 +1,3 @@
-// Azul counter example — V (vlang).
-//
-// Build (libazul on the link path, generated binding in ./azul/azul.v):
-//   v run .
-
 module main
 
 import azul
@@ -12,15 +7,11 @@ mut:
 	counter u32
 }
 
-// Any fixed, process-unique u64 works as the RefAny type id (the C
-// AZ_REFLECT macro uses a global's address; a constant is simpler in V).
 const my_data_type_id = u64(0x617a756c5f6d646d) // "azul_mdm"
 
 fn my_data_destructor(ptr voidptr) {
-	// MyDataModel is plain old data: nothing to free.
 }
 
-// Build an AzString from a V string (copies the bytes into libazul).
 fn az_str(s string) azul.AzString {
 	return C.AzString_fromUtf8(s.str, usize(s.len))
 }
@@ -57,8 +48,8 @@ fn my_data_downcast(refany &azul.AzRefAny) &MyDataModel {
 	return unsafe { &MyDataModel(ptr) }
 }
 
-// Top-level V fns compile to real C functions, so their addresses go
-// straight to the C-ABI setters — no host-invoker.
+// Top-level V fns compile to real C functions, so their addresses go straight
+// to the C-ABI setters.
 fn on_click(data azul.AzRefAny, info azul.AzCallbackInfo) azul.AzUpdate {
 	mut d := data
 	m := my_data_downcast(&d)
@@ -78,7 +69,6 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 		return C.AzDom_createBody()
 	}
 
-	// Counter label (wrapped in a div so the font-size sticks).
 	counter_val := unsafe { m.counter }
 	counter_str := az_str(counter_val.str())
 	label := C.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str)
@@ -90,7 +80,6 @@ fn layout(data azul.AzRefAny, info azul.AzLayoutCallbackInfo) azul.AzDom {
 	C.AzDom_addCssProperty(&label_wrapper, cond)
 	C.AzDom_addChild(&label_wrapper, label)
 
-	// AzButton_setOnClick takes the bare fn-pointer typedef directly.
 	btn_label := az_str('Increase counter')
 	mut button := C.AzButton_create(btn_label)
 	C.AzButton_setButtonType(&button, azul.AzButtonType.Primary)
@@ -115,8 +104,6 @@ fn main() {
 	window.window_state.size.dimensions.width = 400.0
 	window.window_state.size.dimensions.height = 300.0
 
-	// NoTitleAutoInject: OS draws the window buttons; the framework
-	// auto-injects a draggable titlebar.
 	window.window_state.flags.decorations = azul.AzWindowDecorations.NoTitleAutoInject
 	window.window_state.flags.background_material = azul.AzWindowBackgroundMaterial.Sidebar
 

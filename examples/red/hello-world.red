@@ -9,10 +9,8 @@ Red/System [
               local Red toolchain to compile-check. See scripts/RED_FFI_FINDINGS.md.}
 ]
 
-;; Generated bindings (azul.reds sits next to this file).
 #include %azul.reds
 
-;; App model: a single counter, starting at 5.
 model!: alias struct! [
     counter [integer!]
 ]
@@ -25,7 +23,6 @@ mk-str: func [s [c-string!] return: [AzString! value]][
     AzString_fromUtf8 as byte-ptr! s length? s
 ]
 
-;; ButtonOnClick callback: arg0 = AzRefAny*, out = AzUpdate*.
 on-click: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     /local praw [byte-ptr!] m [model!] up [int-ptr!]
 ][
@@ -40,8 +37,6 @@ on-click: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     ]
 ]
 
-;; Layout callback: body > [ div{font-size:32} > text(counter), button ].
-;; arg0 = AzRefAny*, out = AzDom*.
 on-layout: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     /local praw   [byte-ptr!]
            m      [model!]
@@ -57,7 +52,7 @@ on-layout: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     praw: azul-refany-get arg0
     if praw <> null [
         m: as model! praw
-        num: integer/to-string m/counter          ;; Red/System stdlib helper
+        num: integer/to-string m/counter
 
         label: AzDom_createDiv
         label: AzDom_withCss label mk-str "font-size: 32px;"
@@ -74,7 +69,7 @@ on-layout: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
     ]
     if out <> null [
         dom-out: as AzDom! out
-        dom-out/value: body                         ;; write the AzDom by value
+        dom-out/value: body
     ]
 ]
 
@@ -86,16 +81,12 @@ main: func [
 ][
     print-line "[azul] Red/System full-GUI hello-world starting."
 
-    ;; Register the releaser + per-kind invokers with libazul.
     azul-host-invoker-init
 
     app-data:  azul-refany-create as byte-ptr! the-model
     layout-cb: azul-register-layout-callback :on-layout
 
     wco: AzWindowCreateOptions_default
-    ;; wco.window_state.layout_callback = layout-cb
-    ;; wco.window_state.title           = mk-str "Hello World"
-    ;; (nested-struct field writes; see guide for the field-path spelling)
 
     the-app: AzApp_create app-data AzAppConfig_create
     AzApp_run as byte-ptr! the-app wco

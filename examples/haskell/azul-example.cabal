@@ -1,17 +1,5 @@
 cabal-version:      2.4
--- ============================================================================
--- Azul "hello world" — Haskell example project file. cabal-version must
--- be the very first non-comment line for spec ≥ 2.2; rest of the header
--- documentation lives below it.
---
--- Build with:
---     cabal run hello-world
---
--- The native libazul.so / libazul.dylib / azul.dll must be discoverable
--- by the linker at build time. Set `extra-lib-dirs` below or pass
--- `--extra-lib-dirs=...` on the command line if it lives outside the
--- usual search paths.
--- ============================================================================
+-- cabal-version must be the very first non-comment line for spec >= 2.2.
 
 name:               azul-example
 version:            0.1.0

@@ -1,6 +1,3 @@
--- macOS: DYLD_LIBRARY_PATH=. luajit hello-world.lua
--- Linux: LD_LIBRARY_PATH=. luajit hello-world.lua
-
 local azul = require('azul')
 
 local model = { counter = 5 }

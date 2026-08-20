@@ -1,36 +1,4 @@
 <?php
-// examples/php/hello-world-ext.php
-//
-// ──────────────────────────────────────────────────────────────────────
-// PHP EXTENSION SMOKE TEST (host-invoker tier)
-// ──────────────────────────────────────────────────────────────────────
-// `hello-world.php` is the full-GUI counter: it registers named PHP
-// callbacks and runs the event loop via App::run on the native Zend
-// extension. This script is the lower-level SMOKE test for the same
-// extension (`dll/src/php_extension.rs`, `php-extension` Cargo feature):
-// it round-trips the host-invoker primitives (version, RefAny handles,
-// register + invoke, Dom/App classes) WITHOUT entering the event loop,
-// which makes it the first thing to run when bringing the extension up.
-//
-// The extension is loaded by the Zend engine before script start, so
-// it can pin libffi closures and route user PHP callables back through
-// the host-invoker pattern — the same pattern used by Lua / Ruby / Perl
-// / OCaml / Node / Pascal / Fortran / Ada.
-//
-// Build the extension:
-//
-//     LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib \
-//     DYLD_FALLBACK_LIBRARY_PATH=$LIBCLANG_PATH \
-//     RUSTFLAGS="-C link-arg=-undefined -C link-arg=dynamic_lookup" \
-//       cargo build --release -p azul-dll --features php-extension
-//
-// Then run this script with the extension loaded:
-//
-//     php -d extension=path/to/libazul.dylib hello-world-ext.php
-//
-// On Linux replace .dylib with .so and pass
-//     RUSTFLAGS="-C link-arg=-Wl,--unresolved-symbols=ignore-in-object-files"
-// instead of the macOS dynamic_lookup flag.
 
 declare(strict_types=1);
 
@@ -50,14 +18,9 @@ if ($version !== '0.0.7') {
 }
 echo "[azul] azul_version() = $version (round-tripped through Zend ext call).\n";
 
-// 1. Register the releaser with libazul. Idempotent — safe to call
-// multiple times per request.
 azul_host_invoker_init();
 echo "[azul] azul_host_invoker_init() registered releaser.\n";
 
-// 2. RefAny round-trip — proves the host-invoker handle table is
-// reachable from PHP. Values are JSON-encoded for storage (Zvals are
-// per-request-rooted and would dangle if held in a global table).
 $model = ["counter" => 5, "label" => "hello, php"];
 $id = azul_refany_create(json_encode($model));
 echo "[azul] azul_refany_create(model) stored handle id=$id.\n";
@@ -76,13 +39,6 @@ if ($recovered['counter'] !== 5 || $recovered['label'] !== 'hello, php') {
 echo "[azul] azul_refany_get round-trip succeeded; counter="
     . $recovered['counter'] . ", label='" . $recovered['label'] . "'.\n";
 
-// 3. Codegen-driven per-kind register helpers. Phase 48 emits one
-// `azul_register_<kind>_callback(string $name) : int` for every
-// host-invoker callback kind. The function stashes the named PHP
-// function in CALLBACKS and returns its handle id. Phase 50 wires
-// the registered ids through libazul's AzApp_setGenericInvoker so
-// libazul fires the PHP function when (e.g.) a button is clicked.
-
 function on_button_click_smoke(string $args_json): string {
     $args = json_decode($args_json, true);
     return json_encode(['handled' => true, 'received' => $args]);
@@ -92,11 +48,6 @@ $button_cb_id = azul_register_button_on_click_callback('on_button_click_smoke');
 $layout_cb_id = azul_register_layout_callback('on_button_click_smoke');
 echo "[azul] azul_register_button_on_click_callback('on_button_click_smoke') = $button_cb_id.\n";
 
-// 4. azul_invoke_callback — round-trips a stashed callable through
-// the Zend executor from a Rust trampoline. This is the smoke layer
-// for the full host-invoker dispatch path: libazul's generic-invoker
-// trampoline (Phase 50) will call into the same lookup + try_call
-// sequence, but synthesized from libazul's static thunks at runtime.
 $result = azul_invoke_callback($button_cb_id, json_encode(['click_x' => 42, 'click_y' => 17]));
 if ($result === null) {
     fwrite(STDERR, "[azul] FAIL: azul_invoke_callback($button_cb_id) returned null.\n");
@@ -112,10 +63,6 @@ echo "[azul] azul_invoke_callback round-trip: PHP fn fired from Rust, returned $
 $fn_count = count(get_extension_funcs('azul-dll'));
 echo "[azul] codegen exposed $fn_count PHP functions; full register+invoke path live.\n";
 
-// 5. Phase 51 classes: `Azul\Dom`, `Azul\App`, `Azul\AppConfig`,
-//    `Azul\WindowCreateOptions`, `Azul\Button` are emitted from the
-//    same IR-driven `#[php_class]` path, with cross-class wrappers
-//    accepting `&AzulOther` and i64 (the host handle id) for RefAny.
 $body = Azul\Dom::createBody();
 $div  = Azul\Dom::createDiv();
 if ($body->nodeCount() !== 1 || $div->nodeCount() !== 1) {
@@ -125,12 +72,8 @@ if ($body->nodeCount() !== 1 || $div->nodeCount() !== 1) {
 }
 echo "[azul] Azul\\Dom::createBody()->nodeCount() = " . $body->nodeCount() . " (PHP class round-trip).\n";
 
-// Phase 51 chain: refany_create → register_layout_callback →
-// WindowCreateOptions → AppConfig → App. Each step constructs a real
-// libazul value; the App::run() method is callable but not invoked
-// from the smoke test (it would block on the event loop).
 $model_id     = azul_refany_create('counter:5');
-$layout_cb_id = azul_register_layout_callback('layout');  // not actually fired here
+$layout_cb_id = azul_register_layout_callback('layout');
 $wco          = Azul\WindowCreateOptions::default();
 $cfg          = Azul\AppConfig::create();
 $app          = Azul\App::create($model_id, $cfg);

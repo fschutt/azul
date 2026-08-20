@@ -1,16 +1,5 @@
-# Azul counter example — Julia.
-#
-# Run:  AZUL_LIB=$PWD/libazul.so julia hello-world.jl
-# See README.md for the per-OS library name and PowerShell invocation.
-#
-# `@cfunction` mints real C function pointers from on_click/layout, passed
-# C-direct to the setters — no host-invoker.
-
 include(joinpath(@__DIR__, "azul", "azul.jl"))
 using .Azul
-
-# isbits model + a runtime-unique type id: the address of a module-global
-# `Ref` we never read or write. POD model → no-op destructor.
 
 struct MyDataModel
     counter::UInt32
@@ -20,10 +9,8 @@ const MY_DATA_TOKEN = Ref{UInt8}(0)
 
 my_data_type_id() = UInt64(UInt(pointer_from_objref(MY_DATA_TOKEN)))
 
-# `@cfunction`-compatible destructor (does nothing — the model is POD).
 my_data_destructor(::Ptr{Cvoid})::Cvoid = nothing
 
-# A raw void pointer to the storage of a `Ref` (valid under GC.@preserve).
 vptr(r::Ref) = Ptr{Cvoid}(pointer_from_objref(r))
 
 function my_data_upcast(model::MyDataModel)
@@ -41,23 +28,20 @@ function my_data_upcast(model::MyDataModel)
             my_data_type_id(),
             Azul.az_string("MyDataModel"),
             dtor,
-            C_NULL, # no serialize_fn
-            C_NULL, # no deserialize_fn
+            C_NULL,
+            C_NULL,
         )
     end
 end
 
-# Returns a `Ptr{MyDataModel}` into the refcounted allocation, or a null
-# pointer if the type-id check fails. `dref` must be kept alive by the
-# caller (GC.@preserve) for the duration of the pointer's use.
+# `dref` must be kept alive by the caller (GC.@preserve) for the duration
+# of the returned pointer's use.
 function my_data_ptr(dref::Ref{Azul.AzRefAny})
     p = vptr(dref)
     Azul.AzRefAny_isType(p, my_data_type_id()) || return Ptr{MyDataModel}(C_NULL)
     raw = Azul.AzRefAny_getDataPtr(p)
     return Ptr{MyDataModel}(raw)
 end
-
-# ── Callback: button click ────────────────────────────────────────────
 
 function on_click(data::Azul.AzRefAny, info::Azul.AzCallbackInfo)::Azul.AzUpdate
     dref = Ref(data)
@@ -73,8 +57,6 @@ function on_click(data::Azul.AzRefAny, info::Azul.AzCallbackInfo)::Azul.AzUpdate
     end
 end
 
-# ── Layout callback ───────────────────────────────────────────────────
-
 function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDom
     dref = Ref(data)
     counter = GC.@preserve dref begin
@@ -83,7 +65,6 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
     end
     counter === nothing && return Azul.AzDom_createBody()
 
-    # Counter label (wrapped in a div so the font-size sticks).
     label = Azul.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(Azul.az_string(string(counter)))
 
     label_wrapper = Ref(Azul.AzDom_createDiv())
@@ -95,7 +76,6 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
         Azul.AzDom_addChild(vptr(label_wrapper), label)
     end
 
-    # AzButton_setOnClick takes the bare fn-pointer typedef directly.
     button = Ref(Azul.AzButton_create(Azul.az_string("Increase counter")))
     on_click_ptr = @cfunction(on_click, Azul.AzUpdate, (Azul.AzRefAny, Azul.AzCallbackInfo))
     button_dom = GC.@preserve button dref begin
@@ -105,7 +85,6 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
         Azul.AzButton_dom(button[])
     end
 
-    # Body.
     body = Ref(Azul.AzDom_createBody())
     GC.@preserve body begin
         Azul.AzDom_addChild(vptr(body), label_wrapper[])
@@ -113,8 +92,6 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
     end
     return body[]
 end
-
-# ── Main ──────────────────────────────────────────────────────────────
 
 function main()
     model = MyDataModel(UInt32(5))
@@ -131,8 +108,6 @@ function main()
             title = Azul.az_string("Hello World"),
             size = Azul.setfields(ws.size;
                 dimensions = Azul.setfields(ws.size.dimensions; width = 400.0f0, height = 300.0f0)),
-            # NoTitleAutoInject: OS draws the window buttons; framework
-            # injects a draggable Titlebar.
             flags = Azul.setfields(ws.flags;
                 decorations = Azul.AzWindowDecorations_NoTitleAutoInject,
                 background_material = Azul.AzWindowBackgroundMaterial_Sidebar)))

@@ -1,5 +1,3 @@
-// g++ -std=c++03 -o async async.cpp -lazul
-
 #include "azul03.hpp"
 
 using namespace azul;

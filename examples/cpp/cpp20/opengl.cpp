@@ -1,5 +1,3 @@
-// g++ -std=c++20 -o opengl opengl.cpp -lazul
-
 #include "azul20.hpp"
 #include <string>
 

@@ -1,5 +1,3 @@
-# python calc.py
-
 from azul import *
 
 

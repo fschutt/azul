@@ -1,5 +1,3 @@
-// cargo run --example async
-
 #![windows_subsystem = "windows"]
 
 use std::{
@@ -18,28 +16,19 @@ struct MyDataModel {
 
 enum ConnectionStatus {
     NotConnected {
-        // which database to connect to
-        // ex. "user@localhost:5432"
         database: String,
     },
     InProgress {
-        // handle to the background thread
         background_thread_id: ThreadId,
-        // time when the thread was started
         start_time: Instant,
-        // estimated time to completion
         estimated_wait: Duration,
-        // data that has been loaded so far
         data_in_progress: Vec<usize>,
-        // stage of the connection
         stage: ConnectionStage,
     },
     DataLoaded {
-        // the established connection
         data: Vec<usize>,
     },
     Error {
-        // error establishing a connection
         error: String,
     },
 }
@@ -52,7 +41,6 @@ impl Default for ConnectionStatus {
     }
 }
 
-// Main function that renders the UI
 extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     use self::ConnectionStatus::*;
 
@@ -66,7 +54,7 @@ extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let data_clone = data.clone();
     let downcasted = match data.downcast_ref::<MyDataModel>() {
         Some(f) => f,
-        None => return body, // error
+        None => return body,
     };
 
     body.add_child(
@@ -173,7 +161,6 @@ enum ConnectionStage {
     LoadingFinished,
 }
 
-// Runs when "connect to database" button is clicked
 extern "C" fn edit_database_input(
     mut data: RefAny,
     _event: CallbackInfo,
@@ -186,7 +173,7 @@ extern "C" fn edit_database_input(
 
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
-        None => return ret, // error
+        None => return ret,
     };
 
     match &mut data_mut.connection_status {
@@ -200,17 +187,15 @@ extern "C" fn edit_database_input(
 }
 
 extern "C" fn start_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
-    // Copy the string of what database to connect to and
-    // use it to initialize a new background thread
     let data_clone = data.clone();
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
-        None => return Update::DoNothing, // error
+        None => return Update::DoNothing,
     };
 
     let database_to_connect_to = match &data_mut.connection_status {
         NotConnected { database } => database.clone(),
-        _ => return Update::DoNothing, // error
+        _ => return Update::DoNothing,
     };
 
     let init_data = RefAny::new(BackgroundThreadInit {
@@ -229,11 +214,9 @@ extern "C" fn start_background_thread(mut data: RefAny, mut event: CallbackInfo)
         data_in_progress: Vec::new(),
     };
 
-    // Update the UI
     Update::RefreshDom
 }
 
-// Runs when "cancel" button is clicked while background thread is running
 extern "C" fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
@@ -245,7 +228,7 @@ extern "C" fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) 
             background_thread_id,
             ..
         } => background_thread_id.clone(),
-        _ => return Update::DoNothing, // error
+        _ => return Update::DoNothing,
     };
 
     event.remove_thread(thread_id);
@@ -255,7 +238,6 @@ extern "C" fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) 
     Update::RefreshDom
 }
 
-// Runs when "reset" is clicked (resets the data)
 extern "C" fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
@@ -264,7 +246,7 @@ extern "C" fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
 
     match data_mut.connection_status {
         DataLoaded { .. } => {}
-        _ => return Update::DoNothing, // error
+        _ => return Update::DoNothing,
     };
 
     data_mut.connection_status = ConnectionStatus::default();
@@ -272,13 +254,11 @@ extern "C" fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-// Data sent from the main to the background thread
 #[derive(Debug)]
 struct BackgroundThreadInit {
     database: String,
 }
 
-// Data returned from the background thread
 #[derive(Debug)]
 enum BackgroundThreadReturn {
     StatusUpdated { new: ConnectionStage },
@@ -286,9 +266,6 @@ enum BackgroundThreadReturn {
     NewDataLoaded { data: Vec<usize> },
 }
 
-// Callback that "writes data back" from the background thread to the main thread
-//
-// This function runs on the main thread, so that there can't be any data races
 extern "C" fn writeback_callback(
     mut app_data: RefAny,
     mut incoming_data: RefAny,
@@ -332,7 +309,6 @@ extern "C" fn writeback_callback(
     }
 }
 
-// Function that executes in a non-main thread (main "background thread" logic)
 extern "C" fn background_thread(
     mut initial_data: RefAny,
     mut sender: ThreadSender,
@@ -340,10 +316,9 @@ extern "C" fn background_thread(
 ) {
     let initial_data = match initial_data.downcast_ref::<BackgroundThreadInit>() {
         Some(s) => s,
-        None => return, // error
+        None => return,
     };
 
-    // connect to the database (blocking)
     let connection = match postgres::establish_connection(&initial_data.database) {
         Ok(db) => db,
         Err(e) => {
@@ -358,12 +333,10 @@ extern "C" fn background_thread(
         }
     };
 
-    // if in the meantime we got a "cancel" message, quit the thread
     if matches!(recv.recv().into_option(), Some(ThreadSendMsg::TerminateThread)) {
         return;
     }
 
-    // update the UI again to notify that the connection has been established
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
         refany: RefAny::new(StatusUpdated {
             new: ConnectionStage::ConnectionEstablished,
@@ -379,13 +352,11 @@ extern "C" fn background_thread(
     let mut items_loaded = 0;
 
     for row in postgres::query_rows(&connection, query) {
-        // If in the meantime we got a "cancel" message, quit the thread
         if matches!(recv.recv().into_option(), Some(ThreadSendMsg::TerminateThread)) {
             return;
         } else {
             items_loaded += row.len();
 
-            // As soon as each row is loaded, update the UI
             sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
                 refany: RefAny::new(NewDataLoaded { data: row.to_vec() }),
                 callback: WriteBackCallback {
@@ -395,7 +366,6 @@ extern "C" fn background_thread(
             }));
 
             let percent_done = (items_loaded as f32 / total_items as f32) * 100.0;
-            // Calculate and update the percentage count
             sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
                 refany: RefAny::new(StatusUpdated {
                     new: ConnectionStage::LoadingData { percent_done },
@@ -426,7 +396,6 @@ mod postgres {
 
     use std::time::Duration;
 
-    // Mock database connection
     pub(super) struct Database {}
 
     type Row = [usize; 10];
@@ -444,7 +413,6 @@ mod postgres {
         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
     ];
 
-    // each of these functions blocks to simulate latency on a real database
     pub(super) fn establish_connection(database: &str) -> Result<Database, String> {
         std::thread::sleep(Duration::from_secs(1));
         Ok(Database {})
@@ -456,7 +424,6 @@ mod postgres {
 
     pub(super) fn query_rows(db: &Database, _query: &str) -> impl Iterator<Item = &'static Row> {
         LARGE_TABLE.iter().map(|i| {
-            // let's simulate that each row / query takes one second to load in
             std::thread::sleep(Duration::from_secs(1));
             i
         })

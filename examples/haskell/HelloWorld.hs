@@ -1,12 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
--- Full-GUI counter hello-world for the Azul Haskell bindings.
---   cabal run hello-world
---
--- Callbacks use inbound trampolines: `mk_<X>_inner` makes a FunPtr, `set_inner`
--- stores it, and libazul is handed the trampoline's address. App state lives in
--- an IORef captured by the closures, so the RefAny we pass is a zero-sized
--- refcount placeholder.
---
 -- GOTCHA: build the DOM only with the raw `c_Az*_via` out-pointer primitives.
 -- The Storables for DOM-sized aggregates hold tagged-union placeholders whose
 -- peek/poke intentionally `error` out, so never round-trip through `T.Dom`.
@@ -35,16 +27,13 @@ szAppConfig = 2048  -- sizeof(AzAppConfig) = 1648
 szApp       = 64    -- sizeof(AzApp)     = 16
 szOnClickCb = 64    -- sizeof(AzButtonOnClickCallback) = 40 (cb + OptionRefAny::None)
 
--- | Write an owned AzString (copied from a Haskell String) into @out@.
 -- ASCII-only here, so the Latin-1 marshalling is valid UTF-8.
 mkAzString :: String -> Ptr T.AzString -> IO ()
 mkAzString s out =
   withCAStringLen s $ \(p, len) ->
     c_AzString_copyFromBytes_via (castPtr p) 0 (fromIntegral len :: CSize) out
 
--- | Build a zero-sized placeholder RefAny. State lives in the IORef captured
--- by the closures, but libazul still clones/drops this, so it must be a real
--- refcounted RefAny.
+-- libazul clones/drops this placeholder, so it must be a real refcounted RefAny.
 mkPlaceholderRefAny :: FunPtr () -> Ptr (T.RefAny ()) -> IO ()
 mkPlaceholderRefAny dtorTramp out =
   allocaBytes 16 $ \(gvp :: Ptr T.GlVoidPtrConst) -> do
@@ -55,8 +44,6 @@ mkPlaceholderRefAny dtorTramp out =
         poke dtorCell dtorTramp
         c_AzRefAny_newC_via gvp 0 1 0xBA5EBA11 typeName (castPtr dtorCell) 0 0 out
 
--- | Rebuild the whole DOM from the counter value, writing the AzDom directly
--- into the trampoline's out-pointer.
 buildLayout :: IORef Int
             -> Ptr (T.RefAny ())            -- master placeholder RefAny (cloned per button)
             -> Ptr T.ButtonOnClickCallback  -- prepared { cb = trampoline, callable = None }
@@ -65,7 +52,6 @@ buildLayout counter master clickCb _data _info outPtr = do
   n <- readIORef counter
   c_AzDom_createBody_via outPtr
 
-  -- div { font-size: 32px } > text(show n)
   allocaBytes szDom $ \divBuf -> do
     c_AzDom_createDiv_via divBuf
     allocaBytes szString $ \css -> do
@@ -78,7 +64,6 @@ buildLayout counter master clickCb _data _info outPtr = do
         c_AzDom_addChild_via divBuf txt   -- consumes txt
     c_AzDom_addChild_via outPtr divBuf    -- consumes divBuf
 
-  -- Button "Increase counter" (typed ButtonOnClick callback)
   allocaBytes szButton $ \btn -> do
     allocaBytes szString $ \label -> do
       mkAzString "Increase counter" label
@@ -99,15 +84,12 @@ main = do
 
   counter <- newIORef (5 :: Int)
 
-  -- 1. No-op RefAny destructor (payload is zero-sized; nothing to free).
   dtorInner <- mk_RefAnyDestructorType_inner (\_ -> pure ())
   c_AzRefAnyDestructorType_set_inner dtorInner
 
-  -- 2. Master placeholder RefAny (lives for the program's lifetime).
   master <- mallocBytes szRefAny :: IO (Ptr (T.RefAny ()))
   mkPlaceholderRefAny p_AzRefAnyDestructorType_trampoline master
 
-  -- 3. Typed button on-click: increment the IORef, request a re-layout.
   clickInner <- mk_ButtonOnClickCallbackType_inner $ \_data _info out -> do
     modifyIORef' counter (+ 1)
     poke out T.Update_RefreshDom
@@ -117,11 +99,9 @@ main = do
   fillBytes clickCb 0 szOnClickCb
   poke (castPtr clickCb :: Ptr (FunPtr ())) p_AzButtonOnClickCallbackType_trampoline
 
-  -- 4. Layout callback: builds the DOM into the trampoline's out-pointer.
   layoutInner <- mk_LayoutCallbackType_inner (buildLayout counter master clickCb)
   c_AzLayoutCallbackType_set_inner layoutInner
 
-  -- 5. WindowCreateOptions(layout_callback) + AppConfig + App, then run.
   allocaBytes szWco $ \wco -> do
     alloca $ \(cbCell :: Ptr (FunPtr ())) -> do
       poke cbCell p_AzLayoutCallbackType_trampoline

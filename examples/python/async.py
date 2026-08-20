@@ -1,11 +1,8 @@
-# python async.py
-
 from azul import *
 
 
 class AsyncState:
     def __init__(self):
-        # not_connected, connecting, loading, loaded, error
         self.stage = "not_connected"
         self.database_url = "postgres://localhost:5432/mydb"
         self.loaded_data = []

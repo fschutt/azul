@@ -1,7 +1,3 @@
-{ fpc -Mobjfpc -Sh -Fl. hello-world.pas && DYLD_LIBRARY_PATH=. ./hello-world
-  (azul.pas carries {$linklib azul}, so no -k-lazul is needed; -Fl. supplies
-  the library search path. Linux: LD_LIBRARY_PATH=. instead of DYLD_.) }
-
 program HelloWorld;
 
 {$mode objfpc}{$H+}
@@ -12,20 +8,17 @@ uses
   Azul;
 
 type
-  { Plain data model. }
   TMyModel = class
     Counter: Integer;
     constructor Create(c: Integer);
   end;
 
-  { Click handler: bump counter and request a DOM refresh.
-    Button.onClick is TYPED since the typed-callback API change: derive
-    from TAzButtonOnClickCallbackInvoker, not the generic TAzCallbackInvoker. }
+  { Button.onClick is TYPED: derive from TAzButtonOnClickCallbackInvoker,
+    not the generic TAzCallbackInvoker. }
   TMyClickHandler = class(TAzButtonOnClickCallbackInvoker)
     procedure Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;
   end;
 
-  { Layout handler: build the DOM. }
   TMyLayoutHandler = class(TAzLayoutCallbackInvoker)
     procedure Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;
   end;
@@ -73,10 +66,9 @@ begin
     Exit;
   end;
 
-  { Idiomatic wrapper classes: TDom.CreateTextDoNotUseWithoutBlockLevelWrapper / CreateDiv / CreateBody are
-    named constructors; builder methods return fresh TDom wrappers and
-    consume their by-value inputs (ownership flips off, so .Free on a
-    consumed wrapper only releases the object shell, never the DOM). }
+  { Builder methods return fresh TDom wrappers and consume their by-value
+    inputs (ownership flips off, so .Free on a consumed wrapper only
+    releases the object shell, never the DOM). }
   counter_text := TDom.CreateTextDoNotUseWithoutBlockLevelWrapper(MakeAzString(IntToStr(TMyModel(m).Counter)));
   label_wrap := TDom.CreateDiv.WithCss(MakeAzString('font-size: 32px;'))
                               .WithChild(counter_text);

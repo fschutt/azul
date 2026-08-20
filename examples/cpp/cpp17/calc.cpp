@@ -1,5 +1,3 @@
-// g++ -std=c++17 -o calc calc.cpp -lazul
-
 #include "azul17.hpp"
 #include <string>
 #include <cmath>
@@ -84,7 +82,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     Dom buttons = Dom::create_div();
     buttons.set_css(String(BUTTONS_STYLE));
 
-    // Row 1-5
     buttons.add_child(make_button(data_wrapper, "C", EventType::Clear, 0, Operation::None, BTN_STYLE));
     buttons.add_child(make_button(data_wrapper, "+/-", EventType::Invert, 0, Operation::None, BTN_STYLE));
     buttons.add_child(make_button(data_wrapper, "%", EventType::Percent, 0, Operation::None, BTN_STYLE));

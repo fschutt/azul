@@ -1,15 +1,4 @@
-# Azul counter example — Nim.
-#
-# nim c -d:release hello-world.nim && LD_LIBRARY_PATH=. ./hello-world
-#   (macOS: DYLD_LIBRARY_PATH=. ./hello-world ; Windows: azul.dll in cwd)
-#
-# azul.nim dlopens libazul via `{.dynlib.}`, so no link flags are needed — the
-# .so / .dylib / .dll just has to be discoverable at run time.
-
 import azul
-
-# Data model wrapped in an AzRefAny: a process-unique type id (address of a
-# global we never read), an upcast that copies the struct in, and a downcast.
 
 type
   MyDataModel = object
@@ -20,7 +9,6 @@ proc myDataTypeId(): uint64 = cast[uint64](addr myDataTypeToken)
 
 proc myDataDestructor(p: pointer) {.cdecl.} = discard
 
-# Build an AzString from a Nim string (copies the bytes into libazul).
 proc azStr(s: string): AzString =
   if s.len == 0:
     AzString_fromUtf8(nil, csize_t(0))
@@ -50,8 +38,6 @@ proc myDataDowncast(refany: ptr AzRefAny): ptr MyDataModel =
     return nil
   cast[ptr MyDataModel](p)
 
-# ── Callback: button click ────────────────────────────────────────────────
-
 proc onClick(data: AzRefAny, info: AzCallbackInfo): AzUpdate {.cdecl.} =
   var d = data
   let m = myDataDowncast(addr d)
@@ -60,15 +46,12 @@ proc onClick(data: AzRefAny, info: AzCallbackInfo): AzUpdate {.cdecl.} =
   m.counter += 1
   return AzUpdate.RefreshDom
 
-# ── Layout callback ───────────────────────────────────────────────────────
-
 proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
   var d = data
   let m = myDataDowncast(addr d)
   if m == nil:
     return AzDom_createBody()
 
-  # Counter label, wrapped in a div so the font-size sticks.
   let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(azStr($m.counter))
   var labelWrapper = AzDom_createDiv()
   let cond = AzCssPropertyWithConditions_simple(
@@ -76,11 +59,9 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
   AzDom_addCssProperty(addr labelWrapper, cond)
   AzDom_addChild(addr labelWrapper, label)
 
-  # Increment button. AzButton_setOnClick takes the bare fn pointer directly.
   var button = AzButton_create(azStr("Increase counter"))
   AzButton_setButtonType(addr button, AzButtonType.Primary)
   let dataClone = AzRefAny_clone(addr d)
-  # AzButton_setOnClick takes the bare {.cdecl.} fn pointer directly.
   AzButton_setOnClick(addr button, dataClone, onClick)
   let buttonDom = AzButton_dom(button)
 
@@ -88,8 +69,6 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
   AzDom_addChild(addr body, labelWrapper)
   AzDom_addChild(addr body, buttonDom)
   return body
-
-# ── Main ──────────────────────────────────────────────────────────────────
 
 proc main() =
   let model = MyDataModel(counter: 5)
@@ -99,7 +78,6 @@ proc main() =
   window.window_state.title = azStr("Hello World")
   window.window_state.size.dimensions.width = 400.0'f32
   window.window_state.size.dimensions.height = 300.0'f32
-  # NoTitleAutoInject: the OS draws the window buttons; the framework injects a draggable titlebar.
   window.window_state.flags.decorations = AzWindowDecorations.NoTitleAutoInject
   window.window_state.flags.background_material = AzWindowBackgroundMaterial.Sidebar
 

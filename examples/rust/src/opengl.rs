@@ -1,5 +1,3 @@
-// cargo run --example opengl --features serde
-
 #![cfg(feature = "serde")]
 
 use azul::callbacks::RenderImageCallbackInfo;
@@ -29,15 +27,10 @@ struct Dataset {
     coordinates: Vec<Vec<Vec<[f32; 2]>>>,
 }
 
-// AzTessellatedSvgNode / AzTessellatedGPUSvgNode don't impl Debug at the FFI
-// boundary (they wrap SvgVertexVec / GLuint handles), so we can't derive
-// Debug on the wrapper. Manual impl skipping the GPU-resource fields.
 struct OpenGlAppState {
     rotation_deg: f32,
-    // vertices, uploaded on startup
     fill_vertices_to_upload: Option<TessellatedSvgNode>,
     stroke_vertices_to_upload: Option<TessellatedSvgNode>,
-    // vertex (+ index) buffer ID of the uploaded tessellated node
     fill_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
     stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
 }
@@ -131,20 +124,16 @@ fn render_my_texture_inner(
         vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))],
     );
 
-    // Apply FXAA anti-aliasing to smooth edges
     texture.apply_fxaa();
 
     Some(ImageRef::gl_texture(texture))
 }
 
-// uploads the vertex buffer to the GPU on window creation
 extern "C" fn startup_window(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let _ = startup_window_inner(&mut data, &mut info);
     Update::DoNothing
 }
 
-// Function called when the OpenGL context has been initialized:
-// allocate all textures and upload vertex buffer to GPU
 fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()> {
     {
         let mut state = data.downcast_mut::<OpenGlAppState>()?;
@@ -180,7 +169,6 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
 }
 
 fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
-    // parse the geojson
     let parsed: Vec<Dataset> = match serde_json::from_str(data) {
         Ok(s) => s,
         Err(e) => {
@@ -189,7 +177,6 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
         }
     };
 
-    // parse the multipolygons
     parsed
         .iter()
         .map(|p| SvgMultiPolygon {
@@ -231,7 +218,6 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
         .collect()
 }
 
-/// Animation function rotating the map constantly
 extern "C" fn animate(mut timer_data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,
@@ -252,8 +238,6 @@ fn main() {
 
     println!("parsed {} multipolygons!", multipolygons.len());
 
-    // Tessellate fills as a plain Vec<TessellatedSvgNode>; pass to from_nodes
-    // via the From<&[TessellatedSvgNode]> impl on TessellatedSvgNodeVecRef.
     let tessellated_fill: Vec<TessellatedSvgNode> = multipolygons
         .iter()
         .map(|mp| mp.tessellate_fill(SvgFillStyle::default()))
@@ -265,7 +249,6 @@ fn main() {
     let mut stroke_style = SvgStrokeStyle::default();
     stroke_style.line_width = 4.0;
 
-    // Tessellate strokes the same way.
     let tessellated_stroke: Vec<TessellatedSvgNode> = multipolygons
         .iter()
         .map(|mp| mp.tessellate_stroke(stroke_style))
@@ -274,7 +257,6 @@ fn main() {
     let tessellated_stroke_join =
         TessellatedSvgNode::from_nodes(tessellated_stroke.as_slice().into());
 
-    // initalize data
     let data = RefAny::new(OpenGlAppState {
         fill_vertices_to_upload: Some(tessellated_fill_join),
         stroke_vertices_to_upload: Some(tessellated_stroke_join),

@@ -1,5 +1,3 @@
-// mvn package && java -XstartOnFirstThread -Djna.library.path=. -jar target/hello-world-1.0.0.jar   (-XstartOnFirstThread is REQUIRED on macOS; drop it on Linux/Windows)
-
 package com.azul;
 
 import com.sun.jna.Pointer;

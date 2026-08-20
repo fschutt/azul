@@ -1,11 +1,8 @@
-// cc -o xhtml xhtml.c -lazul
-
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// Embedded XHTML content
 static const char* XHTML_CONTENT = "<html><body><h1>Test XHTML</h1><p>This is a test spreadsheet.</p></body></html>";
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {

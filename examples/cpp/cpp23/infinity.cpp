@@ -1,5 +1,3 @@
-// g++ -std=c++23 -o infinity infinity.cpp -lazul
-
 #include "azul23.hpp"
 #include <vector>
 #include <string>

@@ -1,5 +1,3 @@
-// g++ -std=c++14 -o hello-world hello-world.cpp -lazul
-
 #include "azul14.hpp"
 #include <string>
 
@@ -35,8 +33,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 }
 
 int main() {
-    // type_id_v is a variable template - shorthand for RefAny::type_id<T>().
-    // The address-of-static trick that backs it isn't a constant expression,
+    // The address-of-static trick that backs type_id_v isn't a constant expression,
     // so we can't static_assert; just verify at runtime.
     if (RefAny::type_id_v<MyDataModel> == 0) return 1;
 
