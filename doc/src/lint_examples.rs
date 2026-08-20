@@ -34,6 +34,15 @@
 //! unambiguously ours, so it must appear verbatim in the generated output. A
 //! bare `Class.member` is only checked when `Class` is a name api.json
 //! defines, or `Console.WriteLine` and every other host call is a finding.
+//!
+//! `Class::member` is checked TOO, but only in `doc/guide/**.md`. The guide's
+//! Rust samples `use azul::prelude::*`, and that crate is generated from
+//! api.json - so a method api.json does not declare cannot be called from a
+//! guide snippet even when `azul_core` has one by that name. That is exactly
+//! the drift this caught on its first run: `Dom::style_dom`,
+//! `AppConfig::add_route` and `LayoutCallbackInfo::get_active_route` are real
+//! functions in core with no FFI entry, and `Dom::with_component_css` no
+//! longer exists anywhere.
 
 use std::{
     collections::{BTreeSet, HashSet},
@@ -89,6 +98,80 @@ static RE_PWSH: LazyLock<Regex> =
 // catch, all use `.`.
 static RE_DOT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(T?[A-Z][A-Za-z0-9]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\(").unwrap()
+});
+// `Class::method(` — Rust/C++ path syntax, checked in the GUIDE ONLY.
+//
+// A guide teaches the API api.json defines: its Rust samples `use
+// azul::prelude::*`, and that crate is generated FROM api.json, so a method
+// the file does not declare cannot be called there whatever exists inside
+// `azul_core`. (This is why the check is scoped to the guide. In an example
+// tree the same syntax legitimately names Rust-internal helpers.)
+//
+// The member must start lowercase: `Update::RefreshDom` is an enum variant,
+// not a call, and every azul method is snake_case.
+static RE_PATH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(T?[A-Z][A-Za-z0-9]*)::([a-z_][A-Za-z0-9_]*)\s*\(").unwrap()
+});
+// `.method(` — a call on a value whose type the lint cannot see. Guide only,
+// and only names that are ours: everything a guide sample calls on a `Vec`,
+// an `Option` or a tokio handle is listed in NOT_OURS below. api.json is the
+// oracle for the rest, which is the whole point - it knows every function
+// that exists, so a name that is nowhere in the generated surface and not a
+// host method is a call that cannot compile.
+static RE_METHOD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\.([a-z_][a-z0-9_]*)\s*\(").unwrap());
+
+/// Backticked file names read as calls: `main.rs(` never appears, but
+/// `` `main.rs` `` in prose does, and the regex cannot tell. Extensions are a
+/// closed set, so listing them is exact.
+const FILE_EXTS: &[&str] = &[
+    "rs", "gz", "zip", "ipa", "apk", "app", "exe", "dll", "dylib", "wasm",
+    "json", "toml", "yaml", "yml", "html", "css", "png", "svg", "txt", "log",
+    "sqlite", "db", "so", "md", "sh", "bat", "pas", "hpp", "cpp",
+];
+
+/// Helpers a guide sample calls on the READER's own type, in a narrative that
+/// never defines them (`data.fetch_rows(..)` on the sample's `TableData`).
+/// They are not azul functions and never will be; the alternative to naming
+/// them here is padding every snippet with stub impls.
+const APP_SIDE: &[&str] = &[
+    "already_rendered_area_covers", "render_more_rows", "fetch_rows",
+];
+
+/// Methods a guide sample calls on something that is NOT an azul type: std,
+/// core, tokio, and the two `RefAny` accessors that are Rust generics rather
+/// than FFI functions. Everything else must exist in the bindings.
+const NOT_OURS: &[&str] = &[
+    // Option / Result
+    "and_then", "expect", "map", "map_err", "ok", "ok_or", "ok_or_else",
+    "unwrap", "unwrap_or", "unwrap_or_default", "unwrap_or_else", "take",
+    "is_some", "is_none", "is_ok", "is_err", "as_deref", "cloned", "copied",
+    // Iterator
+    "iter", "iter_mut", "into_iter", "collect", "filter", "filter_map", "find",
+    "find_map", "enumerate", "zip", "rev", "chain", "flat_map", "flatten",
+    "for_each", "fold", "any", "all", "count", "position", "skip", "sum",
+    "min_by_key", "max_by_key", "sort_by_key", "last", "next", "peekable",
+    // Vec / String / slice / numbers
+    "push", "pop", "insert", "remove", "extend", "join", "split", "splitn",
+    "trim", "starts_with", "ends_with", "contains", "replace", "to_string",
+    "to_owned", "to_vec", "to_lowercase", "to_uppercase", "parse", "chars",
+    "lines", "bytes", "as_bytes", "as_slice", "as_mut_slice", "push_str",
+    "get_or_insert_with", "entry", "keys", "values", "retain", "drain",
+    "ceil", "floor", "round", "abs", "sqrt", "powi", "powf", "clamp",
+    "saturating_sub", "checked_add", "is_alphanumeric", "is_whitespace",
+    "is_empty", "is_finite", "is_nan",
+    // std::* handles, threads, time, tokio - guide samples use these directly
+    "lock", "borrow", "borrow_mut", "read", "write", "send", "recv",
+    "poll_recv", "block_on", "enable_all", "spawn", "join_all", "await",
+    "elapsed", "duration_since", "as_secs", "as_millis", "as_secs_f32",
+    "checked_duration_since", "now",
+    // RefAny's downcasts are Rust generics; there is no `AzRefAny_downcastRef`
+    "downcast_ref", "downcast_mut",
+];
+
+// `fn foo(`, `func foo(`, `def foo(` — a definition in the page's own sample.
+static RE_DEFINITION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:fn|func|def|function)\s+([a-z_][A-Za-z0-9_]*)").unwrap()
 });
 // Go: NewDomCreateText — no separator, so the class prefix is matched greedily.
 static RE_GO: LazyLock<Regex> =
@@ -220,7 +303,15 @@ impl Surface {
     }
 }
 
-fn check_line(line: &str, s: &Surface, file: &str, lineno: usize, out: &mut Vec<Finding>) {
+fn check_line(
+    line: &str,
+    s: &Surface,
+    file: &str,
+    lineno: usize,
+    guide: bool,
+    defined_in_page: &HashSet<String>,
+    out: &mut Vec<Finding>,
+) {
     let mut flag = |symbol: &str, token: &str, out: &mut Vec<Finding>| {
         if placeholder(symbol) || wasm_surface(symbol) {
             return;
@@ -272,6 +363,47 @@ fn check_line(line: &str, s: &Surface, file: &str, lineno: usize, out: &mut Vec<
         }
         if (s.classes.contains(raw) || s.classes.contains(class)) && !s.exports_on(class, &c[2]) {
             flag(&c[2], c.get(0).unwrap().as_str().trim_end_matches('('), out);
+        }
+    }
+
+    if guide {
+        for c in RE_METHOD.captures_iter(line) {
+            let member = &c[1];
+            // Under three characters the surface cannot answer at all - it
+            // only keeps tokens longer than two - so `.px(` would always
+            // "miss". Those are covered by the `Class.member` rules instead.
+            if member.len() < 3
+                || FILE_EXTS.contains(&member)
+                || APP_SIDE.contains(&member)
+                || NOT_OURS.contains(&member)
+                || s.exports_member(member)
+            {
+                continue;
+            }
+            // cgo: `C.make_click_callback()` calls a C helper the READER
+            // writes, not a binding symbol.
+            let at = c.get(0).unwrap().start();
+            if line[..at].ends_with('C') {
+                continue;
+            }
+            // A page that DEFINES the function is showing its own helper.
+            if defined_in_page.contains(member) {
+                continue;
+            }
+            flag(member, c.get(0).unwrap().as_str().trim_end_matches('('), out);
+        }
+
+        for c in RE_PATH.captures_iter(line) {
+            let raw = &c[1];
+            let class = raw.strip_prefix('T').unwrap_or(raw);
+            if HOST_COLLISIONS.contains(&class) {
+                continue;
+            }
+            if (s.classes.contains(raw) || s.classes.contains(class))
+                && !s.exports_on(class, &c[2])
+            {
+                flag(&c[2], c.get(0).unwrap().as_str().trim_end_matches('('), out);
+            }
         }
     }
 
@@ -358,8 +490,20 @@ pub fn run(project_root: &Path, api: &ApiData) -> Vec<Finding> {
             let Ok(text) = std::fs::read_to_string(path) else {
                 continue;
             };
+            let guide = rel.starts_with("doc/guide/") && rel.ends_with(".md");
+            // Functions the page itself defines: a sample that writes
+            // `fn fetch_rows(..)` and then calls `.fetch_rows(..)` is
+            // self-consistent, whatever api.json has.
+            let defined_in_page: HashSet<String> = if guide {
+                RE_DEFINITION
+                    .captures_iter(&text)
+                    .map(|c| c[1].to_string())
+                    .collect()
+            } else {
+                HashSet::new()
+            };
             for (i, line) in text.lines().enumerate() {
-                check_line(line, &surface, &rel, i + 1, &mut findings);
+                check_line(line, &surface, &rel, i + 1, guide, &defined_in_page, &mut findings);
             }
         }
     }

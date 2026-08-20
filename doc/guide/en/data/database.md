@@ -47,18 +47,26 @@ assert!(db.is_open());
 // CREATE / INSERT / UPDATE / DELETE -> rows affected
 db.execute(
     "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)".into(),
-    DbValueVec::from_const_slice(&[]),
+    Vec::new().into(),
 );
 let affected = db.execute(
     "INSERT INTO notes (body) VALUES (?)".into(),
     vec![DbValue::Text("hello".into())].into(),
 );
 
-// SELECT -> a column-named, row-major grid
-let rows = db.query("SELECT id, body FROM notes".into(), DbValueVec::from_const_slice(&[]));
-for r in 0..rows.num_rows() {
-    let id = rows.get(r, 0).and_then(|v| v.as_integer());
-    let body = rows.get(r, 1).and_then(|v| v.as_text().map(|s| s.as_str().to_string()));
+// SELECT -> `DbRows { columns: StringVec, values: DbValueVec }`: the column
+// names once, then every cell row-major. Index it yourself.
+let rows = db.query("SELECT id, body FROM notes".into(), Vec::new().into());
+let cols = rows.columns.len();
+for r in 0..(rows.values.len() / cols.max(1)) {
+    let id = match rows.values.as_ref()[r * cols] {
+        DbValue::Integer(i) => Some(i),
+        _ => None,
+    };
+    let body = match &rows.values.as_ref()[r * cols + 1] {
+        DbValue::Text(s) => Some(s.as_str().to_string()),
+        _ => None,
+    };
     // ...
 }
 ```

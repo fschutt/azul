@@ -37,15 +37,17 @@ Register routes on the `AppConfig` before passing it to
 ```rust,no_run
 use azul::prelude::*;
 
-extern "C" fn layout_home(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom { /* ... */ todo!() }
-extern "C" fn layout_user(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom { /* ... */ todo!() }
-extern "C" fn layout_settings(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom { /* ... */ todo!() }
+extern "C" fn layout_home(_: &mut RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
+extern "C" fn layout_user(_: &mut RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
+extern "C" fn layout_settings(_: &mut RefAny, _: LayoutCallbackInfo) -> Dom { /* ... */ todo!() }
 
 fn main() {
     let mut config = AppConfig::create();
-    config.add_route("/", layout_home);
-    config.add_route("/user/:id", layout_user);
-    config.add_route("/settings", layout_settings);
+    config.routes = vec![
+        Route { pattern: "/".into(), layout_callback: LayoutCallback { cb: layout_home } },
+        Route { pattern: "/user/:id".into(), layout_callback: LayoutCallback { cb: layout_user } },
+        Route { pattern: "/settings".into(), layout_callback: LayoutCallback { cb: layout_settings } },
+    ].into();
 
     let app = App::create(initial_data, config);
     app.run(WindowCreateOptions::new(layout_home));
@@ -77,22 +79,22 @@ Patterns are matched in registration order; the first match wins.
 
 ## Reading the active route
 
-Inside a `LayoutCallback`, the `LayoutCallbackInfo` knows which
-route triggered the call:
+A layout callback already knows its route: the framework picked THIS
+callback because its pattern matched. What it does not have is an
+accessor - `LayoutCallbackInfo` carries window and GL state, not
+routing. Params reach the tree through the model, written by the
+event callback that switched the route:
 
 ```rust,ignore
-extern "C" fn layout_user(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
-    let id = info.get_route_param("id").map(|s| s.as_str()).unwrap_or("");
-    let title = format!("User #{}", id);
-    Dom::create_h1_with_text(title).style_dom()
+extern "C" fn layout_user(data: &mut RefAny, _: LayoutCallbackInfo) -> Dom {
+    let id = data.downcast_ref::<AppModel>()
+        .map(|m| m.user_id.clone())
+        .unwrap_or_default();
+    Dom::create_h1_with_text(format!("User #{}", id).into())
 }
 ```
 
-`info.get_active_route()` returns the full `RouteMatch` (pattern +
-all params); `info.get_route_param(key)` is the convenience reader
-for one param.
-
-Inside an event `CallbackInfo`, the same data is reachable via
+Inside an event `CallbackInfo`, the route IS readable directly, via
 `info.get_route_pattern()` (the active pattern) and
 `info.get_route_param(key)` (one param). The `set_route_param(key,
 value)` helper modifies a param in place — useful for paginated
@@ -149,44 +151,45 @@ use azul::prelude::*;
 struct AppModel {
     users: Vec<User>,
     current_filter: String,
+    // Written by the `switch_route` handler; the layout callbacks read it.
+    current_route: String,
+    user_id: String,
 }
 
-extern "C" fn layout_home(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout_home(data: &mut RefAny, _: LayoutCallbackInfo) -> Dom {
     let model = data.downcast_ref::<AppModel>().unwrap();
     Dom::create_body()
-        .with_child(navbar(/* current_route */ info.get_active_route()))
+        .with_child(navbar(&model.current_route))
         .with_child(home_content(&model))
-        .style_dom()
 }
 
-extern "C" fn layout_user(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout_user(data: &mut RefAny, _: LayoutCallbackInfo) -> Dom {
     let model = data.downcast_ref::<AppModel>().unwrap();
-    let id = info.get_route_param("id").map(|s| s.as_str()).unwrap_or("");
-    let user = model.users.iter().find(|u| u.id == id);
+    let user = model.users.iter().find(|u| u.id == model.user_id);
 
     let body = match user {
         Some(u) => user_detail(u),
-        None => not_found_page(id),
+        None => not_found_page(&model.user_id),
     };
     Dom::create_body()
-        .with_child(navbar(info.get_active_route()))
+        .with_child(navbar(&model.current_route))
         .with_child(body)
-        .style_dom()
 }
 
-extern "C" fn layout_settings(data: &mut RefAny, info: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout_settings(data: &mut RefAny, _: LayoutCallbackInfo) -> Dom {
     let model = data.downcast_ref::<AppModel>().unwrap();
     Dom::create_body()
-        .with_child(navbar(info.get_active_route()))
+        .with_child(navbar(&model.current_route))
         .with_child(settings_panel(&model))
-        .style_dom()
 }
 
 fn main() {
     let mut config = AppConfig::create();
-    config.add_route("/", layout_home);
-    config.add_route("/user/:id", layout_user);
-    config.add_route("/settings", layout_settings);
+    config.routes = vec![
+        Route { pattern: "/".into(), layout_callback: LayoutCallback { cb: layout_home } },
+        Route { pattern: "/user/:id".into(), layout_callback: LayoutCallback { cb: layout_user } },
+        Route { pattern: "/settings".into(), layout_callback: LayoutCallback { cb: layout_settings } },
+    ].into();
 
     let app = App::create(RefAny::new(initial_model()), config);
     app.run(WindowCreateOptions::new(layout_home));

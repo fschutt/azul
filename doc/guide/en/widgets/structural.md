@@ -147,18 +147,18 @@ data as the user scrolls.
 ## Ribbon
 
 `Ribbon` is an Office-style ribbon: a tab bar where each tab contains one or
-more titled `RibbonSection`s. Sections separate themselves with vertical
+more titled `RibbonGroup`s. Groups separate themselves with vertical
 dividers and stack their title below the content.
 
 ```rust,no_run
 use azul::prelude::*;
 
 let home = RibbonTab::new("Home".into())
-    .with_section(RibbonSection::new("Clipboard".into(), Dom::create_div()))
-    .with_section(RibbonSection::new("Font".into(), Dom::create_div()));
+    .with_group(RibbonGroup::new("Clipboard".into()).with_item(clipboard_item()))
+    .with_group(RibbonGroup::new("Font".into()).with_item(font_item()));
 
 let view = RibbonTab::new("View".into())
-    .with_section(RibbonSection::new("Zoom".into(), Dom::create_div()));
+    .with_group(RibbonGroup::new("Zoom".into()).with_item(zoom_item()));
 
 let dom = Ribbon::new(RibbonTabVec::from_vec(vec![home, view]))
     .dom();

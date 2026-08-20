@@ -170,7 +170,9 @@ pub fn video_pane(config: VideoConfig) -> Dom {
         .with_class("video-pane".into())
         .with_dataset(OptionRefAny::Some(state))
         .with_merge_callback(reconcile_video)
-        .with_key(key)
+        // The reconciler matches nodes by identity, and an explicit id is the
+        // stable half of it - give the node one when its position can move.
+        .with_id(key)
 }
 # fn stable_key_for(_: &str) -> u64 { 0 }
 ```

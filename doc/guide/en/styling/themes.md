@@ -365,8 +365,10 @@ fn main() {
         }
     );
 
-    // Or swap the whole SystemStyle for a curated platform preset:
-    // config.system_style = SystemStyle::ios_light();
+    // Or start from the detected style and override what you want to pin:
+    // let mut style = SystemStyle::detect();
+    // style.metrics.corner_radius = OptionF32::Some(0.0);
+    // config.system_style = style;
 
     let app = App::create(initial_data, config);
     app.run(WindowCreateOptions::new(layout));
@@ -374,10 +376,10 @@ fn main() {
 ```
 
 Every field on `CssMockEnvironment` is optional — the ones not set
-fall back to auto-detected values. Combined with the
-`SystemStyle::android_material_light()`,
-`SystemStyle::windows_xp_luna()`, and other curated presets in
-`css::system::defaults`,
+fall back to auto-detected values. Combined with a `SystemStyle`
+whose fields you set yourself (`SystemStyle::detect()` is the
+starting point the FFI exposes; the curated platform presets in
+`css::system::defaults` are Rust-internal),
 this gives a single binary the ability to render its UI as if it
 were running on any supported target — useful for screenshot
 testing, designer review, and "what would my app look like, pixel by

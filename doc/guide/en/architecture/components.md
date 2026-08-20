@@ -301,10 +301,11 @@ use azul::prelude::*;
 
 let mut config = AppConfig::create();
 
-// 1. Register a single component into a named library.
-config.add_component(
+// 1. Register a component library under a vendor name. The register fn is
+//    called once and returns every component the library provides.
+config.add_component_library(
     AzString::from("mylib"),
-    my_register_card_fn,        // extern "C" fn() -> ComponentDef
+    my_register_library_fn,     // RegisterComponentLibraryFnType
 );
 
 // 2. Register an entire pre-built library.
