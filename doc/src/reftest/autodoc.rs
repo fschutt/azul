@@ -1562,6 +1562,20 @@ pub fn init_screenshot_font_context() -> Result<azul_layout::FontContext, String
 
 /// Render an XML/XHTML snippet to a PNG file. Wraps the snippet in a
 /// minimal HTML envelope if the agent didn't supply one.
+/// Device pixels per logical pixel for guide screenshots.
+///
+/// The figures are laid out at their logical size (400x240 and friends) and
+/// the `<img>` keeps declaring exactly that, but the PNG is rasterised at 2x.
+/// A retina display then gets one device pixel per image pixel instead of
+/// upscaling a 1x raster, which is why the guide's screenshots looked soft and
+/// pixelated next to the reftests — the reftests were never resampled.
+///
+/// This scales the RASTER only. `ws.size.dimensions` and `ws.size.dpi` stay at
+/// the logical values, so layout, line breaking and hinting decisions are
+/// identical to what a 1x render produced; only the glyph and path rasterisation
+/// happens at twice the resolution.
+const SCREENSHOT_DPI_FACTOR: f32 = 2.0;
+
 pub fn render_xml_to_png(
     font_context: &azul_layout::FontContext,
     xml: &str,
@@ -1607,9 +1621,12 @@ pub fn render_xml_to_png(
         &rr,
         &layout_window.font_manager,
         azul_layout::cpurender::RenderOptions {
+            // LOGICAL, not device: raster.rs computes the pixmap as
+            // `width * dpi_factor`. So the layout is unchanged at 400x240 and
+            // only the rasterisation is supersampled.
             width: width as f32,
             height: height as f32,
-            dpi_factor: 1.0,
+            dpi_factor: SCREENSHOT_DPI_FACTOR,
         },
         &mut gc,
     )
@@ -1619,7 +1636,10 @@ pub fn render_xml_to_png(
         fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
     }
 
-    let img = image::RgbaImage::from_raw(width, height, pixmap.data().to_vec())
+    // The PNG is SCREENSHOT_DPI_FACTOR times the logical size in each axis.
+    // The <img> keeps declaring the logical size, so a 2x display gets one
+    // device pixel per image pixel and a 1x display downsamples.
+    let img = image::RgbaImage::from_raw(pixmap.width, pixmap.height, pixmap.data().to_vec())
         .ok_or_else(|| "image conversion failed".to_string())?;
     img.save(output_path)
         .map_err(|e| format!("save {}: {}", output_path.display(), e))?;

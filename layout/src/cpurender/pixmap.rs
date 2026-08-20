@@ -430,8 +430,11 @@ unsafe impl Send for PixBuf {}
 #[derive(Debug)]
 pub struct AzulPixmap {
     pub(crate) data: PixBuf,
-    pub(crate) width: u32,
-    pub(crate) height: u32,
+    /// Width in DEVICE pixels — for a render at `dpi_factor` N this is the
+    /// logical width times N, not the logical width.
+    pub width: u32,
+    /// Height in DEVICE pixels. See [`AzulPixmap::width`].
+    pub height: u32,
 }
 
 impl AzulPixmap {
