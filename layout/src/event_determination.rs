@@ -703,6 +703,23 @@ pub fn determine_all_events(
         }
     }
 
+    // Window frame transition (minimize / maximize / restore / fullscreen).
+    //
+    // The backends have kept `flags.frame` in sync for a long time, and both
+    // the Win32 and macOS handlers carried a comment claiming the app's
+    // Maximize/Restore callbacks fired as a result. They did not: nothing
+    // derived an event from this field, so no callback could ever observe a
+    // frame transition.
+    if current_state.flags.frame != previous_state.flags.frame {
+        events.push(SyntheticEvent::new(
+            EventType::WindowFrameChanged,
+            EventSource::User,
+            root_node,
+            timestamp.clone(),
+            EventData::None,
+        ));
+    }
+
     // Window close requested
     if current_state.flags.close_requested && !previous_state.flags.close_requested {
         events.push(SyntheticEvent::new(
@@ -2315,6 +2332,45 @@ mod autotest_generated {
         max.monitor_id = OptionU32::Some(u32::MAX);
         let events = run_plain(&state(), &max);
         assert_eq!(count(&events, EventType::WindowMonitorChanged), 0);
+    }
+
+    /// A maximize / restore / minimize / fullscreen transition must reach the
+    /// app. Nothing derived an event from `flags.frame` before, so no callback
+    /// could observe one — while two backends carried comments claiming they
+    /// could.
+    #[test]
+    fn a_frame_transition_emits_exactly_one_event_per_change() {
+        use azul_core::window::WindowFrame;
+
+        let normal = state();
+        let mut maximized = state();
+        maximized.flags.frame = WindowFrame::Maximized;
+
+        let events = run_plain(&maximized, &normal);
+        assert_eq!(count(&events, EventType::WindowFrameChanged), 1);
+
+        // Still maximized on the next frame -> no repeat.
+        let events = run_plain(&maximized, &maximized.clone());
+        assert_eq!(count(&events, EventType::WindowFrameChanged), 0);
+
+        // And back again is its own transition.
+        let events = run_plain(&normal, &maximized);
+        assert_eq!(count(&events, EventType::WindowFrameChanged), 1);
+
+        // Every distinct frame reachable from Normal is a transition.
+        for frame in [
+            WindowFrame::Minimized,
+            WindowFrame::Maximized,
+            WindowFrame::Fullscreen,
+        ] {
+            let mut to = state();
+            to.flags.frame = frame;
+            assert_eq!(
+                count(&run_plain(&to, &normal), EventType::WindowFrameChanged),
+                1,
+                "Normal -> {frame:?} must be one event"
+            );
+        }
     }
 
     #[test]

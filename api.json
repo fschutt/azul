@@ -3979,6 +3979,7 @@
                                 "HoveredFileCancelled": {},
                                 "Resized": {},
                                 "Moved": {},
+                                "FrameChanged": {},
                                 "TouchStart": {},
                                 "TouchMove": {},
                                 "TouchEnd": {},
