@@ -45,8 +45,11 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                          - border.top - border.bottom).max(0.0),
             };
 
-            // container_rect must use absolute window coordinates,
-            // not (0,0), so scroll_into_view calculations are correct.
+            // STATIC (unscrolled) layout coordinates, NOT window coordinates —
+            // the comment here used to claim otherwise. `scroll_selection_into_view`
+            // depends on static, because it compares against a caret rect measured
+            // the same way. A consumer that needs where the container APPEARS must
+            // subtract the scroll of its ancestors itself.
             let container_origin = layout_result
                 .calculated_positions
                 .get(node_idx)
