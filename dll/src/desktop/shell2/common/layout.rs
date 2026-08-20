@@ -189,6 +189,38 @@ impl PhaseTimer {
     }
 }
 
+/// Should `regenerate_layout` block on `FcFontRegistry::request_fonts()` for
+/// this pass?
+///
+/// Extracted from `regenerate_layout` so the decision has a truth table that
+/// can be asserted directly; see `dll/tests/font_cache_regression.rs`. The
+/// shipped bug was a one-line boolean mistake inside a function that needs a
+/// window, a GL context and a live registry to reach, i.e. a bug in a place
+/// no test could see.
+///
+/// - `build_complete`: the registry has finished parsing every font it found.
+/// - `cache_empty`: the cache layout is about to run against holds no patterns.
+///
+/// The rule is **request while the build is INCOMPLETE**, not merely while the
+/// cache is EMPTY. The original condition was `cache_empty || build_complete`,
+/// and on macOS both disjuncts are false on the first layout: the cache
+/// already holds 2 patterns (not "empty") while the scan of ~370 system fonts
+/// is still running (not "complete"). It therefore never called
+/// `request_fonts()` and laid out against a two-font cache holding none of
+/// "Helvetica Neue", "Lucida Grande" or "System Font" — every macOS UI family
+/// missed and all text fell through to LAST-RESORT. Linux happened to win the
+/// race and looked fine, which is why this read as a macOS-only bug.
+///
+/// Requesting while incomplete is safe and is the entire point of the call:
+/// `request_fonts()` BLOCKS until the requested families are parsed (measured
+/// 186 ms cold on macOS), so the snapshot taken after it contains them. The
+/// original worry — replacing a COMPLETE cache with an INCOMPLETE snapshot —
+/// is addressed by skipping once the build is complete, not by treating any
+/// non-empty cache as good enough.
+pub fn should_request_fonts(build_complete: bool, cache_empty: bool) -> bool {
+    !build_complete || cache_empty
+}
+
 pub fn regenerate_layout(
     layout_window: &mut LayoutWindow,
     app_data: &Arc<RefCell<RefAny>>,
@@ -233,24 +265,10 @@ phases.mark("before_registry_check");
         let current_cache_empty = layout_window.font_manager.fc_cache.is_empty();
         let build_complete = registry.is_build_complete();
 
-        // Request while the build is INCOMPLETE, not merely while the cache is
-        // EMPTY. The old condition was `current_cache_empty || build_complete`,
-        // and on macOS both disjuncts are false on the first layout: the cache
-        // already holds 2 patterns (so it is not "empty") while the scan of
-        // ~370 system fonts has not finished (so the build is not "complete").
-        // It therefore took the else branch, never called request_fonts(), and
-        // laid out against a two-font cache holding none of "Helvetica Neue",
-        // "Lucida Grande" or "System Font" — every macOS UI family missed and
-        // text fell through to LAST-RESORT. Linux happened to win the race and
-        // looked fine, which is why this read as a macOS-only bug.
-        //
-        // Requesting while incomplete is safe and is the entire point of the
-        // call: request_fonts() BLOCKS until the requested families are parsed
-        // (measured 186 ms cold on macOS), so the snapshot taken after it
-        // contains them. The original worry — replacing a COMPLETE cache with
-        // an INCOMPLETE snapshot — is addressed by skipping once the build is
-        // complete, not by treating any non-empty cache as good enough.
-        if !build_complete || current_cache_empty {
+        // The rule, and WHY it is not `cache_empty || build_complete`, lives on
+        // `should_request_fonts` above — where it is covered by a truth table
+        // in `dll/tests/font_cache_regression.rs`.
+        if should_request_fonts(build_complete, current_cache_empty) {
             log_debug!(LogCategory::Layout, "[regenerate_layout] Requesting fonts from registry...");
             let font_stacks = rust_fontconfig::config::tokenize_common_families(rust_fontconfig::OperatingSystem::current());
             azul_layout::probe::emit_phase_heap_extra("after_tokenize", registry.chain_cache_len() as u64);

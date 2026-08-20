@@ -17,6 +17,50 @@ use rust_fontconfig::registry::FcFontRegistry;
 
 use crate::desktop::shell2::common::debug_server;
 
+/// Wait (off the calling thread) for the font scan to finish, then write the
+/// on-disk font manifest.
+///
+/// Persisting must not happen on the layout thread — the serialize + write is
+/// real I/O — and it must not happen before the scan is complete: a manifest
+/// written mid-scan would describe a PARTIAL font set, and the next launch
+/// would load it, see `cache_loaded == true`, and lay out against a font
+/// universe missing most of the system's families. A partial cache is strictly
+/// worse than no cache, so an incomplete scan writes nothing at all.
+#[cfg(all(not(miri), not(feature = "web")))]
+fn spawn_font_cache_persist(registry: Arc<FcFontRegistry>) {
+    use core::time::Duration;
+
+    let spawned = std::thread::Builder::new()
+        .name("azul-font-cache-persist".to_string())
+        .spawn(move || {
+            // Bounded poll rather than `wait_for_scout()`: that helper caps at
+            // 5s and prints a warning on timeout, and we neither want the
+            // warning nor a 5s ceiling on a cold machine.
+            let deadline = std::time::Instant::now() + Duration::from_secs(60);
+            while !registry.is_build_complete() {
+                if std::time::Instant::now() >= deadline {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            let saved = registry.save_to_disk_cache().is_some();
+            debug_server::log(
+                debug_server::LogLevel::Info,
+                debug_server::LogCategory::Resources,
+                if saved {
+                    "Persisted font metadata to disk cache"
+                } else {
+                    "Failed to persist font metadata to disk cache"
+                },
+                None,
+            );
+        });
+
+    // A machine that cannot spawn one more thread is not a reason to fail
+    // startup; it just means this launch does not leave a cache behind.
+    let _ = spawned;
+}
+
 /// Primary public handle for creating and running an Azul application.
 ///
 /// Wraps [`AppInternal`] in a `Box` and is the type used by all Rust examples.
@@ -341,6 +385,25 @@ impl AppInternal {
 
             // Spawn Scout + Builder threads (returns immediately)
             registry.spawn_scout_and_builders();
+
+            // Persist the scan so the NEXT launch can take the ~10-20ms
+            // `load_from_disk_cache()` path above instead of re-scanning every
+            // font on the system (~190ms on macOS, ~370 files).
+            //
+            // Without this, `load_from_disk_cache()` missed on every single
+            // launch: `rust_fontconfig::FcFontRegistry::save_to_disk_cache`
+            // had no caller anywhere — not in azul, and not inside
+            // rust-fontconfig itself — so `dirs::cache_dir()/rfc/fonts/
+            // manifest.bin` was never created and the branch above was dead
+            // code that could only ever take its `else`.
+            //
+            // rust-fontconfig >= 4.4.12 persists from its own builder thread;
+            // this call is what makes the fix work against the 4.4.x we
+            // currently pin, and is harmless once the crate does it too (the
+            // second write is a byte-identical atomic replace).
+            if had_cache.is_none() {
+                spawn_font_cache_persist(Arc::clone(&registry));
+            }
 
             // Start with an empty FcFontCache; it will be populated at first layout
             // from the registry via request_fonts() + into_fc_font_cache()
