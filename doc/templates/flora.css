@@ -1045,32 +1045,30 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
     color: var(--fl-band-ink);
 }
 
-/* the figure, tiled */
-.hero::before {
+/* The figure, tiled. ONE rule for BOTH bands - the marketing hero (`/`, /ws,
+   /os) and the docs landing (`.ui-hero`) are the same piece of paper, and
+   while they each carried their own copy this one drifted: 22px tiles turned
+   45 degrees against 62px upright ones. The tile carries the motif upright
+   and already contains the half-drop, so the layer is a plain axis-aligned
+   repeat over the band - no rotation, nothing oversized to hide a corner. */
+.hero::before,
+.ui-hero::before {
     content: "";
     position: absolute;
+    inset: 0;
     pointer-events: none;
-    /* Oversized and turned on the diagonal: a mask cannot be rotated on its
-       own, so the layer carrying it is. It is sized far larger than the band
-       in both axes and centred, so the rotation can never leave a bare
-       corner whatever the band's aspect ratio. */
-    inset: auto;
-    top: 50%;
-    left: 50%;
-    width: 260%;
-    height: 520%;
-    transform: translate(-50%, -50%) rotate(45deg);
     background-color: var(--fl-band-fig);
     -webkit-mask-image: var(--fl-figure);
             mask-image: var(--fl-figure);
     -webkit-mask-repeat: repeat;
             mask-repeat: repeat;
-    -webkit-mask-size: 22px 22px;
-            mask-size: 22px 22px;
+    -webkit-mask-size: 62px 62px;
+            mask-size: 62px 62px;
 }
 
 /* the metal rule that closes the band */
-.hero::after {
+.hero::after,
+.ui-hero::after {
     content: "";
     position: absolute;
     left: 0;
@@ -2824,9 +2822,11 @@ body.nav-open { overflow: hidden; }
     color: var(--fl-soft1);
 }
 .docs-footer p { margin: 0; }
+/* Underlined, everywhere. The one link down here is an abbreviation the
+   reader is meant to follow; brass alone did not read as a link. */
 .docs-footer a,
-.docs-footer a:visited { color: var(--color-accent); text-decoration: none; }
-.docs-footer a:hover { text-decoration: underline; }
+.docs-footer a:visited { color: var(--color-accent); text-decoration: underline; }
+.docs-footer a:hover { text-decoration-color: var(--color-accent); }
 
 
 /* ---- THE COPY BUTTON --------------------------------------------------

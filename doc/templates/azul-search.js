@@ -60,7 +60,12 @@
 
   function scoreEntry(entry, tokens, fullQuery) {
     var name = entry.n.toLowerCase();
-    var parent = entry.p ? entry.p.toLowerCase() : '';
+    // A guide entry's `p` is its section ("Getting Started"), which every
+    // chapter in that half of the book shares. Scoring it made a query of
+    // "te" match "Started" and rank all forty chapters equally. For an API
+    // entry `p` is the owning type, which IS worth matching.
+    var isGuide = entry.k === 'g';
+    var parent = (entry.p && !isGuide) ? entry.p.toLowerCase() : '';
     var module = entry.m ? entry.m.toLowerCase() : '';
     var doc = entry.d ? entry.d.toLowerCase() : '';
     var sig = entry.s ? entry.s.toLowerCase() : '';
@@ -151,7 +156,7 @@
 
   // Pick the most relevant ~160-char snippet of `doc` to show.
   function snippet(doc, tokens, max) {
-    max = max || 160;
+    max = max || 220;
     if (!doc) return '';
     if (doc.length <= max) return doc;
     var lower = doc.toLowerCase();
@@ -436,7 +441,9 @@
   function compactName(e) {
     if (!e) return '';
     if (e.k === 'm') return 'mod ' + e.n;
-    if (e.k === 'g') return e.p ? (e.p + ' / ' + e.n) : e.n;
+    // Title only: the section is shown as the row's chip, where it cannot be
+    // mistaken for part of what the query matched.
+    if (e.k === 'g') return e.n;
     var modPart = e.m ? e.m + '.' : '';
     if (e.p) {
       return modPart + e.p + '.' + e.n;
@@ -507,6 +514,9 @@
       var r = results[i];
       var e = r.entry;
       var kindMeta = KIND[e.k] || { label: e.k, cls: '' };
+      // Every guide entry has kind 'g', so a chip reading "guide" on all of
+      // them is a column of noise. The section is the one thing that differs.
+      var kindLabel = (e.k === 'g' && e.p) ? e.p : kindMeta.label;
       var compact = compactName(e);
       // Pagefind hands us a pre-marked HTML excerpt; trust it verbatim.
       // Otherwise build a snippet from plain doc text and highlight() it.
@@ -515,16 +525,25 @@
         : (e.d ? highlight(snippet(e.d, tokens), tokens) : '');
       var sigLine = e.s ? ('<code class="azs-sig">' + escapeHtml(e.s) + '</code>') : '';
       var depth = r.depth || 0;
+      // Prose result: the sentence that matched is the answer, so it is on
+      // the row, not behind a hover. A symbol result keeps its signature and
+      // doc in the expanding block - the name alone already identifies it.
+      var isProse = (e.k === 'g');
+      var openSnip = (isProse && snipHtml && tokens.length)
+        ? '<div class="azs-snippet">' + snipHtml + '</div>' : '';
       html += '<li class="azs-result" data-idx="' + i + '" data-depth="' + depth + '">'
         +   '<a href="' + escapeHtml(resolveHref(e, ctx)) + '"' + targetAttr + ' tabindex="0">'
         +     '<span class="azs-row">'
-        +       '<span class="azs-kind ' + kindMeta.cls + '">' + kindMeta.label + '</span>'
-        +       '<span class="azs-compact">' + highlight(compact, tokens) + '</span>'
+        +       '<span class="azs-kind ' + kindMeta.cls + '">' + kindLabel + '</span>'
+        +       '<span class="azs-compact' + (isProse ? ' azs-compact-prose' : '') + '">'
+        +         highlight(compact, tokens) + '</span>'
         +     '</span>'
-        +     '<div class="azs-expanded">'
+        +     openSnip
+        +     (isProse ? '' :
+              '<div class="azs-expanded">'
         +       (sigLine ? '<div>' + sigLine + '</div>' : '')
         +       (snipHtml ? '<div class="azs-snippet">' + snipHtml + '</div>' : '')
-        +     '</div>'
+        +     '</div>')
         +   '</a>'
         + '</li>';
     }

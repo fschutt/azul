@@ -1953,9 +1953,7 @@ pub fn generate_releases_index(versions: &[String]) -> String {
         // notes" under it was a second link to the same page.
         let _ = meta;
         version_items.push_str(&format!(
-            "<div class='guide-card'>
-        <h3><a class='guide-link guide-link-lead' href='{HTML_ROOT}/release/{version}'>v{version}</a></h3>
-      </div>\n      ",
+            "<a class='guide-card-btn' href='{HTML_ROOT}/release/{version}'>v{version}</a>\n      ",
         ));
     }
 

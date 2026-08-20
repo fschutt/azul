@@ -317,6 +317,14 @@
   font-weight: 600;
   color: var(--azs-fg);
 }
+/* A chapter title is prose, and reading it in a mono face makes the guide
+   index look like a symbol list. */
+.azs-compact-prose {
+  font-family: var(--font-serif, Georgia, serif);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
 .azs-result .azs-expanded {
   display: none;
   margin-top: 6px;

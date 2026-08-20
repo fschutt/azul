@@ -260,9 +260,16 @@ fn generate_language_tabs_html(installation: &crate::api::Installation) -> Strin
 
     let mut out = primary_tabs.join("\n        ");
     if !overflow_tabs.is_empty() {
+        // The toggle is a button IN the row, not a block under it: collapsed,
+        // it costs no vertical space at all. Checkbox + label rather than
+        // <details> because a <details> box cannot put its summary in the flex
+        // row and its contents on the next line. `$$EXAMPLE_ID$$` is
+        // substituted per example, so the id stays unique down the page.
         out.push_str(&format!(
-            "\n        <details class=\"lang-more\"><summary>more languages…</summary>\n        \
-             <div class=\"lang-more-grid\">\n        {}\n        </div></details>",
+            "\n        <input type=\"checkbox\" class=\"lang-more-toggle\" \
+             id=\"lang-more-$$EXAMPLE_ID$$\">\n        \
+             <label class=\"lang-more-btn\" for=\"lang-more-$$EXAMPLE_ID$$\"></label>\n        \
+             <div class=\"lang-more-grid\">\n        {}\n        </div>",
             overflow_tabs.join("\n        ")
         ));
     }
@@ -948,9 +955,9 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
 ///                 Clicking opens the api page in a new tab.
 ///   - `Other`   — clicking navigates the same tab. Searches the API index.
 ///
-/// If a page contains an element with id `azul-search-mount`, the JS will
-/// render an inline search bar at that location; otherwise it falls back
-/// to a floating pill in the corner.
+/// The panel renders ONLY into an element with id `azul-search-mount`. A page
+/// without one gets no search box - the box is something a page opts into,
+/// not something the shell sprinkles on.
 pub enum PageKind<'a> {
     Api,
     Guide(&'a [String]),
@@ -1013,21 +1020,21 @@ pub fn get_search_init(kind: PageKind<'_>) -> String {
 window.AZS_DOC_BASE = "{UI_PATH}";
 document.addEventListener('DOMContentLoaded', function () {{
   if (!window.AzulSearch) return;
+  // No mount, no search. The old fallback attached a floating pill to any
+  // page that merely LOADED this script, which is how the API version picker
+  // (where you have not picked a version yet), the blog post and the release
+  // page each grew a search box nobody put there.
   var mount = document.getElementById('azul-search-mount');
-  var opts = {{
+  if (!mount) return;
+  window.AzulSearch.mount({{
     source: {source_json},
     onApiPage: {on_api},
     linkTarget: '{link_target}',
     defaults: {defaults_json},
     placeholder: '{placeholder}',
-  }};
-  if (mount) {{
-    opts.mount = mount;
-    opts.inline = true;
-    window.AzulSearch.mount(opts);
-  }} else {{
-    window.AzulSearch.attach(opts);
-  }}
+    mount: mount,
+    inline: true,
+  }});
 }});
 </script>"#,
         source_json = source_json,
@@ -1434,7 +1441,7 @@ mod stylesheet_contract {
         ".btn {", ".btn-primary {", ".btn-secondary {", ".btn-hero-primary {",
         ".btn-quiet {",
         // page structure
-        ".hero {", ".hero::before", ".feature-card {", ".feature-media",
+        ".hero {", ".hero::before", ".ui-hero::before", ".feature-card {", ".feature-media",
         ".faq-section {", ".docs-footer {", "footer {",
         // link colours - without these every link is UA purple
         "a:visited", ".btn-primary, .btn-primary:visited",
@@ -1454,11 +1461,13 @@ mod stylesheet_contract {
     /// docs-guide.css - the guide index's cards live here.
     const GUIDE_REQUIRED: &[&str] = &[
         ".guide-grid", ".guide-card", ".guide-links", "a.guide-link",
+        "a.guide-card-btn",
         ".guide-link-lead", ".azul-window", ".markdown-alert-warning", "@media print",
     ];
 
     const LANDING_REQUIRED: &[&str] = &[
-        ".ui-hero {", ".ui-hero::before", ".feature-section {", ".lang-grid button,",
+        ".ui-hero {", ".feature-section {", ".lang-grid button,",
+        ".lang-more-btn", ".lang-more-toggle:checked ~ .lang-more-grid",
         ".code-panel {", ".example-code {", "#latestrelease {",
     ];
 
