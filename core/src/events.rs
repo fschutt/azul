@@ -658,6 +658,13 @@ pub enum EventType {
     WindowMove,
     /// Window close requested
     WindowClose,
+    /// The window's frame state changed — minimized, maximized, restored to
+    /// normal, or entered/left fullscreen.
+    ///
+    /// Read the new state from `flags.frame` on the current window state; the
+    /// event carries no payload of its own because the flag IS the payload and
+    /// a callback that cares will already be reading window state.
+    WindowFrameChanged,
     /// Window received focus
     WindowFocusIn,
     /// Window lost focus
@@ -1367,7 +1374,7 @@ fn matches_window_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
+    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, FrameChanged, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1395,6 +1402,7 @@ fn matches_window_filter(
         (DroppedFile, EventType::FileDrop) => true,
         (HoveredFileCancelled, EventType::FileHoverCancel) => true,
         (Resized, EventType::WindowResize) => true,
+        (FrameChanged, EventType::WindowFrameChanged) => true,
         (Moved, EventType::WindowMove) => true,
         (TouchStart, EventType::TouchStart) => true,
         (TouchMove, EventType::TouchMove) => true,
@@ -2116,6 +2124,8 @@ pub enum WindowEventFilter {
     Resized,
     /// Window was moved
     Moved,
+    /// Window was minimized, maximized, restored, or toggled fullscreen
+    FrameChanged,
     /// Touch started anywhere in window
     TouchStart,
     /// Touch moved anywhere in window
@@ -2252,6 +2262,9 @@ impl WindowEventFilter {
             Self::MouseLeave => None,
             Self::Resized => None,
             Self::Moved => None,
+            // A frame transition is a WINDOW fact; there is no per-element
+            // hover equivalent to map it onto.
+            Self::FrameChanged => None,
             Self::TouchStart => Some(HoverEventFilter::TouchStart),
             Self::TouchMove => Some(HoverEventFilter::TouchMove),
             Self::TouchEnd => Some(HoverEventFilter::TouchEnd),
@@ -2610,6 +2623,7 @@ pub trait EventProvider {
 
         // Window events
         E::WindowResize => vec![EF::Window(W::Resized)],
+        E::WindowFrameChanged => vec![EF::Window(W::FrameChanged)],
         E::WindowMove => vec![EF::Window(W::Moved)],
         E::WindowClose => vec![EF::Window(W::CloseRequested)],
         E::WindowFocusIn => vec![EF::Window(W::WindowFocusReceived)],

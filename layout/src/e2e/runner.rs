@@ -1990,12 +1990,15 @@ impl Runner {
             CallbackChange::ScrollIntoView { node_id, options } => {
                 let now = self.now();
                 let lw = &mut self.layout_window;
+                let hops = lw.nested_dom_hops();
+                let hop = move |d: DomId| hops.get(&d).copied();
                 azul_layout::managers::scroll_into_view::scroll_node_into_view(
                     *node_id,
                     &lw.layout_results,
                     &mut lw.scroll_manager,
                     *options,
                     now,
+                    &hop,
                 );
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -3034,82 +3037,6 @@ impl Runner {
         );
     }
 
-    fn register_scroll_nodes(&mut self) {
-        let now = self.now();
-        let lw = &mut self.layout_window;
-        let mut regs: Vec<(DomId, NodeId, LogicalRect, LogicalSize, f32, f32, bool, bool)> =
-            Vec::new();
-        for (dom_id, layout_result) in &mut lw.layout_results {
-            // Same amendment as the DLL copy (see common/layout.rs): a
-            // VirtualView's scrollable extent is whatever its callback just
-            // published, so the necessity flags are amended here — and stored
-            // back — before the gate below reads them. Without this, no
-            // headless test can ever see an `overflow: auto` VirtualView
-            // scrollbar.
-            let scroll_states = lw.scroll_manager.get_scroll_states_for_dom(*dom_id);
-            for node_idx in 0..layout_result.layout_tree.nodes.len() {
-                let node = &layout_result.layout_tree.nodes[node_idx];
-                let Some(dom_node_id) = node.dom_node_id else {
-                    continue;
-                };
-                let Some(mut sb) = layout_result
-                    .layout_tree
-                    .warm(LayoutNodeId::new(node_idx))
-                    .and_then(|w| w.scrollbar_info)
-                else {
-                    continue;
-                };
-                let border_box_size = node.used_size.unwrap_or_default();
-                let resolved = node.box_props.unpack();
-                let border = &resolved.border;
-                let container_size = LogicalSize {
-                    width: (border_box_size.width - border.left - border.right).max(0.0),
-                    height: (border_box_size.height - border.top - border.bottom).max(0.0),
-                };
-                if let Some(pos) = scroll_states.get(&dom_node_id) {
-                    let raised = crate::solver3::cache::apply_virtual_scroll_necessity(
-                        &layout_result.styled_dom,
-                        dom_node_id,
-                        pos.children_rect.size,
-                        container_size,
-                        &mut sb,
-                    );
-                    if raised {
-                        if let Some(warm) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(node_idx)) {
-                            warm.scrollbar_info = Some(sb);
-                        }
-                    }
-                }
-                if !(sb.needs_vertical || sb.needs_horizontal) {
-                    continue;
-                }
-                let container_origin = layout_result
-                    .calculated_positions
-                    .get(node_idx)
-                    .copied()
-                    .unwrap_or_else(LogicalPosition::zero);
-                let container_rect = LogicalRect { origin: container_origin, size: container_size };
-                let content_size = layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
-                let thickness = sb.scrollbar_width.max(sb.scrollbar_height);
-                regs.push((
-                    *dom_id,
-                    dom_node_id,
-                    container_rect,
-                    content_size,
-                    thickness,
-                    sb.visual_width_px,
-                    sb.needs_horizontal,
-                    sb.needs_vertical,
-                ));
-            }
-        }
-        for (dom_id, node_id, container_rect, content_size, thickness, vis, h, v) in regs {
-            lw.scroll_manager.register_or_update_scroll_node(
-                dom_id, node_id, container_rect, content_size, now.clone(), thickness, vis, h, v,
-            );
-        }
-        lw.scroll_manager.calculate_scrollbar_states();
-    }
 }
 
 /// Port of the DLL's `apply_focus_restyle` (`.../common/event.rs`): apply the
