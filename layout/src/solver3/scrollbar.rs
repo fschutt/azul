@@ -134,6 +134,49 @@ impl Default for ScrollbarGeometry {
     )
 }
 
+/// Snap a thumb offset to whole pixels for the value that DRIVES THE PAINT.
+///
+/// A scrollbar thumb's position reaches the rasteriser as a GPU value, not as
+/// a display-list rect, and that value is the ONLY channel that can raise
+/// damage for the bar (the `ScrollBarStyled` items themselves compare equal
+/// across a scroll). So an unquantised thumb turns every sub-pixel scroll
+/// frame into a repaint of the whole bar: a high-resolution trackpad delivers
+/// deltas around 0.2 px, which on a 100 px viewport over 600 px of content
+/// moves the thumb by ~0.03 px — a move no one can see, on a window whose
+/// CONTENT is deliberately left alone by the half-device-pixel scroll
+/// threshold in the frame builder. Damaging the gutter anyway is the same
+/// class of false per-frame damage that the idle-skip path exists to kill.
+///
+/// Quantising the VALUE (rather than teaching the damage diff to ignore small
+/// deltas) is what keeps paint and damage in agreement: if we skipped the
+/// damage while still painting an anti-aliased edge 0.03 px lower, the frame
+/// would keep stale thumb pixels. Rounded, the two frames are byte-identical,
+/// so "no damage" is the truth and not an approximation. Accumulation falls
+/// out for free — the offset is a pure function of the scroll offset, so once
+/// enough scroll has accrued to cross a pixel, the rounded value changes and
+/// the bar is damaged then.
+///
+/// The unit is the LOGICAL pixel, because the display list (and therefore the
+/// baked `thumb_initial_transform` this must agree with) is DPI-free by
+/// construction: the rasteriser multiplies by the DPI factor, and no layout
+/// stage knows it. On a HiDPI screen that costs at most one device pixel of
+/// thumb precision — against a track that has only `usable_track_length`
+/// distinct positions to begin with.
+///
+/// Both producers of the thumb transform — `paint_scrollbars` (which bakes
+/// the initial value into the display list) and
+/// `GpuStateManager::update_scrollbar_transforms` (which overwrites it on
+/// every scroll) — MUST call this, or the two disagree by a fraction of a
+/// pixel and the disagreement itself becomes a spurious damage event.
+#[must_use]
+pub fn quantize_thumb_offset(thumb_offset: f32) -> f32 {
+    if thumb_offset.is_finite() {
+        thumb_offset.round()
+    } else {
+        0.0
+    }
+}
+
 /// Like [`compute_scrollbar_geometry`] but allows overriding the button size.
 /// Pass `button_size = 0.0` for macOS-style overlay scrollbars (no arrow buttons).
 #[must_use] pub fn compute_scrollbar_geometry_with_button_size(
@@ -267,6 +310,60 @@ mod autotest_generated {
         assert!(
             (actual - expected).abs() <= 1e-3,
             "expected {expected}, got {actual}"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // quantize_thumb_offset  (paint/damage quantiser)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn quantize_thumb_offset_rounds_to_the_nearest_whole_pixel() {
+        approx(quantize_thumb_offset(0.0), 0.0);
+        approx(quantize_thumb_offset(0.03), 0.0);
+        approx(quantize_thumb_offset(0.499), 0.0);
+        approx(quantize_thumb_offset(0.5), 1.0);
+        approx(quantize_thumb_offset(3.12), 3.0);
+        approx(quantize_thumb_offset(5.0), 5.0);
+        approx(quantize_thumb_offset(83.33), 83.0);
+    }
+
+    #[test]
+    fn quantize_thumb_offset_is_the_finite_guard_on_the_transform() {
+        // (inf - inf) * ratio = NaN reaches here from an infinite used_size;
+        // a NaN in a translation matrix never compares equal to itself, so the
+        // GPU cache would re-emit a Changed event every frame forever and
+        // WebRender would be handed a NaN transform.
+        assert_eq!(quantize_thumb_offset(f32::NAN), 0.0);
+        assert_eq!(quantize_thumb_offset(f32::INFINITY), 0.0);
+        assert_eq!(quantize_thumb_offset(f32::NEG_INFINITY), 0.0);
+    }
+
+    #[test]
+    fn quantize_thumb_offset_accumulates_rather_than_swallowing_slow_scrolls() {
+        // The offset is a pure function of the scroll offset, so no separate
+        // accumulator is needed: sub-pixel steps report the same value until
+        // enough scroll has accrued to cross a pixel, and then they report the
+        // next one. (0.2/0.4/0.6 px of scroll on a 100-over-600 viewport ->
+        // 0.033/0.067/0.1 px of thumb; 6 px of scroll -> 1 px of thumb.)
+        let thumb_for = |scroll: f32| {
+            quantize_thumb_offset(
+                compute_scrollbar_geometry(
+                    ScrollbarOrientation::Vertical,
+                    rect(0.0, 0.0, 200.0, 100.0),
+                    LogicalSize::new(180.0, 600.0),
+                    scroll,
+                    8.0,
+                    false,
+                )
+                .thumb_offset,
+            )
+        };
+        assert_eq!(thumb_for(0.0), thumb_for(0.2));
+        assert_eq!(thumb_for(0.0), thumb_for(0.6));
+        assert!(
+            thumb_for(30.0) > thumb_for(0.0),
+            "a scroll big enough to move the thumb a whole pixel must still move it"
         );
     }
 

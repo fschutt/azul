@@ -5695,9 +5695,14 @@ where
                     .unwrap_or_else(TransformKey::unique)
             });
 
-            // Initial transform: translate thumb within usable region
-            let thumb_initial_transform =
-                ComputedTransform3D::new_translation(0.0, v_geom.thumb_offset, 0.0);
+            // Initial transform: translate thumb within usable region.
+            // Quantised — see `quantize_thumb_offset`; the GPU updater that
+            // overwrites this value rounds identically.
+            let thumb_initial_transform = ComputedTransform3D::new_translation(
+                0.0,
+                crate::solver3::scrollbar::quantize_thumb_offset(v_geom.thumb_offset),
+                0.0,
+            );
 
             // Generate hit-test ID for vertical scrollbar thumb
             let hit_id = node_id
@@ -5786,8 +5791,11 @@ where
                     .and_then(|cache| cache.h_transform_keys.get(&nid).copied())
                     .unwrap_or_else(TransformKey::unique)
             });
-            let thumb_initial_transform =
-                ComputedTransform3D::new_translation(h_geom.thumb_offset, 0.0, 0.0);
+            let thumb_initial_transform = ComputedTransform3D::new_translation(
+                crate::solver3::scrollbar::quantize_thumb_offset(h_geom.thumb_offset),
+                0.0,
+                0.0,
+            );
 
             // Generate hit-test ID for horizontal scrollbar thumb
             let hit_id = node_id

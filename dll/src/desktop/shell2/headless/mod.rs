@@ -5980,37 +5980,38 @@ mod tests {
         let d3 = window.cpu_backend.last_frame_damage.clone();
 
         println!("[harness] subpixel damage steps = {:?} / {:?} / {:?}", d1, d2, d3);
-        // The scrollbar redamages every frame (ScrollBarStyled has no
-        // is_visually_equal arm — known coarseness, tracked separately), so
-        // "no repaint" is asserted on the CONTENT area (x < 200) only.
-        let content_damage = |d: &FrameDamage| -> Vec<azul_core::geom::LogicalRect> {
-            match d {
-                FrameDamage::Rects(rs) => {
-                    rs.iter().filter(|r| r.origin.x < 200.0).copied().collect()
-                }
-                FrameDamage::Full => vec![azul_core::geom::LogicalRect {
-                    origin: azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 },
-                    size: azul_core::geom::LogicalSize { width: 1.0, height: 1.0 },
-                }],
-                FrameDamage::None => Vec::new(),
-            }
-        };
+        // A sub-device-pixel scroll must repaint NOTHING — not the content
+        // (the frame builder's half-device-pixel threshold drops the shift)
+        // and not the scrollbar either (`quantize_thumb_offset` rounds the
+        // thumb's GPU value, so a ~0.03 px thumb move is not a value change).
+        //
+        // This used to be asserted on "the content area, x < 200" — a filter
+        // that silently meant "everything but the scrollbar" on macOS ONLY,
+        // where the overlay bar hangs off the container's right edge at
+        // x=200..208. Windows and Linux reserve a 12 px gutter INSIDE the
+        // container, putting the bar at x=196..208, so the filter classified
+        // the bar as content and the law read as a content repaint that never
+        // happened. Neither platform needs an exemption now, so the honest
+        // assertion is the strong one: no damage at all.
+        let damaged = |d: &FrameDamage| -> bool { *d != FrameDamage::None };
         assert!(
-            content_damage(&d1).is_empty(),
-            "0.2px scroll must not repaint CONTENT (sub-device-pixel); got {:?}",
+            !damaged(&d1),
+            "0.2px scroll must not repaint ANYTHING: the content shift is \
+             below the half-device-pixel threshold and the thumb moves ~0.03px, \
+             which quantises to no move at all; got {:?}",
             d1
         );
         assert!(
-            content_damage(&d2).is_empty(),
-            "0.4px cumulative must not repaint CONTENT yet; got {:?}",
+            !damaged(&d2),
+            "0.4px cumulative must not repaint anything yet; got {:?}",
             d2
         );
         assert!(
-            !content_damage(&d3).is_empty(),
+            damaged(&d3),
             "0.6px CUMULATIVE scroll crossed half a device pixel and must \
-             repaint content — if the content damage is empty the baseline \
-             advanced on skipped frames and slow trackpad scrolling is \
-             swallowed forever; got {:?}",
+             repaint content — if the damage is empty the baseline advanced on \
+             skipped frames and slow trackpad scrolling is swallowed forever; \
+             got {:?}",
             d3
         );
     }

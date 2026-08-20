@@ -193,8 +193,16 @@ impl GpuStateManager {
                     button_size,
                 );
 
-                let transform =
-                    ComputedTransform3D::new_translation(0.0, v_geom.thumb_offset, 0.0);
+                // Quantised to whole logical pixels: this value is the only
+                // channel that can damage the bar, and a sub-pixel thumb move
+                // repaints a gutter that did not visibly change. See
+                // `quantize_thumb_offset` — `paint_scrollbars` bakes the
+                // display list's initial value through the same rounding.
+                let transform = ComputedTransform3D::new_translation(
+                    0.0,
+                    crate::solver3::scrollbar::quantize_thumb_offset(v_geom.thumb_offset),
+                    0.0,
+                );
                 update_scrollbar_transform_key(gpu_cache, &mut changes, node_id, transform, ScrollbarOrientation::Vertical);
             }
 
@@ -219,8 +227,11 @@ impl GpuStateManager {
                     button_size,
                 );
 
-                let transform =
-                    ComputedTransform3D::new_translation(h_geom.thumb_offset, 0.0, 0.0);
+                let transform = ComputedTransform3D::new_translation(
+                    crate::solver3::scrollbar::quantize_thumb_offset(h_geom.thumb_offset),
+                    0.0,
+                    0.0,
+                );
                 update_scrollbar_transform_key(gpu_cache, &mut changes, node_id, transform, ScrollbarOrientation::Horizontal);
             }
         }
@@ -1291,10 +1302,15 @@ mod autotest_generated {
             false,
             16.0,
         );
+        // Both producers of the thumb TRANSFORM quantise (see
+        // `quantize_thumb_offset`), so the agreement is asserted against the
+        // painter's quantised value — comparing against the raw geometry would
+        // make this pass only for fixtures whose offset happens to be integral.
+        let painted_transform =
+            crate::solver3::scrollbar::quantize_thumb_offset(painted.thumb_offset);
         assert!(
-            (y - painted.thumb_offset).abs() < 0.01,
-            "GPU path put the thumb at {y}, the painter at {}",
-            painted.thumb_offset
+            (y - painted_transform).abs() < 0.01,
+            "GPU path put the thumb at {y}, the painter at {painted_transform}"
         );
         // usable = 100 - 2*16 = 68, thumb = max(68 * 100/1000, 32) = 32,
         // max_scroll = 1000 - 100 = 900 -> half scroll = (68 - 32) * 0.5 = 18.
@@ -1383,10 +1399,15 @@ mod autotest_generated {
             info.needs_horizontal,
             0.0,
         );
+        // Both producers of the thumb TRANSFORM quantise (see
+        // `quantize_thumb_offset`), so the agreement is asserted against the
+        // painter's quantised value — comparing against the raw geometry would
+        // make this pass only for fixtures whose offset happens to be integral.
+        let painted_transform =
+            crate::solver3::scrollbar::quantize_thumb_offset(painted.thumb_offset);
         assert!(
-            (y - painted.thumb_offset).abs() < 0.01,
-            "GPU path put the thumb at {y}, the painter at {}",
-            painted.thumb_offset
+            (y - painted_transform).abs() < 0.01,
+            "GPU path put the thumb at {y}, the painter at {painted_transform}"
         );
         // usable track = 100 (no buttons), thumb = max(100 * 100/1000, 2*16) = 32,
         // max_scroll = 900 -> half travel = (100 - 32) * 0.5 = 34.
@@ -1553,15 +1574,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn an_infinite_used_size_produces_a_nan_thumb_offset() {
-        // BUG (characterisation): an infinite border-box makes both the viewport
-        // and the content length +inf, so compute_thumb_geometry ends at
+    fn an_infinite_used_size_is_sanitised_instead_of_emitting_a_nan_thumb() {
+        // An infinite border-box makes both the viewport and the content length
+        // +inf, so compute_thumb_geometry ends at
         //   thumb_offset = (inf - inf) * 0.0 = NaN
-        // and gpu_state feeds that NaN straight into a translation matrix with no
-        // finite-check. Combined with `a_nan_transform_never_converges_...` above,
-        // one infinite used_size means the scrollbar re-emits a Changed event on
-        // *every* frame, forever, and WebRender is handed a NaN transform.
-        // Asserting the current behaviour so a future finite-guard trips this test.
+        // This used to be fed straight into a translation matrix: combined with
+        // `a_nan_transform_never_converges_...` above, one infinite used_size
+        // meant the scrollbar re-emitted a Changed event on *every* frame,
+        // forever, and WebRender was handed a NaN transform. The finite-guard in
+        // `quantize_thumb_offset` (which the paint path applies identically) is
+        // that future guard the old characterisation test was waiting for.
         let mut m = GpuStateManager::default();
         let sm = ScrollManager::new();
         let t = tree(
@@ -1573,14 +1595,14 @@ mod autotest_generated {
         );
 
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
-        assert!(y.is_nan(), "expected the documented NaN, got {y}");
+        assert!(y.is_finite(), "a NaN must never reach the transform, got {y}");
+        assert_eq!(y, 0.0);
 
-        // And it never settles: a second identical pass re-emits Changed.
+        // And it SETTLES: a second identical pass emits nothing.
         let again = m.update_scrollbar_transforms(dom(0), &sm, &t);
-        assert_eq!(
-            again.transform_key_changes.len(),
-            1,
-            "NaN keeps the cache from ever converging"
+        assert!(
+            again.transform_key_changes.is_empty(),
+            "the sanitised value must converge, not re-emit Changed forever"
         );
     }
 
