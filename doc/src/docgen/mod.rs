@@ -689,8 +689,9 @@ fn escape_code(s: &str) -> String {
 /// Uses CDN-hosted Prism with autoloader for automatic language loading.
 /// Should be included at the end of the body for code highlighting.
 pub fn get_prism_script() -> String {
-    r#"<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>"#.to_string()
+    format!(
+        r#"<script src="{HTML_ROOT}/prism/prism.min.js" defer></script>"#
+    )
 }
 
 /// CSS + JS that turns every `<h1>` … `<h4>` with an inner
@@ -876,7 +877,7 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
-      <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
+      <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
       {css_tag}
       <!-- TEMPORARY doc-review tool (remove this line + azul-review.js in a later release) -->
@@ -924,7 +925,7 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
       <link rel='preload' as='font' href='{base_url}/fonts/RedHatDisplay-VariableFont_wght.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/InstrumentSerif-Regular.ttf' type='font/ttf' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
-      <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
+      <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
       {css_tag}
       {anchor_link}
@@ -1143,7 +1144,7 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> S
       <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
-      <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css'>
+      <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
       {css_tag}
       {anchor_link}

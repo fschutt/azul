@@ -2115,6 +2115,20 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
         images_dir.join("fleur-de-lis.svg"),
     )?;
 
+    // Prism, vendored: core plus the 38 components the site's fences use, in
+    // dependency order, concatenated into one file (see templates/prism).
+    // It used to come off jsdelivr - a script tag from a third party on every
+    // docs page, and an autoloader that fetched a language component from
+    // that CDN the first time a page showed one.
+    let prism_dir = output_dir.join("prism");
+    fs::create_dir_all(&prism_dir)?;
+    for f in ["prism.min.js", "prism.min.css", "LICENSE"] {
+        fs::copy(
+            templates_dir.join("prism").join(f),
+            prism_dir.join(f),
+        )?;
+    }
+
     // Copy the faces the site actually loads - all declared in ONE place, the
     // `@font-face` block at the top of flora.css. The three Flora faces are
     // latin-subset variable woff2 taken from the Google css2 endpoint the old
