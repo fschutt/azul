@@ -961,7 +961,7 @@ pub enum TextEditNotify {
 /// multi-cursor paste). Replaces the three formerly hand-picked per-site id
 /// bands, which existed only so the sites could not collide.
 static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
-/// How many VirtualView hosts [`LayoutWindow::window_space_offset_of_dom`]
+/// How many `VirtualView` hosts [`LayoutWindow::window_space_offset_of_dom`]
 /// will walk up through. Nesting is shallow; the bound only stops a cycle.
 const NESTED_DOM_HOST_WALK_LIMIT: usize = 32;
 
@@ -2078,7 +2078,7 @@ impl LayoutWindow {
     #[must_use]
     /// Where a dom's 0-relative geometry actually sits in WINDOW space.
     ///
-    /// A VirtualView's child dom builds its display list at origin zero; the
+    /// A `VirtualView`'s child dom builds its display list at origin zero; the
     /// rasteriser composites it at `host_bounds.origin + content_offset`
     /// (`cpurender/raster.rs`). So every accessor that must answer in WINDOW
     /// space — above all the IME caret rect the four shells hand to the
@@ -2088,7 +2088,6 @@ impl LayoutWindow {
     ///
     /// The host's own scroll is ALREADY inside `content_offset`, so it must
     /// not be added a second time here.
-    #[must_use]
     pub fn window_space_offset_of_dom(&self, dom_id: DomId) -> LogicalPosition {
         let mut total = LogicalPosition::zero();
         let mut current = dom_id;
@@ -5663,8 +5662,8 @@ impl LayoutWindow {
     #[must_use]
     pub fn nested_dom_hops(
         &self,
-    ) -> alloc::collections::BTreeMap<DomId, (DomId, NodeId, LogicalPosition)> {
-        let mut hops = alloc::collections::BTreeMap::new();
+    ) -> BTreeMap<DomId, (DomId, NodeId, LogicalPosition)> {
+        let mut hops = BTreeMap::new();
         for (parent_dom, host_node) in self.virtual_view_manager.all_view_keys() {
             let Some(nested) = self
                 .virtual_view_manager
@@ -11567,7 +11566,7 @@ impl LayoutWindow {
     /// simply skips it rather than clearing the queue behind the loop's back.
     fn apply_one_text_changeset(
         &mut self,
-        changeset: crate::managers::text_input::PendingTextEdit,
+        changeset: PendingTextEdit,
     ) -> TextChangesetResult {
         use crate::managers::changeset::{TextOpInsertText, TextOperation};
         use crate::text3::edit::{edit_text, TextEdit};
