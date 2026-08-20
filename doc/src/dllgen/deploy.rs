@@ -2115,13 +2115,21 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
         images_dir.join("fleur-de-lis.svg"),
     )?;
 
-    // Copy font files at runtime. Site fonts (see main.css @font-face):
-    // Playfair Display (big headings), Imbue (subtitles/section headings, opsz+
-    // wght), Red Hat Display (body), Red Hat Mono (code) — all self-hosted OFL.
+    // Copy the faces the site actually loads - all declared in ONE place, the
+    // `@font-face` block at the top of flora.css. The three Flora faces are
+    // latin-subset variable woff2 taken from the Google css2 endpoint the old
+    // CDN <link> used; Red Hat Mono is the code face. Licences ride next to
+    // the files in doc/fonts (SIL OFL 1.1).
+    //
+    // Imbue / Instrument Serif / Red Hat Display stay in doc/fonts but are no
+    // longer deployed: their only caller was main.css, which the Flora shell
+    // retired.
     for f in [
-        "InstrumentSerif-Regular.ttf",
-        "Imbue-VariableFont_opsz,wght.ttf",
-        "RedHatDisplay-VariableFont_wght.ttf",
+        "EBGaramond-Variable.woff2",
+        "EBGaramond-Variable-Italic.woff2",
+        "GrenzeGotisch-Variable.woff2",
+        "Grenze-Variable.woff2",
+        "Grenze-Variable-Italic.woff2",
         "RedHatMono-VariableFont_wght.ttf",
     ] {
         fs::copy(fonts_source_dir.join(f), fonts_dir.join(f))?;
