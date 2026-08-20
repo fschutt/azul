@@ -53,7 +53,7 @@ int main() {
     RefAny data = InfinityState_upcast(state);
     
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Infinite Scrolling Gallery", 0, 27);
+    window.inner().window_state.title = az_string_from_literal("Infinite Scrolling Gallery");
     window.inner().window_state.size.dimensions.width = 800.0;
     window.inner().window_state.size.dimensions.height = 600.0;
     

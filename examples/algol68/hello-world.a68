@@ -1,24 +1,36 @@
 PR include "azul.a68" PR
 
 MODE MYDATAMODEL = STRUCT (INT counter);
+MODE MYDATAMODELPTRCONST = STRUCT (REF MYDATAMODEL ptr, BOOL run destructor);
+
+LONG INT my data model size = 4;
+LONG INT my data model align = 4;
 
 PROC my data model destructor = (REF VOID p) VOID:
   SKIP;
+
+PROC my data model ptr = (REF AZREFANY refany) REF MYDATAMODEL: ALIEN "AzRefAny_getDataPtr" ! "azul";
+
+PROC az ref any new my data model = (MYDATAMODELPTRCONST ptr, LONG INT len, LONG INT align, LONG INT type id, AZSTRING type name, AZREFANYDESTRUCTORTYPE destructor, LONG INT serialize fn, LONG INT deserialize fn) AZREFANY: ALIEN "AzRefAny_newC" ! "azul";
 
 PROC az str = (STRING s) AZSTRING:
   az string copy from bytes (s, 0, UPB s);
 
 PROC on click = (AZREFANY data, AZCALLBACKINFO info) AZUPDATE:
 BEGIN
-  AZUPDATE result;
-  tag OF result := az update tag refresh dom;
-  result
+  AZREFANY refany := data;
+  REF MYDATAMODEL model := my data model ptr (refany);
+  counter OF model +:= 1;
+  update refresh dom
 END;
 
 PROC layout = (AZREFANY data, AZLAYOUTCALLBACKINFO info) AZDOM:
 BEGIN
-  AZSTRING label text := az str ("0");
-  AZDOM label dom := az dom create text (label text);
+  AZREFANY refany := data;
+  REF MYDATAMODEL model := my data model ptr (refany);
+
+  AZSTRING label text := az str (whole (counter OF model, 0));
+  AZDOM label dom := az dom create text do not use without block level wrapper (label text);
   AZDOM label wrapper := az dom create div;
 
   AZSTYLEFONTSIZE size := az style font size px (32.0);
@@ -30,7 +42,7 @@ BEGIN
   az button set button type (button, az button type primary);
 
   # Clone the RefAny so the button keeps its own reference. #
-  AZREFANY data clone := az ref any clone (data);
+  AZREFANY data clone := az ref any clone (refany);
   az button set on click (button, data clone, on click);
   AZDOM button dom := az button dom (button);
 
@@ -45,12 +57,17 @@ BEGIN
   MYDATAMODEL model;
   counter OF model := 5;
 
-  AZREFANY data := az ref any new c (
-    model,
-    LONG INT (LWB model),  # SKIPPED: SizeOf is host-specific; LWB is a placeholder #
+  MYDATAMODELPTRCONST model ptr := (model, FALSE);
+
+  AZREFANY data := az ref any new my data model (
+    model ptr,
+    my data model size,
+    my data model align,
     0,
     az str ("MyDataModel"),
-    my data model destructor
+    my data model destructor,
+    0,
+    0
   );
 
   AZWINDOWCREATEOPTIONS window := az window create options create (layout);

@@ -48,7 +48,7 @@ int main() {
     RefAny data = WidgetShowcase_upcast(model);
     
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Widget Showcase", 0, 15);
+    window.inner().window_state.title = az_string_from_literal("Widget Showcase");
     window.inner().window_state.size.dimensions.width = 600.0;
     window.inner().window_state.size.dimensions.height = 500.0;
     

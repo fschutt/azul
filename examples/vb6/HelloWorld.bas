@@ -55,6 +55,8 @@ Public Declare Function AzStyleFontSize_px Lib "azul" Alias "AzStyleFontSize_px"
 
 Public Declare Function AzRefAny_clone Lib "azul" Alias "AzRefAny_clone" _
     (ByVal data As Long) As Long
+Public Declare Function AzRefAny_getDataPtr Lib "azul" Alias "AzRefAny_getDataPtr" _
+    (ByVal ref_any As Long) As Long
 Public Declare Function AzRefAny_newC Lib "azul" Alias "AzRefAny_newC" _
     (ByVal ptr_ As Long, ByVal sz As Long, ByVal type_id As Long, _
      ByVal type_name As Long, ByVal destructor As Long) As Long
@@ -82,7 +84,7 @@ End Function
 
 Public Function on_click(ByVal data As Long, ByVal info As Long) As Long
     Dim modelPtr As Long
-    CopyMemory modelPtr, ByVal data, 4
+    modelPtr = AzRefAny_getDataPtr(data)
     If modelPtr <> 0 Then
         Dim m As MyDataModel
         CopyMemory m, ByVal modelPtr, LenB(m)
@@ -101,7 +103,7 @@ Public Function layout(ByVal data As Long, ByVal info As Long) As Long
     Dim fontSize As Long, dataClone As Long
     Dim buf As String
 
-    CopyMemory modelPtr, ByVal data, 4
+    modelPtr = AzRefAny_getDataPtr(data)
     If modelPtr = 0 Then
         layout = AzDom_createBody()
         Exit Function

@@ -295,24 +295,25 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     return body;
 }
 
+static AzImageRef null_image(AzPhysicalSizeU32 size) {
+    static uint8_t dummy_byte = 0;
+    AzU8VecRef empty = { .ptr = &dummy_byte, .len = 0 };
+    return AzImageRef_nullImage(size.width, size.height, AzRawImageFormat_R8, empty);
+}
+
 AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     AzHidpiAdjustedBounds bounds = AzRenderImageCallbackInfo_getBounds(&info);
     AzPhysicalSizeU32 size = AzHidpiAdjustedBounds_getPhysicalSize(&bounds);
     
-    // Invalid/null image for error cases - use non-NULL pointer for empty slice
-    static uint8_t dummy_byte = 0;
-    AzU8VecRef empty = { .ptr = &dummy_byte, .len = 0 };
-    AzImageRef invalid = AzImageRef_nullImage(size.width, size.height, AzRawImageFormat_R8, empty);
-    
     AzOptionGlContextPtr opt_gl = AzRenderImageCallbackInfo_getGlContext(&info);
     if (opt_gl.Some.tag != AzOptionGlContextPtr_Tag_Some) {
-        return invalid;
+        return null_image(size);
     }
     AzGlContextPtr gl_context = opt_gl.Some.payload;
     
     OpenGlStateRef d = OpenGlStateRef_create(&data);
     if (!OpenGlState_downcastRef(&data, &d)) {
-        return invalid;
+        return null_image(size);
     }
     
     float rotation_deg = d.ptr->rotation_deg;

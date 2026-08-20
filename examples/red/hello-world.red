@@ -87,6 +87,7 @@ main: func [
     layout-cb: azul-register-layout-callback :on-layout
 
     wco: AzWindowCreateOptions_default
+    wco/window_state/layout_callback: layout-cb
 
     the-app: AzApp_create app-data AzAppConfig_create
     AzApp_run as byte-ptr! the-app wco

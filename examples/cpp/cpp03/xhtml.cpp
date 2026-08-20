@@ -45,7 +45,7 @@ int main() {
     RefAny data = XhtmlState_upcast(state);
     
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"XHTML Demo", 0, 10);
+    window.inner().window_state.title = az_string_from_literal("XHTML Demo");
     window.inner().window_state.size.dimensions.width = 800.0;
     window.inner().window_state.size.dimensions.height = 600.0;
     

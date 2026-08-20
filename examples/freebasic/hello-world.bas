@@ -18,7 +18,7 @@ Function on_click Cdecl (ByVal data As AzRefAny, ByVal info As AzCallbackInfo) A
     Dim modelPtr As MyDataModel Ptr
     Dim result As AzUpdate
 
-    modelPtr = CPtr(MyDataModel Ptr, @data)
+    modelPtr = CPtr(MyDataModel Ptr, AzRefAny_getDataPtr(@data))
     If modelPtr <> 0 Then
         modelPtr->counter += 1
         result = AzUpdate_RefreshDom
@@ -40,7 +40,7 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
     Dim dataClone As AzRefAny
     Dim buf As String
 
-    modelPtr = CPtr(MyDataModel Ptr, @data)
+    modelPtr = CPtr(MyDataModel Ptr, AzRefAny_getDataPtr(@data))
     If modelPtr = 0 Then
         Return AzDom_createBody()
     End If
@@ -78,18 +78,25 @@ Function MyDataModel_fromJson Cdecl (ByVal json As AzJson) As AzResultRefAnyStri
 End Function
 
 Dim model As MyDataModel
+Dim modelWrapper As AzGlVoidPtrConst
 Dim data As AzRefAny
 Dim window As AzWindowCreateOptions
 Dim app As AzApp
 
 model.counter = 5
 
+modelWrapper.ptr_ = @model
+modelWrapper.run_destructor = 0
+
 data = AzRefAny_newC( _
-    @model, _
+    modelWrapper, _
     SizeOf(MyDataModel), _
+    SizeOf(ULong), _
     0, _
     AzStr("MyDataModel"), _
-    @MyDataModel_destructor _
+    @MyDataModel_destructor, _
+    0, _
+    0 _
 )
 
 window = AzWindowCreateOptions_create(@layout)

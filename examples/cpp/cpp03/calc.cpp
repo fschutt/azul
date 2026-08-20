@@ -19,17 +19,23 @@ struct ButtonData {
     int evt_type;
     char digit;
     int op;
+
+    ButtonData(AzRefAny c, int evt, char d, int o)
+        : calc(c), evt_type(evt), digit(d), op(o) {}
+    ButtonData(const ButtonData& other)
+        : calc(AzRefAny_clone(&other.calc)), evt_type(other.evt_type),
+          digit(other.digit), op(other.op) {}
+    ~ButtonData() { AzRefAny_delete(&calc); }
+
+private:
+    ButtonData& operator=(const ButtonData&);
 };
 AZ_REFLECT(ButtonData);
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 Dom make_button(RefAny& calc, const char* label, int evt, char digit, int op, const char* style) {
-    ButtonData bd;
-    bd.calc = calc.clone().release();
-    bd.evt_type = evt;
-    bd.digit = digit;
-    bd.op = op;
+    ButtonData bd(calc.clone().release(), evt, digit, op);
     
     Dom text = Dom::create_text_do_not_use_without_block_level_wrapper(String(label));
     Dom btn = Dom::create_div();
@@ -116,7 +122,7 @@ int main() {
     RefAny data = Calculator_upcast(model);
     
     WindowCreateOptions window = WindowCreateOptions::create(layout);
-    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Calculator", 0, 10);
+    window.inner().window_state.title = az_string_from_literal("Calculator");
     
     App app = App::create(data, AppConfig::default_());
     app.run(window);

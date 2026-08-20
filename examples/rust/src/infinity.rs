@@ -1,122 +1,176 @@
 use azul::prelude::*;
 use azul::option::OptionDom;
 
-#[derive(Default)]
-struct InfinityState {
-    file_paths: Vec<std::string::String>,
-    visible_start: usize,
-    visible_count: usize,
+const TOTAL_ROWS: usize = 1_000_000;
+const ROW_HEIGHT: f32 = 22.0;
+const VISIBLE_ROWS: usize = 48;
+const COL_WIDTH: f32 = 92.0;
+const ROW_HEAD_WIDTH: f32 = 52.0;
+
+const COL_LABELS: &[&str] = &["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
+const COL_TITLES: &[&str] = &[
+    "Order", "Product", "Region", "Qty", "Unit", "Net", "Tax", "Total", "Q1", "Q2", "Q3", "Q4",
+];
+const PRODUCTS: &[&str] = &[
+    "Widget", "Gasket", "Flange", "Bearing", "Bracket", "Spindle", "Coupler", "Sleeve",
+];
+const REGIONS: &[&str] = &["North", "South", "East", "West", "Central"];
+
+struct SheetState {
+    total_rows: usize,
 }
 
-extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
-    let file_count = {
-        let d = match data.downcast_ref::<InfinityState>() {
-            Some(s) => s,
-            None => return Dom::create_body(),
-        };
-        d.file_paths.len()
-    };
-
-    let title = Dom::create_div_with_text(format!("Pictures - {} images", file_count))
-        .with_css("font-size: 20px; margin-bottom: 10px;");
-
-    let vview = Dom::create_virtual_view(data.clone(), render_virtual_view)
-        .with_css("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
-        .with_callback(
-            EventFilter::Hover(HoverEventFilter::Scroll),
-            data.clone(),
-            on_scroll,
-        );
-
-    Dom::create_body()
-        .with_css("padding: 20px; font-family: sans-serif;")
-        .with_child(title)
-        .with_child(vview)
+fn hash2(row: usize, col: usize) -> u32 {
+    let mut h = (row as u32).wrapping_mul(2_654_435_761) ^ (col as u32).wrapping_mul(40_503);
+    h ^= h >> 13;
+    h = h.wrapping_mul(1_274_126_177);
+    h ^ (h >> 16)
 }
 
-extern "C" fn render_virtual_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
-    let d = match data.downcast_ref::<InfinityState>() {
-        Some(s) => s,
+fn cell_text(row: usize, col: usize) -> std::string::String {
+    let h = hash2(row, col);
+    match col {
+        0 => format!("SO-{:06}", 100_000 + row),
+        1 => PRODUCTS[h as usize % PRODUCTS.len()].to_string(),
+        2 => REGIONS[h as usize % REGIONS.len()].to_string(),
+        3 => format!("{}", h % 90 + 10),
+        _ => format!("{}.{:02}", h % 900 + 10, h % 100),
+    }
+}
+
+fn cell(text: &str, css: &str) -> Dom {
+    Dom::create_div_with_text(text).with_css(css)
+}
+
+extern "C" fn render_rows(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let total = match data.downcast_ref::<SheetState>() {
+        Some(s) => s.total_rows,
         None => return VirtualViewReturn::default(),
     };
 
-    let mut container = Dom::create_div()
-        .with_css("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;");
+    let scroll_y = info.scroll_offset.y.max(0.0);
+    let first_row = ((scroll_y / ROW_HEIGHT) as usize).min(total.saturating_sub(1));
+    let count = VISIBLE_ROWS.min(total - first_row);
 
-    let end = (d.visible_start + d.visible_count).min(d.file_paths.len());
-    for i in d.visible_start..end {
-        let item = Dom::create_div()
-            .with_css(
-                "
-                width: 150px; 
-                height: 150px; 
-                background: white; 
-                border: 1px solid #ddd; 
-                display: flex; 
-                align-items: center; 
-                justify-content: center;
-            ",
-            )
-            .with_child(
-                Dom::create_div_with_text(d.file_paths[i].clone())
-                    .with_css("font-size: 10px; text-align: center;"),
-            );
+    let mut container = Dom::create_div();
 
-        container.add_child(item);
+    for i in 0..count {
+        let row_idx = first_row + i;
+        let band = if row_idx % 2 == 0 { "#ffffff" } else { "#f6f8fb" };
+
+        let mut row = Dom::create_div().with_css(format!(
+            "display: flex; flex-direction: row; height: {ROW_HEIGHT}px; background: {band};"
+        ));
+
+        row.add_child(cell(
+            &format!("{}", row_idx + 1),
+            &format!(
+                "width: {ROW_HEAD_WIDTH}px; min-width: {ROW_HEAD_WIDTH}px; height: {ROW_HEIGHT}px; \
+                 line-height: {ROW_HEIGHT}px; text-align: center; font-size: 11px; color: #444444; \
+                 background: #eceff4; border-right: 1px solid #b6bcc6; \
+                 border-bottom: 1px solid #d7dbe2;"
+            ),
+        ));
+
+        for c in 0..COL_LABELS.len() {
+            let align = if c >= 3 { "right" } else { "left" };
+            row.add_child(cell(
+                &cell_text(row_idx, c),
+                &format!(
+                    "width: {COL_WIDTH}px; min-width: {COL_WIDTH}px; height: {ROW_HEIGHT}px; \
+                     line-height: {ROW_HEIGHT}px; padding-left: 6px; padding-right: 6px; \
+                     font-size: 12px; color: #1f2933; text-align: {align}; overflow: hidden; \
+                     border-right: 1px solid #d7dbe2; border-bottom: 1px solid #d7dbe2;"
+                ),
+            ));
+        }
+
+        container.add_child(row);
     }
 
-    let rows = (d.file_paths.len() + 3) / 4;
-    let virtual_height = rows as f32 * 160.0;
+    let sheet_width = ROW_HEAD_WIDTH + COL_LABELS.len() as f32 * COL_WIDTH;
 
     VirtualViewReturn {
         dom: OptionDom::Some(container),
         materialized: LogicalRect::create(
-            LogicalPosition::create(0.0, 0.0),
-            LogicalSize::create(0.0, virtual_height),
+            LogicalPosition::create(0.0, first_row as f32 * ROW_HEIGHT),
+            LogicalSize::create(sheet_width, count as f32 * ROW_HEIGHT),
         ),
         virtual_rect: LogicalRect::create(
-            LogicalPosition::create(0.0, d.visible_start as f32 * 40.0),
-            LogicalSize::create(0.0, virtual_height),
+            LogicalPosition::create(0.0, 0.0),
+            LogicalSize::create(sheet_width, total as f32 * ROW_HEIGHT),
         ),
     }
 }
 
-extern "C" fn on_scroll(mut data: RefAny, info: CallbackInfo) -> Update {
-    let scroll_pos = match info.get_scroll_offset() {
-        OptionLogicalPosition::Some(pos) => pos,
-        OptionLogicalPosition::None => return Update::DoNothing,
-    };
+fn column_header() -> Dom {
+    let mut header = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; background: #dfe3ea; \
+         border-bottom: 1px solid #9aa2ae;",
+    );
 
-    let mut d = match data.downcast_mut::<InfinityState>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
+    header.add_child(cell(
+        "",
+        &format!(
+            "width: {ROW_HEAD_WIDTH}px; min-width: {ROW_HEAD_WIDTH}px; height: 24px; \
+             line-height: 24px; border-right: 1px solid #9aa2ae; background: #d3d8e0;"
+        ),
+    ));
 
-    let items_per_row = 4;
-    let item_height = 160.0;
-    let new_start = ((scroll_pos.y / item_height) as usize) * items_per_row;
-
-    if new_start != d.visible_start {
-        d.visible_start = new_start.min(d.file_paths.len().saturating_sub(1));
-        return Update::RefreshDom;
+    for (label, title) in COL_LABELS.iter().zip(COL_TITLES) {
+        header.add_child(cell(
+            &format!("{label}   {title}"),
+            &format!(
+                "width: {COL_WIDTH}px; min-width: {COL_WIDTH}px; height: 24px; line-height: 24px; \
+                 padding-left: 6px; font-size: 11px; font-weight: bold; color: #33404f; \
+                 overflow: hidden; border-right: 1px solid #9aa2ae;"
+            ),
+        ));
     }
 
-    Update::DoNothing
+    header
+}
+
+extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
+    let title = Dom::create_div_with_text(format!(
+        "Sheet1  -  {} rows x {} columns",
+        TOTAL_ROWS,
+        COL_LABELS.len()
+    ))
+    .with_css(
+        "padding: 8px 12px; background: #217346; color: white; font-size: 13px; \
+         font-weight: bold;",
+    );
+
+    let vview = Dom::create_virtual_view(data.clone(), render_rows).with_css(
+        "display: flex; flex-grow: 1; overflow-y: auto; overflow-x: hidden; background: #ffffff;",
+    );
+
+    let status = Dom::create_div_with_text(
+        "Ready   -   only the visible band of cells exists in the DOM",
+    )
+    .with_css(
+        "padding: 4px 12px; background: #f1f3f6; border-top: 1px solid #c9ced6; \
+         color: #55606e; font-size: 11px;",
+    );
+
+    Dom::create_body()
+        .with_css(
+            "display: flex; flex-direction: column; height: 100%; margin: 0; padding: 0; \
+             font-family: sans-serif; background: #ffffff;",
+        )
+        .with_child(title)
+        .with_child(column_header())
+        .with_child(vview)
+        .with_child(status)
 }
 
 fn main() {
-    let mut state = InfinityState {
-        file_paths: Vec::new(),
-        visible_start: 0,
-        visible_count: 20,
-    };
-
-    for i in 0..1000 {
-        state.file_paths.push(format!("image_{:04}.png", i));
-    }
-
-    let data = RefAny::new(state);
+    let data = RefAny::new(SheetState { total_rows: TOTAL_ROWS });
     let app = App::create(data, AppConfig::create());
-    let window = WindowCreateOptions::create(layout);
+    let mut window = WindowCreateOptions::create(layout);
+    window.window_state.title = "Infinity - 1M row spreadsheet".into();
+    window.window_state.size.dimensions.width = ROW_HEAD_WIDTH + 12.0 * COL_WIDTH + 18.0;
+    window.window_state.size.dimensions.height = 620.0;
     app.run(window);
 }
