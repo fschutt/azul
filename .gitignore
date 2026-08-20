@@ -82,6 +82,16 @@ examples/java/target/
 examples/kotlin/Azul.kt
 examples/kotlin/build/
 examples/kotlin/.gradle/
+# kotlinc -d output: *.class is ignored above, but each dir also carries a
+# META-INF/main.kotlin_module, so the directory kept showing up untracked.
+examples/kotlin/Azul-classes/
+examples/kotlin/Hello-classes/
+# Go (cgo) — the generated half of the binding, same as Azul.cs / Azul.kt.
+# `main.go` and `godebug_unix.go` are hand-written and stay tracked.
+examples/go/azul.go
+examples/go/functions.go
+examples/go/types.go
+examples/go/wrappers.go
 # Node
 examples/node/azul
 examples/node/azul/
