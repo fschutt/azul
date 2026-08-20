@@ -49,7 +49,17 @@ permissions:
 # independently — so pushing branch A doesn't cancel branch B's pipeline.
 # (The Pages deploy is serialized by the github-pages environment regardless.)
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # ONE run per branch, whichever event started it. `push: '**'` and
+  # `pull_request` both fire for a same-repo PR branch, and they fire for the
+  # SAME commit: run 32330596002 (push) and 32330629363 (pull_request) were
+  # both 28ad89292, 84 jobs each. Grouping a same-repo PR under its head branch
+  # - the name a push reports as `ref_name` - makes the second start cancel the
+  # first. Fork PRs keep their own group (`ref_name` is `<n>/merge` there), and
+  # a newer push still cancels an older run, which is what this was for.
+  group: >-
+    ${{ github.workflow }}-${{
+      (github.event.pull_request.head.repo.full_name == github.repository
+        && github.event.pull_request.head.ref) || github.ref_name }}
   cancel-in-progress: true
 
 # Force ANSI color OFF for every step. Tool output is captured into the run
@@ -458,7 +468,14 @@ jobs:
 
   cross_compile_check:
     name: Cross-Compile Check (${{ matrix.target }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    # RELEASE-LANE ONLY (2026-08-20). Runs on master, on tags and on every
+    # workflow_dispatch - so `ci`, `website` and `deploy` are unchanged and the
+    # deploy still gates on it - but not on a feature-branch push or a PR, where
+    # it is the slowest thing between a commit and an answer.
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
+      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+          || github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -572,7 +589,14 @@ jobs:
   cross_build_binaries:
     name: Cross-Build (${{ matrix.target }})
     timeout-minutes: 90
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    # RELEASE-LANE ONLY (2026-08-20). Runs on master, on tags and on every
+    # workflow_dispatch - so `ci`, `website` and `deploy` are unchanged and the
+    # deploy still gates on it - but not on a feature-branch push or a PR, where
+    # it is the slowest thing between a commit and an answer.
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
+      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+          || github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.runner }}
     # The solid targets (i686/aarch64/armv7-linux, i686-windows, x86_64-macos)
     # stay BLOCKING. The exotic Linux arches below carry `experimental: true`
@@ -778,7 +802,14 @@ jobs:
     # Long enough to absorb a cold inline compiler build (LLVM from source).
     # Warm runs (asset present) finish in minutes.
     timeout-minutes: 360
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    # RELEASE-LANE ONLY (2026-08-20). Runs on master, on tags and on every
+    # workflow_dispatch - so `ci`, `website` and `deploy` are unchanged and the
+    # deploy still gates on it - but not on a feature-branch push or a PR, where
+    # it is the slowest thing between a commit and an answer.
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
+      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+          || github.event_name == 'workflow_dispatch')
     runs-on: windows-2022
     # BLOCKING: the Win98/XP build must succeed.
     continue-on-error: false
@@ -1189,7 +1220,14 @@ jobs:
 
   coverage:
     name: Code Coverage
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    # RELEASE-LANE ONLY (2026-08-20). Runs on master, on tags and on every
+    # workflow_dispatch - so `ci`, `website` and `deploy` are unchanged and the
+    # deploy still gates on it - but not on a feature-branch push or a PR, where
+    # it is the slowest thing between a commit and an answer.
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
+      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+          || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -2838,6 +2876,13 @@ jobs:
     # Stays BLOCKING on every OS/family: a real per-OS binding bug must fail the
     # release. The 30→60 bump + toolchain caching keeps the macOS scripting leg
     # (27 toolchains) inside the window instead of timing out mid-run.
+    #
+    # The `scripting` family installs 27 language toolchains per OS; on macOS
+    # that leg alone is 46 minutes and it is the last thing the deploy waits
+    # for. Linux runs it on every push; macOS and Windows run it on master, on
+    # tags and on every dispatch - so the release gate is intact and a feature
+    # branch stops paying 70 machine-minutes (and, on macOS, 10x that in billed
+    # minutes) for a board that has never differed by OS on a branch.
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     strategy:
       fail-fast: false
@@ -2857,6 +2902,23 @@ jobs:
     env:
       AZ_E2E: ${{ github.workspace }}/tests/e2e/hello_world_counter.json
       AZ_BACKEND: headless
+      # Whether THIS leg runs the 27-toolchain language board.
+      #
+      # Linux runs it on every push; macOS and Windows run it on master, on
+      # tags and on every workflow_dispatch - so `ci`, `website` and `deploy`
+      # are unchanged and the release gate is intact - but a feature-branch push
+      # stops paying for it. The macOS leg alone is 46 minutes, 18 of them brew,
+      # and it is the last thing the deploy waits for.
+      #
+      # It lives in `env` because a job-level `if` cannot read `matrix` (that is
+      # evaluated before the matrix expands) - `env` can, and every scripting
+      # step reads it in place of the old `matrix.family.key == 'scripting'`.
+      SCRIPTING: >-
+        ${{ matrix.family.key == 'scripting'
+            && (matrix.os == 'ubuntu-22.04'
+                || github.ref == 'refs/heads/master'
+                || startsWith(github.ref, 'refs/tags/')
+                || github.event_name == 'workflow_dispatch') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -2929,14 +2991,14 @@ jobs:
       # OCaml: lang_ocaml WORKS once dune + ctypes are present. setup-ocaml is
       # Linux/macOS only; only the scripting family needs it.
       - name: Set up OCaml (Linux/macOS)
-        if: matrix.family.key == 'scripting' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: "5.2"
 
       - name: Install OCaml FFI packages (Linux/macOS)
-        if: matrix.family.key == 'scripting' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.os != 'windows-2022'
         continue-on-error: true
         shell: bash
         run: opam install -y dune ctypes ctypes-foreign
@@ -2945,7 +3007,7 @@ jobs:
       # default `javac` is too old ("invalid target release: 11"), so pin a JDK.
       # Also exports JAVA_HOME, which kotlinc/scala pick up.
       - name: Set up JDK 17 (JVM bindings)
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -2955,7 +3017,7 @@ jobs:
       # setup-odin downloads a prebuilt Odin (needs the token for GH releases);
       # best-effort — if it fails the matrix row SKIPs (odin is BETA, non-gating).
       - name: Set up Odin
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         continue-on-error: true
         uses: laytan/setup-odin@v2
         with:
@@ -2965,7 +3027,7 @@ jobs:
       # Nim: lang_nim builds the C-ABI-direct binding (importc/dynlib, direct
       # cdecl callbacks). ALPHA/non-gating — SKIPs if the action is unavailable.
       - name: Set up Nim
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         continue-on-error: true
         uses: jiro4989/setup-nim-action@v2
         with:
@@ -2978,7 +3040,7 @@ jobs:
       # (d is BETA, non-gating). Without this step dmd is absent and lang_d
       # can never run on CI, so it can never be proven green cross-OS.
       - name: Set up D (dmd)
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         continue-on-error: true
         uses: dlang-community/setup-dlang@v2
         with:
@@ -2987,7 +3049,7 @@ jobs:
       # Racket: lang_racket builds the ffi/unsafe binding (libffi closures =
       # real C fn-ptrs). ALPHA/non-gating.
       - name: Set up Racket
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         continue-on-error: true
         uses: Bogdanp/setup-racket@v1.11
         with:
@@ -2999,7 +3061,7 @@ jobs:
       # green and swift stays macOS-only. Windows Swift needs the separate MSVC
       # toolchain setup and is left for a follow-up (the row SKIPs there).
       - name: Set up Swift (Linux)
-        if: matrix.family.key == 'scripting' && matrix.os == 'ubuntu-22.04'
+        if: env.SCRIPTING == 'true' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         uses: swift-actions/setup-swift@v2
         with:
@@ -3009,7 +3071,7 @@ jobs:
       # the official installer + Visual Studio integration). Best-effort — if it
       # fails, swiftc is absent and lang_swift SKIPs on Windows (BETA/non-gating).
       - name: Set up Swift (Windows)
-        if: matrix.family.key == 'scripting' && matrix.os == 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.os == 'windows-2022'
         continue-on-error: true
         uses: compnerd/gha-setup-swift@v0.4.0
         with:
@@ -3019,7 +3081,7 @@ jobs:
       # Zig: lang_zig builds the @cImport(azul.h) binding + counter (C-ABI-direct
       # callbacks). SHIPPED — must prove green on all three OSes.
       - name: Set up Zig
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         continue-on-error: true
         uses: mlugg/setup-zig@v1
         with:
@@ -3038,7 +3100,7 @@ jobs:
       # Downloading it directly removes the dependency on that export. Guarded on
       # `command -v zig`, so when the action works this is a no-op.
       - name: Ensure zig is actually on PATH
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         # continue-on-error, like the 15 toolchain-setup steps above it. This is
         # a TOOLCHAIN INSTALL, and a toolchain that cannot be installed must
         # produce a SKIP row, not a red job: on macos-14 the direct-install
@@ -3123,7 +3185,7 @@ jobs:
 
       # Go on macOS: ubuntu/windows runners preinstall go, macOS does not.
       - name: Set up Go (macOS)
-        if: matrix.family.key == 'scripting' && matrix.os == 'macos-14'
+        if: env.SCRIPTING == 'true' && matrix.os == 'macos-14'
         continue-on-error: true
         uses: actions/setup-go@v7
         with:
@@ -3132,7 +3194,7 @@ jobs:
       # Scala (JVM binding): coursier installs the `scala`/`scalac` launchers.
       # SHIPPED — must prove green on all three OSes.
       - name: Set up Scala (coursier)
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         continue-on-error: true
         uses: coursier/setup-action@v1
         with:
@@ -3142,7 +3204,7 @@ jobs:
       # Haskell on macOS: ubuntu/windows runners ship ghc/cabal; macOS does not.
       # SHIPPED — must prove green on all three OSes.
       - name: Set up Haskell (macOS)
-        if: matrix.family.key == 'scripting' && matrix.os == 'macos-14'
+        if: env.SCRIPTING == 'true' && matrix.os == 'macos-14'
         continue-on-error: true
         uses: haskell-actions/setup@v2
         with:
@@ -3152,13 +3214,13 @@ jobs:
       # Crystal: lang_crystal builds the azul.cr binding + counter. BETA. Windows
       # crystal is experimental; install-crystal targets ubuntu/macos only.
       - name: Set up Crystal
-        if: matrix.family.key == 'scripting' && matrix.os != 'windows-2022'
+        if: env.SCRIPTING == 'true' && matrix.os != 'windows-2022'
         continue-on-error: true
         uses: crystal-lang/install-crystal@v1
 
       # V (vlang): lang_v builds the azul.v subpackage binding + counter. BETA.
       - name: Set up V (vlang)
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         continue-on-error: true
         uses: vlang/setup-v@v1.4
         with:
@@ -3166,7 +3228,7 @@ jobs:
 
       # Julia: lang_julia builds the ccall binding + counter. BETA.
       - name: Set up Julia
-        if: matrix.family.key == 'scripting'
+        if: env.SCRIPTING == 'true'
         continue-on-error: true
         uses: julia-actions/setup-julia@v2
         with:
@@ -3263,7 +3325,14 @@ jobs:
   build_mobile:
     name: Mobile libazul (${{ matrix.label }})
     timeout-minutes: 45
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    # RELEASE-LANE ONLY (2026-08-20). Runs on master, on tags and on every
+    # workflow_dispatch - so `ci`, `website` and `deploy` are unchanged and the
+    # deploy still gates on it - but not on a feature-branch push or a PR, where
+    # it is the slowest thing between a commit and an answer.
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
+      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+          || github.event_name == 'workflow_dispatch')
     continue-on-error: true
     runs-on: ${{ matrix.os }}
     strategy:
@@ -3455,7 +3524,14 @@ jobs:
   build_mobile_apps:
     name: Mobile demo apps (iOS)
     timeout-minutes: 60
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    # RELEASE-LANE ONLY (2026-08-20). Runs on master, on tags and on every
+    # workflow_dispatch - so `ci`, `website` and `deploy` are unchanged and the
+    # deploy still gates on it - but not on a feature-branch push or a PR, where
+    # it is the slowest thing between a commit and an answer.
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
+      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+          || github.event_name == 'workflow_dispatch')
     continue-on-error: true
     runs-on: macos-14
     # Hoist the signing secrets to job env so the optional cert-import step can
@@ -3557,7 +3633,14 @@ jobs:
   build_mobile_apps_android:
     name: Mobile demo apps (Android)
     timeout-minutes: 60
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    # RELEASE-LANE ONLY (2026-08-20). Runs on master, on tags and on every
+    # workflow_dispatch - so `ci`, `website` and `deploy` are unchanged and the
+    # deploy still gates on it - but not on a feature-branch push or a PR, where
+    # it is the slowest thing between a commit and an answer.
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
+      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+          || github.event_name == 'workflow_dispatch')
     # NOT continue-on-error. It was, and that is how a BROKEN APK reached the
     # release page: this job is in deploy_pages' `needs`, so with the flag on it
     # satisfied that dependency no matter what it produced.
@@ -6139,7 +6222,14 @@ jobs:
 
   dep_tree:
     name: Dependency tree (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    # RELEASE-LANE ONLY (2026-08-20). Runs on master, on tags and on every
+    # workflow_dispatch - so `ci`, `website` and `deploy` are unchanged and the
+    # deploy still gates on it - but not on a feature-branch push or a PR, where
+    # it is the slowest thing between a commit and an answer.
+    if: >-
+      (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
+      && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
+          || github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.os }}
     # The tree-rendering steps below are individually continue-on-error
     # (informational — they just populate the run Summary + an artifact). The
