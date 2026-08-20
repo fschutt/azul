@@ -5,7 +5,7 @@ language: en
 canonical_slug: dom/merge-callbacks
 audience: external
 maturity: mature
-guide_order: 33
+guide_order: 53
 topic_only: false
 short_desc: How widgets keep heavy resources across a layout rebuild
 prerequisites: [dom, dom/datasets, dom/reconciliation]
@@ -209,10 +209,3 @@ A useful split:
 
 - Application data lives in a `RefAny` at app construction. `layout()` reads it to decide what to render.
 - Widget-instance state lives on the widget's root node as a dataset. Add a merge callback if the state owns expensive resources.
-
-
-## Coming Up Next
-
-- [Virtual Views](virtual-views.md) — A node that materialises lazily, for infinite lists and embedded sub-DOMs
-- [Components](components.md) — Reusable UI fragments - named functions of (args) -> Dom
-- [Reconciliation](reconciliation.md) — Diffing, restyle scope, and damage-rect repaint

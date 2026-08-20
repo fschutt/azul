@@ -326,7 +326,7 @@ LD_LIBRARY_PATH=. ./hello-world
 ```
 
 You should see the window pictured on the
-[hello-world landing page](../hello-world.md). Click the button: the
+[hello-world landing page](..md). Click the button: the
 counter increments, `goLayout` re-runs, and the new value renders.
 
 ## Common errors
@@ -356,9 +356,3 @@ counter increments, `goLayout` re-runs, and the new value renders.
 - **Cross-compiling fails** — expected; cgo cross-compiles need a full
   foreign C toolchain + sysroot. Build natively on each target
   platform.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Zig]](zig.md)

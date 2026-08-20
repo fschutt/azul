@@ -5,7 +5,7 @@ language: en
 canonical_slug: dom/reconciliation
 audience: external
 maturity: mature
-guide_order: 31
+guide_order: 51
 topic_only: false
 short_desc: Diffing, restyle scope, and damage-rect repaint
 prerequisites: [dom]
@@ -132,9 +132,3 @@ and the Unmount event fires.
 
 The full algorithm covers matching tiers, the property-change bitmask,
 the relayout-scope enum and damage-rect coalescing.
-
-## Coming Up Next
-
-- [Datasets](datasets.md) — Attaching state to a node for navigation and per-instance state
-- [Merge Callbacks](merge-callbacks.md) — How widgets keep heavy resources across a layout rebuild
-- [Virtual Views](virtual-views.md) — A node that materialises lazily, for infinite lists and embedded sub-DOMs

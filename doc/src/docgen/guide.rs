@@ -264,7 +264,7 @@ fn extract_metadata(
     (title, content.to_string(), None, None, None, Vec::new())
 }
 
-/// Three-tree bucket for the guide index.
+/// Two-tree bucket for the guide index.
 pub(crate) fn classify_tree(g: &Guide) -> &'static str {
     match g.audience.as_deref() {
         // `contributor` used to be its own tree; the pages that carried it
@@ -315,7 +315,7 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
 
     // Pre-process content: remove mermaid blocks and expand `azul-render`
     // fences into <figure>/slideshow HTML. Use an absolute URL prefix so
-    // pages at any nesting depth (`guide/dom.html` vs `guide/internals/dom.html`)
+    // pages at any nesting depth (`guide/dom.html` vs `guide/dom/datasets.html`)
     // resolve to the same screenshots directory.
     let processed_content = preprocess_markdown_content(&strip_leading_h1(&guide.content));
     let screenshot_prefix = format!("{HTML_ROOT}/guide/screenshots/");
@@ -323,11 +323,11 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
         &processed_content,
         &screenshot_prefix,
     );
-    // Rewrite cross-page markdown links: `[text](other.md)` → `[text](other)`.
-    // Agents write `.md` per markdown convention; the deployed site uses clean
-    // (extensionless) URLs — the static host serves `other.html` for `other`,
-    // and the redirect mirror canonicalizes any stray `.html` hit.
-    let processed_content = rewrite_md_links(&processed_content);
+    // Rewrite cross-page markdown links: `[text](../dom.md)` becomes the
+    // absolute URL of that page. Agents write relative `.md` targets per
+    // markdown convention; the deployed page needs a link that means the same
+    // thing from either of its two deployed locations.
+    let processed_content = rewrite_md_links(&processed_content, &guide.file_name);
 
     let content = comrak::markdown_to_html_with_plugins(
         &processed_content,
@@ -542,22 +542,42 @@ fn render_tree(pages: &[&Guide]) -> String {
         v.sort_by_key(sort_key);
     }
 
-    let mut s = String::new();
-    s.push_str("<div class=\"guide-grid\">\n");
+    // Both kinds of card - a chapter with its sub-articles, and a directory
+    // that has articles but no landing page (`system/`, `data/`) - go into ONE
+    // ordered list. Rendering the directories afterwards would drop them at
+    // the end of the grid regardless of where they belong in the reading
+    // order; a group sorts by its earliest article.
+    let mut cards: Vec<(i32, String, String)> = Vec::new();
     for g in &top_level {
-        s.push_str(&render_list_item(g, &children));
+        cards.push((
+            g.guide_order.unwrap_or(i32::MAX),
+            g.title.clone(),
+            render_list_item(g, &children),
+        ));
     }
-    // Render orphan groups (e.g. `bindings/` without a `bindings.md` parent).
     for (group_slug, kids) in &orphan_groups {
         let label = group_slug.rsplit('/').next().unwrap_or(group_slug);
         let label_titled = title_case(label);
-        s.push_str(&format!(
+        let order = kids
+            .iter()
+            .filter_map(|k| k.guide_order)
+            .min()
+            .unwrap_or(i32::MAX);
+        let mut card = format!(
             "<div class=\"guide-card\">\n<h3>{label_titled}</h3>\n<div class=\"guide-links\">\n"
-        ));
+        );
         for k in kids {
-            s.push_str(&render_sub_li(k, &children));
+            card.push_str(&render_sub_li(k, &children));
         }
-        s.push_str("</div>\n</div>\n");
+        card.push_str("</div>\n</div>\n");
+        cards.push((order, label_titled, card));
+    }
+    cards.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+
+    let mut s = String::new();
+    s.push_str("<div class=\"guide-grid\">\n");
+    for (_, _, card) in &cards {
+        s.push_str(card);
     }
     s.push_str("</div>\n");
     s
@@ -627,8 +647,27 @@ fn render_sub_li(
     format!(
         "<a class=\"guide-link\" href=\"{HTML_ROOT}/guide/{}\">{}</a>\n",
         g.file_name,
-        transform_german_quotes(&g.title),
+        transform_german_quotes(&index_label(g)),
     )
+}
+
+/// The label a sub-article carries INSIDE its card.
+///
+/// One case, `hello-world/*`: 28 buttons that each repeat "Hello World" fill
+/// the widest card on the page with the two words the card heading already
+/// says. Under that heading the language alone is the whole label. The page's
+/// own title is untouched - this is the index view only.
+fn index_label(g: &Guide) -> String {
+    if g.file_name.starts_with("hello-world/") {
+        if let Some(lang) = g
+            .title
+            .strip_prefix("Hello World [")
+            .and_then(|r| r.strip_suffix(']'))
+        {
+            return lang.to_string();
+        }
+    }
+    g.title.clone()
 }
 
 fn html_escape(s: &str) -> String {
@@ -650,44 +689,107 @@ fn title_case(s: &str) -> String {
         .join(" ")
 }
 
-/// Rewrite `[text](path.md)` and `[text](path.md#anchor)` to an extensionless
-/// link (`path`) — the static host serves `path.html` for a request to `path`.
-/// Only touches link targets — `.md` inside prose / code stays untouched.
-fn rewrite_md_links(content: &str) -> String {
+/// Rewrite `[text](path.md)` and `[text](path.md#anchor)` to the page's
+/// absolute site URL, resolving the relative target against `slug` (the
+/// linking page's own slug, e.g. `events/callbacks`).
+///
+/// Absolute, not extensionless-relative, because every page is deployed
+/// TWICE — `<stem>.html` and `<stem>/index.html`, so the clean URL resolves
+/// on any static host. Those two twins sit at different depths, so a
+/// relative `../dom` in the body means two different things depending on
+/// which one the host served. An absolute href means one thing everywhere.
+/// Only link targets are touched — `.md` inside prose / code stays as it is.
+fn rewrite_md_links(content: &str, slug: &str) -> String {
+    // The linking page's directory, `""` for a top-level chapter.
+    let dir = slug.rsplit_once('/').map_or("", |(d, _)| d);
+
+    /// `../dom` seen from `events/callbacks` is `dom`. Purely textual — the
+    /// guide has no symlinks and no `.` segments.
+    fn resolve(dir: &str, target: &str) -> String {
+        let mut segs: Vec<&str> = if dir.is_empty() {
+            Vec::new()
+        } else {
+            dir.split('/').collect()
+        };
+        for seg in target.split('/') {
+            match seg {
+                "." | "" => {}
+                ".." => {
+                    segs.pop();
+                }
+                s => segs.push(s),
+            }
+        }
+        segs.join("/")
+    }
+
     let mut out = String::with_capacity(content.len());
     let bytes = content.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        // Look for a markdown link target: `](...)`
         if i + 1 < bytes.len() && bytes[i] == b']' && bytes[i + 1] == b'(' {
             out.push(']');
             out.push('(');
             i += 2;
-            // Capture target up to the matching `)`. Markdown allows balanced
-            // parens but autodoc-written links don't use them — bail at first `)`.
             let start = i;
             while i < bytes.len() && bytes[i] != b')' && bytes[i] != b'\n' {
                 i += 1;
             }
             let target = &content[start..i];
-            // Rewrite `.md` immediately before `#fragment` or end.
-            if let Some(hash) = target.find('#') {
-                let (path, frag) = target.split_at(hash);
-                if path.ends_with(".md") {
-                    out.push_str(&path[..path.len() - 3]);
-                } else {
-                    out.push_str(path);
+            let (path, frag) = match target.find('#') {
+                Some(h) => target.split_at(h),
+                None => (target, ""),
+            };
+            match path.strip_suffix(".md") {
+                // An external or already-absolute `.md` target keeps its
+                // shape; only the extension goes.
+                Some(p) if p.starts_with("http") || p.starts_with('/') => {
+                    out.push_str(p);
                 }
-                out.push_str(frag);
-            } else if target.ends_with(".md") {
-                out.push_str(&target[..target.len() - 3]);
-            } else {
-                out.push_str(target);
+                Some(p) => {
+                    out.push_str(&format!("{HTML_ROOT}/guide/{}", resolve(dir, p)));
+                }
+                None => out.push_str(path),
             }
+            out.push_str(frag);
             continue;
         }
         out.push(content[i..].chars().next().unwrap());
         i += content[i..].chars().next().unwrap().len_utf8();
     }
     out
+}
+
+#[cfg(test)]
+mod guide_contract {
+    use super::*;
+
+    /// Every card on the index owns sub-articles.
+    ///
+    /// A chapter with no sub-pages renders as a lone clickable heading among
+    /// cards full of buttons, which is the shape this regrouping removed. A
+    /// new page therefore belongs in a topic directory - `events/`, `system/`,
+    /// `data/` - not at the root of `doc/guide/en/`.
+    #[test]
+    fn no_index_card_stands_alone() {
+        use std::collections::{BTreeMap, BTreeSet};
+        let pages = get_guide_list();
+        let names: BTreeSet<&str> = pages.iter().map(|g| g.file_name.as_str()).collect();
+        let mut kids: BTreeMap<&str, usize> = BTreeMap::new();
+        for g in &pages {
+            if let Some(idx) = g.file_name.rfind('/') {
+                *kids.entry(&g.file_name[..idx]).or_default() += 1;
+            }
+        }
+        let lonely: Vec<&str> = names
+            .iter()
+            .copied()
+            .filter(|n| !n.contains('/') && !kids.contains_key(n))
+            .collect();
+        assert!(
+            lonely.is_empty(),
+            "guide pages with no sub-articles (each would be a card with one \
+             link): {lonely:?}"
+        );
+    }
 }

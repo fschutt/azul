@@ -1,14 +1,14 @@
 ---
-slug: deploying-web
-title: Deploying to the web
+slug: deploying/web
+title: Web
 language: en
-canonical_slug: deploying-web
+canonical_slug: deploying/web
 audience: external
 maturity: wip
-guide_order: 300
+guide_order: 230
 topic_only: false
 short_desc: Run the same azul binary as a web app — how the WASM lift works and how to ship it
-prerequisites: [hello-world, headless-rendering]
+prerequisites: [hello-world, headless/rendering]
 tracked_files:
   - dll/src/web/config.rs
   - dll/src/web/mod.rs
@@ -22,7 +22,7 @@ default-search-keys:
   - Route
 ---
 
-# Deploying to the web
+# Web
 
 **The same binary that opens a desktop window can serve itself as a web app** —
 no separate WASM build, no JS rewrite, no second codebase. You set one
@@ -188,4 +188,4 @@ my-app.example.com {
 
 ## Related
 
-- [Headless rendering](headless-rendering.md) — the render pipeline without a window
+- [Headless rendering](../headless/rendering.md) — the render pipeline without a window

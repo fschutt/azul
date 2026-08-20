@@ -5,7 +5,7 @@ language: en
 canonical_slug: images
 audience: external
 maturity: wip
-guide_order: 70
+guide_order: 90
 topic_only: false
 short_desc: Loading raster images and CSS backgrounds
 prerequisites: [dom]
@@ -125,14 +125,8 @@ Image content is stretched without filtering hints. For icon-quality output you 
 
 `ImageRef` is intern-keyed: passing a clone in two consecutive `Dom`s reuses the same upload. To swap pixels you build a new `ImageRef`. Drop the old clone if you want the GPU memory freed.
 
-For animation, use a render-image callback (`ImageRef::callback`) and a [timer](timers.md) to flag the DOM for repaint each frame. The callback re-runs and returns a fresh texture; the previous one is freed automatically when the new clone replaces it.
+For animation, use a render-image callback (`ImageRef::callback`) and a [timer](animations/timers.md) to flag the DOM for repaint each frame. The callback re-runs and returns a fresh texture; the previous one is freed automatically when the new clone replaces it.
 
 ## Image masks
 
 `ImageMask` clips drawn content to an image-defined alpha mask. It carries `image: ImageRef`, `rect: LogicalRect`, and `repeat: bool`. Apply one to a `Dom` with `Dom::with_clip_mask`.
-
-## Coming Up Next
-
-- [SVG](images/svg.md) — Parsing and rendering SVG documents
-- [GL Canvas](images/canvas-gl.md) — Embedding an OpenGL canvas inside a Dom node
-- [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade

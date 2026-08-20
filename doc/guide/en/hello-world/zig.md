@@ -303,7 +303,7 @@ DYLD_LIBRARY_PATH=. ./hello-world
 ```
 
 You should see the window pictured on the
-[hello-world landing page](../hello-world.md). Click the button: the
+[hello-world landing page](..md). Click the button: the
 counter increments, `layout` re-runs, and the new value renders.
 
 ## Common errors
@@ -332,9 +332,3 @@ counter increments, `layout` re-runs, and the new value renders.
   `AzUpdate_DoNothing`, or the downcast failed. A failed downcast
   usually means the type-id does not match: the id must come from the
   address of the *same* global token variable used in the upcast.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Go]](go.md)

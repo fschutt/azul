@@ -1,14 +1,14 @@
 ---
-slug: routing
+slug: architecture/routing
 title: Routing
 language: en
-canonical_slug: routing
+canonical_slug: architecture/routing
 audience: external
 maturity: mature
-guide_order: 35
+guide_order: 41
 topic_only: false
 short_desc: URL patterns, route params, and per-route layout callbacks
-prerequisites: [dom, callbacks]
+prerequisites: [dom, events/callbacks]
 tracked_files:
   - core/src/resources.rs
   - layout/src/callbacks.rs
@@ -215,12 +215,5 @@ SEO-readable on first load. `switch_route` then calls
 code drives both the server-rendered first-load HTML and the
 client-side updates.
 
-See [Deploying to the web](deploying-web.md) for the WASM-build pipeline,
+See [Deploying to the web](../deploying/web.md) for the WASM-build pipeline,
 the static asset layout, and how the web host serves routes.
-
-## Coming Up Next
-
-- [DOM](dom.md) — Tree shape, node constructors, the cascade
-- [Callbacks](callbacks.md) — `switch_route`, `get_route_param`,
-  and the rest of `CallbackInfo`
-- [Deploying to the web](deploying-web.md) — Routes as HTTP endpoints

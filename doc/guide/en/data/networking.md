@@ -1,14 +1,14 @@
 ---
-slug: networking
+slug: data/networking
 title: Networking
 language: en
-canonical_slug: networking
+canonical_slug: data/networking
 audience: external
 maturity: stub
-guide_order: 270
+guide_order: 211
 topic_only: false
 short_desc: HTTP from a callback
-prerequisites: [background-tasks]
+prerequisites: [data/background-tasks]
 tracked_files:
   - core/src/task.rs
 last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
@@ -124,9 +124,3 @@ A current-thread runtime keeps everything on the worker. Use a multi-threaded ru
 - TLS configuration beyond `disable_tls_cert_verification`. For custom TLS stacks, use `rustls`, `native-tls`, or a third-party HTTP client inside the worker.
 - Mid-frame cancellation of in-flight DNS or TCP handshakes. `std::net` doesn't expose this. Use `socket2` or a third-party client if you need it.
 - WebSockets, gRPC, HTTP/2. Any blocking client works inside a `Thread`.
-
-## Coming Up Next
-
-- [Background Tasks](background-tasks.md) — Running long jobs off the layout thread
-- [File Dialogs](file-dialogs.md) — Native open/save dialogs and folder pickers
-- [Clipboard](clipboard.md) — Reading and writing the system clipboard

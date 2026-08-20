@@ -5,7 +5,7 @@ language: en
 canonical_slug: layout
 audience: external
 maturity: mature
-guide_order: 50
+guide_order: 80
 topic_only: false
 short_desc: Overview of the layout solver
 prerequisites: [styling]
@@ -117,10 +117,3 @@ Same three children, three formatting modes:
   </div>
 </body>
 ```
-
-## Coming Up Next
-
-- [Simple Layout](layout/blocks.md) — Explains block formatting, sizing, positioning, the box model and how to handle overflowing content
-- [Inline Layout](layout/inline.md) — Text flow, word breaks, writing modes, multi-column
-- [Flexbox](layout/flex.md) — One-axis container layout with grow/shrink/basis
-- [Grid](layout/grid.md) — Two-axis container layout with tracks and areas

@@ -3146,7 +3146,7 @@ jobs:
   #
   # Cross-compiles the LEAN libazul (no remill/web) for iOS + Android and bundles
   # the few NDK / iOS-SDK *link stubs* it needs, so a user links a dropped-in
-  # libazul with NEITHER Android Studio NOR Xcode (see guide/mobile.md). The CI
+  # libazul with NEITHER Android Studio NOR Xcode (see guide/deploying/mobile.md). The CI
   # runner's NDK / Xcode SDK are used only to extract those stubs once — the
   # published artifact is self-contained. Best-effort / non-blocking.
   # ===========================================================================
@@ -3304,7 +3304,7 @@ jobs:
               echo "Android NDK r27 link stubs for ${{ matrix.target }} (API 24)."
               echo "Source: \$ANDROID_NDK/toolchains/llvm/prebuilt/<host>/sysroot/usr/lib/${{ matrix.target }}/24/"
               echo "These are empty linker stubs (real impls ship on-device). Link your azul"
-              echo "app against these + libazul — no full NDK needed. See guide/mobile.md."
+              echo "app against these + libazul — no full NDK needed. See guide/deploying/mobile.md."
             } > "$OUT/stubs/PROVENANCE.txt"
           else
             SDK="$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)"
@@ -3315,7 +3315,7 @@ jobs:
             {
               echo "iOS SDK link stubs (.tbd) for ${{ matrix.target }}."
               echo "Source: \$(xcrun --sdk iphoneos --show-sdk-path)/System/Library/Frameworks/"
-              echo "Text-based stubs; link your azul app against these + libazul. See guide/mobile.md."
+              echo "Text-based stubs; link your azul app against these + libazul. See guide/deploying/mobile.md."
             } > "$OUT/stubs/PROVENANCE.txt"
           fi
           ls -lR "$OUT"
@@ -3339,7 +3339,7 @@ jobs:
   # ANDROID demo APKs are NOT built here yet: a NativeActivity needs a cdylib
   # (+ an android_main shim), and the demos are bin-only. Each demo opts into
   # Android by adding `crate-type=["cdylib","rlib"]` + the shim (see
-  # guide/mobile.md); build-android.sh already accepts a crate name. The drop-in
+  # guide/deploying/mobile.md); build-android.sh already accepts a crate name. The drop-in
   # libazul + NDK stubs shipped by build_mobile are what those APKs link against.
   # ===========================================================================
   build_mobile_apps:
@@ -3443,7 +3443,7 @@ jobs:
   # (crate-type=cdylib + ctor android entry: azul-maps, azul-paint). CLI-only:
   # cargo + NDK clang (linker via env, overriding the macOS path in
   # .cargo/config.toml) → aapt2/zipalign/apksigner (build-android.sh). Other
-  # demos light up as they adopt the cdylib+ctor pattern (see guide/mobile.md).
+  # demos light up as they adopt the cdylib+ctor pattern (see guide/deploying/mobile.md).
   build_mobile_apps_android:
     name: Mobile demo apps (Android)
     timeout-minutes: 60

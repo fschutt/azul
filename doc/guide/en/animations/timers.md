@@ -1,11 +1,11 @@
 ---
-slug: timers
+slug: animations/timers
 title: Timers
 language: en
-canonical_slug: timers
+canonical_slug: animations/timers
 audience: external
 maturity: wip
-guide_order: 100
+guide_order: 101
 topic_only: false
 short_desc: Timers, threads, and scheduled work
 prerequisites: [hello-world, events]
@@ -66,11 +66,11 @@ fn on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
 Use a timer when something must happen on a clock, not in response to input:
 
-- React to a click, hover, or key. Not a timer. Use an event filter (see [events](events.md)).
+- React to a click, hover, or key. Not a timer. Use an event filter (see [events](../events.md)).
 - Re-paint every frame. Yes. Interval = 16 ms; return `TimerCallbackReturn::continue_and_refresh_dom()`.
 - Run something once after a delay. Yes. `with_delay(d)`; terminate from the callback.
-- Poll a long-running operation. Not a timer. Use a background thread (covered in [background-tasks](background-tasks.md)).
-- Animate a CSS property. Not yet. The animation runtime is a stub; see [animations](animations.md).
+- Poll a long-running operation. Not a timer. Use a background thread (covered in [background-tasks](../data/background-tasks.md)).
+- Animate a CSS property. Not yet. The animation runtime is a stub; see [animations](..md).
 
 Timers run on the UI thread. Heavy work blocks input. For anything I/O-bound or CPU-heavy, spawn a thread.
 
@@ -207,7 +207,7 @@ Duration::System(SystemTimeDiff::from_secs(5))       // 5 s
 Duration::System(SystemTimeDiff::from_nanos(16_667_000)) // 60 fps, exact
 ```
 
-`Instant::linear_interpolate(start, end) -> f32` is the single most useful method on `Instant`. Given the current time and a `(start, end)` pair, it returns a clamped 0.0..=1.0 fraction. It's the building block for the [animation runtime](animations.md) once it lands.
+`Instant::linear_interpolate(start, end) -> f32` is the single most useful method on `Instant`. Given the current time and a `(start, end)` pair, it returns a clamped 0.0..=1.0 fraction. It's the building block for the [animation runtime](..md) once it lands.
 
 ## Timers that re-render images, not the DOM
 
@@ -304,9 +304,3 @@ fn on_cancel(data: RefAny, mut info: CallbackInfo) -> Update {
 - Tick precision is bounded by the platform timer resolution and by competing input. Don't expect sub-millisecond accuracy.
 - A timer's `RefAny` is held alive by the framework until the timer terminates. A timer that holds the only reference to your model keeps the model alive for the lifetime of the timer.
 - The schedule is enforced per tick, not per millisecond. If a system stall bunches several ticks together, the callback fires once per tick. Compute deltas from `frame_start`, not from `call_count`.
-
-## Coming Up Next
-
-- [Animations](animations.md) — CSS transitions and @keyframes
-- [Background Tasks](background-tasks.md) — Running long jobs off the layout thread
-- [Networking](networking.md) — HTTP from a callback

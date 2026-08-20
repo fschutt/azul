@@ -5,7 +5,7 @@ language: en
 canonical_slug: styling/properties
 audience: external
 maturity: mature
-guide_order: 41
+guide_order: 71
 topic_only: false
 short_desc: Reference of every CSS property azul recognises
 prerequisites: [styling]
@@ -298,9 +298,3 @@ round-trip but their typed views are still internal:
 
 `exclusion-margin` is azul's CSS Exclusions mode. It lets text flow around
 floated or positioned elements with a configurable inset.
-
-## Coming Up Next
-
-- [System Themes](themes.md) — System colors, `@theme`, `@os`, and accessibility queries
-- [Styling Text](text-and-fonts.md) — Font family, size, weight, alignment, decoration, and the system font keywords
-- [Layout](../layout.md) — Overview of the layout solver

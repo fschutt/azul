@@ -5,7 +5,7 @@ language: en
 canonical_slug: dom/virtual-views
 audience: external
 maturity: mature
-guide_order: 34
+guide_order: 54
 topic_only: false
 short_desc: A node that materialises lazily, for infinite lists and embedded sub-DOMs
 prerequisites: [dom]
@@ -249,10 +249,3 @@ transfer when the table is re-rendered.
 The outer `RefAny` is also a good place to keep live state: what was
 rendered last time, the cached fetcher, in-flight requests. The callback
 can look at that state before deciding whether to return `OptionDom::None`.
-
-
-## Coming Up Next
-
-- [Components](components.md) — Reusable UI fragments - named functions of (args) -> Dom
-- [Scrolling](../scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing
-- [Layout](../layout.md) — Overview of the layout solver

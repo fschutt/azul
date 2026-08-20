@@ -5,7 +5,7 @@ language: en
 canonical_slug: layout/blocks
 audience: external
 maturity: mature
-guide_order: 51
+guide_order: 81
 topic_only: false
 short_desc: Explains block formatting, sizing, positioning, the box model and how to handle overflowing content
 prerequisites: [layout]
@@ -332,10 +332,3 @@ block children. It's flex and grid only.
 - `overflow-x` and `overflow-y` default to `visible`.
 - `scrollbar-gutter` defaults to `auto`.
 - `overflow-clip-margin` defaults to `padding-box 0px`.
-
-## Coming Up Next
-
-- [Inline Layout](inline.md) — Text flow, word breaks, writing modes, multi-column
-- [Flexbox](flex.md) — One-axis container layout with grow/shrink/basis
-- [Grid](grid.md) — Two-axis container layout with tracks and areas
-- [Scrolling](../scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing

@@ -1,11 +1,11 @@
 ---
-slug: e2e-testing
+slug: debugging/e2e-testing
 title: End-to-End Testing
 language: en
-canonical_slug: e2e-testing
+canonical_slug: debugging/e2e-testing
 audience: external
 maturity: wip
-guide_order: 220
+guide_order: 202
 topic_only: false
 short_desc: Driving an Azul app from a script for tests
 prerequisites: [debugging]
@@ -93,7 +93,7 @@ A test file is either one test object or an array of them.
 
 ## Step operations
 
-Every `op` accepted by `POST /` (covered in [Debugging](debugging.md)) is a valid step. Plus the assertion ops below.
+Every `op` accepted by `POST /` (covered in [Debugging](..md)) is a valid step. Plus the assertion ops below.
 
 - `assert_text` (params: `selector`, `expected`). First-match text content equals `expected`.
 - `assert_exists` (params: `selector`). At least one node matches.
@@ -213,7 +213,7 @@ curl -s -X POST http://127.0.0.1:8765/ \
      -d @tests.json | jq '.data.value.results'
 ```
 
-Default request timeout is 30 s; tests that take longer must either pass `"timeout_secs": 600` in the request body or use `AZ_E2E=` (which uses a 600 s timeout internally). The Hello World shell driver in [Debugging](debugging.md) shows the same wait-frame / click / read-back pattern that an E2E step performs internally. You can build a test scenario incrementally as a curl script, then crystallise it into a JSON file once it works.
+Default request timeout is 30 s; tests that take longer must either pass `"timeout_secs": 600` in the request body or use `AZ_E2E=` (which uses a 600 s timeout internally). The Hello World shell driver in [Debugging](..md) shows the same wait-frame / click / read-back pattern that an E2E step performs internally. You can build a test scenario incrementally as a curl script, then crystallise it into a JSON file once it works.
 
 ## Continuation across relayout
 
@@ -252,7 +252,7 @@ Each binding drives the prebuilt library (built with `--features build-dll,debug
 | **Lua**    | **LuaJIT** (the stock PUC `lua` has no FFI); full E2E runs on **arm64/macOS**, not x86-64 | LuaJIT's `ffi` cannot call a C function that passes an aggregate **by value** on some ABIs: on **x86-64 (SysV)**, `App.create(.., AppConfig)` raises `NYI: cannot call this C function (yet)`. This is a LuaJIT limitation, **not** a version issue (a freshly-built current LuaJIT 2.1 still NYIs) and **not** a binding bug — the same `azul.lua` runs on arm64/macOS, where the struct is passed differently. CI therefore reports lua as `⊘ SKIP` on x86-64 (a toolchain limit, which never gates). |
 | Go     | `go` toolchain + a C compiler (cgo) | — |
 
-`AZ_LOG` is on by default (see [Debugging](debugging.md)), so a binding that builds but exits early will print the platform-layer trace on stderr, which the board captures.
+`AZ_LOG` is on by default (see [Debugging](..md)), so a binding that builds but exits early will print the platform-layer trace on stderr, which the board captures.
 
 ## Recording a test from the inspector
 
@@ -265,8 +265,3 @@ The recorder uses the same selector resolver as `assert_*`, so the captured step
 - A test runs against the *current* application instance — there is no per-test sandbox. Use `setup.app_state` to put the app in a known state before each test.
 - `take_native_screenshot` returns the actual framebuffer of the running window. Pixel-identical comparison across platforms is unrealistic; use `assert_screenshot` with a `max_diff_ratio` tolerance, or pin the diff job to one platform in CI.
 - The runner does not multi-thread tests. Each test runs to completion before the next starts. If you need parallel runs, spawn N processes on N ports.
-
-## Coming Up Next
-
-- [Debugging](debugging.md) — Debug overlays, the inspector, and structured logging
-- [Headless Rendering](headless-rendering.md) — Running the pipeline without a window

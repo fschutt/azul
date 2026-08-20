@@ -5,7 +5,7 @@ language: en
 canonical_slug: dom/datasets
 audience: external
 maturity: mature
-guide_order: 32
+guide_order: 52
 topic_only: false
 short_desc: Attaching state to a node for navigation and per-instance state
 prerequisites: [dom]
@@ -255,7 +255,7 @@ There's also a related pattern called the **double update**. A text
 input callback writes the new character to the application data and
 also writes it directly into the node's dataset, so the input shows
 the latest keystroke before the next `layout()` runs. That's covered
-in [Text Input and Selection](../text-input.md).
+in [Text Input and Selection](../events/text-input.md).
 
 ## What CallbackInfo exposes for dataset work
 
@@ -274,11 +274,3 @@ The handful of methods that matter on this page:
 
 Drop any active dataset borrow before calling another method that
 might re-borrow the same `RefAny`.
-
-
-## Coming Up Next
-
-- [Merge Callbacks](merge-callbacks.md) — How widgets keep heavy resources across a layout rebuild
-- [Virtual Views](virtual-views.md) — A node that materialises lazily, for infinite lists and embedded sub-DOMs
-- [Components](components.md) — Reusable UI fragments - named functions of (args) -> Dom
-- [Events](../events.md) — Callbacks, event filters, and how state triggers relayout

@@ -1,14 +1,14 @@
 ---
-slug: database
-title: SQL Database (Db)
+slug: data/database
+title: SQL Database
 language: en
-canonical_slug: database
+canonical_slug: data/database
 audience: external
 maturity: beta
-guide_order: 260
+guide_order: 210
 topic_only: false
 short_desc: A bundled-SQLite handle - execute/query with typed value arrays
-prerequisites: [hello-world, background-tasks]
+prerequisites: [hello-world, data/background-tasks]
 tracked_files:
   - core/src/db.rs
   - dll/src/desktop/extra/sqlite/mod.rs
@@ -23,7 +23,7 @@ default-search-keys:
   - query
 ---
 
-# SQL Database (Db)
+# SQL Database
 
 ## Introduction
 
@@ -87,4 +87,4 @@ SQLite amalgamation.
 ## See also
 
 - [background-tasks](background-tasks.md) - run blocking queries off the UI thread.
-- [architecture](architecture.md) - keeping the handle in your `State`.
+- [architecture](../architecture.md) - keeping the handle in your `State`.

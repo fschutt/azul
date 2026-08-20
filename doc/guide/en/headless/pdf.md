@@ -1,11 +1,11 @@
 ---
-slug: pdf
-title: Generating PDFs (HTML-to-PDF)
+slug: headless/pdf
+title: Generating PDFs
 language: en
-canonical_slug: pdf
+canonical_slug: headless/pdf
 audience: external
 maturity: beta
-guide_order: 255
+guide_order: 221
 topic_only: false
 short_desc: Render a styled Dom to PDF bytes - headless, no window, no file I/O
 prerequisites: [hello-world, styling]
@@ -23,7 +23,7 @@ default-search-keys:
   - read_json
 ---
 
-# Generating PDFs (HTML-to-PDF)
+# Generating PDFs
 
 ## Introduction
 
@@ -98,6 +98,6 @@ that doesn't need PDF export doesn't pay for the dependency.
 
 ## See also
 
-- [styling](styling.md) - the CSS your document `Dom` uses.
-- [headless-rendering](headless-rendering.md) - the same layout engine, no window.
-- [hello-world](hello-world.md) - building a `Dom`.
+- [styling](../styling.md) - the CSS your document `Dom` uses.
+- [headless-rendering](rendering.md) - the same layout engine, no window.
+- [hello-world](../hello-world.md) - building a `Dom`.

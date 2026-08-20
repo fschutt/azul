@@ -147,7 +147,7 @@ Three things to notice.
 Things we did not use that you may want to explore next.
 
 - The `info` argument — read-only access to the system font cache, image cache, GL context, current window size, routing, and localization dictionaries in `layout`; lots of mutation helpers in `on_click` (DOM navigation, CSS overrides without rebuilding, computed-layout queries).
-- `WindowCreateOptions` — the Python binding currently exposes only `WindowCreateOptions.create(layout)`; setting the window title, size, decorations etc. from Python is not wrapped yet. The underlying options are covered in [windowing](../windowing.md).
+- `WindowCreateOptions` — the Python binding currently exposes only `WindowCreateOptions.create(layout)`; setting the window title, size, decorations etc. from Python is not wrapped yet. The underlying options are covered in [windowing](../system/windowing.md).
 
 ## Run it
 
@@ -155,7 +155,7 @@ Things we did not use that you may want to explore next.
 python3 hello-world.py
 ```
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](..md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
 
 1. `app.run(window)` opened a native window and ran `layout()` once with your `DataModel` on startup.
 2. The returned `Dom` was styled, laid out, and rendered.
@@ -200,9 +200,3 @@ import azul
 - **Counter does not advance** — the click callback returned `Update.DoNothing`, or it implicitly returned `None` (which the binding treats as `DoNothing`). Always end a mutating handler with `return Update.RefreshDom`.
 - **`TypeError: layout() takes 0 positional arguments but 2 were given`** — your callback signature is wrong. `layout` and click handlers must accept exactly `(data, info)`.
 - **Mutation isn't sticking** — you mutated a *copy* of the model instead of the instance bound to the framework. The binding always passes the same instance back; check that you are not shadowing `data` with a fresh `DataModel(...)` somewhere inside the callback.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application
-- [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
-- [Hello World [Rust]](rust.md)

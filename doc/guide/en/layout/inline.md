@@ -5,7 +5,7 @@ language: en
 canonical_slug: layout/inline
 audience: external
 maturity: mature
-guide_order: 52
+guide_order: 82
 topic_only: false
 short_desc: Text flow, word breaks, writing modes, multi-column
 prerequisites: [layout/blocks]
@@ -244,10 +244,3 @@ surprises.
 - `column-fill` defaults to `balance`.
 - `column-rule` defaults to `medium none currentColor`.
 - `widows` and `orphans` default to `2`.
-
-## Coming Up Next
-
-- [Flexbox](flex.md) — One-axis container layout with grow/shrink/basis
-- [Grid](grid.md) — Two-axis container layout with tracks and areas
-- [Styling Text](../styling/text-and-fonts.md) — Font family, size, weight, alignment, decoration, and the system font keywords
-- [Text Input](../text-input.md) — Editable text, IME, and the selection model

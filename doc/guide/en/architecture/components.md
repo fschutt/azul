@@ -1,11 +1,11 @@
 ---
-slug: dom/components
+slug: architecture/components
 title: Components
 language: en
-canonical_slug: dom/components
+canonical_slug: architecture/components
 audience: external
 maturity: mature
-guide_order: 35
+guide_order: 42
 topic_only: false
 short_desc: Reusable UI fragments - named functions of (args) -> Dom
 prerequisites: [dom]
@@ -198,7 +198,7 @@ The chain `AgeInput -> NumberInput -> <input>` is a State Graph. Each layer hold
 
 Events travel the chain in reverse. The `<input>` loses focus. `NumberInput::validate` runs. `AgeInput::on_age_changed` runs. Nothing leaks across layers, and nothing has to be threaded through layout.
 
-This is the same pattern walked through in [Architecture](../architecture.md#building-a-state-graph), now in real Rust.
+This is the same pattern walked through in [Architecture](..md#building-a-state-graph), now in real Rust.
 
 ## Returning multiple roots
 
@@ -417,10 +417,3 @@ A node clicked in the inspector carries the component-origin record (the qualifi
 For non-trivial types like a struct of struct of enum, `data_models` and `enum_models` on the enclosing `ComponentLibrary` carry the type definitions. References between fields use the type's name. The inspector walks those references when it builds an editor for nested data.
 
 That's what makes user-defined types editable in the inspector. A C callback like `fn(RefAny, CallbackInfo) -> Update` shows up as a `Callback` field. The inspector lets the user pick from a list of registered callbacks instead of asking them to write Rust into a text box.
-
-
-## Coming Up Next
-
-- [Built-in Widgets](../widgets.md) — Built-in widgets and how to write your own
-- [Styling with CSS](../styling.md) — Stylesheets, selectors, and the cascade
-- [Layout](../layout.md) — Overview of the layout solver

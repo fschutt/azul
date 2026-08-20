@@ -5,7 +5,7 @@ language: en
 canonical_slug: dom
 audience: external
 maturity: mature
-guide_order: 30
+guide_order: 50
 topic_only: false
 short_desc: Node types, hierarchy, and CSS scoping
 tracked_files:
@@ -298,7 +298,7 @@ than that. Static, non-interactive elements (`div`, `span`, `p`,
 the headings, inline text formatters) don't take a11y info — their
 role is implicit from the element type.
 
-See [Accessibility](accessibility.md) for the full list of elements
+See [Accessibility](system/accessibility.md) for the full list of elements
 that follow the soft-force pattern, the type-specific aria structs,
 and how the framework translates them into the platform-specific
 accessibility trees (UIA, AT-SPI, NSAccessibility).
@@ -445,7 +445,7 @@ User-level theming sits at the *outermost* layer: the system
 `@theme dark` block, the `system:*` color keywords, and the optional
 end-user ricing file all target the framework-wide hooks. Component
 CSS doesn't fight user theming because the two layers target
-different selectors. See [Components](dom/components.md) for the
+different selectors. See [Components](architecture/components.md) for the
 component-pack model and [Theming](styling/themes.md) for the full
 theming model and the `AZ_RICING` opt-out.
 
@@ -642,7 +642,7 @@ extern "C" fn open_user(data: RefAny, mut info: CallbackInfo) -> Update {
 
 The framework swaps the active layout callback on the next frame
 and reconciles the new tree against the previous one. See
-[Routing](routing.md) for the full pattern syntax, multi-route
+[Routing](architecture/routing.md) for the full pattern syntax, multi-route
 layouts, and the web-vs-desktop differences.
 
 ## Parsing from XHTML
@@ -664,7 +664,7 @@ node it was found inside. The cascade runs on the next layout pass like
 any other DOM.
 
 `ComponentMap` is the registry of XML-defined components. See
-[Components](dom/components.md#component-packs) for how the framework
+[Components](architecture/components.md#component-packs) for how the framework
 looks up `<card title="..."/>` against a registered library.
 
 ## Parsing from SVG
@@ -705,7 +705,7 @@ For the full SVG geometry model (paths, tessellation, GPU
 tessellated nodes), the standalone `Svg::from_string` parser that
 returns a `RawImage`, and the GPU stroke pipeline, see
 [SVG](images/svg.md). For the headless backend in detail, see
-[Headless Rendering](headless-rendering.md).
+[Headless Rendering](headless/rendering.md).
 
 ## Callbacks
 
@@ -733,7 +733,7 @@ whether to re-run layout, re-render, or do nothing.
 What the callback can actually *do* — read the dataset, query the
 hit-test, dispatch to siblings, focus another node, schedule a
 timer, post a thread message — lives in
-[Callbacks](callbacks.md). Event filtering and propagation order
+[Callbacks](events/callbacks.md). Event filtering and propagation order
 are in [Events and Input](events.md).
 
 The framework's reconciler matches new nodes against old ones when a
@@ -799,11 +799,11 @@ app from a shell script or a Python harness, assert on the JSON
 responses, and the result is an integration test that exercises the
 real layout, the real callbacks, and the real reconciliation pass.
 The test pattern, the assertion vocabulary, and the CI recipe are
-covered in [End-to-End Testing](e2e-testing.md).
+covered in [End-to-End Testing](debugging/e2e-testing.md).
 
 For tests that don't need a window (snapshot tests, PDF export, CI
 machines without a display server), the same debug API is also
-reachable in [Headless Rendering](headless-rendering.md), which
+reachable in [Headless Rendering](headless/rendering.md), which
 runs the full layout and rendering pipeline into a `Vec<u8>`
 framebuffer.
 
@@ -829,15 +829,5 @@ Tree:
 Picking a node in the DOM Tree surfaces the component that produced
 it, and (if its render function lives in a registered library) the
 inspector links back to the source. See
-[Components](dom/components.md#component-packs) for how a library
+[Components](architecture/components.md#component-packs) for how a library
 wires its components into the registry.
-
-## Coming Up Next
-
-- [Callbacks](callbacks.md) — What `CallbackInfo` exposes, dataset reads, focus/scroll dispatch
-- [Routing](routing.md) — URL patterns, route params, and per-route layout callbacks
-- [Reconciliation](dom/reconciliation.md) — Diffing, restyle scope, and damage-rect repaint
-- [Datasets](dom/datasets.md) — Attaching state to a node for navigation and per-instance state
-- [Components](dom/components.md) — Reusable UI fragments — named functions of (args) -> Dom
-- [Styling with CSS](styling.md) — Stylesheets, selectors, and the cascade
-- [Theming](styling/themes.md) — `@theme dark`, `system:*` colors, and end-user ricing

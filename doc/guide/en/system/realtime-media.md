@@ -1,14 +1,14 @@
 ---
-slug: realtime-media
-title: Realtime Media and Devices
+slug: system/realtime-media
+title: Realtime Media
 language: en
-canonical_slug: realtime-media
+canonical_slug: system/realtime-media
 audience: external
 maturity: beta
-guide_order: 280
+guide_order: 124
 topic_only: false
 short_desc: Camera/mic capture, audio playback, and streaming A/V frames to a peer (the azul-meet pattern)
-prerequisites: [callbacks, background-tasks]
+prerequisites: [events/callbacks, data/background-tasks]
 tracked_files:
   - layout/src/widgets/capture_common.rs
   - layout/src/widgets/microphone.rs
@@ -30,7 +30,7 @@ default-search-keys:
   - backend_name
 ---
 
-# Realtime Media and Devices
+# Realtime Media
 
 ## Introduction
 
@@ -49,7 +49,7 @@ capture -> hook -> serialize -> [transport] -> deserialize -> playback.
 > send them over whatever transport your app already uses.
 
 The architecture follows the framework's backreference dependency-injection
-pattern (see [architecture](architecture.md)): a widget takes a `RefAny` (a
+pattern (see [architecture](../architecture.md)): a widget takes a `RefAny` (a
 reference to your data) plus a callback, and invokes the callback with the
 captured frame so you can store, process, or send it. You never reach into a
 global; the data flows back to *your* state.
@@ -184,11 +184,11 @@ actual hardware backends are platform-specific and only run on a real device:
 The synthetic-event harness (`layout/tests/synthetic_events.rs`) injects
 sensor / gamepad / geolocation / audio / video events through the same channels
 a real device uses, so you can exercise the capture + event paths in CI. See
-[e2e-testing](e2e-testing.md).
+[e2e-testing](../debugging/e2e-testing.md).
 
 ## See also
 
-- [callbacks](callbacks.md) - the hook + `RefAny` mechanism.
-- [background-tasks](background-tasks.md) - the `Thread` that drives capture.
-- [timers](timers.md) - polling your transport for received frames each frame.
-- [Mobile](mobile.md) - shipping this on iOS / Android.
+- [callbacks](../events/callbacks.md) - the hook + `RefAny` mechanism.
+- [background-tasks](../data/background-tasks.md) - the `Thread` that drives capture.
+- [timers](../animations/timers.md) - polling your transport for received frames each frame.
+- [Mobile](../deploying/mobile.md) - shipping this on iOS / Android.

@@ -5,7 +5,7 @@ language: en
 canonical_slug: layout/flex
 audience: external
 maturity: mature
-guide_order: 53
+guide_order: 83
 topic_only: false
 short_desc: One-axis container layout with grow/shrink/basis
 prerequisites: [layout]
@@ -211,9 +211,3 @@ or `height` (in `column`).
 - `flex-basis` defaults to `auto`.
 - `align-self` defaults to `auto`.
 - `gap` defaults to `0`.
-
-## Coming Up Next
-
-- [Grid](grid.md) — Two-axis container layout with tracks and areas
-- [Simple Layout](blocks.md) — Explains block formatting, sizing, positioning, the box model and how to handle overflowing content
-- [Inline Layout](inline.md) — Text flow, word breaks, writing modes, multi-column

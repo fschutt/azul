@@ -152,7 +152,7 @@ repository's `examples/kotlin/` directory
 `gradle.properties`), and wires `jna.library.path` onto the run task for
 you.
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md).
+You should see the window pictured on the [hello-world landing page](..md).
 
 ## Common errors
 
@@ -169,9 +169,3 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
   passes the full run on macOS, and the Java binding (same JVM) runs on Windows
   — so a fix needs a Windows-host thread dump of the hung JVM. The E2E board
   reports Kotlin `⊘ SKIP` on Windows for this reason.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Java]](java.md)

@@ -1,11 +1,11 @@
 ---
-slug: canvas-gl
+slug: images/canvas-gl
 title: GL Canvas
 language: en
-canonical_slug: canvas-gl
+canonical_slug: images/canvas-gl
 audience: external
 maturity: wip
-guide_order: 72
+guide_order: 92
 topic_only: false
 short_desc: Embedding an OpenGL canvas inside a Dom node
 prerequisites: [images]
@@ -137,7 +137,7 @@ of the requested size. The renderer treats it as transparent and reserves space 
 A render-image callback runs:
 
 1. Once on first display of the DOM node, after layout has assigned the node a size.
-2. On every frame the DOM is re-built, if the node is still in the tree. To drive animation without rebuilding, return `Update::RefreshDom` from a [timer](../timers.md) callback so the framework reissues the render.
+2. On every frame the DOM is re-built, if the node is still in the tree. To drive animation without rebuilding, return `Update::RefreshDom` from a [timer](../animations/timers.md) callback so the framework reissues the render.
 3. Never if the node never enters the tree, or if the render-image feature is disabled (e.g. headless mode without a GL context).
 
 The renderer doesn't memoize results. The callback is responsible for caching its own state in the `RefAny` it received.
@@ -185,9 +185,3 @@ The full working example lives in `examples/rust/src/opengl.rs`. It parses GeoJS
 `Texture` is reference-counted and frees its GL texture when the last clone drops. Returning a fresh `ImageRef::gl_texture(...)` from each callback invocation is the normal pattern: the previous frame's texture is dropped automatically by the framework once the new one replaces it.
 
 `GlContextPtr` is also reference-counted. Cloning it in your `RefAny` state is safe and avoids re-fetching it via `info.get_gl_context()` on hot paths.
-
-## Coming Up Next
-
-- [Animations](../animations.md) — CSS transitions and @keyframes
-- [SVG](svg.md) — Parsing and rendering SVG documents
-- [Images](../images.md) — Loading raster images and CSS backgrounds

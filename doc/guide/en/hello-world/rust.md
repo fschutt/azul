@@ -291,7 +291,7 @@ Five things to notice.
 There are some parts we didn't use such as, which might be interesting to explore next.
 
 - `_: LayoutCallbackInfo`: carries read-only access to the system font cache, image cache, GL context, window size, routing and localization dictionaries
-- `WindowCreateOptions` configure window title, size, and decorations (covered in [windowing](../windowing.md)).
+- `WindowCreateOptions` configure window title, size, and decorations (covered in [windowing](../system/windowing.md)).
 - `CallbackInfo` has lots of functions with which to navigate, query the DOM, change CSS styles (without needing to rebuild the DOM), query computed layout and styles, etc.
 
 ## Build and run
@@ -300,7 +300,7 @@ There are some parts we didn't use such as, which might be interesting to explor
 cargo run --release
 ```
 
-You should see the window pictured on the [hello-world landing page](../hello-world.md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
+You should see the window pictured on the [hello-world landing page](..md). Click the button: the counter increments, the layout callback re-runs, and the new value renders.
 
 1. `App::run` opened a native window and ran the layout callback once with your `RefAny`.
 2. The returned `Dom` was styled, laid out, and rendered (default: CPU-rendered, because of bad driver issues: usually this is fast enough, can be GPU-rendered if necessary).
@@ -312,9 +312,3 @@ You should see the window pictured on the [hello-world landing page](../hello-wo
 - **`downcast_ref` returns `None`** — the `RefAny` is already mutably borrowed elsewhere, or it holds a different type. Return `Dom::create_body()` (or `Update::DoNothing`) and investigate.
 - **The window opens blank** — verify your layout callback actually returns a `Dom::create_body()` with children. An empty `Dom` renders to a blank window.
 - **The counter does not update** — your click callback returned `Update::DoNothing`. Change to `Update::RefreshDom`.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — Explains the concepts of architecting a larger Azul application
-- [Document Object Model](../dom.md) — The Dom tree - node types, hierarchy, and CSS
-- [Hello World [Python]](python.md)

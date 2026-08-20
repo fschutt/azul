@@ -1,11 +1,11 @@
 ---
-slug: accessibility
+slug: system/accessibility
 title: Accessibility
 language: en
-canonical_slug: accessibility
+canonical_slug: system/accessibility
 audience: external
 maturity: wip
-guide_order: 280
+guide_order: 125
 topic_only: false
 short_desc: Screen reader integration and ARIA roles
 prerequisites: [dom]
@@ -269,9 +269,3 @@ and the data is preserved, but no a11y tree is published.
 [dependencies]
 azul = { version = "*", features = ["a11y"] }
 ```
-
-## Coming Up Next
-
-- [Built-in Widgets](widgets.md) — Built-in widgets and how to write your own
-- [System Themes](styling/themes.md) — System colors, `@theme`, `@os`, and accessibility queries
-- [Events](events.md) — Callbacks, event filters, and how state triggers relayout

@@ -249,7 +249,7 @@ v run .
 
 `v run .` compiles the current directory (`hello-world.v` + the imported
 `azul/` subpackage) and runs it. You should see the window pictured on the
-[hello-world landing page](../hello-world.md). Click the button: the
+[hello-world landing page](..md). Click the button: the
 counter increments, `layout` re-runs, and the new value renders. To ship a
 standalone binary, build with `v -prod . -o hello-world` instead.
 
@@ -272,9 +272,3 @@ standalone binary, build with `v -prod . -o hello-world` instead.
   `AzUpdate.DoNothing`, or the downcast failed. A failed downcast means
   the type id did not match: `my_data_type_id` must be the *same* constant
   in the upcast and the downcast.
-
-## Coming Up Next
-
-- [Application Architecture](../architecture.md) — architecting a larger Azul application
-- [Document Object Model](../dom.md) — the Dom tree: node types, hierarchy, and CSS
-- [Hello World [Odin]](odin.md)

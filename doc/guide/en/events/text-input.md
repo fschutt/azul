@@ -1,11 +1,11 @@
 ---
-slug: text-input
+slug: events/text-input
 title: Text Input
 language: en
-canonical_slug: text-input
+canonical_slug: events/text-input
 audience: external
 maturity: wip
-guide_order: 92
+guide_order: 62
 topic_only: false
 short_desc: Editable text, IME, and the selection model
 prerequisites: [events]
@@ -88,7 +88,7 @@ let dom = azul::widgets::TextInput::create()
     .dom();
 ```
 
-`OnTextInputReturn::valid` is the gate that lets you reject a character (e.g. "only digits"). Returning `TextInputValid::No` rolls back the edit before mutating the DOM. `OnTextInputReturn::update` follows the usual `Update` semantics from [Events](events.md).
+`OnTextInputReturn::valid` is the gate that lets you reject a character (e.g. "only digits"). Returning `TextInputValid::No` rolls back the edit before mutating the DOM. `OnTextInputReturn::update` follows the usual `Update` semantics from [Events](..md).
 
 ### TextInputState
 
@@ -166,7 +166,7 @@ These keystrokes are handled by the framework after every callback returns, unle
 - Ctrl+A: select all (scoped to the focused contenteditable).
 - Escape: collapse selection.
 
-Suppress with `info.prevent_default()` to override. The rest of the callback chain still runs (W3C semantics; see [Events](events.md#default-actions)).
+Suppress with `info.prevent_default()` to override. The rest of the callback chain still runs (W3C semantics; see [Events](..md#default-actions)).
 
 ## Where it goes wrong
 
@@ -174,9 +174,3 @@ Suppress with `info.prevent_default()` to override. The rest of the callback cha
 - **`max_len` is not enforced.** Add a length check in your `on_text_input` and return `TextInputValid::No` when the buffer is full.
 - **First click positions the cursor at the start.** The cursor is initialised at end-of-text on focus; the first click can race with focus acquisition. Subsequent clicks behave normally.
 - **`TextInputSelection` / `TextInputSelectionRange` are not yet wired through the default callbacks.** Multi-node selection across nodes goes through the cross-DOM selection model; see [Text Selection](text-selection.md).
-
-## Coming Up Next
-
-- [Text Selection](text-selection.md) — Selection ranges, cursors, and copy/paste
-- [Scrolling](scrolling-and-drag.md) — Scroll containers, drag-and-drop, hit testing
-- [Events](events.md) — Callbacks, event filters, and how state triggers relayout

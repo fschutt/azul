@@ -5,10 +5,10 @@ language: en
 canonical_slug: widgets
 audience: external
 maturity: wip
-guide_order: 140
+guide_order: 110
 topic_only: false
 short_desc: Built-in widgets and how to write your own
-prerequisites: [styling, events, text-input]
+prerequisites: [styling, events, events/text-input]
 tracked_files:
   - layout/src/widgets/button.rs
   - layout/src/widgets/check_box.rs
@@ -125,7 +125,7 @@ let dom = CheckBox::create(true)
 
 `ColorInput` is a colored swatch that fires a callback when clicked. Azul does
 not ship a built-in color-picker dialog. Open one yourself in the callback (see
-[File Dialogs](file-dialogs.md) for `ColorPickerDialog`).
+[File Dialogs](system/file-dialogs.md) for `ColorPickerDialog`).
 
 ```rust,no_run
 use azul::prelude::*;
@@ -217,7 +217,7 @@ Use `Titlebar::domWithButtons(...)` for a windowless mode where the app draws
 its own controls.
 
 Pair the buttoned form with `WindowDecorations::None` (see
-[Windowing](windowing.md)) to draw the entire title bar yourself.
+[Windowing](system/windowing.md)) to draw the entire title bar yourself.
 
 ## Styling
 
@@ -230,9 +230,3 @@ use azul::prelude::*;
 
 let dom = Button::create("Save".into()).dom();
 ```
-
-## Coming Up Next
-
-- [Input Widgets](widgets/inputs.md) — Text fields, checkboxes, radios, sliders, dropdowns
-- [Structural Widgets](widgets/structural.md) — Panels, splitters, tab views, list views, tree views
-- [Accessibility](accessibility.md) — Screen reader integration and ARIA roles
