@@ -694,13 +694,13 @@ prerequisites = ["dom"]
 # first window. Per-language setup belongs there, not in a second tree of it.
 
 [[group]]
-id = "web-and-security"
+id = "deploying"
 tree = "advanced"
 audience = ["external"]
 agent_strategy = "split"
-tracked_files = ["dll/src/web/mod.rs", "dll/src/web/transpiler.rs", "dll/src/web/server.rs", "layout/src/updater.rs", "scripts/sign-release.sh"]
-tracked_globs = ["dll/src/web/*.rs"]
-notes = "Closes Tree 2 with the hardest topics. signing-updates: the release side of the self-updater (manifest v1, the root/signing key chain, scripts/sign-release.sh, the local-HTTP test recipe). web-deployment: WASM bundle, SSR, transpiler limits, deploying. security: trust boundaries, FFI safety, what RefAny does/doesn't guarantee, sandboxing assumptions for the web target."
+tracked_files = ["dll/src/web/mod.rs", "dll/src/web/transpiler.rs", "dll/src/web/server.rs", "layout/src/updater.rs", "scripts/sign-release.sh", "layout/src/telemetry/mod.rs", "layout/src/telemetry/config.rs", "layout/src/telemetry/metrics.rs", "dll/src/desktop/app.rs"]
+tracked_globs = ["dll/src/web/*.rs", "layout/src/telemetry/*.rs"]
+notes = "Everything between a working binary and a shipped one. web: WASM bundle, SSR, transpiler limits. mobile: .apk/.ipa from any OS, no Xcode or Android Studio. signing-updates: the release side of the self-updater (manifest v1, the root/signing key chain, scripts/sign-release.sh, the local-HTTP test recipe). observability: consent tiers, the OTLP metric/log client, crash dumps, and the collector they need."
 
 [[group.outputs]]
 slug = "deploying/web"
@@ -711,9 +711,25 @@ guide_order = 230
 prerequisites = ["hello-world", "architecture"]
 
 [[group.outputs]]
+slug = "deploying/mobile"
+path = "doc/guide/en/deploying/mobile.md"
+title = "Mobile (iOS & Android)"
+maturity = "wip"
+guide_order = 231
+prerequisites = ["hello-world"]
+
+[[group.outputs]]
 slug = "deploying/signing-updates"
 path = "doc/guide/en/deploying/signing-updates.md"
 title = "Signed Updates"
 maturity = "wip"
 guide_order = 232
 prerequisites = ["hello-world"]
+
+[[group.outputs]]
+slug = "deploying/observability"
+path = "doc/guide/en/deploying/observability.md"
+title = "Observability"
+maturity = "wip"
+guide_order = 233
+prerequisites = ["hello-world", "deploying/signing-updates"]
