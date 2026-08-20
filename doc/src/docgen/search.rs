@@ -90,7 +90,10 @@ pub fn generate_search_index(version: &str, version_data: &VersionData) -> Strin
                             n: variant_name,
                             m: Some(module_name),
                             p: Some(class_name),
-                            a: format!("st.{}", class_name),
+                            // The variant's own anchor, not its type's: the
+                            // listing collapses long variant lists, and the
+                            // reveal script opens whatever holds the target.
+                            a: format!("v.{}.{}", class_name, variant_name),
                             d: doc_to_text(variant.doc.as_deref()),
                             s: variant.r#type.clone(),
                         });
@@ -107,7 +110,7 @@ pub fn generate_search_index(version: &str, version_data: &VersionData) -> Strin
                             n: field_name,
                             m: Some(module_name),
                             p: Some(class_name),
-                            a: format!("st.{}", class_name),
+                            a: format!("f.{}.{}", class_name, field_name),
                             d: doc_to_text(field.doc.as_deref()),
                             s: Some(field.r#type.clone()),
                         });

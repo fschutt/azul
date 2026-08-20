@@ -6,11 +6,18 @@
    to #api / .api-* so nothing leaks into other docs families.
 
    Markup contract (do not break - search JS + deep links depend on it):
-     #api > ul > li.m#m.<module>           module section
-       li.st.e / li.st.s / li.fnty         enum / struct / fnptr, id="st.<Class>"
-       li.cn / li.fn                       ctor / method, id="<Class>.<member>"
+     #api > ul > li.m > details.api-mod#m.<module>      module section
+       li.st.e/.s/.fnty > details.api-class#st.<Class>  enum / struct / fnptr
+         details.api-group                  fields / variants / ctors / methods
+           .api-variants                    the ONE group that starts closed
+         p.f#v.<Class>.<Variant>            enum variant
+         p.f#f.<Class>.<field>              struct field
+       li.cn / li.fn                        ctor / method, id="<Class>.<member>"
        p.doc variants (m/class/v/f/arg/cn/fn/ret + doc)  doc rows
-       span.chd                            "has destructor" badge
+       span.chd                             "has destructor" badge
+
+   Everything is open by default except a variant list; `reveal_script` in
+   apidocs.rs opens whatever holds a deep-link target.
    ========================================================================== */
 
 /* ---- Listing typography: Red Hat Mono, compact, no list bullets ---- */
@@ -74,13 +81,64 @@
     border-top: none;
     padding-top: 8px;
 }
-#api > ul > li.m > h3 {
+#api > ul > li.m h3 {
     font-size: 15px;
     letter-spacing: 0.01em;
-    margin-bottom: 24px;
 }
-#api > ul > li.m > ul > li {
+#api > ul > li.m ul > li.st,
+#api > ul > li.m ul > li.fnty {
     margin-bottom: 20px;
+}
+
+/* ---- Collapsible sections -------------------------------------------
+   Every level is a <details>: a module, a class, and each group inside a
+   class. The marker is drawn here rather than left to the UA triangle,
+   which differs per platform and sits at a different baseline in each. */
+#api details > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+#api details > summary::-webkit-details-marker { display: none; }
+#api details > summary::before {
+    content: "\25B8";                     /* right-pointing triangle */
+    flex: none;
+    width: 0.9em;
+    color: var(--fl-soft2);
+    transition: transform var(--fl-dur) var(--fl-ease);
+}
+#api details[open] > summary::before { content: "\25BE"; }
+#api details > summary:hover::before { color: var(--color-accent); }
+
+/* The module row is the page's own table of contents when everything is
+   collapsed, so it stays legible at a glance. */
+#api .api-mod > summary { margin-bottom: 20px; }
+#api .api-mod > summary h3 { margin: 0; }
+#api .api-class > summary h4 { margin: 0; }
+
+/* A count instead of a promise: "42 types", "12 variants". */
+#api .api-n,
+#api .api-group > summary {
+    font-family: var(--font-caps);
+    font-size: 15px;
+    font-variant: all-small-caps;
+    letter-spacing: 0.08em;
+    color: var(--fl-soft2);
+}
+#api .api-group > summary:hover { color: var(--color-accent); }
+#api .api-group {
+    margin: 2px 0 6px 24px;
+}
+#api .api-group-body {
+    padding-top: 2px;
+}
+/* The group body carries the indentation the old flat listing put on each
+   row, so the rows themselves stay flush inside their box. */
+#api .api-group-body > .f,
+#api .api-group-body > .v.doc {
+    margin-left: 0;
 }
 
 /* ---- Semantic keyword colors, drawn from the Flora accent family so the
@@ -109,13 +167,13 @@
     --api-ctor:   #ACA3C4;
 }
 
-#api li.st.e > h4 {
+#api .api-enum > summary h4 {
     color: var(--api-enum);
 }
-#api li.st.s > h4 {
+#api .api-struct > summary h4 {
     color: var(--api-struct);
 }
-#api li.fnty > h4,
+#api .api-fnty > summary h4,
 #api .arg {
     color: var(--api-fnty);
 }
@@ -185,6 +243,37 @@
 }
 #api a:hover {
     border-bottom-color: currentColor;
+}
+
+/* ---- Quick jump: "Commonly used" (ranked from the guide) + the module
+        index. Outside #api so the listing's mono reset does not reach the
+        buttons, which are the shared `.guide-link` control. ---- */
+.api-jump {
+    margin: 0 0 40px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--color-border);
+}
+.api-jump h2 {
+    font-size: 19px;
+    margin: 0 0 10px;
+}
+/* `.docs-content a.guide-link` in docs-guide.css matches at the same
+   specificity and is loaded after this file, so the reach has to be one
+   step longer than "inside .docs-content". */
+.docs-content .api-jump a.guide-link,
+.api-jump a.guide-link {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-variant: normal;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.api-jump h2 + .guide-links {
+    margin-bottom: 20px;
+}
+.api-jump .guide-links:last-child {
+    margin-bottom: 0;
 }
 
 /* ---- Back link under the listing ---- */
