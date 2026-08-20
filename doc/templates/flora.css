@@ -1557,7 +1557,15 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 
 /* The slot an app screenshot will drop into. Empty it takes no room, so the
    markup can carry it on every card before any of the images exist. */
+/* The app preview. Empty until the app it previews exists, and it draws
+   even then: a sunken well at exactly the size the screenshot will take, so
+   the grid does not reflow on the day the images land. To fill one, swap the
+   empty div for the anchor form - the card's preview is also how the reader
+   will reach that app's own page:
+
+       <a class="feature-media" href="/ws/office"><img src="…" alt="…"></a> */
 .feature-media {
+    display: block;
     margin: -8px 0 20px;
     border-radius: var(--fl-r);
     overflow: hidden;
@@ -1565,7 +1573,57 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
     aspect-ratio: 16 / 10;
 }
 
-.feature-media:empty { display: none; }
+.feature-media:empty {
+    position: relative;
+    background-color: rgba(0, 0, 0, 0.16);
+    border: 1px solid rgba(0, 0, 0, 0.28);
+    box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.34),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* The same figure as the band, at the same scale, so an empty well reads as
+   part of the paper rather than as a failed image. */
+.feature-media:empty::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: rgba(255, 255, 255, 0.05);
+    -webkit-mask-image: var(--fl-figure);
+            mask-image: var(--fl-figure);
+    -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+    -webkit-mask-size: 44px 44px;
+            mask-size: 44px 44px;
+}
+
+.feature-media:empty::after {
+    content: "Preview";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-caps);
+    font-size: 15px;
+    font-weight: 700;
+    font-variant: all-small-caps;
+    letter-spacing: 0.12em;
+    color: var(--fl-soft2);
+}
+
+.feature-card.has-gradient .feature-media:empty::after {
+    color: rgba(248, 243, 230, 0.55);
+}
+
+/* The filled form is a link to the app's page. */
+a.feature-media {
+    cursor: pointer;
+    transition: filter var(--fl-dur) var(--fl-ease);
+}
+
+a.feature-media:hover {
+    filter: brightness(1.06) drop-shadow(0 0 10px var(--fl-gla));
+}
 
 .feature-media img {
     width: 100%;
@@ -2059,8 +2117,12 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 }
 
 .faq-answer p {
+    /* The answer is running text in the reading hand, so it takes the same
+       size as every other paragraph on the page - it was two steps smaller
+       than the card copy directly above it. */
+    font-family: var(--font-serif);
     color: var(--color-text-light);
-    font-size: 16px;
+    font-size: var(--fl-text);
     line-height: 1.7;
     margin: 0;
 }

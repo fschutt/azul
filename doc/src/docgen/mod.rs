@@ -1199,9 +1199,13 @@ pub const AZLIN_TAB_SHOULDERS: &str =
 
 /// The docs strip: everything under /ui.
 pub fn azlin_nav(active: &str) -> String {
-    // `code` points off-site, so it sits last: the strip reads left to
-    // right as a path through the site and the one exit belongs at the end.
-    const LINKS: [(&str, &str); 8] = [
+    // `home` leads the strip and is never the active tab: from inside /ui
+    // there was no way back to the front page at all, and "overview" reads
+    // as the top of the DOCS, which is where the reader already is.
+    // `code` points off-site, so it sits last: between them the strip reads
+    // left to right as a path through the site, with the one exit at the end.
+    const LINKS: [(&str, &str); 9] = [
+        ("home", "https://azul.rs/"),
         ("overview", "https://azul.rs/ui"),
         ("releases", "https://azul.rs/ui/releases"),
         ("guide", "https://azul.rs/ui/guide"),
