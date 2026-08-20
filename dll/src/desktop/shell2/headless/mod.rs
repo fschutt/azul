@@ -1473,8 +1473,17 @@ impl HeadlessWindow {
             // through the chokepoint + journal clock) still runs: a canvas
             // is content, not animation — without it every callback image
             // rendered as the announced grey placeholder on headless.
+            //
+            // The thumb TRANSFORMS are refreshed all the same: they read no
+            // clock (pure function of layout + the current scroll offsets),
+            // so they cannot desynchronise two renders, and without them a
+            // scroll that changes nothing else leaves every thumb parked at
+            // the position of the last full layout — mis-painted, and
+            // undamaged, because the display-list items compare equal and
+            // only the GPU value diff can raise the bar's rect.
             if let Some(lw) = self.common.layout_window.as_mut() {
                 lw.prepare_frame_content();
+                lw.refresh_scrollbar_transforms();
             }
             if let Some(lw) = self.common.layout_window.as_ref() {
                 self.cpu_backend.render_frame(
@@ -1618,9 +1627,11 @@ impl HeadlessWindow {
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
             let dpi = ws.size.dpi as f32 / 96.0;
-            // Content preparation only — see the fade-refresh note above.
+            // Content preparation + clockless thumb transforms — see the
+            // fade-refresh note above.
             if let Some(lw) = self.common.layout_window.as_mut() {
                 lw.prepare_frame_content();
+                lw.refresh_scrollbar_transforms();
             }
             if let Some(lw) = self.common.layout_window.as_ref() {
                 self.cpu_backend.render_frame(
@@ -6103,27 +6114,50 @@ mod tests {
         scroll_frame_to(&mut window, 30.0);
         window.regenerate_layout().expect("scroll relayout");
         let damage = window.cpu_backend.last_frame_damage.clone();
-        // Scrollbar gutter: body margin 8 + 200px container - platform
-        // scrollbar width (8px macOS overlay, 12px Windows, 17px Linux
-        // classic). Damage rects can merge with adjacent content damage,
-        // so assert the gutter COLUMNS are covered rather than requiring a
-        // rect that ORIGINATES inside the gutter.
-        let sb_w: f32 = if cfg!(target_os = "macos") {
-            8.0
-        } else if cfg!(target_os = "windows") {
-            12.0
-        } else {
-            17.0
+        // The bar's own rect, read off the display list rather than
+        // re-derived from per-OS constants: the platform decides the
+        // scrollbar width (8px overlay where the UA sheet says `thin`, 12px
+        // where it says `auto`) AND whether it reserves a gutter, so the only
+        // honest source for "where is the bar" is where layout put it. A
+        // hard-coded x also made this law vacuous on overlay platforms, where
+        // the bar sits inside the scroll clip and the exposed-strip damage
+        // covers those columns whether or not the thumb was damaged at all.
+        use azul_core::dom::ScrollbarOrientation;
+        let bar = {
+            let lw = window.common.layout_window.as_ref().expect("layout window");
+            let r = lw
+                .layout_results
+                .get(&azul_core::dom::DomId::ROOT_ID)
+                .expect("root layout result");
+            r.display_list
+                .items
+                .iter()
+                .find_map(|it| match it {
+                    DisplayListItem::ScrollBarStyled { info }
+                        if info.orientation == ScrollbarOrientation::Vertical =>
+                    {
+                        Some(info.bounds.0)
+                    }
+                    _ => None,
+                })
+                .expect("the scrollable container must paint a vertical scrollbar")
         };
-        let gutter_start = 8.0 + 200.0 - sb_w;
         match &damage {
             FrameDamage::Rects(rs) => {
+                // The thumb moved (GPU value cache), so the bar's rect must be
+                // covered by the damage — by a single rect, since that is how
+                // the value diff raises it.
+                let covers = |r: &azul_core::geom::LogicalRect| {
+                    r.origin.x <= bar.origin.x + 0.5
+                        && r.origin.y <= bar.origin.y + 0.5
+                        && r.origin.x + r.size.width >= bar.origin.x + bar.size.width - 0.5
+                        && r.origin.y + r.size.height >= bar.origin.y + bar.size.height - 0.5
+                };
                 assert!(
-                    rs.iter().any(|r| r.origin.x + r.size.width > gutter_start + 0.5),
-                    "scroll must damage the scrollbar region past x={} (thumb moved \
-                     via GPU value cache); got {:?}",
-                    gutter_start,
-                    rs
+                    rs.iter().any(covers),
+                    "scroll must damage the scrollbar {bar:?} (the thumb moved via \
+                     the GPU value cache, and the display-list items compare equal, \
+                     so nothing else can raise it); got {rs:?}"
                 );
             }
             other => panic!("scroll should be incremental, got {:?}", other),
@@ -6209,8 +6243,19 @@ mod tests {
         let offsets = lw
             .scroll_manager
             .build_scroll_offset_map(dom, &result.scroll_id_to_node_id);
-        let rs = azul_layout::cpurender::CpuRenderState::new(offsets)
+        // The GPU value cache is part of the frame's state, not decoration:
+        // scrollbar thumb positions and fade opacities live ONLY there (the
+        // display list carries the keys). A reference built without them
+        // paints every thumb at its display-list-baked initial position, so
+        // it would call a correctly-moved thumb a diff.
+        let (gpu_transforms, gpu_opacities) = azul_layout::cpurender::extract_gpu_values(
+            lw.gpu_state_manager.get_cache(dom),
+            dom,
+        );
+        let mut rs = azul_layout::cpurender::CpuRenderState::new(offsets)
             .with_system_style(lw.system_style.clone());
+        rs.transforms = gpu_transforms;
+        rs.opacities = gpu_opacities;
         let full_clip = LogicalRect {
             origin: LogicalPosition::new(0.0, 0.0),
             size: LogicalSize::new(pw as f32 / dpi, ph as f32 / dpi),

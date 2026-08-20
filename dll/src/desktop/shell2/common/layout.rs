@@ -48,6 +48,39 @@ fn register_scroll_nodes(layout_window: &mut LayoutWindow) {
     azul_layout::managers::scroll_registration::register_scroll_nodes(layout_window, &now);
 }
 
+/// Publish what the layout pass just decided about scrolling into the
+/// managers: which nodes are scroll containers (and how big they and their
+/// content are), then the scrollbar fade opacities that follow from it.
+///
+/// EVERY code path that RAN A LAYOUT must call this before returning. A path
+/// that lays out and skips it leaves the `ScrollManager` describing the
+/// PREVIOUS tree: a scroll container that appeared in this pass (a CSS
+/// breakpoint switching a widget to its compact form, content that just grew
+/// past its box) has no scroll state at all, so it cannot be scrolled, its
+/// thumb has no geometry, and `synchronize_scrollbar_opacity` reads a
+/// last-activity time of `None` and paints the bar at opacity 0 — the bar is
+/// in the display list and invisible on screen.
+fn publish_scroll_state(layout_window: &mut LayoutWindow) {
+    // Register scrollable nodes and calculate scrollbar states
+    register_scroll_nodes(layout_window);
+
+    // Synchronize scrollbar opacity with GPU cache.
+    // Note: Display list translation happens in generate_frame(), not here —
+    // this enables smooth fade-in/fade-out without display list rebuild.
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        LayoutWindow::synchronize_scrollbar_opacity(
+            &mut layout_window.gpu_state_manager,
+            &layout_window.scroll_manager,
+            *dom_id,
+            &layout_result.layout_tree,
+            &system_callbacks,
+            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(SCROLLBAR_FADE_DELAY_MS)),
+            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(SCROLLBAR_FADE_DURATION_MS)),
+        );
+    }
+}
+
 /// Result of `regenerate_layout()` indicating whether the DOM structure changed.
 ///
 /// When the DOM is structurally unchanged (same node types, hierarchy, classes,
@@ -458,6 +491,13 @@ phases.mark("after_callback");
         for (dom_id, node_id) in dirty_entries {
             layout_window.reapply_dirty_text_node(dom_id, node_id);
         }
+
+        // The warm relayout is a REAL layout pass: it can add or remove scroll
+        // containers (a CSS breakpoint swapping a widget to its compact form
+        // does exactly that without changing the DOM, which is why this path
+        // was taken at all). Publish the result like the full path does, or
+        // the ScrollManager keeps describing the previous tree.
+        publish_scroll_state(layout_window);
 
         log_debug!(
             LogCategory::Layout,
@@ -1078,24 +1118,9 @@ phases.mark("after_layout_and_dl");
         }
     }
 
-    // 5. Register scrollable nodes and calculate scrollbar states
-    register_scroll_nodes(layout_window);
-
-    // 6. Synchronize scrollbar opacity with GPU cache
-    // Note: Display list translation happens in generate_frame(), not here
-    // This enables smooth fade-in/fade-out without display list rebuild
-    let system_callbacks = ExternalSystemCallbacks::rust_internal();
-    for (dom_id, layout_result) in &layout_window.layout_results {
-        LayoutWindow::synchronize_scrollbar_opacity(
-            &mut layout_window.gpu_state_manager,
-            &layout_window.scroll_manager,
-            *dom_id,
-            &layout_result.layout_tree,
-            &system_callbacks,
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(SCROLLBAR_FADE_DELAY_MS)),
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(SCROLLBAR_FADE_DURATION_MS)),
-        );
-    }
+    // 5. + 6. Register scrollable nodes / scrollbar states, then sync the
+    // scrollbar fade opacities that follow from them.
+    publish_scroll_state(layout_window);
 
     // 7. Permission diff — scan the styled DOM for permission-bearing
     // NodeTypes (GeolocationProbe / CameraPreview / SensorProbe / …) and

@@ -4503,6 +4503,45 @@ impl LayoutWindow {
         self.refresh_scrollbar_gpu_cache_for_cpu_frame()
     }
 
+    /// The CLOCKLESS half of [`Self::refresh_scrollbar_gpu_cache_for_cpu_frame`]:
+    /// re-derive every scrollbar thumb transform from the scroll offsets the
+    /// `ScrollManager` holds RIGHT NOW.
+    ///
+    /// A thumb's position lives only in the GPU value cache — the display list
+    /// carries the `TransformKey`, not the offset — so a host that does not
+    /// refresh it paints the thumb where the last full layout left it AND
+    /// reports no damage for the bar (the items compare visually equal, so
+    /// only the value diff can raise it). That is invisible on platforms whose
+    /// overlay scrollbar sits INSIDE the scroll frame's clip (macOS: the
+    /// clip-overlay damage rule repaints it anyway) and visible on every
+    /// platform that reserves a gutter for a classic bar (Windows, Linux),
+    /// where the bar is outside the clip and nothing else damages it.
+    ///
+    /// Unlike the fade opacity this reads no clock: it is a pure function of
+    /// layout + scroll state. Hosts that deliberately freeze animation state
+    /// between renders (the headless backend's golden tests) can and must
+    /// still call it. Returns `true` if a thumb actually moved.
+    #[cfg(feature = "std")]
+    pub fn refresh_scrollbar_transforms(&mut self) -> bool {
+        let Self {
+            ref layout_results,
+            ref scroll_manager,
+            ref mut gpu_state_manager,
+            ..
+        } = *self;
+        let mut moved = false;
+        for (dom_id, layout_result) in layout_results {
+            moved |= !gpu_state_manager
+                .update_scrollbar_transforms(
+                    *dom_id,
+                    scroll_manager,
+                    &layout_result.layout_tree,
+                )
+                .is_empty();
+        }
+        moved
+    }
+
     /// The CONTENT half of [`Self::prepare_frame_cpu`]: journal frame clock +
     /// `RenderImageCallback` invocation through the chokepoint, WITHOUT the
     /// scrollbar-fade cache refresh. For hosts that deliberately freeze
@@ -7257,24 +7296,7 @@ impl LayoutWindow {
     #[cfg(feature = "std")]
     pub fn refresh_scrollbar_gpu_cache_for_cpu_frame(&mut self) -> bool {
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
-        let mut moved = false;
-        {
-            let Self {
-                ref layout_results,
-                ref scroll_manager,
-                ref mut gpu_state_manager,
-                ..
-            } = *self;
-            for (dom_id, layout_result) in layout_results {
-                moved |= !gpu_state_manager
-                    .update_scrollbar_transforms(
-                        *dom_id,
-                        scroll_manager,
-                        &layout_result.layout_tree,
-                    )
-                    .is_empty();
-            }
-        }
+        let mut moved = self.refresh_scrollbar_transforms();
         let fade_delay = self.gpu_state_manager.fade_delay;
         let fade_duration = self.gpu_state_manager.fade_duration;
         let Self {
