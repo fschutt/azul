@@ -3624,6 +3624,15 @@ impl WaylandWindow {
                     )
                 };
 
+                azul_layout::scroll_timer::trace_scroll_input(
+                    "wayland",
+                    delta_x,
+                    delta_y,
+                    is_trackpad,
+                    if is_trackpad { "TrackpadContinuous" } else { "WheelDiscrete" },
+                    if is_trackpad { "Touchpad" } else { "MouseWheel" },
+                );
+
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
                         // Raw delta; sign applied centrally (natural-scroll flag).

@@ -138,6 +138,59 @@ impl ScrollPhysicsState {
 /// Per-node `OverflowScrolling` and `OverscrollBehavior` CSS properties are
 /// respected to decide whether each node gets rubber-banding.
 ///
+/// `AZ_SCROLL_DEBUG=1` turns on a per-event / per-tick trace of the scroll
+/// pipeline.
+///
+/// It exists because the jitter reported on X11 and Wayland — a wheel scroll
+/// that smooths, then jumps back and forward, damping toward the middle — could
+/// not be reproduced from the code alone. Six candidate causes were eliminated
+/// (spring stiffness, `dt`, device classification, X11 double ingress, the shm
+/// slot count, and Wayland's slot catch-up), and the remaining ones need to
+/// know what the platform actually DELIVERED, not what we think it delivers.
+///
+/// Off by default and checked once: this sits on the 16 ms tick and on every
+/// scroll event, so it must cost nothing when unset.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn scroll_debug_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_SCROLL_DEBUG").map(|v| v == "1").unwrap_or(false))
+}
+
+#[cfg(not(feature = "std"))]
+#[must_use]
+pub const fn scroll_debug_enabled() -> bool {
+    false
+}
+
+/// One line per scroll event as the PLATFORM delivered it, before any physics.
+///
+/// Call this from the platform ingress (x11 `handle_scroll_input`, wayland
+/// `axis`), so a log tells us the raw delta, whether the backend called it
+/// continuous, and which source/device it was classified as. That is the piece
+/// no amount of reading the code can supply.
+#[cfg(feature = "std")]
+pub fn trace_scroll_input(
+    backend: &str,
+    raw_dx: f32,
+    raw_dy: f32,
+    continuous: bool,
+    source: &str,
+    device: &str,
+) {
+    if !scroll_debug_enabled() {
+        return;
+    }
+    std::eprintln!(
+        "[az-scroll] IN  backend={backend} raw=({raw_dx:.4},{raw_dy:.4}) \
+         continuous={continuous} source={source} device={device}"
+    );
+}
+
+#[cfg(not(feature = "std"))]
+pub fn trace_scroll_input(_: &str, _: f32, _: f32, _: bool, _: &str, _: &str) {}
+
 /// # C API
 ///
 /// This function has `extern "C"` ABI so it can be used as a `TimerCallbackType`.
@@ -462,6 +515,25 @@ pub extern "C" fn scroll_physics_timer_callback(
 
         let raw_new_x = info.current_offset.x + displacement.x;
         let raw_new_y = info.current_offset.y + displacement.y;
+
+        // The whole jitter question in one line: what this tick READ, what the
+        // writers wanted, and what it is about to COMMIT. If the offset a tick
+        // reads is not the offset the previous tick wrote, the spring is
+        // integrating from a stale base — and that is the oscillation.
+        #[cfg(feature = "std")]
+        if scroll_debug_enabled() {
+            std::eprintln!(
+                "[az-scroll] TICK node=({:?},{:?}) read=({:.3},{:.3}) vel=({:.3},{:.3}) \
+                 disp=({:.3},{:.3}) -> commit=({:.3},{:.3}) target={:?} max=({:.1},{:.1})",
+                dom_id, node_id,
+                info.current_offset.x, info.current_offset.y,
+                node_physics.velocity.x, node_physics.velocity.y,
+                displacement.x, displacement.y,
+                raw_new_x, raw_new_y,
+                seek_target.map(|(t, _)| (t.x, t.y)),
+                info.max_scroll_x, info.max_scroll_y,
+            );
+        }
 
         // Clamp with or without rubber-banding
         let new_x = if rubber_band_x && max_overscroll_distance > 0.0 {

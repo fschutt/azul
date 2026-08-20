@@ -876,6 +876,15 @@ impl X11Window {
                     )
                 };
 
+                azul_layout::scroll_timer::trace_scroll_input(
+                    "x11",
+                    delta_x,
+                    delta_y,
+                    continuous,
+                    if continuous { "TrackpadContinuous" } else { "WheelDiscrete" },
+                    if continuous { "Touchpad" } else { "MouseWheel" },
+                );
+
                 if let Some((_dom_id, _node_id, start_timer)) =
                     layout_window.scroll_manager.record_scroll_from_hit_test(
                         // Raw delta; direction sign is applied centrally in
