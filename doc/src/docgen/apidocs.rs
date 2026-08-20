@@ -15,6 +15,12 @@ use crate::{
 /// How many types the "Commonly used" row offers.
 const COMMON_LIMIT: usize = 30;
 
+/// Modules that start FOLDED. These three are generated container types -
+/// one `Vec`, one `Option` and one error per type in the API - so they are
+/// the three longest modules on the page (303 + 232 + 81 types) and the ones
+/// a reader almost never scrolls to on purpose.
+const FOLDED_MODULES: &[&str] = &["vec", "option", "error"];
+
 /// Generate API documentation HTML for a specific version.
 ///
 /// Rendered in the azlin docs shell (see `docgen::azlin_page`); the API
@@ -219,9 +225,14 @@ fn generate_api_content(version_data: &VersionData) -> String {
         }
         body.push_str("</ul>");
 
-        html.push_str(&format!("<li class=\"m\">"));
+        let open = if FOLDED_MODULES.contains(&module_name.as_str()) {
+            ""
+        } else {
+            " open"
+        };
+        html.push_str("<li class=\"m\">");
         html.push_str(&format!(
-            "<details class=\"api-mod\" id=\"m.{module_name}\" open>\
+            "<details class=\"api-mod\" id=\"m.{module_name}\"{open}>\
              <summary><h3>mod {module_name}</h3>\
              <span class=\"api-n\">{}</span></summary>{body}</details>",
             count_label(module.classes.len(), "type"),

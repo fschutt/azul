@@ -147,10 +147,13 @@
         turning the page into a paintbox. Each has a night value - the light
         inks are too dark to read on the dark ground. ---- */
 :root {
-    --api-enum:   #3F6049;  /* leaf   - enum / union enum          */
-    --api-struct: #7B4B45;  /* clay   - struct                     */
-    --api-fnty:   #6B6046;  /* brass  - fnptr typedefs + arguments */
-    --api-ctor:   #4E4762;  /* iris   - constructors               */
+    /* Light values carry more saturation than the night ones: on paper the
+       greyed-off versions of these read as four shades of the same brown,
+       and the point of colouring a listing is telling its parts apart. */
+    --api-enum:   #1F6B3C;  /* leaf   - enum / union enum          */
+    --api-struct: #9A3322;  /* clay   - struct                     */
+    --api-fnty:   #7A5A12;  /* brass  - fnptr typedefs + arguments */
+    --api-ctor:   #46368C;  /* iris   - constructors               */
 }
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -201,14 +204,22 @@
 }
 
 /* ---- Doc rows: the document hand against the mono listing ---- */
+/* Documentation is the text a reader came for, so it is set in full ink -
+   the muted grey it used to carry made the prose read as a caption for the
+   code above it. The listing keeps the two apart by FACE (serif prose
+   against a mono listing) rather than by fading one of them out. */
 #api p.doc {
     font-family: var(--font-serif);
     font-size: 16px;
     font-weight: 400;
     line-height: 1.6;
-    color: var(--color-text-light);
+    color: var(--color-text);
     max-width: 70ch;
     margin: 6px 0 4px;
+}
+#api p.m.doc,
+#api p.class.doc {
+    color: var(--color-text);
 }
 #api p.m.doc {
     font-size: 15px;
@@ -232,13 +243,15 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
-/* ---- Links: inherit the semantic color (never browser blue), hairline
-        underline on hover. :visited pinned. ---- */
+/* ---- Links: inherit the semantic color (never browser blue) and carry a
+        hairline underline AT REST - every type name in the listing is a jump
+        to that type, and an underline that only appears under the pointer is
+        a link the reader has to find by accident. :visited pinned. ---- */
 #api a,
 #api a:visited {
     color: inherit;
     text-decoration: none;
-    border-bottom: 1px solid transparent;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 45%, transparent);
     transition: border-color 0.15s ease;
 }
 #api a:hover {
