@@ -1045,6 +1045,13 @@ pub struct ModuleData {
         deserialize_with = "deserialize_doc"
     )]
     pub doc: Option<Vec<String>>,
+    /// Sort weight for the DOCS listing, 0.0-100.0. Absent (the default) means
+    /// "leave it where api.json puts it"; a value pulls the entry to the front
+    /// of its level, highest first, ties keeping file order. It changes the
+    /// order a READER sees - never the order codegen emits, which is the
+    /// file's own and is ABI-relevant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<f32>,
     // Using IndexMap to preserve class order within a module
     pub classes: IndexMap<String, ClassData>,
 }
@@ -1068,6 +1075,13 @@ pub struct ClassData {
         deserialize_with = "deserialize_doc"
     )]
     pub doc: Option<Vec<String>>,
+    /// Sort weight for the DOCS listing, 0.0-100.0. Absent (the default) means
+    /// "leave it where api.json puts it"; a value pulls the entry to the front
+    /// of its level, highest first, ties keeping file order. It changes the
+    /// order a READER sees - never the order codegen emits, which is the
+    /// file's own and is ABI-relevant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")] // Skip if false
@@ -1272,6 +1286,13 @@ pub struct FunctionData {
         deserialize_with = "deserialize_doc"
     )]
     pub doc: Option<Vec<String>>,
+    /// Sort weight for the DOCS listing, 0.0-100.0. Absent (the default) means
+    /// "leave it where api.json puts it"; a value pulls the entry to the front
+    /// of its level, highest first, ties keeping file order. It changes the
+    /// order a READER sees - never the order codegen emits, which is the
+    /// file's own and is ABI-relevant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<f32>,
     // Arguments are a list where each item is a map like {"arg_name": "type"}
     // Using IndexMap here preserves argument order.
     #[serde(default, rename = "fn_args")]
@@ -2664,5 +2685,53 @@ mod tests {
     fn test_extract_base_type_complex() {
         assert_eq!(extract_base_type("*const Vec<Foo>"), "Foo");
         assert_eq!(extract_base_type("&Option<Bar>"), "Bar");
+    }
+}
+
+#[cfg(test)]
+mod priority_contract {
+    use std::path::PathBuf;
+
+    /// `priority` is a curation signal, and the numbers have to mean what the
+    /// field says they mean: `0` is spelled by ABSENCE, so a declared `0.0`
+    /// (or a negative, or 101) is a mistake that would sort silently.
+    #[test]
+    fn declared_priorities_are_in_range() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("api.json");
+        let data = crate::api::ApiData::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let mut bad: Vec<String> = Vec::new();
+        let mut check = |what: String, p: Option<f32>| {
+            if let Some(p) = p {
+                if !(p > 0.0 && p <= 100.0) {
+                    bad.push(format!("{what} = {p}"));
+                }
+            }
+        };
+        for (version, version_data) in &data.0 {
+            for (module_name, module) in &version_data.api {
+                check(format!("{version} mod {module_name}"), module.priority);
+                for (class_name, class) in &module.classes {
+                    check(format!("{version} {module_name}.{class_name}"), class.priority);
+                    for (name, f) in class.constructors.iter().flatten() {
+                        check(
+                            format!("{version} {module_name}.{class_name}.{name}"),
+                            f.priority,
+                        );
+                    }
+                    for (name, f) in class.functions.iter().flatten() {
+                        check(
+                            format!("{version} {module_name}.{class_name}.{name}"),
+                            f.priority,
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "priority must be in (0, 100] - unset is how you say zero: {bad:?}"
+        );
     }
 }

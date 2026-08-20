@@ -101,7 +101,8 @@ fn quick_jump(version_data: &VersionData) -> String {
     }
 
     out.push_str("              <h2>Modules</h2>\n              <div class=\"guide-links\">\n");
-    for module_name in version_data.api.keys() {
+    // Same order as the listing below it, or the index lies about the page.
+    for (module_name, _) in by_priority(&version_data.api, |m| m.priority.unwrap_or(0.0)) {
         out.push_str(&format!(
             "                <a class=\"guide-link\" \
              href=\"#m.{module_name}\">{module_name}</a>\n"
@@ -169,6 +170,28 @@ fn identifiers(text: &str) -> impl Iterator<Item = &str> {
 // The listing
 // ===========================================================================
 
+/// api.json order, with whatever declares a `priority` pulled to the front.
+///
+/// A STABLE sort on the negated priority: everything unmarked keeps the file's
+/// own order, so curating a level means naming the handful of entries that
+/// belong at the top, not ranking all two hundred. Ordering here is a reading
+/// aid only - codegen walks the file itself, where the order is ABI-relevant.
+fn by_priority<'a, K, V, P>(
+    map: &'a indexmap::IndexMap<K, V>,
+    priority: P,
+) -> Vec<(&'a K, &'a V)>
+where
+    P: Fn(&V) -> f32,
+{
+    let mut entries: Vec<(&K, &V)> = map.iter().collect();
+    entries.sort_by(|a, b| {
+        priority(b.1)
+            .partial_cmp(&priority(a.1))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    entries
+}
+
 /// A type reference: the class name links to its entry when the API declares
 /// it, and the pointer/reference decoration around it is preserved.
 ///
@@ -214,13 +237,15 @@ fn generate_api_content(version_data: &VersionData) -> String {
     let mut html = String::new();
     html.push_str("<ul>\n");
 
-    for (module_name, module) in &version_data.api {
+    for (module_name, module) in by_priority(&version_data.api, |m| m.priority.unwrap_or(0.0)) {
         let mut body = String::new();
         if let Some(doc) = &module.doc {
             body.push_str(&format!("<p class=\"m doc\">{}</p>", format_doc_lines(doc)));
         }
         body.push_str("<ul>");
-        for (class_name, class_data) in &module.classes {
+        for (class_name, class_data) in
+            by_priority(&module.classes, |c| c.priority.unwrap_or(0.0))
+        {
             body.push_str(&render_class(version_data, class_name, class_data));
         }
         body.push_str("</ul>");
@@ -351,7 +376,7 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
 
     if let Some(constructors) = &class_data.constructors {
         let mut rows = String::from("<ul>");
-        for (ctor_name, ctor) in constructors {
+        for (ctor_name, ctor) in by_priority(constructors, |c| c.priority.unwrap_or(0.0)) {
             rows.push_str(&render_member(
                 version_data,
                 class_name,
@@ -372,7 +397,7 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
 
     if let Some(functions) = &class_data.functions {
         let mut rows = String::from("<ul>");
-        for (fn_name, function) in functions {
+        for (fn_name, function) in by_priority(functions, |f| f.priority.unwrap_or(0.0)) {
             rows.push_str(&render_member(
                 version_data,
                 class_name,
