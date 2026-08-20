@@ -36,7 +36,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     let details_script = reveal_script();
 
     let main_html = format!(
-        r#"<section class="docs-hero">
+        r#"<section class="docs-hero" id="top">
       <div class="container">
         <h1>{title}</h1>
       </div>
@@ -45,7 +45,6 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
       <div class="container">
         <div class="docs-layout">
           <div class="docs-content docs-wide">
-{jump}
             <div id="api">
             {content}
             </div>
@@ -53,6 +52,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
           </div>
           <aside class="docs-search-rail">
             <div id="azul-search-mount" data-azs-inline></div>
+{jump}
           </aside>
         </div>
       </div>
@@ -80,8 +80,13 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
 // Quick jump
 // ===========================================================================
 
-/// The two rows above the listing: the types the guide actually leans on, and
-/// one link per module.
+/// The rail under the search box: the types the guide actually leans on, one
+/// link per module, and the way back to the top.
+///
+/// In the RAIL rather than above the listing, because a jump list that
+/// scrolls away with the page is only useful for the first screen - this one
+/// is sticky, so it is there at type 1400 as well. It is hidden below the
+/// breakpoint where the rail stops being a column (see docs-api.css).
 ///
 /// Lives OUTSIDE `#api` on purpose - the listing resets links and paragraphs
 /// to the mono face, which would repaint these buttons.
@@ -109,6 +114,11 @@ fn quick_jump(version_data: &VersionData) -> String {
         ));
     }
     out.push_str("              </div>\n            </section>\n");
+    // A plain anchor, so it works with the keyboard and without script; the
+    // target is the page heading, which is where "top" means. It sits AFTER
+    // the scrolling list, not inside it - on a short screen the list scrolls
+    // and this stays put.
+    out.push_str("            <a class=\"api-top\" href=\"#top\">Scroll to top</a>\n");
     out
 }
 
