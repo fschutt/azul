@@ -3890,8 +3890,10 @@
                 "doc": [
                     "Window creation / startup configuration"
                 ],
+                "priority": 82.0,
                 "classes": {
                     "StyleCursor": {
+                        "priority": 45.0,
                         "external": "azul_css::props::style::effects::StyleCursor",
                         "derive": [
                             "Debug",
@@ -3941,6 +3943,7 @@
                         "repr": "C"
                     },
                     "WindowEventFilter": {
+                        "priority": 80.0,
                         "external": "azul_core::events::WindowEventFilter",
                         "derive": [
                             "Debug",
@@ -4040,6 +4043,7 @@
                         }
                     },
                     "HidpiAdjustedBounds": {
+                        "priority": 35.0,
                         "external": "azul_core::callbacks::HidpiAdjustedBounds",
                         "derive": [
                             "Clone",
@@ -4107,6 +4111,7 @@
                         "repr": "C"
                     },
                     "WindowTheme": {
+                        "priority": 51.0,
                         "external": "azul_core::window::WindowTheme",
                         "derive": [
                             "PartialEq",
@@ -4149,6 +4154,7 @@
                         "repr": "C"
                     },
                     "MouseCursorType": {
+                        "priority": 43.0,
                         "external": "azul_core::window::MouseCursorType",
                         "derive": [
                             "Debug",
@@ -4203,6 +4209,7 @@
                         "repr": "C"
                     },
                     "WindowFrame": {
+                        "priority": 55.0,
                         "external": "azul_core::window::WindowFrame",
                         "derive": [
                             "Debug",
@@ -4471,6 +4478,7 @@
                         "repr": "C"
                     },
                     "WindowFlags": {
+                        "priority": 63.0,
                         "external": "azul_core::window::WindowFlags",
                         "custom_impls": [
                             "Default"
@@ -4608,6 +4616,7 @@
                         "repr": "C"
                     },
                     "Monitor": {
+                        "priority": 59.0,
                         "external": "azul_core::window::Monitor",
                         "custom_impls": [
                             "Default",
@@ -4868,6 +4877,7 @@
                         "repr": "C, u8"
                     },
                     "WindowSize": {
+                        "priority": 61.0,
                         "external": "azul_core::window::WindowSize",
                         "custom_impls": [
                             "Default"
@@ -4929,6 +4939,7 @@
                         "repr": "C"
                     },
                     "WindowType": {
+                        "priority": 53.0,
                         "external": "azul_core::window::WindowType",
                         "custom_impls": [
                             "Default"
@@ -4962,6 +4973,7 @@
                         }
                     },
                     "WindowCreateOptions": {
+                        "priority": 94.0,
                         "external": "azul_layout::window_state::WindowCreateOptions",
                         "custom_impls": [
                             "Default"
@@ -5012,6 +5024,7 @@
                         "repr": "C"
                     },
                     "FullWindowState": {
+                        "priority": 65.0,
                         "external": "azul_layout::window_state::FullWindowState",
                         "custom_impls": [
                             "Default"
@@ -5453,6 +5466,7 @@
                         "repr": "C, u8"
                     },
                     "Platform": {
+                        "priority": 49.0,
                         "external": "azul_css::system::Platform",
                         "derive": [
                             "Debug",
@@ -5494,6 +5508,7 @@
                         "repr": "C"
                     },
                     "IconProviderHandle": {
+                        "priority": 25.0,
                         "external": "azul_core::icon::IconProviderHandle",
                         "custom_impls": [
                             "Clone",
@@ -5539,6 +5554,7 @@
                                 "doc": [
                                     "Set the resolver callback"
                                 ],
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -5638,6 +5654,7 @@
                                 "doc": [
                                     "Register an image icon in a pack"
                                 ],
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -5658,6 +5675,7 @@
                                 "doc": [
                                     "Register a font icon in a pack"
                                 ],
+                                "priority": 85.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -5861,6 +5879,7 @@
                         "repr": "C"
                     },
                     "FullScreenMode": {
+                        "priority": 39.0,
                         "external": "azul_core::window::FullScreenMode",
                         "derive": [
                             "Debug",
@@ -6122,8 +6141,10 @@
                 "doc": [
                     "HTTP client module for downloading resources (language packs, etc.)"
                 ],
+                "priority": 26.0,
                 "classes": {
                     "HttpHeader": {
+                        "priority": 24.0,
                         "external": "azul_layout::http::HttpHeader",
                         "derive": [
                             "Debug",
@@ -6147,6 +6168,7 @@
                         "doc": [
                             "HTTP verb for HttpRequestConfig::http_request."
                         ],
+                        "priority": 20.0,
                         "external": "azul_layout::http::HttpMethod",
                         "custom_impls": [
                             "Display"
@@ -6182,6 +6204,7 @@
                         "repr": "C"
                     },
                     "HttpResponse": {
+                        "priority": 38.0,
                         "external": "azul_layout::http::HttpResponse",
                         "derive": [
                             "Debug",
@@ -6212,6 +6235,7 @@
                                 "doc": [
                                     "Check if the response was successful (2xx status)"
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -6268,6 +6292,7 @@
                                 "doc": [
                                     "Try to convert the body to a UTF-8 string"
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -6282,6 +6307,7 @@
                         "repr": "C"
                     },
                     "HttpRequestConfig": {
+                        "priority": 42.0,
                         "external": "azul_layout::http::HttpRequestConfig",
                         "custom_impls": [
                             "Default"
@@ -6420,6 +6446,7 @@
                                     "# Returns",
                                     "* `HttpResult<HttpResponse>` - The response or an error"
                                 ],
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -6463,6 +6490,7 @@
                                     "# Returns",
                                     "* `HttpResult<U8Vec>` - The response body or an error"
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -6528,6 +6556,7 @@
                                 "doc": [
                                     "HTTP POST with a body, using this configuration."
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -6576,11 +6605,13 @@
                 "doc": [
                     "Native OS dialog wrappers (message boxes, file open/save, color picker) built on `tfd`."
                 ],
+                "priority": 48.0,
                 "classes": {
                     "MsgBoxIcon": {
                         "doc": [
                             "Icon to display in the message box."
                         ],
+                        "priority": 40.0,
                         "external": "azul_layout::desktop::dialogs::MsgBoxIcon",
                         "derive": [
                             "Debug",
@@ -6604,6 +6635,7 @@
                         "doc": [
                             "Static-method namespace for `tfd`-backed message-box dialogs."
                         ],
+                        "priority": 56.0,
                         "external": "azul_layout::desktop::dialogs::MsgBox",
                         "custom_impls": [
                             "Default"
@@ -6637,6 +6669,7 @@
                                 "doc": [
                                     "Show an Ok-only message box. Quotes are stripped from the message to avoid `tfd` shell-escape issues on some platforms."
                                 ],
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "title": "String"
@@ -6654,6 +6687,7 @@
                                 "doc": [
                                     "Show an Ok/Cancel message box and return which button the user pressed."
                                 ],
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "title": "String"
@@ -6677,6 +6711,7 @@
                                 "doc": [
                                     "Show a Yes/No message box and return which button the user pressed."
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "title": "String"
@@ -6700,6 +6735,7 @@
                                 "doc": [
                                     "Convenience: Ok-only message box titled \"Info\" with an info icon."
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "content": "String"
@@ -6714,6 +6750,7 @@
                         "doc": [
                             "Static-method namespace for `tfd`-backed file dialogs."
                         ],
+                        "priority": 55.0,
                         "external": "azul_layout::desktop::dialogs::FileDialog",
                         "custom_impls": [
                             "Default"
@@ -6747,6 +6784,7 @@
                                 "doc": [
                                     "Open a single file. Returns `None` if the user cancelled."
                                 ],
+                                "priority": 95.0,
                                 "fn_args": [
                                     {
                                         "title": "String"
@@ -6767,6 +6805,7 @@
                                 "doc": [
                                     "Open a directory. Returns `None` if the user cancelled."
                                 ],
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "title": "String"
@@ -6804,6 +6843,7 @@
                                 "doc": [
                                     "Save-file dialog. Returns `None` if the user cancelled."
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "title": "String"
@@ -6824,6 +6864,7 @@
                         "doc": [
                             "Static-method namespace for the `tfd`-backed color picker dialog."
                         ],
+                        "priority": 48.0,
                         "external": "azul_layout::desktop::dialogs::ColorPickerDialog",
                         "custom_impls": [
                             "Default"
@@ -6877,6 +6918,7 @@
                         "doc": [
                             "Accessibility information for a `<dialog>` element."
                         ],
+                        "priority": 26.0,
                         "external": "azul_core::a11y::DialogAriaInfo",
                         "derive": [
                             "Debug",
@@ -6992,6 +7034,7 @@
                         "doc": [
                             "Result of a Yes/No message box."
                         ],
+                        "priority": 33.0,
                         "external": "azul_layout::desktop::dialogs::YesNo",
                         "custom_impls": [
                             "From"
@@ -7016,6 +7059,7 @@
                         "doc": [
                             "Result of an Ok/Cancel message box."
                         ],
+                        "priority": 34.0,
                         "external": "azul_layout::desktop::dialogs::OkCancel",
                         "custom_impls": [
                             "From"
@@ -7068,6 +7112,7 @@
                 "doc": [
                     "Callback type definitions + struct definitions of `CallbackInfo`s"
                 ],
+                "priority": 94.0,
                 "classes": {
                     "CallbackType": {
                         "doc": [
@@ -7397,6 +7442,7 @@
                         }
                     },
                     "VirtualViewCallbackInfo": {
+                        "priority": 50.0,
                         "external": "azul_core::callbacks::VirtualViewCallbackInfo",
                         "custom_impls": [
                             "Clone"
@@ -7512,6 +7558,7 @@
                         "repr": "C"
                     },
                     "CallbackInfo": {
+                        "priority": 97.0,
                         "external": "azul_layout::callbacks::CallbackInfo",
                         "derive": [
                             "Debug",
@@ -7561,6 +7608,7 @@
                                 "doc": [
                                     "Returns the OpenGL context if available"
                                 ],
+                                "priority": 58.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -7575,6 +7623,7 @@
                                 "doc": [
                                     "Add a timer to this window (applied after callback returns)"
                                 ],
+                                "priority": 85.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -7606,6 +7655,7 @@
                                 "doc": [
                                     "Add a thread to this window (applied after callback returns)"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -7641,6 +7691,7 @@
                                     "but handlers on parent/child nodes in subsequent phases are skipped.",
                                     "Applied after the callback returns."
                                 ],
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -7655,6 +7706,7 @@
                                     "No further handlers fire, not even remaining handlers",
                                     "registered on the same node. Applied after the callback returns."
                                 ],
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -7666,6 +7718,7 @@
                                 "doc": [
                                     "Create a new window (applied after callback returns)"
                                 ],
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -7691,6 +7744,7 @@
                                 "doc": [
                                     "Modify the window state (applied after callback returns)"
                                 ],
+                                "priority": 68.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -7765,6 +7819,7 @@
                                     "}",
                                     "```"
                                 ],
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -7945,6 +8000,7 @@
                                     "Convenience method that uses the `hit_dom_node` from this callback.",
                                     "Use `get_scroll_offset_for_node` if you need to query a specific node."
                                 ],
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -7959,6 +8015,7 @@
                                 "doc": [
                                     "Get current keyboard state"
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -7973,6 +8030,7 @@
                                 "doc": [
                                     "Get current mouse state"
                                 ],
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -8009,6 +8067,7 @@
                                 "doc": [
                                     "Get the current cursor position in logical coordinates relative to the window"
                                 ],
+                                "priority": 75.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -8349,6 +8408,7 @@
                                     "info.change_node_text(label_node_id, \"Hello World\".into());",
                                     "```"
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -8621,6 +8681,7 @@
                                     ");",
                                     "```"
                                 ],
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -8638,6 +8699,7 @@
                                 "doc": [
                                     "Scroll a node to a specific position (applied after callback returns)"
                                 ],
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -8840,6 +8902,7 @@
                                     "This is particularly useful for menu positioning, where you need",
                                     "to know where a UI element is to popup a menu relative to it."
                                 ],
+                                "priority": 60.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -8947,6 +9010,7 @@
                                 "fn_body": "object.get_dom_ids()"
                             },
                             "get_hit_node": {
+                                "priority": 98.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -9028,6 +9092,7 @@
                                 "fn_body": "object.get_last_child(node_id).into()"
                             },
                             "get_dataset": {
+                                "priority": 100.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -9042,6 +9107,7 @@
                                 "fn_body": "object.get_dataset(node_id).into()"
                             },
                             "get_node_id_of_root_dataset": {
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -9073,6 +9139,7 @@
                                 "doc": [
                                     "Get the current selection state for a DOM"
                                 ],
+                                "priority": 64.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -9401,6 +9468,7 @@
                                     "",
                                     "Returns None if no node has focus."
                                 ],
+                                "priority": 72.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -9672,6 +9740,7 @@
                                     "",
                                     "Use this to inspect what will be pasted before allowing or modifying the paste operation."
                                 ],
+                                "priority": 66.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -9744,6 +9813,7 @@
                                     "}",
                                     "```"
                                 ],
+                                "priority": 65.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -10784,6 +10854,7 @@
                                     "Must be called from a DragOver or DragEnter callback for the Drop event",
                                     "to fire on this node."
                                 ],
+                                "priority": 55.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -11301,6 +11372,7 @@
                                 "doc": [
                                     "Set keyboard focus target (applied after callback returns)"
                                 ],
+                                "priority": 71.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -11324,6 +11396,7 @@
                                     "    AzStringPairVec_fromConstSlice(&[AzStringPair { key: \"id\", value: \"42\" }]));",
                                     "```"
                                 ],
+                                "priority": 62.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -11369,6 +11442,7 @@
                                     "AzString id = AzCallbackInfo_getRouteParam(&info, AzString_fromConstStr(\"id\"));",
                                     "```"
                                 ],
+                                "priority": 61.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -12805,6 +12879,7 @@
                             "Wrapper around the layout callback function pointer.",
                             "For FFI languages (Python, Java, etc.), the RefAny passed to the callback contains both the user data and the callback function object."
                         ],
+                        "priority": 88.0,
                         "external": "azul_core::callbacks::LayoutCallback",
                         "custom_impls": [
                             "Clone",
@@ -12839,6 +12914,7 @@
                         "repr": "C"
                     },
                     "LayoutCallbackInfo": {
+                        "priority": 93.0,
                         "external": "azul_core::callbacks::LayoutCallbackInfo",
                         "custom_impls": [
                             "Clone",
@@ -12875,6 +12951,7 @@
                                 "doc": [
                                     "Returns what triggered the current `layout()` invocation."
                                 ],
+                                "priority": 72.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -12900,6 +12977,7 @@
                                 "fn_body": "object.get_ctx()"
                             },
                             "get_gl_context": {
+                                "priority": 66.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -12923,6 +13001,7 @@
                                     "}",
                                     "```"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -13031,6 +13110,7 @@
                                 "doc": [
                                     "Returns the current window width in pixels"
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -13045,6 +13125,7 @@
                                 "doc": [
                                     "Returns the current window height in pixels"
                                 ],
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -13059,6 +13140,7 @@
                                 "doc": [
                                     "Returns the current window DPI factor"
                                 ],
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -13139,6 +13221,7 @@
                         "repr": "C"
                     },
                     "TimerCallback": {
+                        "priority": 58.0,
                         "external": "azul_layout::timer::TimerCallback",
                         "custom_impls": [
                             "Clone",
@@ -13181,6 +13264,7 @@
                         }
                     },
                     "TimerCallbackInfo": {
+                        "priority": 62.0,
                         "external": "azul_layout::timer::TimerCallbackInfo",
                         "custom_impls": [],
                         "derive": [
@@ -13303,6 +13387,7 @@
                         "repr": "C"
                     },
                     "TimerCallbackReturn": {
+                        "priority": 60.0,
                         "external": "azul_core::callbacks::TimerCallbackReturn",
                         "custom_impls": [
                             "Default"
@@ -13411,6 +13496,7 @@
                         "repr": "C"
                     },
                     "WriteBackCallback": {
+                        "priority": 54.0,
                         "external": "azul_layout::thread::WriteBackCallback",
                         "custom_impls": [
                             "Clone",
@@ -13454,6 +13540,7 @@
                         }
                     },
                     "ThreadCallback": {
+                        "priority": 52.0,
                         "external": "azul_layout::thread::ThreadCallback",
                         "custom_impls": [
                             "Clone",
@@ -13494,6 +13581,7 @@
                         }
                     },
                     "Update": {
+                        "priority": 96.0,
                         "external": "azul_core::callbacks::Update",
                         "derive": [
                             "PartialEq",
@@ -13515,6 +13603,7 @@
                         "repr": "C"
                     },
                     "RefAny": {
+                        "priority": 98.0,
                         "external": "azul_core::refany::RefAny",
                         "custom_impls": [
                             "Clone",
@@ -13580,6 +13669,7 @@
                                 "doc": [
                                     "Returns the internal data pointer. Used by AZ_REFLECT macros for downcasting."
                                 ],
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -13608,6 +13698,7 @@
                                 "doc": [
                                     "Returns true if this RefAny is of the given type ID"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -13745,6 +13836,7 @@
                         "repr": "C"
                     },
                     "RefCount": {
+                        "priority": 40.0,
                         "external": "azul_core::refany::RefCount",
                         "custom_impls": [
                             "Clone",
@@ -13849,6 +13941,7 @@
                         "doc": [
                             "Information passed to image rendering callbacks"
                         ],
+                        "priority": 56.0,
                         "external": "azul_layout::callbacks::RenderImageCallbackInfo",
                         "custom_impls": [
                             "Clone"
@@ -14083,6 +14176,7 @@
                         "repr": "C"
                     },
                     "ScrollState": {
+                        "priority": 46.0,
                         "external": "azul_core::hit_test::ScrollState",
                         "custom_impls": [
                             "Default"
@@ -14129,6 +14223,7 @@
                         "repr": "C"
                     },
                     "EdgeType": {
+                        "priority": 34.0,
                         "external": "azul_core::callbacks::EdgeType",
                         "derive": [
                             "Debug",
@@ -14195,6 +14290,7 @@
                             "",
                             "Content is placed from `materialized` and the live scroll offset only, so refining `virtual_rect` moves the scrollbar and nothing else. The callback is re-invoked when the visible window comes near an edge of `materialized` and the document extends past it."
                         ],
+                        "priority": 48.0,
                         "external": "azul_core::callbacks::VirtualViewReturn",
                         "custom_impls": [
                             "Default"
@@ -14971,6 +15067,7 @@
                         }
                     },
                     "UpdateMode": {
+                        "priority": 22.0,
                         "external": "azul_core::resources::UpdateMode",
                         "derive": [
                             "Default",
@@ -14997,6 +15094,7 @@
                             "Update configuration (part of AppConfig): manifest URL, requested",
                             "mode, the running version, and the state-directory app name."
                         ],
+                        "priority": 26.0,
                         "external": "azul_core::resources::UpdateSettings",
                         "custom_impls": [
                             "Default"
@@ -15128,11 +15226,13 @@
                 "doc": [
                     "`Dom` construction and configuration"
                 ],
+                "priority": 100.0,
                 "classes": {
                     "Dom": {
                         "doc": [
                             "The document model, similar to HTML. This is a create-only structure, you don't actually read anything back from it. It's designed for ease of construction."
                         ],
+                        "priority": 100.0,
                         "external": "azul_core::dom::Dom",
                         "custom_impls": [
                             "Debug",
@@ -15181,6 +15281,7 @@
                         ],
                         "constructors": {
                             "create_body": {
+                                "priority": 99.0,
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_body()"
                             },
@@ -15191,6 +15292,7 @@
                                     "**Accessibility**: Prefer semantic elements like `<article>`, `<section>`, `<nav>` when",
                                     "applicable."
                                 ],
+                                "priority": 100.0,
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::Dom::create_div()"
                             },
@@ -15217,6 +15319,7 @@
                                     "also logs a warning after layout when it finds a text node used without",
                                     "a containing block."
                                 ],
+                                "priority": 97.0,
                                 "fn_args": [
                                     {
                                         "value": "String"
@@ -15225,6 +15328,7 @@
                                 "fn_body": "azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(value)"
                             },
                             "create_image": {
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "image": "ImageRef"
@@ -15242,6 +15346,7 @@
                                     "The icon resolution happens during the StyledDom creation phase, before layout.",
                                     "The icon provider returns a StyledDom subtree that replaces the icon node."
                                 ],
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "icon_name": "String"
@@ -15287,6 +15392,7 @@
                                     "and will be applied during the cascade pass.",
                                     "This is the correct function for layout callbacks that return Dom."
                                 ],
+                                "priority": 58.0,
                                 "fn_args": [
                                     {
                                         "xml": "Xml"
@@ -15543,6 +15649,7 @@
                                     "**Parameters:**",
                                     "- `text`: Heading text"
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "text": "String"
@@ -15568,6 +15675,7 @@
                                     "**Parameters:**",
                                     "- `text`: Heading text"
                                 ],
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "text": "String"
@@ -15683,6 +15791,7 @@
                                     "**Parameters:**",
                                     "- `text`: Span content"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "text": "String"
@@ -16224,6 +16333,7 @@
                                     "- `text`: Button label text",
                                     "- `aria`: Accessibility information (role, description, etc.)"
                                 ],
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "text": "String"
@@ -16244,6 +16354,7 @@
                                     "**Parameters:**",
                                     "- `text`: Button label text"
                                 ],
+                                "priority": 72.0,
                                 "fn_args": [
                                     {
                                         "text": "String"
@@ -17595,6 +17706,7 @@
                                     "**Parameters:**",
                                     "- `text`: List item content"
                                 ],
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "text": "String"
@@ -17609,6 +17721,7 @@
                                     "**Parameters:**",
                                     "- `text`: Paragraph content"
                                 ],
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "text": "String"
@@ -17624,6 +17737,7 @@
                                     "tab_index on the DIV, never on the text leaf (a text node has no box of",
                                     "its own - see create_text_do_not_use_without_block_level_wrapper)."
                                 ],
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "text": "String"
@@ -17650,6 +17764,7 @@
                         },
                         "functions": {
                             "with_dataset": {
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17664,6 +17779,7 @@
                                 "fn_body": "object.with_dataset(data)"
                             },
                             "with_ids_and_classes": {
+                                "priority": 66.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17692,6 +17808,7 @@
                                 "fn_body": "object.with_callbacks(callbacks)"
                             },
                             "with_callback": {
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17712,6 +17829,7 @@
                                 "fn_body": "object.with_callback(event, data, azul_layout::callbacks::Callback::create(callback).to_core())"
                             },
                             "add_child": {
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -17723,6 +17841,7 @@
                                 "fn_body": "object.add_child(child)"
                             },
                             "with_child": {
+                                "priority": 100.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17748,6 +17867,7 @@
                                 "fn_body": "object.set_children(children)"
                             },
                             "with_children": {
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17762,6 +17882,7 @@
                                 "fn_body": "object.with_children(children)"
                             },
                             "with_id": {
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17776,6 +17897,7 @@
                                 "fn_body": "object.with_id(id)"
                             },
                             "with_class": {
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17807,6 +17929,7 @@
                                 "doc": [
                                     "Builder method to add a CSS property with optional conditions (hover, focus, active, etc.) to the root node."
                                 ],
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17891,6 +18014,7 @@
                                 "fn_body": "object.set_menu_bar(menu_bar)"
                             },
                             "with_menu_bar": {
+                                "priority": 54.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -17919,6 +18043,7 @@
                                 "fn_body": "object.set_context_menu(context_menu)"
                             },
                             "with_context_menu": {
+                                "priority": 55.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -18073,6 +18198,7 @@
                                 "doc": [
                                     "Builder method for `set_css`"
                                 ],
+                                "priority": 98.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -18144,6 +18270,7 @@
                                     "\")",
                                     "```"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -18166,6 +18293,7 @@
                                 "fn_body": "object.add_class(class)"
                             },
                             "add_callback": {
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -18234,6 +18362,7 @@
                         "doc": [
                             "Represents all data associated with a single DOM node, such as its type, classes, IDs, callbacks, and inline styles."
                         ],
+                        "priority": 85.0,
                         "external": "azul_core::dom::NodeData",
                         "custom_impls": [
                             "Clone",
@@ -18288,6 +18417,7 @@
                                 "doc": [
                                     "Shorthand for `NodeData::create_node(NodeType::Body)`."
                                 ],
+                                "priority": 74.0,
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::NodeData::create_body()"
                             },
@@ -18295,6 +18425,7 @@
                                 "doc": [
                                     "Shorthand for `NodeData::create_node(NodeType::Div)`."
                                 ],
+                                "priority": 76.0,
                                 "fn_args": [],
                                 "fn_body": "azul_core::dom::NodeData::create_div()"
                             },
@@ -18324,6 +18455,7 @@
                                     "also logs a warning after layout when it finds a text node used without",
                                     "a containing block."
                                 ],
+                                "priority": 72.0,
                                 "fn_args": [
                                     {
                                         "value": "String"
@@ -18552,6 +18684,7 @@
                         },
                         "functions": {
                             "set_dataset": {
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -18563,6 +18696,7 @@
                                 "fn_body": "object.set_dataset(data)"
                             },
                             "set_ids_and_classes": {
+                                "priority": 72.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -18574,6 +18708,7 @@
                                 "fn_body": "object.set_ids_and_classes(ids_and_classes)"
                             },
                             "add_callback": {
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -19012,6 +19147,7 @@
                         "doc": [
                             "List of core DOM node types built into `azul`. This enum defines the building blocks of the UI, similar to HTML tags."
                         ],
+                        "priority": 84.0,
                         "external": "azul_core::dom::NodeType",
                         "derive": [
                             "Debug",
@@ -19227,6 +19363,7 @@
                         "doc": [
                             "Holds information about a UI element for accessibility purposes (e.g., screen readers). This is a wrapper for platform-specific accessibility APIs like MSAA."
                         ],
+                        "priority": 71.0,
                         "external": "azul_core::a11y::AccessibilityInfo",
                         "derive": [
                             "Debug",
@@ -19280,6 +19417,7 @@
                         "doc": [
                             "Defines the element's purpose for accessibility APIs, informing assistive technologies like screen readers about the function of a UI element. Each variant corresponds to a standard control type or UI structure. For more details, see the [MSDN Role Constants page](https://docs.microsoft.com/en-us/windows/winauto/object-roles)."
                         ],
+                        "priority": 38.0,
                         "external": "azul_core::a11y::AccessibilityRole",
                         "derive": [
                             "Copy",
@@ -19754,6 +19892,7 @@
                         "doc": [
                             "Defines the current state of an element for accessibility APIs (e.g., focused, checked). These states provide dynamic information to assistive technologies about the element's condition. See the [MSDN State Constants page](https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants) for more details."
                         ],
+                        "priority": 36.0,
                         "external": "azul_core::a11y::AccessibilityState",
                         "derive": [
                             "Ord",
@@ -19792,6 +19931,7 @@
                         "doc": [
                             "Determines the behavior of an element in sequential focus navigation"
                         ],
+                        "priority": 72.0,
                         "external": "azul_core::dom::TabIndex",
                         "derive": [
                             "Copy",
@@ -19834,6 +19974,7 @@
                         "doc": [
                             "Packed representation of tab index + contenteditable flag as a u32."
                         ],
+                        "priority": 24.0,
                         "external": "azul_core::dom::NodeFlags",
                         "derive": [
                             "Copy",
@@ -19887,6 +20028,7 @@
                         "doc": [
                             "A UUID for a DOM node within a `LayoutWindow`."
                         ],
+                        "priority": 64.0,
                         "external": "azul_core::dom::DomNodeId",
                         "derive": [
                             "PartialEq",
@@ -20408,6 +20550,7 @@
                         "repr": "C"
                     },
                     "AttributeType": {
+                        "priority": 78.0,
                         "external": "azul_core::dom::AttributeType",
                         "derive": [
                             "Debug",
@@ -20561,6 +20704,7 @@
                         "repr": "C, u8"
                     },
                     "NodeHierarchyItem": {
+                        "priority": 50.0,
                         "external": "azul_core::styled_dom::NodeHierarchyItem",
                         "custom_impls": [
                             "From"
@@ -21008,6 +21152,7 @@
                         "repr": "C"
                     },
                     "Callback": {
+                        "priority": 77.0,
                         "external": "azul_layout::callbacks::Callback",
                         "custom_impls": [
                             "Clone",
@@ -21163,6 +21308,7 @@
                         "repr": "C"
                     },
                     "KeyboardState": {
+                        "priority": 70.0,
                         "external": "azul_core::window::KeyboardState",
                         "derive": [
                             "Default",
@@ -21300,6 +21446,7 @@
                         "repr": "C"
                     },
                     "MouseState": {
+                        "priority": 69.0,
                         "external": "azul_core::window::MouseState",
                         "custom_impls": [
                             "Default"
@@ -21451,6 +21598,7 @@
                         "repr": "C"
                     },
                     "ClipboardContent": {
+                        "priority": 46.0,
                         "external": "azul_layout::managers::selection::ClipboardContent",
                         "derive": [
                             "Debug",
@@ -21470,6 +21618,7 @@
                         "repr": "C"
                     },
                     "Selection": {
+                        "priority": 44.0,
                         "external": "azul_core::selection::Selection",
                         "derive": [
                             "Debug",
@@ -21552,6 +21701,7 @@
                         "repr": "C"
                     },
                     "SelectionRange": {
+                        "priority": 42.0,
                         "external": "azul_core::selection::SelectionRange",
                         "derive": [
                             "Debug",
@@ -21792,6 +21942,7 @@
                         "repr": "C"
                     },
                     "VirtualKeyCode": {
+                        "priority": 66.0,
                         "external": "azul_core::window::VirtualKeyCode",
                         "derive": [
                             "Clone",
@@ -22068,6 +22219,7 @@
                         "repr": "C"
                     },
                     "DragState": {
+                        "priority": 32.0,
                         "external": "azul_layout::managers::drag_drop::DragState",
                         "derive": [
                             "Debug",
@@ -22175,6 +22327,7 @@
                         "repr": "C"
                     },
                     "SmallAriaInfo": {
+                        "priority": 74.0,
                         "external": "azul_core::a11y::SmallAriaInfo",
                         "derive": [
                             "Debug",
@@ -22540,6 +22693,7 @@
                         "repr": "C, u8"
                     },
                     "DatasetMergeCallback": {
+                        "priority": 56.0,
                         "external": "azul_core::dom::DatasetMergeCallback",
                         "custom_impls": [
                             "Debug",
@@ -23248,6 +23402,7 @@
                         "doc": [
                             "Drag data (HTML5 `DataTransfer`): the MIME-keyed payload and the set of operations the source allows."
                         ],
+                        "priority": 48.0,
                         "external": "azul_core::drag::DragData",
                         "derive": [
                             "Debug",
@@ -23339,6 +23494,7 @@
                         "repr": "C"
                     },
                     "VirtualViewCallbackReason": {
+                        "priority": 52.0,
                         "external": "azul_core::callbacks::VirtualViewCallbackReason",
                         "derive": [
                             "Copy",
@@ -23364,6 +23520,7 @@
                         "doc": [
                             "C-ABI wrapper over an `VirtualViewCallbackType`"
                         ],
+                        "priority": 54.0,
                         "external": "azul_core::callbacks::VirtualViewCallback",
                         "custom_impls": [
                             "Clone",
@@ -23503,6 +23660,7 @@
                         "repr": "C"
                     },
                     "AttributeMatchOp": {
+                        "priority": 28.0,
                         "external": "azul_css::css::AttributeMatchOp",
                         "derive": [
                             "Clone",
@@ -24416,6 +24574,7 @@
                         "repr": "C"
                     },
                     "FocusTarget": {
+                        "priority": 58.0,
                         "external": "azul_core::callbacks::FocusTarget",
                         "derive": [
                             "Debug",
@@ -24741,11 +24900,13 @@
                 "doc": [
                     "Menu system: context menus, menu bars, and menu items."
                 ],
+                "priority": 50.0,
                 "classes": {
                     "Menu": {
                         "doc": [
                             "Represents a menu (context menu, dropdown menu, or application menu). A menu consists of a list of items that can be displayed as a popup or attached to a window's menu bar. Modeled after the Windows API for cross-platform consistency. # Fields * `items` - The menu items to display * `position` - Where the menu should appear (for popups) * `context_mouse_btn` - Which mouse button triggers the context menu"
                         ],
+                        "priority": 58.0,
                         "external": "azul_core::menu::Menu",
                         "derive": [
                             "Default",
@@ -24855,6 +25016,7 @@
                         "doc": [
                             "Specifies where a popup menu should appear relative to the cursor or clicked element. This positioning information is ignored for application-level menus (menu bars) and only applies to context menus and dropdowns."
                         ],
+                        "priority": 28.0,
                         "external": "azul_core::menu::MenuPopupPosition",
                         "custom_impls": [
                             "Default"
@@ -24947,6 +25109,7 @@
                         "doc": [
                             "Represents a single item in a menu. Menu items can be regular text items with labels and callbacks, visual separators, or line breaks for horizontal menu layouts."
                         ],
+                        "priority": 54.0,
                         "external": "azul_core::menu::MenuItem",
                         "derive": [
                             "Debug",
@@ -24987,6 +25150,7 @@
                         "doc": [
                             "A menu item with a text label and optional features. `StringMenuItem` represents a clickable menu entry that can have: - A text label - An optional keyboard accelerator (e.g., Ctrl+C) - An optional callback function - An optional icon (checkbox or image) - A state (normal, greyed, or disabled) - Child menu items (for sub-menus) # Examples ```rust,no_run use azul_core::menu::StringMenuItem; use azul_css::AzString; let item = StringMenuItem::new(AzString::from_const_str(\"Copy\")); ```"
                         ],
+                        "priority": 50.0,
                         "external": "azul_core::menu::StringMenuItem",
                         "derive": [
                             "Ord",
@@ -25037,6 +25201,7 @@
                                 "doc": [
                                     "Add a single sub-menu item (builder)."
                                 ],
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -25071,6 +25236,7 @@
                                 "doc": [
                                     "Attach a click callback invoked with the given RefAny data (builder)."
                                 ],
+                                "priority": 85.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -25094,6 +25260,7 @@
                         "doc": [
                             "Optional icon displayed next to a menu item. Icons can be either: - A checkbox (checked or unchecked) - A custom image (typically 16x16 pixels)"
                         ],
+                        "priority": 40.0,
                         "external": "azul_core::menu::MenuItemIcon",
                         "derive": [
                             "PartialOrd",
@@ -25128,6 +25295,7 @@
                         "doc": [
                             "Describes the interactive state of a menu item. Menu items can be in different states that affect their appearance and behavior: - Normal items are clickable and render normally - Greyed items are visually disabled (greyed out) and non-clickable - Disabled items are non-clickable but retain normal appearance"
                         ],
+                        "priority": 36.0,
                         "external": "azul_core::menu::MenuItemState",
                         "derive": [
                             "Eq",
@@ -25196,6 +25364,7 @@
                 "doc": [
                     "`Css` parsing module"
                 ],
+                "priority": 90.0,
                 "classes": {
                     "CssRuleBlock": {
                         "doc": [
@@ -25253,6 +25422,7 @@
                         "doc": [
                             "Represents one parsed CSS key-value pair, such as `\"width: 20px\"` => `CssProperty::Width(LayoutWidth::px(20.0))`"
                         ],
+                        "priority": 91.0,
                         "external": "azul_css::props::property::CssProperty",
                         "derive": [
                             "Eq",
@@ -25859,6 +26029,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::inherit(prop_type)"
                             },
                             "text_color": {
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "input": "StyleTextColor"
@@ -25867,6 +26038,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::text_color(input)"
                             },
                             "font_size": {
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "input": "StyleFontSize"
@@ -25987,6 +26159,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::text_decoration(input)"
                             },
                             "display": {
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "input": "LayoutDisplay"
@@ -26003,6 +26176,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::box_sizing(input)"
                             },
                             "width": {
+                                "priority": 95.0,
                                 "fn_args": [
                                     {
                                         "input": "LayoutWidth"
@@ -26011,6 +26185,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::width(input)"
                             },
                             "height": {
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "input": "LayoutHeight"
@@ -26139,6 +26314,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::flex_wrap(input)"
                             },
                             "flex_direction": {
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "input": "LayoutFlexDirection"
@@ -26147,6 +26323,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::flex_direction(input)"
                             },
                             "flex_grow": {
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "input": "LayoutFlexGrow"
@@ -26163,6 +26340,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::flex_shrink(input)"
                             },
                             "justify_content": {
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "input": "LayoutJustifyContent"
@@ -26227,6 +26405,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::font(input)"
                             },
                             "align_items": {
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "input": "LayoutAlignItems"
@@ -26243,6 +26422,7 @@
                                 "fn_body": "azul_css::props::property::CssProperty::align_content(input)"
                             },
                             "background_content": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "input": "StyleBackgroundContentVec"
@@ -27661,6 +27841,7 @@
                         },
                         "functions": {
                             "value": {
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -27759,6 +27940,7 @@
                         "doc": [
                             "Css stylesheet - contains a parsed CSS stylesheet as a flat list of `CssRuleBlock`s. Layer separation (UA / system / author / inline / runtime) is encoded per-rule via `CssRuleBlock::priority`."
                         ],
+                        "priority": 92.0,
                         "external": "azul_css::css::Css",
                         "custom_impls": [
                             "Eq",
@@ -27799,6 +27981,7 @@
                                 "fn_body": "azul_css::css::Css::empty()"
                             },
                             "from_string": {
+                                "priority": 95.0,
                                 "fn_args": [
                                     {
                                         "s": "String"
@@ -27820,6 +28003,7 @@
                                 "fn_body": "object.is_empty()"
                             },
                             "sort_by_specificity": {
+                                "priority": 60.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -27868,6 +28052,7 @@
                         "doc": [
                             "A `DynamicCssProperty` is a type of css property that can be changed on possibly every frame by the Rust code - for example to implement an `On::Hover` behaviour. The syntax for such a property looks like this: ```no_run,ignore #my_div { padding: var(--my_dynamic_property_id, 400px); } ``` Azul will register a dynamic property with the key \"my_dynamic_property_id\" and the default value of 400px. If the property gets overridden during one frame, the overridden property takes precedence. At runtime the style is immutable (which is a performance optimization - if we can assume that the property never changes at runtime), we can do some optimizations on it. Dynamic style properties can also be used for animations and conditional styles (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these special cases now use one single API."
                         ],
+                        "priority": 73.0,
                         "external": "azul_css::css::DynamicCssProperty",
                         "derive": [
                             "Debug",
@@ -27902,6 +28087,7 @@
                         "doc": [
                             "u8-based color, range 0 to 255 (similar to webrenders ColorU)"
                         ],
+                        "priority": 83.0,
                         "external": "azul_css::props::basic::color::ColorU",
                         "custom_impls": [
                             "Default",
@@ -27942,6 +28128,7 @@
                         ],
                         "constructors": {
                             "from_str": {
+                                "priority": 95.0,
                                 "fn_args": [
                                     {
                                         "string": "String"
@@ -27950,14 +28137,17 @@
                                 "fn_body": "azul_css::props::basic::color::parse_css_color(string.as_str()).ok().unwrap_or(azul_css::props::basic::color::ColorU::BLACK)"
                             },
                             "transparent": {
+                                "priority": 80.0,
                                 "fn_args": [],
                                 "fn_body": "azul_css::props::basic::color::ColorU::transparent()"
                             },
                             "white": {
+                                "priority": 84.0,
                                 "fn_args": [],
                                 "fn_body": "azul_css::props::basic::color::ColorU::white()"
                             },
                             "black": {
+                                "priority": 82.0,
                                 "fn_args": [],
                                 "fn_body": "azul_css::props::basic::color::ColorU::black()"
                             },
@@ -27982,6 +28172,7 @@
                                 "doc": [
                                     "Creates a new color with RGB values (alpha = 255)."
                                 ],
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "r": "u8"
@@ -28163,6 +28354,7 @@
                                 "doc": [
                                     "Creates a new color with RGBA values."
                                 ],
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "r": "u8"
@@ -28695,6 +28887,7 @@
                                 "doc": [
                                     "Interpolate between two colors. t=0.0 returns self, t=1.0 returns other."
                                 ],
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -28716,6 +28909,7 @@
                                     "Lighten a color by a percentage (0.0 to 1.0).",
                                     "Returns a new color blended towards white."
                                 ],
+                                "priority": 65.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -29056,6 +29250,7 @@
                                 "doc": [
                                     "Set the alpha channel while keeping RGB values."
                                 ],
+                                "priority": 75.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -29193,6 +29388,7 @@
                         "repr": "C"
                     },
                     "PixelValue": {
+                        "priority": 77.0,
                         "external": "azul_css::props::basic::pixel::PixelValue",
                         "custom_impls": [
                             "Debug",
@@ -29449,6 +29645,7 @@
                         "doc": [
                             "Represents a `box-shadow` or `text-shadow` property."
                         ],
+                        "priority": 48.0,
                         "external": "azul_css::props::style::box_shadow::StyleBoxShadow",
                         "custom_impls": [
                             "Default"
@@ -29971,6 +30168,7 @@
                         "doc": [
                             "Represents a `display` CSS property value"
                         ],
+                        "priority": 32.0,
                         "external": "azul_css::props::layout::display::LayoutDisplay",
                         "derive": [
                             "Copy",
@@ -30578,6 +30776,7 @@
                         "repr": "C"
                     },
                     "LayoutWidth": {
+                        "priority": 30.0,
                         "external": "azul_css::props::layout::dimensions::LayoutWidth",
                         "derive": [
                             "Eq",
@@ -30695,6 +30894,7 @@
                         "doc": [
                             "Wrapper around an f32 value that is internally casted to an isize, in order to provide hash-ability (to avoid numerical instability)."
                         ],
+                        "priority": 60.0,
                         "external": "azul_css::props::basic::length::FloatValue",
                         "custom_impls": [
                             "Debug",
@@ -30753,6 +30953,7 @@
                         "doc": [
                             "Wrapper around FloatValue, represents a percentage instead of just being a regular floating-point value, i.e `5` = `5%`"
                         ],
+                        "priority": 62.0,
                         "external": "azul_css::props::basic::length::PercentageValue",
                         "custom_impls": [
                             "Display"
@@ -30819,6 +31020,7 @@
                         "doc": [
                             "FloatValue, but associated with a certain metric (i.e. deg, rad, etc.)"
                         ],
+                        "priority": 58.0,
                         "external": "azul_css::props::basic::angle::AngleValue",
                         "custom_impls": [
                             "Debug",
@@ -31091,6 +31293,7 @@
                         "repr": "C, u8"
                     },
                     "LinearGradient": {
+                        "priority": 44.0,
                         "external": "azul_css::props::style::background::LinearGradient",
                         "custom_impls": [
                             "Default"
@@ -31263,6 +31466,7 @@
                         "repr": "C"
                     },
                     "StyleBackgroundContent": {
+                        "priority": 50.0,
                         "external": "azul_css::props::style::background::StyleBackgroundContent",
                         "custom_impls": [
                             "Default"
@@ -31516,6 +31720,7 @@
                         "doc": [
                             "Style of a `border`: solid, double, dash, ridge, etc."
                         ],
+                        "priority": 46.0,
                         "external": "azul_css::props::style::border::BorderStyle",
                         "custom_impls": [
                             "Display"
@@ -31831,6 +32036,7 @@
                         "doc": [
                             "Represents a `font-family` attribute"
                         ],
+                        "priority": 28.0,
                         "external": "azul_css::props::basic::font::StyleFontFamily",
                         "derive": [
                             "Debug",
@@ -31863,6 +32069,7 @@
                         "doc": [
                             "Represents a `font-size` attribute"
                         ],
+                        "priority": 26.0,
                         "external": "azul_css::props::basic::font::StyleFontSize",
                         "custom_impls": [
                             "Default"
@@ -32040,6 +32247,7 @@
                         "doc": [
                             "Represents one component of a `transform` attribute"
                         ],
+                        "priority": 42.0,
                         "external": "azul_css::props::style::transform::StyleTransform",
                         "derive": [
                             "Copy",
@@ -34093,6 +34301,7 @@
                         "doc": [
                             "Generic CSS property value that can be Auto, None, Initial, Inherit, or an exact value"
                         ],
+                        "priority": 82.0,
                         "external": "azul_css::css::CssPropertyValue",
                         "custom_impls": [
                             "Default",
@@ -34765,6 +34974,7 @@
                         "repr": "C"
                     },
                     "Content": {
+                        "priority": 34.0,
                         "external": "azul_css::props::style::content::Content",
                         "custom_impls": [
                             "Default"
@@ -36537,6 +36747,7 @@
                         }
                     },
                     "HoverEventFilter": {
+                        "priority": 86.0,
                         "external": "azul_core::events::HoverEventFilter",
                         "derive": [
                             "PartialEq",
@@ -36641,6 +36852,7 @@
                         "repr": "C"
                     },
                     "ApplicationEventFilter": {
+                        "priority": 68.0,
                         "external": "azul_core::events::ApplicationEventFilter",
                         "derive": [
                             "Copy",
@@ -36690,6 +36902,7 @@
                         "repr": "C"
                     },
                     "LogicalSize": {
+                        "priority": 71.0,
                         "external": "azul_core::geom::LogicalSize",
                         "custom_impls": [
                             "Debug",
@@ -36865,6 +37078,7 @@
                         "repr": "C"
                     },
                     "FocusEventFilter": {
+                        "priority": 81.0,
                         "external": "azul_core::events::FocusEventFilter",
                         "derive": [
                             "PartialOrd",
@@ -36938,6 +37152,7 @@
                         "repr": "C"
                     },
                     "LogicalPosition": {
+                        "priority": 70.0,
                         "external": "azul_core::geom::LogicalPosition",
                         "custom_impls": [
                             "Debug",
@@ -37064,6 +37279,7 @@
                         "repr": "C"
                     },
                     "EventFilter": {
+                        "priority": 87.0,
                         "external": "azul_core::events::EventFilter",
                         "custom_impls": [
                             "From"
@@ -37149,6 +37365,7 @@
                         "repr": "C"
                     },
                     "StyledDom": {
+                        "priority": 90.0,
                         "external": "azul_core::styled_dom::StyledDom",
                         "custom_impls": [
                             "Default"
@@ -37202,6 +37419,7 @@
                                     "Appends another `StyledDom` as a child to the `self.root`",
                                     "without re-styling the DOM itself"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -37216,6 +37434,7 @@
                                 "doc": [
                                     "Same as `append_child()`, but as a builder method"
                                 ],
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -37629,6 +37848,7 @@
                         "repr": "C"
                     },
                     "LayoutRect": {
+                        "priority": 64.0,
                         "external": "azul_css::props::basic::geometry::LayoutRect",
                         "custom_impls": [
                             "Debug",
@@ -38660,6 +38880,7 @@
                         "doc": [
                             "A CSS property with optional conditions for when it should be applied. Supports OS-specific, media query, container query, theme, and pseudo-state conditions."
                         ],
+                        "priority": 67.0,
                         "external": "azul_css::dynamic_selector::CssPropertyWithConditions",
                         "custom_impls": [
                             "Eq",
@@ -38973,6 +39194,7 @@
                         "repr": "C"
                     },
                     "SystemStyle": {
+                        "priority": 56.0,
                         "external": "azul_css::system::SystemStyle",
                         "custom_impls": [
                             "Default",
@@ -39098,6 +39320,7 @@
                         "repr": "C"
                     },
                     "SystemColors": {
+                        "priority": 54.0,
                         "external": "azul_css::system::SystemColors",
                         "derive": [
                             "Debug",
@@ -40008,6 +40231,7 @@
                         "repr": "C"
                     },
                     "SystemFontType": {
+                        "priority": 52.0,
                         "external": "azul_css::system::SystemFontType",
                         "derive": [
                             "Debug",
@@ -45173,6 +45397,7 @@
                         "doc": [
                             "One entry of animation / -azul-animation-in / -azul-animation-out: <name> <duration> [<delay>] [<timing>] [infinite | <count>] [no-clip], e.g. flyOutLeft 1s, all 2s ease-out, spin 1s linear infinite, myFn 500ms cubic-bezier(0.4, 0, 0.2, 1) no-clip."
                         ],
+                        "priority": 40.0,
                         "external": "azul_css::props::basic::animation::StyleAnimation",
                         "custom_impls": [
                             "Default"
@@ -45268,6 +45493,7 @@
                         "doc": [
                             "A named `@keyframes` block: `@keyframes flyOutRight { from {..} to {..} }`. Stops are sorted by `permille` ascending at parse time."
                         ],
+                        "priority": 38.0,
                         "external": "azul_css::css::Keyframes",
                         "derive": [
                             "Debug",
@@ -45452,12 +45678,14 @@
                 "doc": [
                     "Default, built-in widgets (button, label, textinput, etc.)"
                 ],
+                "priority": 86.0,
                 "classes": {
                     "ButtonType": {
                         "doc": [
                             "The semantic type/role of a button.",
                             "Each type has distinct styling to indicate its purpose to the user."
                         ],
+                        "priority": 76.0,
                         "external": "azul_layout::widgets::button::ButtonType",
                         "derive": [
                             "Debug",
@@ -45499,6 +45727,7 @@
                         "repr": "C"
                     },
                     "Button": {
+                        "priority": 89.0,
                         "external": "azul_layout::widgets::button::Button",
                         "derive": [
                             "PartialOrd",
@@ -45549,6 +45778,7 @@
                                 "doc": [
                                     "Create a button with `ButtonType::Default` styling."
                                 ],
+                                "priority": 95.0,
                                 "fn_args": [
                                     {
                                         "label": "String"
@@ -45560,6 +45790,7 @@
                                 "doc": [
                                     "Create a button with a specific type (Primary, Success, Danger, etc.)"
                                 ],
+                                "priority": 65.0,
                                 "fn_args": [
                                     {
                                         "label": "String"
@@ -45573,6 +45804,7 @@
                         },
                         "functions": {
                             "set_on_click": {
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -45587,6 +45819,7 @@
                                 "fn_body": "object.set_on_click(data, on_click)"
                             },
                             "with_on_click": {
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -45621,6 +45854,7 @@
                                 "doc": [
                                     "Builder method to set the button type"
                                 ],
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -45635,6 +45869,7 @@
                                 "fn_body": "object.with_button_type(button_type)"
                             },
                             "dom": {
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -45851,6 +46086,7 @@
                             "bytes survive relayout. Visible-tile grid is computed by an",
                             "inner `VirtualView` callback running Web Mercator math."
                         ],
+                        "priority": 22.0,
                         "external": "azul_layout::widgets::map::MapWidget",
                         "derive": [
                             "Debug",
@@ -45888,6 +46124,7 @@
                         },
                         "functions": {
                             "with_viewport": {
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -45947,6 +46184,7 @@
                                     "No tile-fetch worker is wired - tiles render as placeholders.",
                                     "Use [`dom_with_fetch`](Self::dom_with_fetch) to supply one."
                                 ],
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46064,6 +46302,7 @@
                                 "doc": [
                                     "Builder form of [`set_on_pin_tap`](Self::set_on_pin_tap)."
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46140,6 +46379,7 @@
                         "repr": "C"
                     },
                     "FileInput": {
+                        "priority": 62.0,
                         "external": "azul_layout::widgets::file_input::FileInput",
                         "custom_impls": [
                             "Default"
@@ -46378,6 +46618,7 @@
                         "repr": "C"
                     },
                     "CheckBox": {
+                        "priority": 68.0,
                         "external": "azul_layout::widgets::check_box::CheckBox",
                         "derive": [
                             "Debug",
@@ -46424,6 +46665,7 @@
                                 "fn_body": "object.set_on_toggle(data, on_toggle)"
                             },
                             "with_on_toggle": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46441,6 +46683,7 @@
                                 "fn_body": "object.with_on_toggle(data, on_toggle)"
                             },
                             "dom": {
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46546,6 +46789,7 @@
                         "repr": "C"
                     },
                     "DropDown": {
+                        "priority": 66.0,
                         "external": "azul_layout::widgets::drop_down::DropDown",
                         "custom_impls": [
                             "Default"
@@ -46614,6 +46858,7 @@
                                 "doc": [
                                     "Builder variant of [`Self::set_on_choice_change`]."
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46634,6 +46879,7 @@
                                 "doc": [
                                     "Builds the DOM tree for this drop-down widget."
                                 ],
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46694,6 +46940,7 @@
                         "repr": "C"
                     },
                     "ColorInput": {
+                        "priority": 64.0,
                         "external": "azul_layout::widgets::color_input::ColorInput",
                         "derive": [
                             "Default",
@@ -46747,6 +46994,7 @@
                                 "doc": [
                                     "Builder-style method to set the value-change callback."
                                 ],
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46767,6 +47015,7 @@
                                 "doc": [
                                     "Converts this `ColorInput` into a styled [`Dom`] node with a click callback."
                                 ],
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46914,6 +47163,7 @@
                         "repr": "C"
                     },
                     "TextInput": {
+                        "priority": 75.0,
                         "external": "azul_layout::widgets::text_input::TextInput",
                         "custom_impls": [
                             "Default"
@@ -46948,6 +47198,7 @@
                         },
                         "functions": {
                             "set_text": {
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -46959,6 +47210,7 @@
                                 "fn_body": "object.set_text(text)"
                             },
                             "with_text": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -46984,6 +47236,7 @@
                                 "fn_body": "object.set_placeholder(placeholder)"
                             },
                             "with_placeholder": {
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47012,6 +47265,7 @@
                                 "fn_body": "object.set_on_text_input(refany, callback)"
                             },
                             "with_on_text_input": {
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47074,6 +47328,7 @@
                                 "fn_body": "object.set_on_focus_lost(refany, callback)"
                             },
                             "with_on_focus_lost": {
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47091,6 +47346,7 @@
                                 "fn_body": "object.with_on_focus_lost(refany, callback)"
                             },
                             "dom": {
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47229,6 +47485,7 @@
                         "repr": "C"
                     },
                     "TextInputState": {
+                        "priority": 46.0,
                         "external": "azul_layout::widgets::text_input::TextInputState",
                         "custom_impls": [
                             "Default"
@@ -47444,6 +47701,7 @@
                         "repr": "C"
                     },
                     "NumberInput": {
+                        "priority": 70.0,
                         "external": "azul_layout::widgets::number_input::NumberInput",
                         "derive": [
                             "Default",
@@ -47555,6 +47813,7 @@
                                 "fn_body": "object.set_on_focus_lost(refany, callback)"
                             },
                             "with_on_focus_lost": {
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47586,6 +47845,7 @@
                                 "fn_body": "object.set_on_value_change(refany, callback)"
                             },
                             "with_on_value_change": {
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47603,6 +47863,7 @@
                                 "fn_body": "object.with_on_value_change(refany, callback)"
                             },
                             "dom": {
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -47730,6 +47991,7 @@
                         "repr": "C"
                     },
                     "NumberInputState": {
+                        "priority": 42.0,
                         "external": "azul_layout::widgets::number_input::NumberInputState",
                         "custom_impls": [
                             "Default"
@@ -47893,6 +48155,7 @@
                         "repr": "C"
                     },
                     "ProgressBar": {
+                        "priority": 60.0,
                         "external": "azul_layout::widgets::progressbar::ProgressBar",
                         "derive": [
                             "Debug",
@@ -48008,6 +48271,7 @@
                                     "Renders this progress bar into a [`Dom`] tree consisting of a container div",
                                     "with two children: the filled bar and the remaining empty space."
                                 ],
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -48071,6 +48335,7 @@
                         "repr": "C"
                     },
                     "TabHeader": {
+                        "priority": 52.0,
                         "external": "azul_layout::widgets::tabs::TabHeader",
                         "custom_impls": [
                             "Default"
@@ -48119,6 +48384,7 @@
                                 "fn_body": "object.set_active_tab(active_tab)"
                             },
                             "with_active_tab": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -48147,6 +48413,7 @@
                                 "fn_body": "object.set_on_click(refany, on_click)"
                             },
                             "with_on_click": {
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -48164,6 +48431,7 @@
                                 "fn_body": "object.with_on_click(refany, on_click)"
                             },
                             "dom": {
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -48221,6 +48489,7 @@
                         "repr": "C"
                     },
                     "Frame": {
+                        "priority": 56.0,
                         "external": "azul_layout::widgets::frame::Frame",
                         "derive": [
                             "Debug",
@@ -48292,6 +48561,7 @@
                                 "fn_body": "object.with_flex_grow(flex_grow)"
                             },
                             "dom": {
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -48323,6 +48593,7 @@
                         "doc": [
                             "List view, optionally able to lazy-load data"
                         ],
+                        "priority": 50.0,
                         "external": "azul_layout::widgets::list_view::ListView",
                         "custom_impls": [
                             "Default"
@@ -48417,6 +48688,7 @@
                         },
                         "functions": {
                             "with_rows": {
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -48431,6 +48703,7 @@
                                 "fn_body": "object.with_rows(rows)"
                             },
                             "dom": {
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -48453,6 +48726,7 @@
                                 "fn_body": "object.swap_with_default()"
                             },
                             "with_columns": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -48620,6 +48894,7 @@
                                 "fn_body": "object.set_on_column_click(refany, on_column_click)"
                             },
                             "with_on_row_click": {
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -49031,6 +49306,7 @@
                         "repr": "C"
                     },
                     "Ribbon": {
+                        "priority": 44.0,
                         "external": "azul_layout::widgets::ribbon::Ribbon",
                         "derive": [
                             "Debug",
@@ -49108,6 +49384,7 @@
                                 "doc": [
                                     "Builder method: registers a tab-click callback and returns `self`."
                                 ],
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -49128,6 +49405,7 @@
                                 "doc": [
                                     "Builds the ribbon DOM: the tab strip and the active tab's groups."
                                 ],
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -49204,6 +49482,7 @@
                                 "doc": [
                                     "Builder method: sets the active tab (clamped) and returns `self`."
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -49321,6 +49600,7 @@
                         "repr": "C"
                     },
                     "TreeView": {
+                        "priority": 48.0,
                         "external": "azul_layout::widgets::tree_view::TreeView",
                         "derive": [
                             "Debug",
@@ -49363,6 +49643,7 @@
                                 "fn_body": "object.set_on_node_click(data, callback)"
                             },
                             "with_on_node_click": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -49380,6 +49661,7 @@
                                 "fn_body": "object.with_on_node_click(data, callback)"
                             },
                             "dom": {
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -49394,6 +49676,7 @@
                         "repr": "C"
                     },
                     "TreeViewNode": {
+                        "priority": 20.0,
                         "external": "azul_layout::widgets::tree_view::TreeViewNode",
                         "derive": [
                             "Debug",
@@ -49428,6 +49711,7 @@
                         },
                         "functions": {
                             "add_child": {
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -49439,6 +49723,7 @@
                                 "fn_body": "object.add_child(child)"
                             },
                             "with_child": {
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -49453,6 +49738,7 @@
                                 "fn_body": "object.with_child(child)"
                             },
                             "with_expanded": {
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -49568,6 +49854,7 @@
                         "repr": "C"
                     },
                     "Titlebar": {
+                        "priority": 54.0,
                         "external": "azul_layout::widgets::titlebar::Titlebar",
                         "custom_impls": [
                             "Default"
@@ -49747,6 +50034,7 @@
                         "repr": "C"
                     },
                     "CameraWidget": {
+                        "priority": 14.0,
                         "external": "azul_layout::widgets::camera::CameraWidget",
                         "derive": [
                             "Debug"
@@ -50227,6 +50515,7 @@
                         "repr": "C"
                     },
                     "MicrophoneWidget": {
+                        "priority": 12.0,
                         "external": "azul_layout::widgets::microphone::MicrophoneWidget",
                         "derive": [
                             "Debug"
@@ -50378,6 +50667,7 @@
                         "repr": "C"
                     },
                     "Switch": {
+                        "priority": 33.0,
                         "external": "azul_layout::widgets::switch::Switch",
                         "custom_impls": [
                             "Default"
@@ -50441,6 +50731,7 @@
                                 "fn_body": "object.set_on_toggle(data, on_toggle)"
                             },
                             "with_on_toggle": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -50458,6 +50749,7 @@
                                 "fn_body": "object.with_on_toggle(data, on_toggle)"
                             },
                             "dom": {
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -50666,6 +50958,7 @@
                         "repr": "C"
                     },
                     "Card": {
+                        "priority": 29.0,
                         "external": "azul_layout::widgets::card::Card",
                         "custom_impls": [
                             "Default"
@@ -50734,6 +51027,7 @@
                                 "doc": [
                                     "Builder-style setter for the body content."
                                 ],
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -50779,6 +51073,7 @@
                                 "fn_body": "object.with_flex_grow(flex_grow)"
                             },
                             "dom": {
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -50810,6 +51105,7 @@
                                 "doc": [
                                     "Builder-style setter for the click callback."
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -51047,6 +51343,7 @@
                         "repr": "C"
                     },
                     "Slider": {
+                        "priority": 34.0,
                         "external": "azul_layout::widgets::slider::Slider",
                         "custom_impls": [
                             "Default"
@@ -51146,6 +51443,7 @@
                                 "fn_body": "object.set_on_value_change(data, on_value_change)"
                             },
                             "with_on_value_change": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -51163,6 +51461,7 @@
                                 "fn_body": "object.with_on_value_change(data, on_value_change)"
                             },
                             "dom": {
+                                "priority": 94.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -51249,6 +51548,7 @@
                         "repr": "C"
                     },
                     "Segmented": {
+                        "priority": 31.0,
                         "external": "azul_layout::widgets::segmented::Segmented",
                         "custom_impls": [
                             "Default"
@@ -51449,6 +51749,7 @@
                         "repr": "C"
                     },
                     "RadioGroup": {
+                        "priority": 32.0,
                         "external": "azul_layout::widgets::radio_group::RadioGroup",
                         "custom_impls": [
                             "Default"
@@ -51605,6 +51906,7 @@
                         "repr": "C"
                     },
                     "Tooltip": {
+                        "priority": 30.0,
                         "external": "azul_layout::widgets::tooltip::Tooltip",
                         "custom_impls": [
                             "Default"
@@ -51736,6 +52038,7 @@
                         "repr": "C"
                     },
                     "TextArea": {
+                        "priority": 58.0,
                         "external": "azul_layout::widgets::text_area::TextArea",
                         "custom_impls": [
                             "Default"
@@ -51784,6 +52087,7 @@
                                 "fn_body": "object.set_text(text)"
                             },
                             "with_text": {
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -51809,6 +52113,7 @@
                                 "fn_body": "object.set_placeholder(placeholder)"
                             },
                             "with_placeholder": {
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -51837,6 +52142,7 @@
                                 "fn_body": "object.set_on_text_input(refany, callback)"
                             },
                             "with_on_text_input": {
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -51921,6 +52227,7 @@
                                 "fn_body": "object.swap_with_default()"
                             },
                             "dom": {
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -52185,6 +52492,7 @@
                         "repr": "C"
                     },
                     "Alert": {
+                        "priority": 28.0,
                         "external": "azul_layout::widgets::alert::Alert",
                         "custom_impls": [
                             "Default"
@@ -52230,6 +52538,7 @@
                                 "doc": [
                                     "Creates a new alert with the given message and colour variant."
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "message": "String"
@@ -52291,6 +52600,7 @@
                                 "doc": [
                                     "Builder-style setter for the dismissible flag."
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -52326,6 +52636,7 @@
                                 "doc": [
                                     "Builder-style setter for the dismiss callback (implies dismissible)."
                                 ],
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -52360,6 +52671,7 @@
                                 "doc": [
                                     "Converts this alert into a DOM subtree with the `__azul-native-alert` class."
                                 ],
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -52432,6 +52744,7 @@
                         "repr": "C"
                     },
                     "Accordion": {
+                        "priority": 27.0,
                         "external": "azul_layout::widgets::accordion::Accordion",
                         "custom_impls": [
                             "Default"
@@ -52782,6 +53095,7 @@
                         "repr": "C"
                     },
                     "Chip": {
+                        "priority": 26.0,
                         "external": "azul_layout::widgets::chip::Chip",
                         "custom_impls": [
                             "Default"
@@ -53455,6 +53769,7 @@
                         "repr": "C"
                     },
                     "ComboBox": {
+                        "priority": 36.0,
                         "external": "azul_layout::widgets::combobox::ComboBox",
                         "custom_impls": [
                             "Default"
@@ -53594,6 +53909,7 @@
                                 "doc": [
                                     "Builder-style setter for the placeholder."
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -53628,6 +53944,7 @@
                                 "doc": [
                                     "Builder-style setter for the select callback."
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -53663,6 +53980,7 @@
                                     "Renders the combobox into a [`Dom`] subtree with the `__azul-native-combobox`",
                                     "class."
                                 ],
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -53761,6 +54079,7 @@
                         "repr": "C"
                     },
                     "Modal": {
+                        "priority": 38.0,
                         "external": "azul_layout::widgets::modal::Modal",
                         "custom_impls": [
                             "Default"
@@ -53823,6 +54142,7 @@
                                 "doc": [
                                     "Builder-style setter for the title."
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -53854,6 +54174,7 @@
                                 "doc": [
                                     "Builder-style setter for the content."
                                 ],
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -53885,6 +54206,7 @@
                                 "doc": [
                                     "Builder-style setter for the initial open state."
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -53950,6 +54272,7 @@
                                 "doc": [
                                     "Builder-style setter for the close callback."
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -53985,6 +54308,7 @@
                                     "Renders the modal into a [`Dom`] subtree with the `__azul-native-modal`",
                                     "class (the backdrop)."
                                 ],
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -54169,6 +54493,7 @@
                                 "doc": [
                                     "Creates a new toast with the given message and colour variant."
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "message": "String"
@@ -54230,6 +54555,7 @@
                                 "doc": [
                                     "Builder-style setter for the dismissible flag."
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -54265,6 +54591,7 @@
                                 "doc": [
                                     "Builder-style setter for the dismiss callback (implies dismissible)."
                                 ],
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -54299,6 +54626,7 @@
                                 "doc": [
                                     "Converts this toast into a DOM subtree with the `__azul-native-toast` class."
                                 ],
+                                "priority": 96.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -56961,11 +57289,13 @@
                 "doc": [
                     "OpenGl helper types (`Texture`, `Gl`, etc.)"
                 ],
+                "priority": 38.0,
                 "classes": {
                     "Texture": {
                         "doc": [
                             "OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture"
                         ],
+                        "priority": 50.0,
                         "external": "azul_core::gl::Texture",
                         "is_boxed_object": true,
                         "custom_impls": [
@@ -57027,6 +57357,7 @@
                                 "fn_body": "azul_core::gl::Texture::create(texture_id, flags, size, background_color, gl_context, format)"
                             },
                             "allocate_rgba8": {
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "gl_context": "GlContextPtr"
@@ -57060,6 +57391,7 @@
                         },
                         "functions": {
                             "clear": {
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -57085,6 +57417,7 @@
                                 "doc": [
                                     "Draws a `TessellatedGPUSvgNode` with the given color to the texture"
                                 ],
+                                "priority": 85.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -57255,6 +57588,7 @@
                         "repr": "C"
                     },
                     "TextureFlags": {
+                        "priority": 30.0,
                         "external": "azul_core::gl::TextureFlags",
                         "derive": [
                             "Copy",
@@ -57320,6 +57654,7 @@
                         "repr": "C"
                     },
                     "GlContextPtr": {
+                        "priority": 46.0,
                         "external": "azul_core::gl::GlContextPtr",
                         "is_boxed_object": true,
                         "custom_impls": [
@@ -70013,6 +70348,7 @@
                         "repr": "C"
                     },
                     "GlType": {
+                        "priority": 24.0,
                         "external": "azul_core::gl::GlType",
                         "custom_impls": [
                             "From"
@@ -70084,6 +70420,7 @@
                         }
                     },
                     "VertexArrayObject": {
+                        "priority": 18.0,
                         "external": "azul_core::gl::VertexArrayObject",
                         "custom_impls": [
                             "Clone",
@@ -70118,6 +70455,7 @@
                         "repr": "C"
                     },
                     "VertexBuffer": {
+                        "priority": 16.0,
                         "external": "azul_core::gl::VertexBuffer",
                         "custom_impls": [
                             "Clone",
@@ -70315,8 +70653,10 @@
                 "doc": [
                     "Struct definitions for image loading"
                 ],
+                "priority": 66.0,
                 "classes": {
                     "ImageRef": {
+                        "priority": 68.0,
                         "external": "azul_core::resources::ImageRef",
                         "is_boxed_object": true,
                         "custom_impls": [
@@ -70368,6 +70708,7 @@
                                 "doc": [
                                     "Creates an image reference from an OpenGL texture"
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "texture": "Texture"
@@ -70376,6 +70717,7 @@
                                 "fn_body": "azul_core::resources::ImageRef::new_gltexture(texture)"
                             },
                             "callback": {
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "callback": "CoreRenderImageCallback"
@@ -70387,6 +70729,7 @@
                                 "fn_body": "azul_core::resources::ImageRef::callback(callback, data)"
                             },
                             "new_rawimage": {
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "image_data": "RawImage"
@@ -70406,6 +70749,7 @@
                                 "fn_body": "azul_core::resources::ImageRef::new_gltexture(texture)"
                             },
                             "null_image": {
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "width": "usize"
@@ -70512,6 +70856,7 @@
                                     "Get raw bytes from the image as a slice",
                                     "Returns None if this is not a Raw image or if it's an External image"
                                 ],
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -70526,6 +70871,7 @@
                                 "doc": [
                                     "NOTE: returns (0, 0) for a Callback"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -70602,6 +70948,7 @@
                         "repr": "C"
                     },
                     "RawImage": {
+                        "priority": 64.0,
                         "external": "azul_core::resources::RawImage",
                         "derive": [
                             "Clone",
@@ -70664,6 +71011,7 @@
                                 "doc": [
                                     "Decodes a RawImage from any supported image format - automatically guesses the format based on magic header"
                                 ],
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "bytes": "U8VecRef"
@@ -70694,6 +71042,7 @@
                                 "doc": [
                                     "Encodes the RawImage in the PNG image format"
                                 ],
+                                "priority": 75.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -70833,6 +71182,7 @@
                         "repr": "C"
                     },
                     "ImageMask": {
+                        "priority": 52.0,
                         "external": "azul_core::resources::ImageMask",
                         "derive": [
                             "Clone",
@@ -70863,6 +71213,7 @@
                         "repr": "C"
                     },
                     "RawImageFormat": {
+                        "priority": 60.0,
                         "external": "azul_core::resources::RawImageFormat",
                         "derive": [
                             "Copy",
@@ -70915,6 +71266,7 @@
                         "repr": "C"
                     },
                     "RawImageData": {
+                        "priority": 57.0,
                         "external": "azul_core::resources::RawImageData",
                         "derive": [
                             "PartialEq",
@@ -70962,6 +71314,7 @@
                         "repr": "C"
                     },
                     "ImageDescriptor": {
+                        "priority": 36.0,
                         "external": "azul_core::resources::ImageDescriptor",
                         "derive": [
                             "Debug",
@@ -71060,6 +71413,7 @@
                         "repr": "C, u8"
                     },
                     "Route": {
+                        "priority": 55.0,
                         "external": "azul_core::resources::Route",
                         "custom_impls": [
                             "Clone",
@@ -71083,6 +71437,7 @@
                         "repr": "C"
                     },
                     "RouteMatch": {
+                        "priority": 48.0,
                         "external": "azul_core::resources::RouteMatch",
                         "derive": [
                             "Debug",
@@ -71132,6 +71487,7 @@
                         "repr": "C"
                     },
                     "VideoEncoder": {
+                        "priority": 20.0,
                         "external": "azul_dll::unified::video_codec::VideoEncoder",
                         "custom_impls": [
                             "Clone",
@@ -71251,6 +71607,7 @@
                         "repr": "C"
                     },
                     "VideoDecoder": {
+                        "priority": 18.0,
                         "external": "azul_dll::unified::video_codec::VideoDecoder",
                         "custom_impls": [
                             "Clone",
@@ -71562,11 +71919,13 @@
                 "doc": [
                     "Font decoding / parsing module"
                 ],
+                "priority": 42.0,
                 "classes": {
                     "FontMetrics": {
                         "doc": [
                             "Font metrics structure containing all font-related measurements from the font file tables (head, hhea, and os/2 tables)."
                         ],
+                        "priority": 44.0,
                         "external": "azul_css::props::basic::font::FontMetrics",
                         "custom_impls": [
                             "Default"
@@ -72061,6 +72420,7 @@
                         "doc": [
                             "FontRef is a reference-counted pointer to a parsed font. It holds a *const c_void that points to the actual parsed font data (typically a ParsedFont from the layout crate). The parsed data is managed via atomic reference counting, allowing safe sharing across threads without duplicating the font data."
                         ],
+                        "priority": 52.0,
                         "external": "azul_css::props::basic::font::FontRef",
                         "is_boxed_object": true,
                         "custom_impls": [
@@ -72178,6 +72538,7 @@
                         "doc": [
                             "Source data of a font file (bytes)"
                         ],
+                        "priority": 24.0,
                         "external": "azul_core::resources::LoadedFontSource",
                         "derive": [
                             "PartialEq",
@@ -72255,6 +72616,7 @@
                         "repr": "C"
                     },
                     "LoadedFont": {
+                        "priority": 30.0,
                         "external": "azul_core::resources::LoadedFont",
                         "derive": [
                             "Debug",
@@ -72334,8 +72696,10 @@
                 "doc": [
                     "SVG parsing and rendering functions"
                 ],
+                "priority": 52.0,
                 "classes": {
                     "Svg": {
+                        "priority": 60.0,
                         "external": "azul_core::svg::Svg",
                         "is_boxed_object": true,
                         "derive": [
@@ -72386,6 +72750,7 @@
                         "repr": "C"
                     },
                     "TessellatedSvgNode": {
+                        "priority": 44.0,
                         "external": "azul_core::svg::TessellatedSvgNode",
                         "custom_impls": [
                             "Default"
@@ -72495,6 +72860,7 @@
                         "repr": "C, u8"
                     },
                     "LogicalRect": {
+                        "priority": 30.0,
                         "external": "azul_core::geom::LogicalRect",
                         "custom_impls": [
                             "Debug",
@@ -72814,6 +73180,7 @@
                         "repr": "C"
                     },
                     "FilePath": {
+                        "priority": 26.0,
                         "external": "azul_layout::file::FilePath",
                         "custom_impls": [
                             "Default",
@@ -72856,6 +73223,7 @@
                                 "doc": [
                                     "Creates a path from a string slice"
                                 ],
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "s": "String"
@@ -72867,6 +73235,7 @@
                                 "doc": [
                                     "Returns the system temporary directory"
                                 ],
+                                "priority": 70.0,
                                 "fn_args": [],
                                 "fn_body": "azul_layout::file::FilePath::get_temp_dir()"
                             },
@@ -73084,6 +73453,7 @@
                                 "doc": [
                                     "Joins this path with another path component"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -73101,6 +73471,7 @@
                                 "doc": [
                                     "Joins this path with a string component  "
                                 ],
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -73160,6 +73531,7 @@
                                 "doc": [
                                     "Checks if the path exists on the filesystem"
                                 ],
+                                "priority": 82.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -73286,6 +73658,7 @@
                                 "doc": [
                                     "Reads the entire file at this path as bytes"
                                 ],
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -73300,6 +73673,7 @@
                                 "doc": [
                                     "Reads the entire file at this path as a string"
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -73314,6 +73688,7 @@
                                 "doc": [
                                     "Writes bytes to the file at this path"
                                 ],
+                                "priority": 72.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -73331,6 +73706,7 @@
                                 "doc": [
                                     "Writes a string to the file at this path"
                                 ],
+                                "priority": 86.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -73458,6 +73834,7 @@
                         "repr": "C"
                     },
                     "SvgLineJoin": {
+                        "priority": 34.0,
                         "external": "azul_core::svg::SvgLineJoin",
                         "derive": [
                             "Debug",
@@ -73481,6 +73858,7 @@
                         "repr": "C"
                     },
                     "SvgFillRule": {
+                        "priority": 37.0,
                         "external": "azul_core::svg::SvgFillRule",
                         "derive": [
                             "Debug",
@@ -73536,6 +73914,7 @@
                         "repr": "C"
                     },
                     "SvgStrokeStyle": {
+                        "priority": 41.0,
                         "external": "azul_core::svg::SvgStrokeStyle",
                         "custom_impls": [
                             "Default"
@@ -73732,6 +74111,7 @@
                         "repr": "C"
                     },
                     "SvgPathElement": {
+                        "priority": 50.0,
                         "external": "azul_core::svg::SvgPathElement",
                         "derive": [
                             "Debug",
@@ -73758,6 +74138,7 @@
                                 "doc": [
                                     "Creates a line path element from a SvgLine"
                                 ],
+                                "priority": 85.0,
                                 "fn_args": [
                                     {
                                         "l": "SvgLine"
@@ -73769,6 +74150,7 @@
                                 "doc": [
                                     "Creates a quadratic curve path element from a SvgQuadraticCurve"
                                 ],
+                                "priority": 74.0,
                                 "fn_args": [
                                     {
                                         "qc": "SvgQuadraticCurve"
@@ -73780,6 +74162,7 @@
                                 "doc": [
                                     "Creates a cubic curve path element from a SvgCubicCurve"
                                 ],
+                                "priority": 75.0,
                                 "fn_args": [
                                     {
                                         "cc": "SvgCubicCurve"
@@ -73923,6 +74306,7 @@
                         "repr": "C, u8"
                     },
                     "SvgRect": {
+                        "priority": 47.0,
                         "external": "azul_css::props::basic::animation::SvgRect",
                         "derive": [
                             "Debug",
@@ -74027,6 +74411,7 @@
                         "repr": "C"
                     },
                     "SvgPath": {
+                        "priority": 56.0,
                         "external": "azul_core::svg::SvgPath",
                         "derive": [
                             "Debug",
@@ -74133,6 +74518,7 @@
                         "repr": "C"
                     },
                     "SvgMultiPolygon": {
+                        "priority": 54.0,
                         "external": "azul_core::svg::SvgMultiPolygon",
                         "derive": [
                             "Debug",
@@ -74174,6 +74560,7 @@
                                 "fn_body": "object.get_bounds()"
                             },
                             "tessellate_fill": {
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -74188,6 +74575,7 @@
                                 "fn_body": "object.tessellate_fill(fill_style)"
                             },
                             "tessellate_stroke": {
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -74276,8 +74664,10 @@
                 "doc": [
                     "XML parsing / decoding module"
                 ],
+                "priority": 44.0,
                 "classes": {
                     "Xml": {
+                        "priority": 50.0,
                         "external": "azul_core::xml::Xml",
                         "derive": [
                             "Debug",
@@ -74338,6 +74728,7 @@
                         "repr": "C"
                     },
                     "ParsedSvg": {
+                        "priority": 34.0,
                         "external": "azul_layout::xml::svg::ParsedSvg",
                         "custom_impls": [
                             "Debug",
@@ -74713,6 +75104,7 @@
                         "repr": "C, u8"
                     },
                     "ExternalResource": {
+                        "priority": 24.0,
                         "external": "azul_core::xml::ExternalResource",
                         "derive": [
                             "Debug",
@@ -74802,8 +75194,10 @@
                 "doc": [
                     "Rust wrappers for `Instant` / `Duration` classes"
                 ],
+                "priority": 58.0,
                 "classes": {
                     "Instant": {
+                        "priority": 62.0,
                         "external": "azul_core::task::Instant",
                         "custom_impls": [
                             "From"
@@ -74880,6 +75274,7 @@
                                 "doc": [
                                     "Linearly interpolates between [start, end] if the `self` Instant lies between start and end. Returns values between 0.0 and 1.0"
                                 ],
+                                "priority": 85.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -74943,6 +75338,7 @@
                         "repr": "C"
                     },
                     "SystemTick": {
+                        "priority": 24.0,
                         "external": "azul_core::task::SystemTick",
                         "derive": [
                             "Copy",
@@ -74964,6 +75360,7 @@
                         "repr": "C"
                     },
                     "Duration": {
+                        "priority": 60.0,
                         "external": "azul_core::task::Duration",
                         "custom_impls": [
                             "Display",
@@ -75073,6 +75470,7 @@
                         "repr": "C, u8"
                     },
                     "SystemTimeDiff": {
+                        "priority": 32.0,
                         "external": "azul_core::task::SystemTimeDiff",
                         "custom_impls": [
                             "From"
@@ -75231,6 +75629,7 @@
                         "doc": [
                             "A CSS time duration: a magnitude plus the unit it is counted in. `inner` is NOT unconditionally milliseconds - read it together with `unit`."
                         ],
+                        "priority": 44.0,
                         "external": "azul_css::props::basic::time::CssDuration",
                         "derive": [
                             "Debug",
@@ -75327,8 +75726,10 @@
                 "doc": [
                     "Definition of azuls internal `String` wrappers"
                 ],
+                "priority": 74.0,
                 "classes": {
                     "String": {
+                        "priority": 90.0,
                         "external": "azul_css::corety::AzString",
                         "custom_impls": [
                             "AsRef",
@@ -75353,6 +75754,7 @@
                         ],
                         "constructors": {
                             "copy_from_bytes": {
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "ptr": "*const u8"
@@ -75437,6 +75839,7 @@
                                     "Creates a new String from UTF-8 bytes with lossy conversion.",
                                     "Invalid UTF-8 sequences are replaced with the Unicode replacement character (U+FFFD)."
                                 ],
+                                "priority": 75.0,
                                 "fn_args": [
                                     {
                                         "ptr": "*const u8"
@@ -75455,6 +75858,7 @@
                                     "Creates a new String from UTF-8 bytes.",
                                     "Returns an empty string if the input is not valid UTF-8."
                                 ],
+                                "priority": 95.0,
                                 "fn_args": [
                                     {
                                         "ptr": "*const u8"
@@ -75472,6 +75876,7 @@
                         "repr": "C"
                     },
                     "StringPair": {
+                        "priority": 45.0,
                         "external": "azul_core::window::AzStringPair",
                         "derive": [
                             "Clone",
@@ -75508,6 +75913,7 @@
                         }
                     },
                     "StringSet": {
+                        "priority": 25.0,
                         "external": "azul_css::props::style::content::StringSet",
                         "custom_impls": [
                             "Default"
@@ -105616,8 +106022,10 @@
                 "doc": [
                     "Application entry point, configuration, and lifecycle management."
                 ],
+                "priority": 96.0,
                 "classes": {
                     "AppConfig": {
+                        "priority": 95.0,
                         "external": "azul_core::resources::AppConfig",
                         "custom_impls": [
                             "Default"
@@ -105709,6 +106117,7 @@
                         "repr": "C"
                     },
                     "App": {
+                        "priority": 99.0,
                         "external": "azul_dll::unified::app::App",
                         "custom_impls": [
                             "Default",
@@ -105768,6 +106177,7 @@
                                 "fn_body": "object.get_monitors()"
                             },
                             "run": {
+                                "priority": 100.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -105804,6 +106214,7 @@
                         "repr": "C"
                     },
                     "AppLogLevel": {
+                        "priority": 34.0,
                         "external": "azul_core::resources::AppLogLevel",
                         "derive": [
                             "Debug",
@@ -105828,6 +106239,7 @@
                         "repr": "C"
                     },
                     "RendererType": {
+                        "priority": 28.0,
                         "external": "azul_core::window::RendererType",
                         "derive": [
                             "Hash",
@@ -105848,6 +106260,7 @@
                         "repr": "C"
                     },
                     "RendererOptions": {
+                        "priority": 30.0,
                         "external": "azul_core::window::RendererOptions",
                         "custom_impls": [
                             "Default"
@@ -105915,8 +106328,10 @@
                 "doc": [
                     "Timer, thread, and async task management."
                 ],
+                "priority": 62.0,
                 "classes": {
                     "ThreadSendMsg": {
+                        "priority": 40.0,
                         "external": "azul_core::task::ThreadSendMsg",
                         "derive": [
                             "Debug",
@@ -105939,6 +106354,7 @@
                         "repr": "C, u8"
                     },
                     "ThreadSender": {
+                        "priority": 46.0,
                         "external": "azul_layout::thread::ThreadSender",
                         "custom_impls": [
                             "Clone",
@@ -105983,6 +106399,7 @@
                         "repr": "C"
                     },
                     "ThreadReceiver": {
+                        "priority": 44.0,
                         "external": "azul_core::task::ThreadReceiver",
                         "custom_impls": [
                             "Clone",
@@ -106024,6 +106441,7 @@
                         "repr": "C"
                     },
                     "Timer": {
+                        "priority": 68.0,
                         "external": "azul_layout::timer::Timer",
                         "custom_impls": [
                             "Default"
@@ -106106,6 +106524,7 @@
                                 "fn_body": "object.instant_of_next_run()"
                             },
                             "with_delay": {
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -106120,6 +106539,7 @@
                                 "fn_body": "object.with_delay(delay)"
                             },
                             "with_interval": {
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -106134,6 +106554,7 @@
                                 "fn_body": "object.with_interval(interval)"
                             },
                             "with_timeout": {
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "self": "value"
@@ -106185,6 +106606,7 @@
                         "repr": "C"
                     },
                     "TerminateTimer": {
+                        "priority": 54.0,
                         "external": "azul_core::task::TerminateTimer",
                         "derive": [
                             "Copy",
@@ -106205,6 +106627,7 @@
                         "repr": "C"
                     },
                     "TimerId": {
+                        "priority": 58.0,
                         "external": "azul_core::task::TimerId",
                         "derive": [
                             "PartialOrd",
@@ -106235,6 +106658,7 @@
                         "repr": "C"
                     },
                     "Thread": {
+                        "priority": 66.0,
                         "external": "azul_layout::thread::Thread",
                         "custom_impls": [
                             "Clone",
@@ -106324,6 +106748,7 @@
                         "repr": "C"
                     },
                     "ThreadId": {
+                        "priority": 50.0,
                         "external": "azul_core::task::ThreadId",
                         "derive": [
                             "Debug",
@@ -106393,6 +106818,7 @@
                         "repr": "C"
                     },
                     "ThreadReceiveMsg": {
+                        "priority": 38.0,
                         "external": "azul_layout::thread::ThreadReceiveMsg",
                         "derive": [
                             "Debug",
@@ -107257,8 +107683,10 @@
                 "doc": [
                     "Component system for reusable UI building blocks."
                 ],
+                "priority": 34.0,
                 "classes": {
                     "ComponentId": {
+                        "priority": 18.0,
                         "external": "azul_core::xml::ComponentId",
                         "derive": [
                             "Debug",
@@ -107375,6 +107803,7 @@
                         "repr": "C"
                     },
                     "CompileTarget": {
+                        "priority": 22.0,
                         "external": "azul_core::xml::CompileTarget",
                         "derive": [
                             "Debug",
@@ -107396,6 +107825,7 @@
                         "repr": "C"
                     },
                     "ComponentDef": {
+                        "priority": 40.0,
                         "external": "azul_core::xml::ComponentDef",
                         "custom_impls": [
                             "Debug"
@@ -107518,6 +107948,7 @@
                         "repr": "C"
                     },
                     "ComponentLibrary": {
+                        "priority": 42.0,
                         "external": "azul_core::xml::ComponentLibrary",
                         "derive": [
                             "Debug",
@@ -107569,6 +108000,7 @@
                         }
                     },
                     "ComponentMap": {
+                        "priority": 45.0,
                         "external": "azul_core::xml::ComponentMap",
                         "custom_impls": [
                             "Default"
@@ -107594,6 +108026,7 @@
                         "repr": "C"
                     },
                     "ComponentDataModel": {
+                        "priority": 34.0,
                         "external": "azul_core::xml::ComponentDataModel",
                         "derive": [
                             "Debug",
@@ -107615,6 +108048,7 @@
                         "repr": "C"
                     },
                     "ComponentEventFilter": {
+                        "priority": 38.0,
                         "external": "azul_core::events::ComponentEventFilter",
                         "derive": [
                             "PartialEq",
@@ -107835,6 +108269,7 @@
                         "repr": "C"
                     },
                     "ComponentFieldType": {
+                        "priority": 30.0,
                         "external": "azul_core::xml::ComponentFieldType",
                         "custom_impls": [
                             "Display"
@@ -108023,6 +108458,7 @@
                         "repr": "C"
                     },
                     "ComponentDefaultValue": {
+                        "priority": 26.0,
                         "external": "azul_core::xml::ComponentDefaultValue",
                         "derive": [
                             "Debug",
@@ -108385,6 +108821,7 @@
                 }
             },
             "json": {
+                "priority": 22.0,
                 "classes": {
                     "JsonKeyValueVecSlice": {
                         "external": "azul_core::json::JsonKeyValueVecSlice",
@@ -108413,6 +108850,7 @@
                         "repr": "C"
                     },
                     "JsonKeyValue": {
+                        "priority": 24.0,
                         "external": "azul_core::json::JsonKeyValue",
                         "derive": [
                             "Debug",
@@ -108448,6 +108886,7 @@
                         "repr": "C"
                     },
                     "Json": {
+                        "priority": 38.0,
                         "external": "azul_core::json::Json",
                         "custom_impls": [
                             "Default",
@@ -108473,6 +108912,7 @@
                                 "doc": [
                                     "Parse JSON from a string"
                                 ],
+                                "priority": 95.0,
                                 "fn_args": [
                                     {
                                         "s": "String"
@@ -108552,6 +108992,7 @@
                                 "doc": [
                                     "Create a JSON array from a vector of JSON values"
                                 ],
+                                "priority": 78.0,
                                 "fn_args": [
                                     {
                                         "values": "JsonVec"
@@ -108563,6 +109004,7 @@
                                 "doc": [
                                     "Create a JSON object from key-value pairs"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "entries": "JsonKeyValueVec"
@@ -108702,6 +109144,7 @@
                                 "doc": [
                                     "Get as string (returns None if not a string)"
                                 ],
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -108744,6 +109187,7 @@
                                 "doc": [
                                     "Get array element by index"
                                 ],
+                                "priority": 80.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -108761,6 +109205,7 @@
                                 "doc": [
                                     "Get object value by key"
                                 ],
+                                "priority": 84.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -108820,6 +109265,7 @@
                                 "doc": [
                                     "Serialize to JSON string"
                                 ],
+                                "priority": 88.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -108861,6 +109307,7 @@
                                     "let name = json.jq(\"/users/0/name\"); // Json::string(\"Alice\")",
                                     "```"
                                 ],
+                                "priority": 70.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -108985,6 +109432,7 @@
                         "repr": "C"
                     },
                     "JsonType": {
+                        "priority": 18.0,
                         "external": "azul_core::json::JsonType",
                         "derive": [
                             "Debug",
@@ -109975,8 +110423,10 @@
                 }
             },
             "file": {
+                "priority": 28.0,
                 "classes": {
                     "FileMetadata": {
+                        "priority": 28.0,
                         "external": "azul_layout::file::FileMetadata",
                         "derive": [
                             "Debug",
@@ -110007,6 +110457,7 @@
                         "repr": "C"
                     },
                     "File": {
+                        "priority": 40.0,
                         "external": "azul_layout::desktop::file::File",
                         "custom_impls": [
                             "Clone",
@@ -110066,6 +110517,7 @@
                                 "doc": [
                                     "Reads the file at `self.path` into a string."
                                 ],
+                                "priority": 90.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -110094,6 +110546,7 @@
                                 "doc": [
                                     "Writes a string to the file handle. Returns `false` on failure."
                                 ],
+                                "priority": 85.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
@@ -110139,6 +110592,7 @@
                         "repr": "C"
                     },
                     "DirEntry": {
+                        "priority": 22.0,
                         "external": "azul_layout::file::DirEntry",
                         "derive": [
                             "Debug",
@@ -110390,6 +110844,7 @@
                                     "\"HTML/DOM -> PDF\" path. Headless, multi-page, no file I/O; save the",
                                     "returned bytes yourself. Empty without the `pdf` feature or on failure."
                                 ],
+                                "priority": 92.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
@@ -110446,6 +110901,7 @@
                                     "the PDF is the window's content re-laid-out at page size. Runs off-thread fine.",
                                     "Empty handles fall back to fresh system resources."
                                 ],
+                                "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "ref"
