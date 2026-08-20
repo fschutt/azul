@@ -251,3 +251,74 @@ css `io` 0→1, 28 `#[ignore]`s triaged, zero-test guard on 12 CI steps, and a r
 latent fix (`take_screenshot_of_node` was gated `std+cpurender` but calls
 `dialogs::report::crop_png` which needs `widgets+text_layout`, so azul-layout did
 not compile at all under the glyph-rasteriser's feature set).
+
+---
+
+# Runtime bugs found by actually running the examples (2026-08-20 evening)
+
+Found by running the rewritten examples on macOS + Linux. NOT fixed — recorded
+so they are not lost. No release is planned; the website is deployed and good
+enough for now.
+
+## R1. macOS: total font-resolution failure (worst one)
+
+    AZ_BACKEND=headless ./hello-world
+
+    [azul][font] UNRESOLVED font-family "Helvetica Neue"
+    [azul][font] UNRESOLVED font-family "Lucida Grande"
+    [azul][font] UNRESOLVED font-family "System Font"
+    [azul][font] LAST-RESORT fallback for font stack [...]: nothing matched
+
+Linux renders fine; macOS is a complete failure to render text.
+
+What it is NOT (all checked):
+- NOT missing fonts. `/System/Library/Fonts/HelveticaNeue.ttc` and
+  `LucidaGrande.ttc` are present (84 files there, 289 in Supplemental).
+- NOT the wrong search path. rust-fontconfig 4.4.11 scans
+  `/System/Library/Fonts` FIRST (config.rs:48).
+- NOT a missing feature. `build-dll` pulls `font_loading_multithreaded` and
+  `font_async_registry`.
+- NOT a first-run race. Run 2 is byte-identical, and after a 25-SECOND run
+  `~/Library/Caches/rfc/fonts/manifest.bin` STILL does not exist — the scan
+  never completes at all, so nothing is ever cached for next time.
+
+What it looks like: `run()` enters at 59 ms and the font failure is logged at
+73 ms. Nothing scans 373 font files in 14 ms. `dll/src/desktop/app.rs:297`
+promises "At layout time, `request_fonts()` blocks until the needed fonts are
+ready", and `dll/src/desktop/shell2/common/layout.rs:240` calls it — but layout
+proceeds on an empty cache and falls through to LAST-RESORT. Either
+`request_fonts()` is not blocking, or the Scout/Builder threads never run in the
+dylib context.
+
+Note azul-doc, in-process on the same Mac, DOES resolve fonts with the same
+registry calls — so it is specific to the app/dylib path, not the machine.
+
+Also: `/System/Library/Fonts/Supplemental` (289 fonts) is not in the scanned
+directory list, though the failing families are not in there.
+
+CAUTION on the "very fast startup" observation: startup being fast is exactly
+what a skipped font scan looks like. Do not treat it as proof the startup font
+optimisation works until R1 is fixed and the timing is re-measured.
+
+## R2. Physics-based scrolling fights the real scroll
+
+Momentum/physics scrolling appears to emit external scroll events that then
+compete with the actual scroll position. Reported on macOS ("scrolling somewhat
+works"). Suspect the inertia integrator feeding back into the same scroll state
+it is reading.
+
+## R3. Text input does not update on keypress
+
+Typing into a text field does not update the rendered text immediately.
+
+## R4. Damage-rect bugs (plural)
+
+Many. Related to the damage work done earlier today (thumb quantisation,
+warm-relayout scroll publish) — but these are user-visible artefacts beyond
+those, so treat as an open area rather than a regression from one commit.
+
+## R5. Wayland: widgets demo alternates blue/orange
+
+Suspected to be the Wayland backbuffer memory optimisation — a buffer being
+reused/released while still referenced, so two frames' contents alternate.
+Start at the wl_buffer release/attach bookkeeping.
