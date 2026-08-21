@@ -11,6 +11,8 @@
 #define HEADER_PX    44.0f
 #define FOOTER_PX    22.0f
 #define FETCH_MS     140
+// Slice the simulated latency so a terminate request is noticed promptly.
+#define TERMINATE_POLL_MS 20
 
 typedef struct {
     uint64_t key;
@@ -234,12 +236,18 @@ void tile_worker(AzRefAny initial_data, AzThreadSender sender, AzThreadReceiver 
     int tile_y = req.ptr->tile_y;
     TileRequestRef_delete(&req);
 
-    AzThread_sleepMs(FETCH_MS);
-
-    AzOptionThreadSendMsg msg = AzThreadReceiver_recv(&recv);
-    if (msg.None.tag == AzOptionThreadSendMsg_Tag_Some
-        && msg.Some.payload.TerminateThread.tag == AzThreadSendMsg_Tag_TerminateThread) {
-        return;
+    // Sleep in slices, checking for TerminateThread between them. A single
+    // sleep is uninterruptible: at shutdown the worker cannot acknowledge
+    // within the join grace period, so the framework detaches it instead of
+    // joining, and ThreadSanitizer reports a thread leak in pthread_create.
+    // One tile is cheap; sixteen sleeping at once is what makes it visible.
+    for (int waited = 0; waited < FETCH_MS; waited += TERMINATE_POLL_MS) {
+        AzThread_sleepMs(TERMINATE_POLL_MS);
+        AzOptionThreadSendMsg early = AzThreadReceiver_recv(&recv);
+        if (early.None.tag == AzOptionThreadSendMsg_Tag_Some
+            && early.Some.payload.TerminateThread.tag == AzThreadSendMsg_Tag_TerminateThread) {
+            return;
+        }
     }
 
     TileReady ready;
