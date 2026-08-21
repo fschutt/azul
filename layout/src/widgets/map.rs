@@ -1155,16 +1155,14 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             }
             return;
         };
-        match cache.fetch_callback.as_ref() {
-            Some(cb) => cb.clone(),
-            None => {
-                #[cfg(feature = "std")]
-                if std::env::var("AZ_MAP_DEBUG").is_ok() {
-                    std::eprintln!("[map] spawn_pending: ABORT — fetch_callback gone at spawn");
-                }
-                return;
+        let Some(cb) = cache.fetch_callback.as_ref() else {
+            #[cfg(feature = "std")]
+            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                std::eprintln!("[map] spawn_pending: ABORT — fetch_callback gone at spawn");
             }
-        }
+            return;
+        };
+        cb.clone()
     };
 
     #[cfg(feature = "std")]
@@ -1228,18 +1226,17 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
     mut incoming: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let msg = match incoming.downcast_ref::<TileReadyMsg>() {
-        Some(m) => (m.tile, m.svg.clone(), m.error.clone()),
-        None => {
-            // The worker sent something that is not a TileReadyMsg: the tile
-            // arrived and is dropped on the floor here.
-            #[cfg(feature = "std")]
-            if std::env::var("AZ_MAP_DEBUG").is_ok() {
-                std::eprintln!("[map] writeback: DROPPED — payload is not a TileReadyMsg");
-            }
-            return Update::DoNothing;
+    // The worker sent something that is not a TileReadyMsg: the tile arrived
+    // and is dropped on the floor here.
+    let Some(m) = incoming.downcast_ref::<TileReadyMsg>() else {
+        #[cfg(feature = "std")]
+        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            std::eprintln!("[map] writeback: DROPPED — payload is not a TileReadyMsg");
         }
+        return Update::DoNothing;
     };
+    let msg = (m.tile, m.svg.clone(), m.error.clone());
+    drop(m);
     {
         let Some(mut cache) = cache_dataset.downcast_mut::<MapTileCache>() else {
             // The tile came back but the dataset it targets is no longer a
