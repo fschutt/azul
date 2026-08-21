@@ -134,11 +134,16 @@ for pkg in md['packages']:
         continue
     for t in pkg['targets']:
         if 'test' in t['kind']:
-            print(t['name'])
+            # name<TAB>comma-joined required-features, so the runner can
+            # pass them instead of carrying a hand-maintained table.
+            print(t['name'] + '\t' + ','.join(t.get('required-features') or []))
 "
 )
 
-for test_name in "${LAYOUT_TESTS[@]}"; do
+for test_entry in "${LAYOUT_TESTS[@]}"; do
+  test_name="${test_entry%%	*}"
+  test_feats="${test_entry#*	}"
+  [[ "${test_feats}" == "${test_entry}" ]] && test_feats=""
   skip=false
   for slow in "${SLOW_TESTS[@]}"; do
     if [[ "${test_name}" == "${slow}" ]]; then
@@ -147,14 +152,23 @@ for test_name in "${LAYOUT_TESTS[@]}"; do
     fi
   done
   if [[ "${skip}" == false ]]; then
-    # Some test targets declare `required-features`. Cargo SILENTLY SKIPS a
-    # target whose features are unmet — it does not warn and does not fail — so
-    # without this the test looks green while never having been built. Pass the
-    # feature each such target needs.
+    # Some test targets declare `required-features`, and the two selection
+    # modes fail in OPPOSITE ways. Selected implicitly (--tests), cargo
+    # silently skips a target whose features are unmet: no warning, no error,
+    # and the suite looks green while never having been built. Selected
+    # explicitly, as here, cargo ERRORS instead:
+    #   error: target `coretext_autoregression` in package `azul-layout`
+    #          requires the features: `coretext_tests`
+    # That error failed this job, and coverage BLOCKS deploy_pages, so the
+    # website did not publish.
+    #
+    # The features come from cargo metadata now, not a hand-maintained case
+    # list, so a target that gains required-features tomorrow works without
+    # anyone remembering this script exists.
     extra_features=""
-    case "${test_name}" in
-      e2e_json) extra_features="--features e2e-server" ;;
-    esac
+    if [[ -n "${test_feats}" ]]; then
+      extra_features="--features ${test_feats}"
+    fi
     # shellcheck disable=SC2086  # word splitting of the feature flag is intended
     run_tests "azul-layout --test ${test_name}" \
       cargo test --profile "${PROFILE}" --package azul-layout --test "${test_name}" ${extra_features}
