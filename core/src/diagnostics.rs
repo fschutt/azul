@@ -150,6 +150,20 @@ pub fn any_contains(needle: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// One lock for the one shared ring, for tests ANYWHERE in the workspace.
+///
+/// The ring is global, so tests that touch it must not run concurrently. Two
+/// modules each having their own private lock does NOT achieve that — it was
+/// tried, and `dom_lint`'s tests and the e2e `assert_stderr` tests promptly
+/// raced, passing alone and failing together. A shared resource needs a shared
+/// lock, and the honest place for it is beside the resource.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 /// Drop everything recorded so far.
 ///
 /// An e2e scenario clears before the step it means to observe, so a warning
@@ -182,14 +196,11 @@ pub fn clear() {}
 mod tests {
     use super::*;
 
-    /// The ring is global, so these tests must not run concurrently — one
-    /// clearing it mid-assert makes the other flake. Serialise them here rather
-    /// than leaving a race that only shows up under load.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    // Uses the workspace-wide lock: see `diagnostics::test_lock`.
 
     #[test]
     fn a_recorded_diagnostic_is_findable_and_clearable() {
-        let _g = TEST_LOCK.lock();
+        let _g = test_lock().lock();
         clear();
         emit("[azul][test-lint] hello".to_string());
         assert!(any_contains("test-lint"));
@@ -200,7 +211,7 @@ mod tests {
 
     #[test]
     fn the_ring_is_bounded() {
-        let _g = TEST_LOCK.lock();
+        let _g = test_lock().lock();
         clear();
         for i in 0..(CAPACITY + 50) {
             record(format!("msg {i}"));

@@ -1602,6 +1602,44 @@ impl Runner {
             }
 
             // === Content Modifications ===
+            CallbackChange::ChangeNodeAccessibilityState { node_id, states } => {
+                // Mirrors the DLL arm: update the node's declaration in place so
+                // an e2e scenario observes the same accessibility tree a real
+                // host would. Widgets that toggle WITHOUT rebuilding (accordion,
+                // switch, checkbox) publish through here, so a scenario asserting
+                // on announced state needs it applied, not dropped.
+                if let Some(nid) = node_id.node.into_crate_internal() {
+                    if let Some(lr) = self.layout_window.layout_results.get_mut(&node_id.dom) {
+                        let mut nodes = lr.styled_dom.node_data.as_container_mut();
+                        if let Some(node) = nodes.get_mut(nid) {
+                            let mut info = node
+                                .accessibility
+                                .as_ref()
+                                .map_or_else(Default::default, |b| (**b).clone());
+                            info.states = states.clone();
+                            node.set_accessibility_info(info);
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::ChangeNodeAccessibilityValue { node_id, value } => {
+                if let Some(nid) = node_id.node.into_crate_internal() {
+                    if let Some(lr) = self.layout_window.layout_results.get_mut(&node_id.dom) {
+                        let mut nodes = lr.styled_dom.node_data.as_container_mut();
+                        if let Some(node) = nodes.get_mut(nid) {
+                            let mut info = node
+                                .accessibility
+                                .as_ref()
+                                .map_or_else(Default::default, |b| (**b).clone());
+                            info.accessibility_value =
+                                azul_css::OptionString::Some(value.clone());
+                            node.set_accessibility_info(info);
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::ChangeNodeText { node_id, text } => {
                 let dom_id = node_id.dom;
                 let Some(internal_node_id) = node_id.node.into_crate_internal() else {

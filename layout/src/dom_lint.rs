@@ -859,7 +859,7 @@ mod semantic_and_a11y_lint_tests {
 
     /// The lints share the global diagnostics ring, so they must not run
     /// concurrently — this has already bitten twice in this codebase.
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // Workspace-wide: see azul_core::diagnostics::test_lock.
 
     fn styled(dom: Dom) -> StyledDom {
         StyledDom::create_from_dom(dom)
@@ -867,7 +867,7 @@ mod semantic_and_a11y_lint_tests {
 
     #[test]
     fn a_div_holding_only_text_is_reported() {
-        let _g = TEST_LOCK.lock();
+        let _g = azul_core::diagnostics::test_lock().lock();
         azul_core::diagnostics::clear();
 
         warn_div_used_as_text_container(&styled(
@@ -897,7 +897,7 @@ mod semantic_and_a11y_lint_tests {
     /// A div that contains other elements is a container doing its job.
     #[test]
     fn a_div_with_element_children_is_not_reported() {
-        let _g = TEST_LOCK.lock();
+        let _g = azul_core::diagnostics::test_lock().lock();
         azul_core::diagnostics::clear();
         warn_div_used_as_text_container(&styled(
             Dom::create_body().with_child(
@@ -914,7 +914,7 @@ mod semantic_and_a11y_lint_tests {
     /// nothing to a screen reader and must be reported.
     #[test]
     fn an_icon_only_control_without_a_name_is_reported() {
-        let _g = TEST_LOCK.lock();
+        let _g = azul_core::diagnostics::test_lock().lock();
         azul_core::diagnostics::clear();
 
         let icon_button = Dom::create_div()
@@ -941,7 +941,7 @@ mod semantic_and_a11y_lint_tests {
     /// derives a name from it — so reporting it would be noise.
     #[test]
     fn a_control_with_a_readable_label_is_not_reported() {
-        let _g = TEST_LOCK.lock();
+        let _g = azul_core::diagnostics::test_lock().lock();
         azul_core::diagnostics::clear();
 
         let text_button = Dom::create_div()

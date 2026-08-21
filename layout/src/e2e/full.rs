@@ -17505,7 +17505,7 @@ mod assert_stderr_tests {
     /// The diagnostics ring is GLOBAL, so these must not run concurrently —
     /// one clearing it mid-assert makes another flake. This bit once already:
     /// the tests passed individually and failed as a group.
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // Workspace-wide: see azul_core::diagnostics::test_lock.
 
     /// `assert_stderr` reads the diagnostics ring every engine lint writes to.
     ///
@@ -17516,7 +17516,7 @@ mod assert_stderr_tests {
     /// e2e run reports into Loki/Grafana like any other run.
     #[test]
     fn assert_stderr_finds_and_refuses_diagnostics() {
-        let _g = TEST_LOCK.lock();
+        let _g = azul_core::diagnostics::test_lock().lock();
         azul_core::diagnostics::clear();
         azul_core::diagnostics::record("[azul][image-churn] node 7 rebuilt".to_string());
 
@@ -17541,7 +17541,7 @@ mod assert_stderr_tests {
     /// passing forever.
     #[test]
     fn assert_stderr_without_a_needle_is_rejected() {
-        let _g = TEST_LOCK.lock();
+        let _g = azul_core::diagnostics::test_lock().lock();
         let empty = eval_assert_stderr(&serde_json::json!({}));
         assert!(!empty.passed);
         assert!(empty.message.contains("contains"), "{}", empty.message);
@@ -17551,7 +17551,7 @@ mod assert_stderr_tests {
     /// cannot satisfy a later assertion.
     #[test]
     fn assert_stderr_can_clear_the_ring() {
-        let _g = TEST_LOCK.lock();
+        let _g = azul_core::diagnostics::test_lock().lock();
         azul_core::diagnostics::clear();
         azul_core::diagnostics::record("[azul][test] marker".to_string());
         let r = eval_assert_stderr(

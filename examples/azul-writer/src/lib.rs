@@ -1088,6 +1088,18 @@ pub fn start() {
     let mut window =
         WindowCreateOptions::create(layout as azul_core::callbacks::LayoutCallbackType);
     window.window_state.title = AzString::from("Document1 - AzWriter");
+    // Open MAXIMIZED. A document editor that starts in a 1280x800 box on a 5K
+    // display is the first thing every user fixes by hand.
+    //
+    // All four desktop backends honour `flags.frame` at creation, each through
+    // its own platform call — macOS performZoom, Windows ShowWindow(SW_MAXIMIZE),
+    // X11 _NET_WM_STATE_MAXIMIZED_{HORZ,VERT}, Wayland
+    // xdg_toplevel.set_maximized — so this is one flag rather than four
+    // per-platform paths.
+    window.window_state.flags.frame = azul_core::window::WindowFrame::Maximized;
+    // The dimensions still matter: they are the size the window RESTORES to
+    // when the user un-maximizes, and the size every headless/screenshot run
+    // uses (nothing maximizes a stub window).
     window.window_state.size.dimensions.width = 1280.0;
     window.window_state.size.dimensions.height = 800.0;
     // Harness: AZWRITER_SIZE=WxH overrides the initial window size (narrow
