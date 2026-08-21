@@ -9118,6 +9118,13 @@ fn resume_e2e_continuation_inner(
             cont.current_step_results.clear();
             cont.current_test_failed = false;
             cont.test_start = wall_clock_now();
+            // Name the scenario for as long as it runs. Every diagnostic the
+            // ENGINE emits meanwhile — image-churn, text-without-block, any
+            // future lint — is tagged with it, so a Grafana query on
+            // `test="..."` returns that scenario's whole story rather than a
+            // slice of one flat stream. Like the composition trace above, this
+            // is process-global and must be set per test.
+            azul_core::diagnostics::set_scope(Some(test.name.clone()));
             // The composition trace is process-global (an assertion only ever
             // holds `&CallbackInfo`), so it must be zeroed per test or stages
             // from the previous scenario would leak into this one.
@@ -9351,6 +9358,21 @@ fn resume_e2e_continuation_inner(
                     let error_msg = if let (Some(ref exp), Some(ref act)) = (&result.expected, &result.actual) {
                         format!("{}: expected {}, got {}", result.message, exp, act)
                     } else { result.message.clone() };
+
+                    // Report the failure through telemetry, tagged with the
+                    // scenario and the step that produced it. At Error severity
+                    // it stands out in Grafana the way a crash does, and the
+                    // `test` attribute is what lets a dashboard show ONE
+                    // scenario's story instead of a flat stream. Silently does
+                    // nothing when telemetry is not configured, so a local
+                    // `cargo test` pays nothing for it.
+                    #[cfg(feature = "telemetry")]
+                    crate::telemetry::report_e2e_failure(
+                        &azul_core::diagnostics::current_scope()
+                            .unwrap_or_else(|| "<unnamed>".to_string()),
+                        op,
+                        &error_msg,
+                    );
                     cont.current_step_results.push(E2eStepResult {
                         step_index, op: op.to_string(), status: "fail".into(),
                         duration_ms: step_start.elapsed().as_millis() as u64,
@@ -9505,6 +9527,19 @@ fn resume_e2e_continuation_inner(
             steps: std::mem::take(&mut cont.current_step_results),
             final_screenshot: None,
         });
+
+        // Close the scenario out: one verdict record carrying `test`,
+        // `kind=e2e_result` and `passed`, so a dashboard can count outcomes
+        // without parsing message bodies. Then drop the scope, or the NEXT
+        // scenario's engine diagnostics would be filed under this one's name —
+        // which is worse than no tag, because it looks right.
+        #[cfg(feature = "telemetry")]
+        crate::telemetry::report_e2e_result(
+            &test.name,
+            steps_failed == 0,
+            test.steps.len(),
+        );
+        azul_core::diagnostics::set_scope(None);
 
         cont.test_idx += 1;
         cont.step_idx = 0;
