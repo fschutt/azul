@@ -835,6 +835,127 @@ fn has_update_callback(node: &NodeData) -> bool {
     map
 }
 
+/// Suppression tag for the image-churn lint, honored from `AZ_SUPPRESS`.
+pub const IMAGE_CHURN_SUPPRESS_TAG: &str = "image_churn";
+
+/// Re-initialisations per second above which an image node is churning.
+///
+/// A widget legitimately rebuilds its image node with a placeholder now and
+/// then — the first build after mount has no frame yet. Doing it dozens of
+/// times a second means a LIVE image is being discarded and re-awaited on every
+/// frame, which is a bug in how the node is built, not in the content.
+const IMAGE_CHURN_PER_SEC: u32 = 10;
+
+/// The framework notices, by itself, when an image node re-initialises at frame
+/// rate — and says what is almost always wrong.
+///
+/// The symptom is a video or capture node that flickers: it holds a real frame,
+/// the DOM rebuilds, the fresh node carries only a placeholder, and the live
+/// image is thrown away until the next frame arrives 16-33ms later. On a
+/// resizing window, which rebuilds continuously, that is a continuous flash.
+///
+/// The cause is almost always a missing DATASET + merge callback. Without one
+/// the reconciler cannot tell that the rebuilt node is the same widget, so it
+/// has nothing to carry forward — see `transfer_states`, which does carry the
+/// previous frame when a merge callback exists.
+///
+/// Detection lives HERE, in the reconciler, because neither DOM shows it alone:
+/// the old build has a frame, the new build has a placeholder, and only the
+/// pair reveals the churn. No user code has to opt in.
+/// Per-node churn bookkeeping: `(count, window_start, warned)`.
+///
+/// Shared with the tests so the detector can be asserted on directly, instead
+/// of only through a message on stderr that nothing can observe.
+#[cfg(feature = "std")]
+fn image_churn_state() -> &'static std::sync::Mutex<
+    std::collections::BTreeMap<usize, (u32, std::time::Instant, bool)>,
+> {
+    use std::{collections::BTreeMap, sync::{Mutex, OnceLock}, time::Instant};
+    static CHURN: OnceLock<Mutex<BTreeMap<usize, (u32, Instant, bool)>>> = OnceLock::new();
+    CHURN.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// How many times this node has re-initialised inside the current window.
+#[cfg(all(feature = "std", test))]
+pub(crate) fn image_churn_count(node_index: usize) -> u32 {
+    image_churn_state()
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&node_index).map(|e| e.0))
+        .unwrap_or(0)
+}
+
+#[cfg(feature = "std")]
+fn note_image_reinitialised(node_index: usize, carried: bool) {
+    use std::{
+        collections::BTreeMap,
+        sync::{Mutex, OnceLock},
+        time::Instant,
+    };
+
+    static SUPPRESSED: OnceLock<bool> = OnceLock::new();
+    if *SUPPRESSED.get_or_init(|| {
+        let v = std::env::var("AZ_SUPPRESS")
+            .or_else(|_| std::env::var("AZ_SUPRESS"))
+            .unwrap_or_default();
+        v.split(',')
+            .any(|t| t.trim().eq_ignore_ascii_case(IMAGE_CHURN_SUPPRESS_TAG))
+    }) {
+        return;
+    }
+
+    // Per node: how many times it re-initialised, when that window started, and
+    // whether we have already said so. "The time it was last updated and how
+    // much" is the whole state — no history, no allocation per event.
+    let churn = image_churn_state();
+    let Ok(mut map) = churn.lock() else {
+        return; // a poisoned lint counter must never take the app down
+    };
+
+    let now = Instant::now();
+    let entry = map.entry(node_index).or_insert((0, now, false));
+    if now.duration_since(entry.1).as_secs_f32() >= 1.0 {
+        *entry = (1, now, entry.2);
+        return;
+    }
+    entry.0 += 1;
+
+    // Warn once per node. This runs on every rebuild of a resizing window; a
+    // warning per frame would bury the message it is trying to deliver.
+    if entry.0 < IMAGE_CHURN_PER_SEC || entry.2 {
+        return;
+    }
+    entry.2 = true;
+    let rate = entry.0;
+
+    if carried {
+        std::eprintln!(
+            "[azul][image-churn] node {node_index} rebuilt its image as a \
+             PLACEHOLDER {rate}x in one second. The previous frame was carried \
+             forward each time, so nothing flickers — but a live image node is \
+             being reconstructed every frame. If this is not a capture widget, \
+             build the node once and update it through the image cache. \
+             (suppress with AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
+        );
+    } else {
+        std::eprintln!(
+            "[azul][image-churn] node {node_index} rebuilt its image as a \
+             PLACEHOLDER {rate}x in one second and the previous frame could NOT \
+             be carried forward: this node has NO DATASET + merge callback, so \
+             the reconciler cannot tell the rebuilt node is the same widget. The \
+             live image is discarded every frame and the node falls back to its \
+             placeholder until the next one arrives — a continuous flicker. If \
+             this is a video or camera node, it is almost certainly missing its \
+             dataset: attach one with a DatasetMergeCallback (see MapWidget / \
+             ScreenCaptureWidget). \
+             (suppress with AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
+        );
+    }
+}
+
+#[cfg(not(feature = "std"))]
+fn note_image_reinitialised(_node_index: usize, _carried: bool) {}
+
 /// Executes state migration between the old DOM and the new DOM based on diff results.
 ///
 /// This iterates through matched nodes. If a match has BOTH a merge callback AND a dataset,
@@ -875,6 +996,17 @@ pub fn transfer_states(
 
         // 1. Check if the NEW node has requested a merge callback
         let Some(merge_callback) = new_node_data[new_idx].get_merge_callback() else {
+            // No merge callback — nothing can be carried forward. If this node
+            // is an image that just reverted to a placeholder while the old
+            // build held a real frame, that live frame is being DISCARDED, and
+            // at frame rate it is a visible flicker. This is the "forgot the
+            // dataset on a video node" case, and the framework can see it
+            // without anyone asking.
+            if new_node_data[new_idx].image_is_placeholder()
+                && !old_node_data[old_idx].image_is_placeholder()
+            {
+                note_image_reinitialised(new_idx, false);
+            }
             continue; // No merge callback, skip
         };
 
@@ -931,6 +1063,10 @@ pub fn transfer_states(
                     if let Some(prev) = old_node_data[old_idx].get_image_ref_cloned() {
                         new_node_data[new_idx].set_image_ref(prev);
                     }
+                    // Handled — but still worth saying if it happens every
+                    // frame, because rebuilding a live image node at 60 Hz is
+                    // work nobody asked for.
+                    note_image_reinitialised(new_idx, true);
                 }
 
                 // 4. Store the merged result back in the new node
@@ -3333,6 +3469,62 @@ mod autotest_generated {
     // real-world case (MapWidget's tile cache is written by background threads).
     extern "C" fn merge_keep_old(_new_data: RefAny, old_data: RefAny) -> RefAny {
         old_data
+    }
+
+    /// The framework must NOTICE an image node re-initialising every frame,
+    /// with no cooperation from user code.
+    ///
+    /// The case this exists for: a video node built without a dataset. Each
+    /// rebuild hands back a placeholder, the live frame is discarded, and the
+    /// node flickers. Nothing in either DOM shows it — the old build has a
+    /// frame, the new one has a placeholder — so only the reconciler, which
+    /// sees the pair, can detect it.
+    #[test]
+    fn autotest_the_reconciler_counts_an_image_node_that_reinitialises() {
+        use crate::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+
+        let real = || {
+            ImageRef::new_rawimage(RawImage {
+                pixels: RawImageData::U8(vec![9, 9, 9, 9].into()),
+                width: 1,
+                height: 1,
+                premultiplied_alpha: false,
+                data_format: RawImageFormat::RGBA8,
+                tag: b"frame".to_vec().into(),
+            })
+            .expect("raw image")
+        };
+        let placeholder =
+            || ImageRef::null_image(1, 1, RawImageFormat::BGRA8, b"ph".to_vec());
+
+        // A node index this test owns exclusively, so a parallel test cannot
+        // move the counter under it.
+        const NODE: usize = 4242;
+        let before = image_churn_count(NODE);
+
+        for _ in 0..4 {
+            let mut old = vec![NodeData::create_div(); NODE + 1];
+            old[NODE] = NodeData::create_image(real());
+            let mut new = vec![NodeData::create_div(); NODE + 1];
+            new[NODE] = NodeData::create_image(placeholder());
+            // NO dataset and NO merge callback — exactly the "forgot the
+            // dataset on the video node" mistake.
+            transfer_states(
+                &mut old,
+                &mut new,
+                &[NodeMove {
+                    old_node_id: NodeId::new(NODE),
+                    new_node_id: NodeId::new(NODE),
+                }],
+            );
+        }
+
+        assert!(
+            image_churn_count(NODE) > before,
+            "the reconciler did not notice an image node reverting to a \
+             placeholder while the previous build held a real frame — the \
+             flicker this lint exists to name would go unreported"
+        );
     }
 
     #[test]
