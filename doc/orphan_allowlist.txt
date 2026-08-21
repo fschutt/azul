@@ -14,8 +14,24 @@
 # Format: <symbol>  # reason
 # To remove an entry: wire the function up, or delete it.
 
-# --- suspected genuinely unwired; triage needed -----------------------------
-apply_open_file             # file-picker result never applied? same shape as the map bug
+# --- TRIAGED 2026-08-21: an unfinished feature, not a severed wire ----------
+# The mobile async file picker is implemented and unreachable. Its module doc
+# describes a three-step flow whose step 1 is
+# "FileDialog::open_file_async(...) (added in a follow-up tick to
+# layout/src/desktop/dialogs.rs)" — and that follow-up never landed:
+# open_file_async / save_file_async / open_directory_async do not exist
+# anywhere. So these dispatchers have no caller because their ENTRY POINT was
+# never written.
+#
+# This is NOT the map/video bug, which had a wired entry point aimed at the
+# wrong target. Nothing here is mis-routed; a piece is simply missing. Desktop
+# is unaffected — it keeps the synchronous tfd path in
+# layout/src/desktop/dialogs.rs::FileDialog. The user-visible consequence is
+# that iOS and Android have NO file picker at all.
+#
+# To finish: add FileDialog::open_file_async returning a FilePickerHandle, wire
+# it through api.json, and these three become reachable.
+apply_open_file             # unreachable: FileDialog::open_file_async was never added
 apply_save_file             # ditto
 apply_open_directory        # ditto
 
