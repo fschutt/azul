@@ -309,6 +309,7 @@ impl CodegenBackend for RustBackend {
         NodeTypeTag::Text => "NodeTypeTag::Text",
         NodeTypeTag::Img => "NodeTypeTag::Img",
         NodeTypeTag::VirtualView => "NodeTypeTag::VirtualView",
+        NodeTypeTag::TransientWindow => "NodeTypeTag::TransientWindow",
         NodeTypeTag::Icon => "NodeTypeTag::Icon",
         NodeTypeTag::GeolocationProbe => "NodeTypeTag::GeolocationProbe",
         NodeTypeTag::PageBreak => "NodeTypeTag::PageBreak",

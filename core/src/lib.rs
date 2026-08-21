@@ -299,6 +299,7 @@ pub mod compact;
 /// Linear-time DOM diffing for incremental updates.
 pub mod diagnostics;
 pub mod diff;
+pub mod transient;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;
 /// Drag context for text selection, scrollbar, node, and window drags.
