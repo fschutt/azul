@@ -1,5 +1,5 @@
 [package]
-name = "azul-meet"
+name = "AzMeet"
 version = "0.1.0"
 edition = "2021"
 authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
@@ -18,6 +18,16 @@ publish = false
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 
+# rlib = what the desktop/iOS bin links; cdylib = the Android NativeActivity lib.
+[lib]
+name = "azmeet"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
 [[bin]]
-name = "azul-meet"
+name = "AzMeet"
 path = "src/main.rs"
+
+[target.'cfg(target_os = "android")'.dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity"] }
+ctor = "0.2"

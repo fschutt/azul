@@ -1,5 +1,5 @@
 [package]
-name = "azul-maps"
+name = "AzMaps"
 version = "0.1.0"
 edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
@@ -32,5 +32,5 @@ path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]
-name = "azul-maps"
+name = "AzMaps"
 path = "src/main.rs"

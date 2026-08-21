@@ -19,13 +19,13 @@
 #   # left-click the "File" menubar item (top-left) -> dropdown
 #   scripts/verify-menu-x11.sh /tmp/file.png "mousemove --window %WIN% 24 46 click 1"
 #
-# Env: WIN_NAME (default azul-paint), BIN (default target/release/azul-paint),
+# Env: WIN_NAME (default AzPaint), BIN (default target/release/AzPaint),
 #      AZ_LOG (default off), SETTLE (post-action sleep, default 0.8),
 #      WIN_W/WIN_H (optional forced window size for deterministic coords).
 set -u
 cd "$(dirname "$0")/.."
 OUT="${1:?usage: verify-menu-x11.sh out.png xdotool-action...}"; shift
-BIN="${BIN:-target/release/azul-paint}"
+BIN="${BIN:-target/release/AzPaint}"
 WIN_NAME="${WIN_NAME:-Azul Window}"
 SETTLE="${SETTLE:-0.8}"
 

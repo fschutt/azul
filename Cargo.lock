@@ -3,6 +3,51 @@
 version = 4
 
 [[package]]
+name = "AzMaps"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "ctor",
+]
+
+[[package]]
+name = "AzMeet"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "ctor",
+]
+
+[[package]]
+name = "AzPaint"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "ctor",
+]
+
+[[package]]
+name = "AzWidgets"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+ "ctor",
+]
+
+[[package]]
+name = "AzWriter"
+version = "0.1.0"
+dependencies = [
+ "azul-core",
+ "azul-css",
+ "azul-dll",
+ "azul-layout",
+ "ctor",
+ "pulldown-cmark",
+ "rust-fontconfig",
+]
+
+[[package]]
 name = "accesskit"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -864,29 +909,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "azul-maps"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
- "ctor",
-]
-
-[[package]]
-name = "azul-meet"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
-
-[[package]]
-name = "azul-paint"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
- "ctor",
-]
-
-[[package]]
 name = "azul-screenshare-app"
 version = "0.1.0"
 dependencies = [
@@ -920,26 +942,6 @@ name = "azul-video-app"
 version = "0.1.0"
 dependencies = [
  "azul-dll",
-]
-
-[[package]]
-name = "azul-widgets"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
- "ctor",
-]
-
-[[package]]
-name = "azul-writer"
-version = "0.1.0"
-dependencies = [
- "azul-core",
- "azul-css",
- "azul-dll",
- "azul-layout",
- "pulldown-cmark",
- "rust-fontconfig",
 ]
 
 [[package]]

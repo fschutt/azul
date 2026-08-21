@@ -1594,18 +1594,22 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // desktop rarity; AzSelfTest is a CI smoke test rather than a demo; and
     // AzVault duplicated AzWriter's "real application" role.
     const DEMO_APPS: &[(&str, &str, &str)] = &[
-        ("azul-widgets", "AzWidgets", "every built-in widget in one window"),
-        ("azul-maps", "AzMaps", "a slippy-map tile viewer - async work in the UI"),
-        ("azul-paint", "AzPaint", "a small paint app - canvas drawing"),
+        // First field is the ASSET stem: package name == binary name == asset
+        // name, one string with nothing to drift. It used to be the old
+        // package name while the display name was already AzXxx, which is
+        // precisely how azul-writer's downloads 404'd for a whole release.
+        ("AzWidgets", "AzWidgets", "every built-in widget in one window"),
+        ("AzMaps", "AzMaps", "a slippy-map tile viewer - async work in the UI"),
+        ("AzPaint", "AzPaint", "a small paint app - canvas drawing"),
         (
-            "azul-meet",
+            "AzMeet",
             "AzMeet",
             "screenshare, video and audio capture and playback",
         ),
-        ("azul-writer", "AzWriter", "a document editor - a full application"),
+        ("AzWriter", "AzWriter", "a document editor - a full application"),
     ];
     // OS suffix → label + filename extension, matching the build_demos staging
-    // names (azul-maps-linux, azul-maps-macos, azul-maps-windows.exe).
+    // names (AzMaps-linux, AzMaps-macos, AzMaps-windows.exe).
     const DEMO_OSES: &[(&str, &str, &str)] = &[
         ("linux", "Linux", ""),
         ("macos", "macOS", ""),

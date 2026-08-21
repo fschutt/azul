@@ -1,5 +1,5 @@
 [package]
-name = "azul-widgets"
+name = "AzWidgets"
 version = "0.1.0"
 edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
@@ -31,5 +31,5 @@ path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]
-name = "azul-widgets"
+name = "AzWidgets"
 path = "src/main.rs"

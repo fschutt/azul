@@ -24,21 +24,21 @@ tested: azul-doc                # azul_doc_tests (`--bins`: azul-doc has NO lib 
                                 #   so `--lib` ERRORS rather than running its 196 tests)
 
 # ── demo apps that carry real assertions
-tested: azul-paint              # dll_tests (reuses that job's azul-dll build)
-tested: azul-writer             # dll_tests (ditto)
+tested: AzPaint              # dll_tests (reuses that job's azul-dll build)
+tested: AzWriter             # dll_tests (ditto)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and
 #    wired into a job.
 no-tests: azul-examples         # examples/rust: hello-world binaries
-no-tests: azul-widgets          # widget showcase binary
-no-tests: azul-maps             # demo binary
+no-tests: AzWidgets          # widget showcase binary
+no-tests: AzMaps             # demo binary
 no-tests: azul-vault            # demo binary
 no-tests: azul-gamepad          # demo binary
 no-tests: azul-camera-app       # demo binary
 no-tests: azul-screenshare-app  # demo binary
 no-tests: azul-video-app        # demo binary
-no-tests: azul-meet             # demo binary
+no-tests: AzMeet             # demo binary
 no-tests: azul-self-test        # unattended platform-API smoke BINARY; it is the
                                 #   test, run by the per-OS smoke jobs, not by cargo test
 no-tests: webrender_api         # types only

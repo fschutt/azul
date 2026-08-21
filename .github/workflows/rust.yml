@@ -978,18 +978,18 @@ jobs:
       # Two invocations, not `-p azul-paint -p azul-writer`, because the target
       # kinds differ and the zero-test guard is only meaningful when the targets
       # are named precisely: azul-paint's tests are in its LIB (its bin's
-      # main.rs harness is legitimately empty), azul-writer is bin-only
+      # main.rs harness is legitimately empty), AzWriter now has a lib (the Android cdylib split)
       # (`azwriter`) so `--lib` would match nothing at all.
-      - name: Run azul-paint tests
+      - name: Run AzPaint tests
         run: |
           set -o pipefail
-          cargo test -p azul-paint --lib --no-fail-fast 2>&1 | tee azul-paint-tests.txt
+          cargo test -p AzPaint --lib --no-fail-fast 2>&1 | tee azul-paint-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-paint-tests.txt
 
-      - name: Run azul-writer tests
+      - name: Run AzWriter tests
         run: |
           set -o pipefail
-          cargo test -p azul-writer --bins --no-fail-fast 2>&1 | tee azul-writer-tests.txt
+          cargo test -p AzWriter --lib --no-fail-fast 2>&1 | tee azul-writer-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-writer-tests.txt
 
       - name: Check azul-dll (release feature set)
@@ -3659,7 +3659,7 @@ jobs:
           failed=()
           reused=()
           built=()
-          for demo in azul-widgets azul-maps azul-paint azul-meet azul-writer; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
             demo_dir=""
             for cand in "examples/$demo" "demos/$demo" "$demo"; do
               [ -d "$cand" ] && { demo_dir="$cand"; break; }
@@ -3743,7 +3743,7 @@ jobs:
           # `demos-staging/` must end up holding one file per demo that this run
           # is responsible for. Track it explicitly rather than inferring.
           staged=()
-          for demo in azul-widgets azul-maps azul-paint azul-meet azul-writer; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
             # The path CARGO REPORTED, recorded by the build step, not
             # target/release/<package>. `azul-writer`'s bin is named
             # `azwriter`, so the guessed path never existed and this loop fell
@@ -5563,9 +5563,10 @@ jobs:
           set -uo pipefail
           echo "xcrun:          $(command -v xcrun || echo '<not on PATH>')"
           echo "xcode-select -p: $(xcode-select -p 2>&1 || true)"
+          echo "iphoneos SDK:   $(xcrun --sdk iphoneos --show-sdk-path 2>&1 || echo '<unresolved>')"
           echo "DEVELOPER_DIR:  ${DEVELOPER_DIR:-<unset>}"
           echo "installed Xcodes:"; ls -d /Applications/Xcode*.app 2>/dev/null || echo "  (none)"
-          if ! xcrun -p >/dev/null 2>&1; then
+          if ! xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
             # Pick the newest installed Xcode and point xcode-select at it.
             # Glob, not `ls` (SC2012): the runner installs Xcode_15.4.app etc.
             xc=""
@@ -5578,7 +5579,7 @@ jobs:
               echo "DEVELOPER_DIR=$xc/Contents/Developer" >> "$GITHUB_ENV"
             fi
           fi
-          if ! xcrun -p >/dev/null 2>&1; then
+          if ! xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
             echo "::error::no usable Xcode toolchain on this runner — iOS demo apps CANNOT be built here. Do not advertise them: either fix the image/toolchain or drop the iOS rows from the release page (doc/src/dllgen/deploy.rs os_groups)."
             exit 1
           fi
@@ -5622,7 +5623,7 @@ jobs:
           # needs signing to install on a phone) and the simulator slice
           # (aarch64-apple-ios-sim → <demo>-ios-sim.app.zip, runs UNSIGNED in the
           # iOS Simulator via `xcrun simctl install`).
-          for demo in azul-widgets azul-maps azul-paint azul-meet azul-writer; do
+          for demo in AzWidgets AzMaps AzPaint AzMeet AzWriter; do
             for tgt in aarch64-apple-ios aarch64-apple-ios-sim; do
               echo "=== iOS .app: $demo ($tgt) ==="
               suffix="ios"; [ "$tgt" = "aarch64-apple-ios-sim" ] && suffix="ios-sim"
@@ -5775,7 +5776,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$NDKBIN/llvm-ar"
           BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
           mkdir -p mobile-apps
-          for demo in azul-maps azul-paint azul-widgets; do
+          for demo in AzMaps AzPaint AzWidgets AzMeet AzWriter; do
             echo "=== Android APK: $demo ==="
             AZ_ANDROID_NO_DEPLOY=1 \
               bash scripts/build-android.sh aarch64-linux-android "$demo" "com.azul.${demo//-/_}" "$demo"

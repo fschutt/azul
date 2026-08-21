@@ -5,7 +5,7 @@ cd /home/fs/Development/azul
 export DISPLAY=:0.0
 LOG=/tmp/mb_run.log
 pkill -x azul-paint 2>/dev/null; sleep 0.6
-AZ_BACKEND=cpu AZ_LOG=off ./target/release/azul-paint >"$LOG" 2>&1 &
+AZ_BACKEND=cpu AZ_LOG=off ./target/release/AzPaint >"$LOG" 2>&1 &
 WID=""
 for i in $(seq 1 30); do WID=$(xdotool search --name "Azul Window" 2>/dev/null | head -1); [ -n "$WID" ] && break; sleep 0.3; done
 [ -z "$WID" ] && { echo "NO WINDOW"; tail -15 "$LOG"; exit 1; }

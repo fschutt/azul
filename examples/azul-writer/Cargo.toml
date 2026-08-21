@@ -1,5 +1,5 @@
 [package]
-name = "azul-writer"
+name = "AzWriter"
 version = "0.1.0"
 edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
@@ -34,8 +34,14 @@ azul-css = { path = "../../css" }
 rust-fontconfig = { version = ">=4.4.7, <4.5", default-features = false }
 pulldown-cmark = { version = "0.9", default-features = false }
 
-[[bin]]
+# rlib = what the desktop/iOS bin links; cdylib = the Android NativeActivity lib.
+[lib]
 name = "azwriter"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzWriter"
 path = "src/main.rs"
 
 [features]
@@ -43,3 +49,7 @@ path = "src/main.rs"
 # solver/raster spans from real runs, e.g. driving the app through e2e tests
 # to find where it stutters.
 telemetry = ["azul-dll/telemetry", "azul-layout/telemetry"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity", "pdf"] }
+ctor = "0.2"

@@ -49,7 +49,12 @@ BUILD="${BUILD:-1}"
 MIN_OS="${MIN_OS:-16.0}"
 FEATURES="${AZ_IOS_FEATURES:-std,logging,link-static,a11y}"
 
-if ! xcrun -p >/dev/null 2>&1; then
+# `xcrun -p` is NOT a valid invocation — xcrun exits 64 with
+# "unrecognized option: -p" on every machine, Xcode or not. This probe was
+# therefore ALWAYS true, so every iOS bundle attempt bailed before doing any
+# work and the demo .app/.ipa artifacts were never produced once. The real
+# capability test is whether the iOS SDK resolves.
+if ! xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1; then
     # Say WHAT is wrong. "xcode-select not configured" was the whole message,
     # printed ten times in a row in CI, and it does not distinguish "xcrun is
     # not on PATH at all" from "xcode-select points at a directory that is not
