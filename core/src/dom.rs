@@ -6374,6 +6374,48 @@ impl Dom {
     }
 
     #[inline]
+    /// Give this node an accessible NAME, keeping whatever else it already
+    /// declares.
+    ///
+    /// This is the override an application needs and `with_accessibility_info`
+    /// cannot give it. A widget fills in what it knows — a slider's role and
+    /// live value, a checkbox's checked state — and it CANNOT know what the
+    /// control is called: only the app does. Replacing the whole struct to add
+    /// a name would discard the role and the value with it, so the control
+    /// would gain a name and stop reporting its position.
+    ///
+    /// ```ignore
+    /// Slider::new(volume).dom().with_accessibility_name("Volume")
+    /// ```
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        let mut info = self
+            .root
+            .accessibility
+            .as_ref()
+            .map_or_else(AccessibilityInfo::default, |b| (**b).clone());
+        info.accessibility_name = Some(name.into()).into();
+        self.root.set_accessibility_info(info);
+        self
+    }
+
+    /// Point this node at the node that already NAMES it, keeping the rest of
+    /// its declaration.
+    ///
+    /// Preferred over copying the label text: a duplicated name drifts the
+    /// moment someone edits the visible label and forgets the spoken one.
+    #[must_use]
+    pub fn with_accessibility_labelled_by(mut self, label: DomNodeId) -> Self {
+        let mut info = self
+            .root
+            .accessibility
+            .as_ref()
+            .map_or_else(AccessibilityInfo::default, |b| (**b).clone());
+        info.labelled_by = Some(label).into();
+        self.root.set_accessibility_info(info);
+        self
+    }
+
     #[must_use] pub fn with_accessibility_info(mut self, accessibility_info: AccessibilityInfo) -> Self {
         self.root.set_accessibility_info(accessibility_info);
         self

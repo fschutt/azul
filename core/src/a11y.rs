@@ -60,6 +60,50 @@ pub struct AccessibilityInfo {
     pub is_live_region: bool,
 }
 
+impl AccessibilityInfo {
+    /// The common case: "this control is a X called Y".
+    ///
+    /// Exists because the struct has eleven fields and, from a binding, there
+    /// was no way to fill two of them without spelling out the other nine. A
+    /// developer who has just been told by the engine's a11y lint to name a
+    /// control should be one call away from doing it:
+    ///
+    /// ```ignore
+    /// slider.with_accessibility_info(AccessibilityInfo::named(
+    ///     "Volume", AccessibilityRole::Slider,
+    /// ))
+    /// ```
+    #[must_use]
+    pub fn named(name: impl Into<AzString>, role: AccessibilityRole) -> Self {
+        Self {
+            accessibility_name: OptionString::Some(name.into()),
+            role,
+            ..Self::default()
+        }
+    }
+
+    /// A control named by ANOTHER node — the label element that already carries
+    /// the text.
+    ///
+    /// Preferred over duplicating the string: a copied name drifts the moment
+    /// someone edits the visible label and forgets the spoken one.
+    #[must_use]
+    pub fn labelled_by_node(label: crate::dom::DomNodeId, role: AccessibilityRole) -> Self {
+        Self {
+            labelled_by: OptionDomNodeId::Some(label),
+            role,
+            ..Self::default()
+        }
+    }
+
+    /// Attach a live value — a slider's position, a progress percentage.
+    #[must_use]
+    pub fn with_value(mut self, value: impl Into<AzString>) -> Self {
+        self.accessibility_value = OptionString::Some(value.into());
+        self
+    }
+}
+
 impl Default for AccessibilityInfo {
     /// An empty declaration: no name, no value, `Unknown` role.
     ///

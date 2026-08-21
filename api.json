@@ -12879,6 +12879,51 @@
                                     }
                                 ],
                                 "fn_body": "object.set_accessibility_state(node_id, states)"
+                            },
+                            "warn": {
+                                "doc": [
+                                    "Emit a WARNING from inside a callback or a widget.",
+                                    "",
+                                    "Goes to the same place every engine lint goes: the installed diagnostic",
+                                    "sink (stderr by default, so it shows in a terminal), the in-process ring",
+                                    "that `assert_stderr` reads in e2e, and — once",
+                                    "`telemetry::install_diagnostics_bridge()` is called — the OTLP pipeline",
+                                    "behind Loki and Grafana, tagged with the running e2e scenario.",
+                                    "",
+                                    "Use it where a widget can SEE that it has been used wrongly and the",
+                                    "engine cannot: a slider handed min > max, a list told to select an index",
+                                    "it does not have, a control the app never named. One call, and the",
+                                    "message reaches a developer's console, a test assertion, and a",
+                                    "dashboard.",
+                                    "",
+                                    "```ignore",
+                                    "info.warn(format!(\"Slider: min ({min}) > max ({max}); clamping\"));",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.warn(message)"
+                            },
+                            "log": {
+                                "doc": [
+                                    "Emit an informational message. Same destinations as [`CallbackInfo::warn`];",
+                                    "use it for things worth seeing in a trace but not worth alarming anyone."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.log(message)"
                             }
                         },
                         "repr": "C"
@@ -18470,6 +18515,56 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.with_animation_callback(name, callback, data)"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Give this node an accessible NAME, keeping whatever else it already",
+                                    "declares.",
+                                    "",
+                                    "This is the override an application needs and `with_accessibility_info`",
+                                    "cannot give it. A widget fills in what it knows — a slider's role and",
+                                    "live value, a checkbox's checked state — and it CANNOT know what the",
+                                    "control is called: only the app does. Replacing the whole struct to add",
+                                    "a name would discard the role and the value with it, so the control",
+                                    "would gain a name and stop reporting its position.",
+                                    "",
+                                    "```ignore",
+                                    "Slider::new(volume).dom().with_accessibility_name(\"Volume\")",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "with_accessibility_labelled_by": {
+                                "doc": [
+                                    "Point this node at the node that already NAMES it, keeping the rest of",
+                                    "its declaration.",
+                                    "",
+                                    "Preferred over copying the label text: a duplicated name drifts the",
+                                    "moment someone edits the visible label and forgets the spoken one."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_accessibility_labelled_by(label)"
                             }
                         },
                         "repr": "C"
@@ -19527,6 +19622,52 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "named": {
+                                "doc": [
+                                    "The common case: \"this control is a X called Y\".",
+                                    "",
+                                    "Exists because the struct has eleven fields and, from a binding, there",
+                                    "was no way to fill two of them without spelling out the other nine. A",
+                                    "developer who has just been told by the engine's a11y lint to name a",
+                                    "control should be one call away from doing it:",
+                                    "",
+                                    "```ignore",
+                                    "slider.with_accessibility_info(AccessibilityInfo::named(",
+                                    "    \"Volume\", AccessibilityRole::Slider,",
+                                    "))",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "role": "AccessibilityRole"
+                                    }
+                                ],
+                                "fn_body": "azul_core::a11y::AccessibilityInfo::named(name, role)"
+                            }
+                        },
+                        "functions": {
+                            "with_value": {
+                                "doc": [
+                                    "Attach a live value — a slider's position, a progress percentage."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AccessibilityInfo"
+                                },
+                                "fn_body": "object.with_value(value)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "AccessibilityRole": {
