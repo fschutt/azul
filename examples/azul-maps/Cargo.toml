@@ -34,3 +34,11 @@ crate-type = ["rlib", "cdylib"]
 [[bin]]
 name = "AzMaps"
 path = "src/main.rs"
+
+# iOS links the engine STATICALLY. The default (desktop) dependency uses
+# `link-dynamic`, which compiles only extern declarations and expects a
+# libazul.dylib at runtime — there is none inside a .app, so the device build
+# failed at link time with "_AzWindowCreateOptions_create ... symbol(s) not
+# found for architecture arm64". Same reason Android uses link-static.
+[target.'cfg(target_os = "ios")'.dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "map-tiles"] }
