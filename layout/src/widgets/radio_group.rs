@@ -21,7 +21,7 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutAlignSelf, LayoutMarginRight, LayoutMarginBottom, LayoutMarginLeft},
@@ -80,6 +80,14 @@ pub struct RadioGroup {
     pub options: StringVec,
     /// Style for the group container.
     pub container_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET rather than patched onto the finished `Dom`: that
+    /// is what lets the widget know at build time whether it was named, so its
+    /// warning fires only when nobody supplied one. Forwarded into the
+    /// accessibility declaration the widget builds anyway, beside its role and
+    /// state.
+    pub accessibility_name: OptionString,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -300,6 +308,13 @@ static RADIO_GROUP_LABEL_STYLE: &[CssPropertyWithConditions] = &[
 
 impl RadioGroup {
     /// Creates a radio group from the given options, with the first one selected.
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(options: StringVec) -> Self {
         Self {
             radio_group_state: RadioGroupStateWrapper {
@@ -309,6 +324,7 @@ impl RadioGroup {
             },
             options,
             container_style: build_container_style(false),
+            accessibility_name: OptionString::None,
         }
     }
 
@@ -370,6 +386,13 @@ impl RadioGroup {
     }
 
     #[must_use] pub fn dom(self) -> Dom {
+        // Read before the widget's fields are moved into the DOM below.
+        let rg_name = self.accessibility_name.clone();
+        crate::widgets::warn_widget_needs_a_name(
+            "radio_group",
+            rg_name.is_some(),
+        );
+
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -454,6 +477,15 @@ impl RadioGroup {
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_CLASS))
             .with_css_props(self.container_style)
+            // The name belongs to the GROUP, not to each row. Every row already
+            // has its own option text, which azul derives a name from; stamping
+            // the group's name onto all of them would make them announce
+            // identically and hide the very thing the user is choosing between.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Grouping,
+                accessibility_name: rg_name,
+                ..Default::default()
+            })
             .with_children(children.into())
     }
 }
