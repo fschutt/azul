@@ -62,11 +62,18 @@ fn labelled(label: &str, widget: Dom) -> Dom {
         .with_child(
             // The caption is one of two flex items, so the styling has to land
             // on a real box: a bare text node has none, and the margin, weight
-            // and colour would all be inert.
-            Dom::create_div_with_text(label)
+            // and colour would all be inert. A SPAN rather than a div — this is
+            // a label, and a div says nothing about what the text is.
+            Dom::create_span_with_text(label)
                 .with_css("font-size: 12px; font-weight: bold; color: #667085; margin-bottom: 6px;"),
         )
-        .with_child(widget)
+        // The caption a sighted user reads IS the control's name, so give it to
+        // the accessibility tree too. A slider is a track and a thumb with no
+        // text of its own, and an icon-only button's label is a glyph: the
+        // widget genuinely cannot know what it is called, only this call site
+        // does. `with_accessibility_name` MERGES, so the role and live value
+        // the widget declared survive.
+        .with_child(widget.with_accessibility_name(label))
 }
 
 /// A titled card grouping several labelled widgets.

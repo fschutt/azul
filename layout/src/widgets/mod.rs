@@ -319,8 +319,46 @@ pub(crate) fn all_widget_doms_for_lint() -> Vec<(&'static str, azul_core::dom::D
     label_convention::every_widget_dom()
 }
 
-#[cfg(test)]
+/// A widget telling its caller that only THEY can supply the missing piece.
+///
+/// Two warnings exist for accessibility and they are deliberately different:
+///
+/// * **This one, from the widget.** A widget knows its own type and its own
+///   builder API, so it can name the exact call — "Slider has no accessible
+///   name; use `.with_accessibility_name(..)`". It fires at BUILD time, from
+///   inside the widget, and it can be specific in a way nothing downstream can.
+/// * **`dom_lint::warn_a11y_shape`, from the framework.** That one sees only
+///   nodes, long after any widget has finished, and speaks in terms of the DOM:
+///   "node 40 has role Slider and no value". It catches hand-built DOMs and
+///   third-party widgets the engine has never heard of.
+///
+/// Neither subsumes the other. The widget's warning is actionable and narrow;
+/// the framework's is universal and structural.
+///
+/// Silent when the widget got a name, and suppressible with
+/// `AZ_SUPPRESS=a11y_widget` (or `AZ_SUPPRESS=all`).
+#[cfg(feature = "std")]
+pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
+    if has_name || crate::dom_lint::lint_suppressed("a11y_widget") {
+        return;
+    }
+    azul_core::diagnostics::emit(alloc::format!(
+        "[azul][a11y-widget] {widget_type} was built without an accessible name. \
+         It has no text of its own to derive one from, so a screen reader \
+         announces its ROLE and nothing else. Only the caller knows what this \
+         control is called — add it at the call site with \
+         `.with_accessibility_name(\"…\")`, which MERGES and leaves the \
+         {widget_type}'s own role, value and state intact, or point at an \
+         existing label with `.with_accessibility_labelled_by(node)`. \
+         (suppress with AZ_SUPPRESS=a11y_widget)"
+    ));
+}
+
+#[cfg(not(feature = "std"))]
+pub fn warn_widget_needs_a_name(_widget_type: &str, _has_name: bool) {}
+
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
 mod label_convention {
     //! Workspace-level enforcement of the widget label convention (USER ruling,
     //! 2026-08-12): a widget must never attach state to a raw text node.

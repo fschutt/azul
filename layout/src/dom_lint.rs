@@ -973,6 +973,36 @@ mod semantic_and_a11y_lint_tests {
 }
 
 
+
+/// The azul widget a node came from, if it says so.
+///
+/// Widgets tag themselves `__azul-native-<name>`, which lets the FRAMEWORK lint
+/// give WIDGET-specific advice — naming the type and the exact builder call —
+/// without the widget having to warn at build time.
+///
+/// That distinction matters: a widget cannot warn about a missing name itself,
+/// because the name arrives AFTER it is built. `Slider::new(..).dom()` runs
+/// first, `.with_accessibility_name("Volume")` second. A build-time warning
+/// would fire on every correctly-named slider in existence. The lint runs on
+/// the finished DOM, so it sees the answer.
+fn azul_widget_kind(node: &azul_core::dom::NodeData) -> Option<String> {
+    node.get_ids_and_classes().iter().find_map(|ic| {
+        let s = match ic {
+            azul_core::dom::IdOrClass::Class(c) => c.as_str(),
+            azul_core::dom::IdOrClass::Id(_) => return None,
+        };
+        let rest = s.strip_prefix("__azul-native-")?;
+        // "__azul-native-slider-thumb" -> "slider": the first segment is the
+        // widget; the rest names a part inside it.
+        let name = rest.split('-').next()?;
+        if name.is_empty() {
+            return None;
+        }
+        let mut c = name.chars();
+        Some(c.next()?.to_uppercase().collect::<String>() + c.as_str())
+    })
+}
+
 /// Does a readable text label exist at or beneath `node_id`?
 ///
 /// "Readable" excludes private-use codepoints: an icon glyph is a picture, and
@@ -1159,12 +1189,22 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             && !has_readable_text_label(styled_dom, node_id)
         {
             reported += 1;
+            // Name the WIDGET when the node admits which one it is. "Slider has
+            // no name; add .with_accessibility_name(..)" is a fix someone can
+            // apply; "node 40 is anonymous" is a puzzle they have to solve
+            // first.
+            let who = azul_widget_kind(node)
+                .map_or_else(|| format!("node {idx}"), |w| format!("node {idx} (a {w})"));
             azul_core::diagnostics::emit(format!(
-                "[azul][a11y-shape] node {idx} declares accessibility (role \
+                "[azul][a11y-shape] {who} declares accessibility (role \
                  {role:?}) but has neither an `accessibility_name` nor a \
-                 `labelled_by` pointing at the node that names it. It is in the \
-                 tree and anonymous. Use labelled_by when a separate label element \
-                 already carries the text — that keeps the two from drifting apart. \
+                 `labelled_by`. It is in the tree and anonymous. This control has \
+                 no text of its own to derive a name from, and only the CALL SITE \
+                 knows what it is called: add \
+                 `.with_accessibility_name(\"…\")` there — it MERGES, so the \
+                 role, value and states above survive — or point at the label you \
+                 already render with `.with_accessibility_labelled_by(node)`, \
+                 which cannot drift out of sync the way a copied string does. \
                  (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
             ));
         }

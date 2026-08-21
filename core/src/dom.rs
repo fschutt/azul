@@ -6388,14 +6388,38 @@ impl Dom {
     /// Slider::new(volume).dom().with_accessibility_name("Volume")
     /// ```
     #[must_use]
-    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
-        let mut info = self
+    pub fn with_accessibility_name<S: Into<AzString>>(self, name: S) -> Self {
+        self.with_accessibility_assign(AccessibilityInfo {
+            accessibility_name: Some(name.into()).into(),
+            ..AccessibilityInfo::default()
+        })
+    }
+
+    /// Overlay a PARTIAL accessibility declaration, keeping every field the
+    /// patch does not set.
+    ///
+    /// The general form of the two helpers around it, and the one to reach for
+    /// when setting more than one thing at once:
+    ///
+    /// ```ignore
+    /// slider.dom().with_accessibility_assign(&AccessibilityInfo {
+    ///     accessibility_name: Some("Volume".into()).into(),
+    ///     description: Some("0 to 100".into()).into(),
+    ///     ..Default::default()
+    /// })
+    /// // the widget's role, live value and states all survive
+    /// ```
+    ///
+    /// See [`AccessibilityInfo::assign`] for exactly which fields count as
+    /// "set" — `None`, an empty vec and `Unknown` all mean "not specified".
+    #[must_use]
+    pub fn with_accessibility_assign(mut self, patch: AccessibilityInfo) -> Self {
+        let info = self
             .root
             .accessibility
             .as_ref()
             .map_or_else(AccessibilityInfo::default, |b| (**b).clone());
-        info.accessibility_name = Some(name.into()).into();
-        self.root.set_accessibility_info(info);
+        self.root.set_accessibility_info(info.assigned(patch));
         self
     }
 
@@ -6405,15 +6429,11 @@ impl Dom {
     /// Preferred over copying the label text: a duplicated name drifts the
     /// moment someone edits the visible label and forgets the spoken one.
     #[must_use]
-    pub fn with_accessibility_labelled_by(mut self, label: DomNodeId) -> Self {
-        let mut info = self
-            .root
-            .accessibility
-            .as_ref()
-            .map_or_else(AccessibilityInfo::default, |b| (**b).clone());
-        info.labelled_by = Some(label).into();
-        self.root.set_accessibility_info(info);
-        self
+    pub fn with_accessibility_labelled_by(self, label: DomNodeId) -> Self {
+        self.with_accessibility_assign(AccessibilityInfo {
+            labelled_by: Some(label).into(),
+            ..AccessibilityInfo::default()
+        })
     }
 
     #[must_use] pub fn with_accessibility_info(mut self, accessibility_info: AccessibilityInfo) -> Self {

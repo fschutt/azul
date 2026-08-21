@@ -96,6 +96,74 @@ impl AccessibilityInfo {
         }
     }
 
+    /// Overlay `patch` onto `self`, taking only the fields `patch` actually
+    /// SETS — the accessibility equivalent of a struct assign/merge.
+    ///
+    /// The problem it solves: a widget declares what it knows (role, live
+    /// value, checked state) and an application knows the one thing the widget
+    /// cannot (what the control is CALLED). Replacing the struct to add a name
+    /// throws away the role and value; adding a dedicated setter per field does
+    /// not compose. This lets a caller hand over a partial declaration and keep
+    /// everything else:
+    ///
+    /// ```ignore
+    /// info.assign(&AccessibilityInfo {
+    ///     accessibility_name: Some("Volume".into()).into(),
+    ///     ..Default::default()
+    /// });
+    /// // role, value and states are untouched
+    /// ```
+    ///
+    /// "Actually sets" is defined per field, and deliberately: `None` and an
+    /// EMPTY vec mean "not specified", `AccessibilityRole::Unknown` means "not
+    /// specified" (which is exactly why Default uses it), and `is_live_region`
+    /// is only ever turned ON by a patch — a `false` in a partial struct is
+    /// indistinguishable from an unset field, so it must not clear a `true`
+    /// that the widget set on purpose.
+    #[allow(clippy::needless_pass_by_value)] // by value: crosses the FFI, where the argument arrives owned
+    pub fn assign(&mut self, patch: Self) {
+        if patch.accessibility_name.is_some() {
+            self.accessibility_name = patch.accessibility_name.clone();
+        }
+        if patch.accessibility_value.is_some() {
+            self.accessibility_value = patch.accessibility_value.clone();
+        }
+        if patch.description.is_some() {
+            self.description = patch.description.clone();
+        }
+        if patch.accelerator.is_some() {
+            self.accelerator = patch.accelerator.clone();
+        }
+        if patch.default_action.is_some() {
+            self.default_action = patch.default_action.clone();
+        }
+        if !patch.states.as_ref().is_empty() {
+            self.states = patch.states.clone();
+        }
+        if !patch.supported_actions.as_ref().is_empty() {
+            self.supported_actions = patch.supported_actions.clone();
+        }
+        if patch.labelled_by.is_some() {
+            self.labelled_by = patch.labelled_by;
+        }
+        if patch.described_by.is_some() {
+            self.described_by = patch.described_by;
+        }
+        if !matches!(patch.role, AccessibilityRole::Unknown) {
+            self.role = patch.role;
+        }
+        if patch.is_live_region {
+            self.is_live_region = true;
+        }
+    }
+
+    /// [`AccessibilityInfo::assign`] as a builder: returns the merged value.
+    #[must_use]
+    pub fn assigned(mut self, patch: Self) -> Self {
+        self.assign(patch);
+        self
+    }
+
     /// Attach a live value — a slider's position, a progress percentage.
     #[must_use]
     pub fn with_value(mut self, value: impl Into<AzString>) -> Self {
@@ -2547,5 +2615,69 @@ mod autotest_generated {
             Some(info)
         );
         assert!(OptionAccessibilityInfo::None.is_none());
+    }
+}
+
+#[cfg(test)]
+mod assign_tests {
+    use super::*;
+
+    /// A patch that sets only a NAME must leave the widget's role, value and
+    /// states intact. This is the whole contract: an app names a control, and
+    /// the slider keeps reporting where its thumb is.
+    #[test]
+    fn assign_takes_only_what_the_patch_sets() {
+        let mut widget = AccessibilityInfo {
+            role: AccessibilityRole::Slider,
+            accessibility_value: OptionString::Some("42".into()),
+            states: AccessibilityStateVec::from_vec(vec![AccessibilityState::Focusable]),
+            ..Default::default()
+        };
+
+        widget.assign(AccessibilityInfo {
+            accessibility_name: OptionString::Some("Volume".into()),
+            ..Default::default()
+        });
+
+        assert_eq!(widget.accessibility_name.as_ref().map(|s| s.as_str()), Some("Volume"));
+        assert!(
+            matches!(widget.role, AccessibilityRole::Slider),
+            "an unset role in the patch (Unknown) must not clobber a real one"
+        );
+        assert_eq!(
+            widget.accessibility_value.as_ref().map(|s| s.as_str()),
+            Some("42"),
+            "the live value must survive an app setting the name"
+        );
+        assert_eq!(widget.states.as_ref().len(), 1, "states must survive too");
+    }
+
+    /// A patch CAN override a field the base already set — that is the point of
+    /// an override.
+    #[test]
+    fn assign_overrides_a_field_the_patch_does_set() {
+        let mut base = AccessibilityInfo::named("Old", AccessibilityRole::PushButton);
+        base.assign(AccessibilityInfo {
+            accessibility_name: OptionString::Some("New".into()),
+            role: AccessibilityRole::CheckButton,
+            ..Default::default()
+        });
+        assert_eq!(base.accessibility_name.as_ref().map(|s| s.as_str()), Some("New"));
+        assert!(matches!(base.role, AccessibilityRole::CheckButton));
+    }
+
+    /// `is_live_region: false` in a partial struct is indistinguishable from
+    /// "not specified", so it must never clear a `true` the widget set.
+    #[test]
+    fn assign_never_clears_a_live_region_flag() {
+        let mut base = AccessibilityInfo {
+            is_live_region: true,
+            ..Default::default()
+        };
+        base.assign(AccessibilityInfo::default());
+        assert!(
+            base.is_live_region,
+            "a default-constructed patch must not turn a live region off"
+        );
     }
 }

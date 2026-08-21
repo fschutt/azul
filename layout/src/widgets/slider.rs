@@ -67,6 +67,18 @@ pub struct Slider {
     pub track_style: CssPropertyWithConditionsVec,
     /// Style for the draggable thumb.
     pub thumb_style: CssPropertyWithConditionsVec,
+    /// What this slider is CALLED, for assistive technology.
+    ///
+    /// The widget carries it rather than the caller patching the finished
+    /// `Dom`, so the slider knows at BUILD time whether it was named and can
+    /// say so if it was not. A `Dom`-level override cannot give that: by the
+    /// time it runs, the widget has already finished and a build-time warning
+    /// would have fired on every correctly-named slider.
+    ///
+    /// A slider has no text of its own — it is a track and a thumb — so
+    /// without this a screen reader announces "slider" and the position, and
+    /// never which slider.
+    pub accessibility_name: azul_css::OptionString,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -233,6 +245,22 @@ fn clamp_to_range(value: f32, min: f32, max: f32) -> f32 {
 
 impl Slider {
     /// Creates a slider with the given current value and `[min, max]` range.
+    /// Name this slider for assistive technology.
+    ///
+    /// ```ignore
+    /// Slider::create(vol, 0.0, 100.0).with_accessibility_name("Volume").dom()
+    /// ```
+    ///
+    /// Prefer this over patching the finished `Dom`: the widget forwards it
+    /// into the accessibility declaration it builds anyway, alongside the role
+    /// and the live value, and knowing the name at build time is what lets the
+    /// widget tell you when it is missing without crying wolf.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
@@ -242,6 +270,9 @@ impl Slider {
             },
             track_style: CssPropertyWithConditionsVec::from_const_slice(SLIDER_TRACK_STYLE),
             thumb_style: build_thumb_style(value_to_fraction(value, min, max)),
+            // Unnamed by default; the caller supplies it with
+            // `.with_accessibility_name(..)`, and the widget warns if nobody does.
+            accessibility_name: azul_css::OptionString::None,
         }
     }
 
@@ -296,6 +327,13 @@ impl Slider {
     #[must_use] pub fn dom(self) -> Dom {
         // Read the value BEFORE the fields are moved into the DOM below.
         let value_now = self.slider_state.inner.value;
+
+        // The widget KNOWS here whether it was named, because the name is one
+        // of its own fields — so this warning cannot fire on a slider the
+        // caller did name. That is precisely why the field lives on Slider and
+        // not only as a Dom-level patch applied afterwards.
+        let a11y_name = self.accessibility_name.clone();
+        crate::widgets::warn_widget_needs_a_name("Slider", a11y_name.is_some());
 
         use azul_core::{
             callbacks::CoreCallback,
@@ -357,6 +395,11 @@ impl Slider {
             // build so it tracks the thumb rather than freezing at construction.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                 role: azul_core::a11y::AccessibilityRole::Slider,
+                accessibility_name: a11y_name,
+                // NOTE: no name here on purpose — a slider is a track and a
+                // thumb, with no text to derive one from. The warning below
+                // asks the caller for it.
+
                 accessibility_value: Some(AzString::from(
                     alloc::format!("{value_now}"),
                 ))
