@@ -49,12 +49,26 @@ def main() -> int:
             target = msg.get("target") or {}
             if "bin" not in (target.get("kind") or []):
                 continue
-            # package_id spellings cargo has used: "azul-writer 0.2.0 (path+file:///...)"
-            # and the newer "path+file:///...#azul-writer@0.2.0". Match either
-            # without matching a package that merely CONTAINS the name.
+            # package_id spellings cargo has used, all of which must match
+            # WITHOUT matching a package that merely contains the name:
+            #   1. "azul-writer 0.2.0 (path+file:///...)"      -- legacy
+            #   2. "path+file:///...#azul-writer@0.2.0"        -- newer, renamed dir
+            #   3. "path+file:///...#azul-writer"              -- newer, no version
+            #   4. "path+file:///examples/azul-writer#0.1.0"   -- newer, and cargo
+            #      OMITS the name entirely when the directory is already named
+            #      after the package. This is the one that bit us: the resolver
+            #      returned "no bin artifact" for azul-writer while
+            #      target/release/azwriter sat right there, which would have
+            #      turned the demo build from silently-wrong into loudly-broken.
             pid = msg.get("package_id", "")
-            if not (pid.startswith(package + " ") or ("#" + package + "@") in pid
-                    or pid.endswith("#" + package)):
+            path_part = pid.split("#", 1)[0].rstrip("/")
+            dir_is_package = path_part.rsplit("/", 1)[-1] == package
+            if not (
+                pid.startswith(package + " ")
+                or ("#" + package + "@") in pid
+                or pid.endswith("#" + package)
+                or dir_is_package
+            ):
                 continue
             found.append(exe)
 
