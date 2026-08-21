@@ -1,12 +1,18 @@
+WANT_KIND = "bin"
 #!/usr/bin/env python3
 """Print the executable cargo actually produced for a package.
 
 `target/release/<package>` is a GUESS, and it is wrong whenever a crate
-renames its binary. `examples/azul-writer` declares `[[bin]] name =
-"azwriter"`, so `target/release/azul-writer` has never existed — the CI
-staging loop looked for it, did not find it, took a branch that printed
-"[reuse] ... published binary kept" and stayed green while the 0.2.0
-release shipped ZERO azul-writer assets on all three desktop OSes.
+renames its binary. The package formerly called `azul-writer` declared
+`[[bin]] name = "azwriter"`, so `target/release/azul-writer` never existed
+— the CI staging loop looked for it, did not find it, took a branch that
+printed "[reuse] ... published binary kept" and stayed green while the
+0.2.0 release shipped ZERO azul-writer assets on all three desktop OSes.
+
+The demos are named AzXxx now (package == bin == asset, one string), so
+that particular mismatch cannot recur — dll/tests/demo_naming_contract.rs
+asserts it. This resolver stays because asking cargo is correct regardless
+of naming policy, and policy is not a guarantee.
 
 cargo already answers this exactly: with `--message-format=json` every
 `compiler-artifact` message for a bin target carries an `executable`
@@ -15,7 +21,14 @@ field holding the real path. This reads that stream and prints the path.
 Usage:
     cargo build --release -p <pkg> --message-format=json-render-diagnostics \
         > build.json
-    python3 scripts/cargo_bin_path.py build.json <pkg>
+    python3 scripts/cargo_bin_path.py build.json <pkg> [kind]
+
+`kind` is "bin" (default) or "cdylib". The cdylib case exists for the same
+reason as the bin case: a cdylib is named after the crate's `[lib] name`,
+NOT its package, so `lib${package//-/_}.so` is a guess. It happened to be
+right while packages were `azul-maps` with `[lib] name = "azul_maps"`, and
+broke the moment the package was renamed to `AzMaps` — the script looked
+for libAzMaps.so and cargo had written libazul_maps.so.
 
 Exits 1 (printing nothing to stdout) when the stream contains no
 executable for that package — which means the build produced no binary
@@ -26,10 +39,12 @@ import sys
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("usage: cargo_bin_path.py <cargo-json-log> <package-name>", file=sys.stderr)
+    if len(sys.argv) not in (3, 4):
+        print("usage: cargo_bin_path.py <cargo-json-log> <package-name> [bin|cdylib]", file=sys.stderr)
         return 2
     log_path, package = sys.argv[1], sys.argv[2]
+    global WANT_KIND
+    WANT_KIND = sys.argv[3] if len(sys.argv) > 3 else "bin"
 
     found = []
     with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
@@ -43,11 +58,18 @@ def main() -> int:
                 continue
             if msg.get("reason") != "compiler-artifact":
                 continue
-            exe = msg.get("executable")
+            if WANT_KIND == "bin":
+                exe = msg.get("executable")
+            else:
+                # A cdylib has no `executable`; its artifacts are in `filenames`.
+                exe = next(
+                    (f for f in (msg.get("filenames") or []) if f.endswith((".so", ".dylib", ".dll"))),
+                    None,
+                )
             if not exe:
                 continue
             target = msg.get("target") or {}
-            if "bin" not in (target.get("kind") or []):
+            if WANT_KIND not in (target.get("kind") or []):
                 continue
             # package_id spellings cargo has used, all of which must match
             # WITHOUT matching a package that merely contains the name:
@@ -74,7 +96,7 @@ def main() -> int:
 
     if not found:
         print(
-            f"no bin artifact for package '{package}' in {log_path} — "
+            f"no {WANT_KIND} artifact for package '{package}' in {log_path} — "
             f"the build produced no executable",
             file=sys.stderr,
         )

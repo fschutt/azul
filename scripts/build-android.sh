@@ -65,6 +65,9 @@ if [[ "$CRATE" == "azul-dll" ]]; then
 else
     FEATURE_ARGS=()
 fi
+CARGO_LOG="$WORKSPACE_ROOT/target/android-build-${CRATE}-${TARGET}.json"
+mkdir -p "$WORKSPACE_ROOT/target"
+
 # --lib: Android loads the cdylib (.so) via NativeActivity; build ONLY the
 # library target. A demo's `[[bin]]` is the desktop/iOS entry point and links as
 # an executable (no undefined symbols allowed), which fails on the NDK media
@@ -75,9 +78,17 @@ fi
 # this script worked.
 echo "==> cargo build --lib --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]:-}"
 (cd "$WORKSPACE_ROOT" \
-  && cargo build --lib --target "$TARGET" --release -p "$CRATE" ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"})
+  && cargo build --lib --target "$TARGET" --release -p "$CRATE" ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"} \
+       --message-format=json-render-diagnostics > "$CARGO_LOG")
 
-SRC_SO="$WORKSPACE_ROOT/target/$TARGET/release/lib${LIB_NAME}.so"
+# ASK CARGO for the .so instead of guessing it. A cdylib is named after the
+# crate's `[lib] name`, not its package: AzMaps keeps `[lib] name = "azul_maps"`
+# and therefore produces libazul_maps.so. The old guess, lib${CRATE//-/_}.so,
+# was right only while the package happened to be spelled the same as the lib,
+# and broke the moment the packages were renamed to AzXxx — the script hunted
+# libAzMaps.so while cargo had written libazul_maps.so. Same failure as the
+# desktop binaries, same fix.
+SRC_SO="$(python3 "$WORKSPACE_ROOT/scripts/cargo_bin_path.py" "$CARGO_LOG" "$CRATE" cdylib || true)"
 [[ -f "$SRC_SO" ]] || { echo "missing $SRC_SO — '$CRATE' produced no cdylib (.so). A demo must declare crate-type=cdylib + android_main to ship as an APK; skipping." >&2; exit 4; }
 cp "$SRC_SO" "$BUILD_DIR/lib/$ABI/lib${LIB_NAME}.so"
 
