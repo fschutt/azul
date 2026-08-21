@@ -4196,6 +4196,7 @@ pub fn evaluate_assertion(
         }
         "assert_composition" => eval_assert_composition(params, callback_info),
         "assert_damage_sound" => eval_assert_damage_sound(params, callback_info),
+        "assert_stderr" => eval_assert_stderr(params),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     };
     if result.passed {
@@ -5405,6 +5406,79 @@ fn reject_unknown_params(
 /// `pass`. Against a generated corpus that is a false-green factory: the typo'd
 /// test asserts nothing and counts as coverage.
 #[cfg(feature = "std")]
+/// `assert_stderr` — assert on the framework DIAGNOSTICS emitted so far.
+///
+/// ```json
+/// { "op": "assert_stderr", "not_contains": "image-churn" }
+/// { "op": "assert_stderr", "contains": "image-churn", "clear": true }
+/// ```
+///
+/// Reads `azul_core::diagnostics`, the in-process ring every engine lint writes
+/// to through `diagnostics::emit`. Not literal stderr: a process cannot read
+/// back its own file descriptor, and capturing one would not survive an
+/// application that has routed diagnostics to its own logger. The ring records
+/// regardless of where the sink sends them, so this keeps working when output
+/// is muted or shipped to Loki.
+///
+/// `clear` empties the ring AFTER evaluating, so the next step starts from a
+/// known state — otherwise a warning from step 2 satisfies an assertion in
+/// step 9.
+///
+/// The point of `not_contains` is regression pressure: a scenario that provokes
+/// the conditions of a lint and asserts the lint stays quiet is a test that the
+/// underlying bug has not come back.
+fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
+    const CONSTRAINTS: &[&str] = &["contains", "not_contains", "clear"];
+
+    if let Some(bad) = reject_unknown_params("assert_stderr", params, CONSTRAINTS) {
+        return bad;
+    }
+
+    let contains = params.get("contains").and_then(|v| v.as_str());
+    let not_contains = params.get("not_contains").and_then(|v| v.as_str());
+    if contains.is_none() && not_contains.is_none() {
+        return AssertionResult::fail(
+            "assert_stderr needs `contains` or `not_contains` — with neither it \
+             asserts nothing and would pass forever",
+        );
+    }
+
+    let recorded = azul_core::diagnostics::recorded();
+    let clear_after = params.get("clear").and_then(serde_json::Value::as_bool).unwrap_or(false);
+
+    let mut result = AssertionResult::pass("diagnostics match");
+
+    if let Some(needle) = contains {
+        if !recorded.iter().any(|m| m.contains(needle)) {
+            result = AssertionResult::fail_with(
+                format!("no framework diagnostic contains {needle:?}"),
+                needle.to_string(),
+                format!("{} diagnostic(s): {recorded:?}", recorded.len()),
+            );
+        }
+    }
+
+    if result.passed {
+        if let Some(needle) = not_contains {
+            if let Some(hit) = recorded.iter().find(|m| m.contains(needle)) {
+                result = AssertionResult::fail_with(
+                    format!(
+                        "a framework diagnostic contains {needle:?}, which this \
+                         scenario asserts must not happen"
+                    ),
+                    format!("no diagnostic containing {needle:?}"),
+                    hit.clone(),
+                );
+            }
+        }
+    }
+
+    if clear_after {
+        azul_core::diagnostics::clear();
+    }
+    result
+}
+
 fn eval_assert_damage(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
@@ -17387,4 +17461,69 @@ fn base64_decode_for_shot(input: &str) -> Result<Vec<u8>, ()> {
         }
     }
     Ok(out)
+}
+
+#[cfg(all(test, feature = "std"))]
+mod assert_stderr_tests {
+    use super::*;
+
+    /// The diagnostics ring is GLOBAL, so these must not run concurrently —
+    /// one clearing it mid-assert makes another flake. This bit once already:
+    /// the tests passed individually and failed as a group.
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// `assert_stderr` reads the diagnostics ring every engine lint writes to.
+    ///
+    /// This is what lets an e2e scenario say "provoke the conditions of the
+    /// image-churn lint and assert it stays quiet" — a regression test for the
+    /// underlying bug, expressed as the absence of a warning. And, because the
+    /// same diagnostics flow through telemetry::install_diagnostics_bridge, an
+    /// e2e run reports into Loki/Grafana like any other run.
+    #[test]
+    fn assert_stderr_finds_and_refuses_diagnostics() {
+        let _g = TEST_LOCK.lock();
+        azul_core::diagnostics::clear();
+        azul_core::diagnostics::record("[azul][image-churn] node 7 rebuilt".to_string());
+
+        let hit = eval_assert_stderr(&serde_json::json!({ "contains": "image-churn" }));
+        assert!(hit.passed, "should find the recorded diagnostic: {}", hit.message);
+
+        let missing = eval_assert_stderr(&serde_json::json!({ "contains": "no-such-lint" }));
+        assert!(!missing.passed, "must not claim to find a diagnostic that is absent");
+
+        let forbidden =
+            eval_assert_stderr(&serde_json::json!({ "not_contains": "image-churn" }));
+        assert!(!forbidden.passed, "not_contains must FAIL when the needle is present");
+
+        let clean =
+            eval_assert_stderr(&serde_json::json!({ "not_contains": "no-such-lint" }));
+        assert!(clean.passed, "not_contains passes when the needle is absent");
+
+        azul_core::diagnostics::clear();
+    }
+
+    /// An assertion with no needle asserts nothing, and must say so rather than
+    /// passing forever.
+    #[test]
+    fn assert_stderr_without_a_needle_is_rejected() {
+        let _g = TEST_LOCK.lock();
+        let empty = eval_assert_stderr(&serde_json::json!({}));
+        assert!(!empty.passed);
+        assert!(empty.message.contains("contains"), "{}", empty.message);
+    }
+
+    /// `clear` empties the ring afterwards, so a warning from an early step
+    /// cannot satisfy a later assertion.
+    #[test]
+    fn assert_stderr_can_clear_the_ring() {
+        let _g = TEST_LOCK.lock();
+        azul_core::diagnostics::clear();
+        azul_core::diagnostics::record("[azul][test] marker".to_string());
+        let r = eval_assert_stderr(
+            &serde_json::json!({ "contains": "marker", "clear": true }),
+        );
+        assert!(r.passed);
+        let again = eval_assert_stderr(&serde_json::json!({ "contains": "marker" }));
+        assert!(!again.passed, "clear:true must empty the ring after evaluating");
+    }
 }

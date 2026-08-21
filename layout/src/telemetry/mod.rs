@@ -532,6 +532,97 @@ pub fn gauge_with(name: &str, value: f64, labels: &[(&str, &str)]) {
     metrics::gauge_set_labels(name, labels, value);
 }
 
+/// Log with the running e2e scenario attached as an ATTRIBUTE, not just inside
+/// the message text.
+///
+/// An attribute is what Grafana can filter and group on. Putting the test name
+/// only in the body means reading it back out with a regex in every query,
+/// which is exactly the difference between "the logs are in there somewhere"
+/// and "show me this test's story".
+fn emit_tagged(severity: Severity, message: &str) {
+    match azul_core::diagnostics::current_scope() {
+        Some(test) => log_with_attributes(severity, message, &[("test", test.as_str())]),
+        None => log(severity, message.to_string()),
+    }
+}
+
+/// An e2e assertion FAILED. Reported at Error severity so it stands out in
+/// Grafana the way a crash does, and carries the scenario + step as attributes
+/// so a failure can be traced back to the exact step that produced it.
+///
+/// Scenarios run serially, so the resulting stream reads in order: everything
+/// one test emitted, then its verdict.
+pub fn report_e2e_failure(scenario: &str, step: &str, detail: &str) {
+    log_with_attributes(
+        Severity::Error,
+        &format!("e2e assertion failed: {detail}"),
+        &[("test", scenario), ("step", step), ("kind", "e2e_failure")],
+    );
+}
+
+/// An e2e scenario finished. `passed` distinguishes the two outcomes without
+/// needing to parse the message.
+pub fn report_e2e_result(scenario: &str, passed: bool, steps: usize) {
+    log_with_attributes(
+        if passed { Severity::Info } else { Severity::Error },
+        &format!(
+            "e2e scenario {} after {steps} step(s)",
+            if passed { "passed" } else { "FAILED" }
+        ),
+        &[
+            ("test", scenario),
+            ("kind", "e2e_result"),
+            ("passed", if passed { "true" } else { "false" }),
+        ],
+    );
+}
+
+/// `log`, plus attributes.
+fn log_with_attributes(severity: Severity, message: &str, attrs: &[(&str, &str)]) {
+    if !tier().allows_metrics() || !config::logs_enabled() {
+        return;
+    }
+    let floor = inner()
+        .read()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|state| state.min_severity))
+        .unwrap_or(DEFAULT_LOG_SEVERITY);
+    if severity < floor {
+        return;
+    }
+    let mut record = LogRecord::new(severity, message.to_string());
+    for (k, v) in attrs {
+        record = record.with_attribute(*k, (*v).to_string());
+    }
+    if let Some(client_id) = config_snapshot().client_id {
+        record = record.with_attribute("client_id", client_id);
+    }
+    push_log(record);
+}
+
+/// Send every framework DIAGNOSTIC through telemetry, so engine lints land in
+/// the same place as everything else — and, in QA or production, in Loki behind
+/// Grafana rather than on a stderr nobody reads.
+///
+/// azul-core cannot call this directly: it does not know about telemetry, and
+/// must not. It exposes an installable sink instead
+/// (`azul_core::diagnostics::set_sink`), and this is what an application
+/// installs into it. One call at startup and every existing lint — image-churn,
+/// text-without-block, whatever comes next — is routed, because they all go
+/// through `diagnostics::emit`.
+///
+/// Diagnostics are warnings by definition: the engine only emits one when
+/// something the app built will misbehave.
+pub fn install_diagnostics_bridge() {
+    azul_core::diagnostics::set_sink(|message| {
+        // Keep the developer-visible behaviour: a warning on stderr is what
+        // someone running the app locally expects to see. Telemetry is
+        // ADDITIONAL, and silently does nothing when it is not configured.
+        eprintln!("{message}");
+        emit_tagged(Severity::Warn, message);
+    });
+}
+
 /// Buffers a structured log record for the next flush.
 ///
 /// Records below the severity floor, or below consent tier `Metrics`, are

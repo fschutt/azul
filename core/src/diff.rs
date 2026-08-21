@@ -930,16 +930,16 @@ fn note_image_reinitialised(node_index: usize, carried: bool) {
     let rate = entry.0;
 
     if carried {
-        std::eprintln!(
+        crate::diagnostics::emit(format!(
             "[azul][image-churn] node {node_index} rebuilt its image as a \
              PLACEHOLDER {rate}x in one second. The previous frame was carried \
              forward each time, so nothing flickers — but a live image node is \
              being reconstructed every frame. If this is not a capture widget, \
              build the node once and update it through the image cache. \
              (suppress with AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
-        );
+        ));
     } else {
-        std::eprintln!(
+        crate::diagnostics::emit(format!(
             "[azul][image-churn] node {node_index} rebuilt its image as a \
              PLACEHOLDER {rate}x in one second and the previous frame could NOT \
              be carried forward: this node has NO DATASET + merge callback, so \
@@ -950,7 +950,7 @@ fn note_image_reinitialised(node_index: usize, carried: bool) {
              dataset: attach one with a DatasetMergeCallback (see MapWidget / \
              ScreenCaptureWidget). \
              (suppress with AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
-        );
+        ));
     }
 }
 
