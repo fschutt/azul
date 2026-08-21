@@ -867,12 +867,13 @@ const IMAGE_CHURN_PER_SEC: u32 = 10;
 /// Shared with the tests so the detector can be asserted on directly, instead
 /// of only through a message on stderr that nothing can observe.
 #[cfg(feature = "std")]
-fn image_churn_state() -> &'static std::sync::Mutex<
-    std::collections::BTreeMap<usize, (u32, std::time::Instant, bool)>,
-> {
-    use std::{collections::BTreeMap, sync::{Mutex, OnceLock}, time::Instant};
-    static CHURN: OnceLock<Mutex<BTreeMap<usize, (u32, Instant, bool)>>> = OnceLock::new();
-    CHURN.get_or_init(|| Mutex::new(BTreeMap::new()))
+type ImageChurnMap = BTreeMap<usize, (u32, std::time::Instant, bool)>;
+
+#[cfg(feature = "std")]
+fn image_churn_state() -> &'static std::sync::Mutex<ImageChurnMap> {
+    use std::sync::{Mutex, OnceLock};
+    static CHURN: OnceLock<Mutex<ImageChurnMap>> = OnceLock::new();
+    CHURN.get_or_init(|| Mutex::new(ImageChurnMap::new()))
 }
 
 /// How many times this node has re-initialised inside the current window.
