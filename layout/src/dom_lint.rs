@@ -627,3 +627,323 @@ mod autotest_generated {
     }
 }
 
+
+// ============================================================================
+// Lint: a <div> that holds nothing but text
+// ============================================================================
+
+/// Suppression tag for [`warn_div_used_as_text_container`].
+pub const DIV_TEXT_SUPPRESS_TAG: &str = "div_as_text";
+
+fn div_text_suppressed() -> bool {
+    static SUPPRESSED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SUPPRESSED.get_or_init(|| {
+        let v = std::env::var("AZ_SUPPRESS")
+            .or_else(|_| std::env::var("AZ_SUPRESS"))
+            .unwrap_or_default();
+        v.split(',').any(|t| t.trim().eq_ignore_ascii_case(DIV_TEXT_SUPPRESS_TAG))
+    })
+}
+
+/// A `<div>` whose only child is a text node is almost always the wrong
+/// element.
+///
+/// `div` is a generic CONTAINER — it says "a box, meaning unspecified". Text
+/// that is a label, a caption, or a control's text belongs in `<span>`
+/// (inline), and text that is prose belongs in `<p>`. Reaching for `div` is
+/// usually a sign that someone wanted "a box around this text" and took the
+/// first constructor that provided one.
+///
+/// It matters beyond tidiness. Assistive technology reads the element to decide
+/// what a thing IS: a `div` conveys nothing, while `p` announces a paragraph
+/// and `span` stays inline inside its label. It also affects layout — a `div`
+/// is block-level, so a label inside a button becomes a block box where an
+/// inline one was meant.
+///
+/// Not an error: a `div` with text is legal and occasionally right (a sizing
+/// box that happens to contain a word). Hence a warning, and a suppression tag.
+pub fn warn_div_used_as_text_container(styled_dom: &StyledDom) {
+    if div_text_suppressed() {
+        return;
+    }
+
+    let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+
+    let mut reported = 0usize;
+    for (node_id, node) in nodes.linear_iter().filter_map(|id| nodes.get(id).map(|n| (id, n))) {
+        if !matches!(node.get_node_type(), NodeType::Div) {
+            continue;
+        }
+        // Exactly one child, and that child is a text node.
+        let Some(item) = hierarchy.get(node_id) else {
+            continue;
+        };
+        let Some(first) = item.first_child_id(node_id) else {
+            continue;
+        };
+        let only_child = hierarchy
+            .get(first)
+            .is_some_and(|c| c.next_sibling_id().is_none());
+        if !only_child {
+            continue;
+        }
+        let Some(child) = nodes.get(first) else {
+            continue;
+        };
+        let NodeType::Text(text) = child.get_node_type() else {
+            continue;
+        };
+
+        reported += 1;
+        if reported > 8 {
+            break; // one screenful is enough to act on
+        }
+        let preview: String = text.as_str().chars().take(24).collect();
+        azul_core::diagnostics::emit(format!(
+            "[azul][div-as-text] node {} is a <div> whose only child is the text \
+             {preview:?}. A div is a generic container and says nothing about \
+             what the text IS. Use create_span_with_text for a label or a \
+             control's text (inline, stays inside its line box) or \
+             create_p_with_text for prose (block, announced as a paragraph). \
+             Assistive technology reads the element to decide what a thing is, \
+             and a div tells it nothing. \
+             (suppress with AZ_SUPPRESS={DIV_TEXT_SUPPRESS_TAG})",
+            node_id.index()
+        ));
+    }
+}
+
+// ============================================================================
+// Lint: an interactive node with no accessible name
+// ============================================================================
+
+/// Suppression tag for [`warn_interactive_without_accessibility`].
+pub const A11Y_SUPPRESS_TAG: &str = "a11y";
+
+fn a11y_suppressed() -> bool {
+    static SUPPRESSED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SUPPRESSED.get_or_init(|| {
+        let v = std::env::var("AZ_SUPPRESS")
+            .or_else(|_| std::env::var("AZ_SUPRESS"))
+            .unwrap_or_default();
+        v.split(',').any(|t| t.trim().eq_ignore_ascii_case(A11Y_SUPPRESS_TAG))
+    })
+}
+
+/// A node the user can CLICK, with nothing that names it to assistive
+/// technology.
+///
+/// A screen reader announces a control by its accessible name. Without one it
+/// reads "button" — or nothing at all — and the control is unusable without
+/// sight. Azul builds its accessibility tree from `NodeData::accessibility`,
+/// so a node with a click callback and no `AccessibilityInfo` is invisible to
+/// that tree even though it is plainly visible on screen.
+///
+/// The fix is one call:
+///
+/// ```ignore
+/// dom.with_accessibility_info(AccessibilityInfo {
+///     accessibility_name: Some("Mute microphone".into()).into(),
+///     ..Default::default()
+/// })
+/// ```
+///
+/// A node whose text child already spells out its label is NOT reported: azul
+/// derives a name from the text in that case, so the control does announce
+/// itself. What this catches is the icon-only button — the one whose label is a
+/// glyph, where a sighted user infers "mute" from a picture and a screen reader
+/// gets a private-use codepoint.
+pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
+    if a11y_suppressed() {
+        return;
+    }
+
+    let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+
+    let mut reported = 0usize;
+    for (node_id, node) in nodes.linear_iter().filter_map(|id| nodes.get(id).map(|n| (id, n))) {
+        // "Interactive" = the app attached a callback to it.
+        if node.get_callbacks().is_empty() {
+            continue;
+        }
+        if node.accessibility.is_some() {
+            continue; // already named
+        }
+
+        // Does a descendant text node spell out a usable label? Azul derives a
+        // name from it, so those controls DO announce themselves.
+        // Walk DESCENDANTS, not just direct children. A well-built control puts
+        // its label in a <span> — the shape this crate recommends — so the text
+        // is a grandchild. Scanning one level deep flagged every correctly
+        // written button, which a test caught before this shipped.
+        let mut has_readable_text = false;
+        let mut stack = vec![node_id];
+        let mut visited = 0usize;
+        while let Some(cur) = stack.pop() {
+            visited += 1;
+            if visited > 64 {
+                break; // a label is never buried this deep; bound the walk
+            }
+            if let Some(cn) = nodes.get(cur) {
+                if let NodeType::Text(t) = cn.get_node_type() {
+                    // A private-use glyph is an ICON, not a name: it reads as a
+                    // meaningless codepoint.
+                    if t.as_str().chars().any(|ch| {
+                        ch.is_alphanumeric() && !('\u{e000}'..='\u{f8ff}').contains(&ch)
+                    }) {
+                        has_readable_text = true;
+                        break;
+                    }
+                }
+            }
+            if let Some(item) = hierarchy.get(cur) {
+                if let Some(first) = item.first_child_id(cur) {
+                    let mut sib = Some(first);
+                    while let Some(sid) = sib {
+                        stack.push(sid);
+                        sib = hierarchy.get(sid).and_then(NodeHierarchyItem::next_sibling_id);
+                    }
+                }
+            }
+        }
+        if has_readable_text {
+            continue;
+        }
+
+        reported += 1;
+        if reported > 8 {
+            break;
+        }
+        azul_core::diagnostics::emit(format!(
+            "[azul][a11y] node {} has a callback but no accessible name, and no \
+             text child that could serve as one — an icon-only control reads to \
+             a screen reader as a private-use codepoint, or as nothing. Add one: \
+             .with_accessibility_info(AccessibilityInfo {{ accessibility_name: \
+             Some(\"...\".into()).into(), ..Default::default() }}). \
+             (suppress with AZ_SUPPRESS={A11Y_SUPPRESS_TAG})",
+            node_id.index()
+        ));
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod semantic_and_a11y_lint_tests {
+    use super::*;
+    use azul_core::dom::Dom;
+
+    /// The lints share the global diagnostics ring, so they must not run
+    /// concurrently — this has already bitten twice in this codebase.
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn styled(dom: Dom) -> StyledDom {
+        StyledDom::create_from_dom(dom)
+    }
+
+    #[test]
+    fn a_div_holding_only_text_is_reported() {
+        let _g = TEST_LOCK.lock();
+        azul_core::diagnostics::clear();
+
+        warn_div_used_as_text_container(&styled(
+            Dom::create_body().with_child(Dom::create_div_with_text("Unmute mic")),
+        ));
+        assert!(
+            azul_core::diagnostics::any_contains("div-as-text"),
+            "a <div> whose only child is text must be reported: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+
+        // ...and the alternatives must NOT be.
+        azul_core::diagnostics::clear();
+        warn_div_used_as_text_container(&styled(
+            Dom::create_body()
+                .with_child(Dom::create_span_with_text("Unmute mic"))
+                .with_child(Dom::create_p_with_text("A paragraph of prose.")),
+        ));
+        assert!(
+            !azul_core::diagnostics::any_contains("div-as-text"),
+            "span and p are the RECOMMENDED forms and must not be flagged: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// A div that contains other elements is a container doing its job.
+    #[test]
+    fn a_div_with_element_children_is_not_reported() {
+        let _g = TEST_LOCK.lock();
+        azul_core::diagnostics::clear();
+        warn_div_used_as_text_container(&styled(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_span_with_text("a"))
+                    .with_child(Dom::create_span_with_text("b")),
+            ),
+        ));
+        assert!(!azul_core::diagnostics::any_contains("div-as-text"));
+        azul_core::diagnostics::clear();
+    }
+
+    /// An ICON-only control — its label is a private-use glyph — announces
+    /// nothing to a screen reader and must be reported.
+    #[test]
+    fn an_icon_only_control_without_a_name_is_reported() {
+        let _g = TEST_LOCK.lock();
+        azul_core::diagnostics::clear();
+
+        let icon_button = Dom::create_div()
+            .with_child(Dom::create_span_with_text("\u{e161}")) // a Material icon
+            .with_callback(
+                azul_core::dom::EventFilter::Hover(
+                    azul_core::dom::HoverEventFilter::MouseUp,
+                ),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            );
+        warn_interactive_without_accessibility(&styled(
+            Dom::create_body().with_child(icon_button),
+        ));
+        assert!(
+            azul_core::diagnostics::any_contains("[azul][a11y]"),
+            "an icon-only control with no accessible name must be reported: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    /// A control whose text spells out its label DOES announce itself — azul
+    /// derives a name from it — so reporting it would be noise.
+    #[test]
+    fn a_control_with_a_readable_label_is_not_reported() {
+        let _g = TEST_LOCK.lock();
+        azul_core::diagnostics::clear();
+
+        let text_button = Dom::create_div()
+            .with_child(Dom::create_span_with_text("Unmute mic"))
+            .with_callback(
+                azul_core::dom::EventFilter::Hover(
+                    azul_core::dom::HoverEventFilter::MouseUp,
+                ),
+                azul_core::refany::RefAny::new(()),
+                crate::callbacks::Callback::from_ptr(noop_cb),
+            );
+        warn_interactive_without_accessibility(&styled(
+            Dom::create_body().with_child(text_button),
+        ));
+        assert!(
+            !azul_core::diagnostics::any_contains("[azul][a11y]"),
+            "a control with a readable text label already announces itself: {:?}",
+            azul_core::diagnostics::recorded()
+        );
+        azul_core::diagnostics::clear();
+    }
+
+    extern "C" fn noop_cb(
+        _: azul_core::refany::RefAny,
+        _: crate::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        azul_core::callbacks::Update::DoNothing
+    }
+}

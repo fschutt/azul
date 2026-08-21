@@ -36,29 +36,35 @@ struct MeetState {
 const TILE: &str = "width: 300px; height: 200px; margin: 8px; border-radius: 10px; \
     background: #2b2b38; display: flex; align-items: center; justify-content: center; \
     color: #99a; font-size: 17px; overflow: hidden;";
+// `white-space: nowrap` + `flex-shrink: 0`: without them the toolbar's flex
+// line shrinks the buttons below their label width and the text breaks
+// mid-phrase — "Unmute" on one line, "mic" on the next. A control's label is
+// not prose; it must never wrap.
 const BTN: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; \
-    background: #3a3a4a; color: #e6e6f0; font-size: 14px;";
+    background: #3a3a4a; color: #e6e6f0; font-size: 14px; \
+    white-space: nowrap; flex-shrink: 0;";
 const BTN_ON: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; \
-    background: #2f6db0; color: #ffffff; font-size: 14px;";
+    background: #2f6db0; color: #ffffff; font-size: 14px; \
+    white-space: nowrap; flex-shrink: 0;";
 
 fn participant(name: &str) -> Dom {
-    Dom::create_div().with_css(TILE).with_child(Dom::create_text_do_not_use_without_block_level_wrapper(name))
+    Dom::create_div().with_css(TILE).with_child(Dom::create_span_with_text(name))
 }
 
 /// One column of the settings strip: a device-kind heading + the device names.
 fn device_col(title: &str, devices: &[String]) -> Dom {
     let mut col = Dom::create_div().with_css("display: flex; flex-direction: column; margin: 0 28px;");
     col = col.with_child(
-        Dom::create_div_with_text(title).with_css("font-size: 13px; color: #8890a8; margin-bottom: 4px;"),
+        Dom::create_span_with_text(title).with_css("font-size: 13px; color: #8890a8; margin-bottom: 4px;"),
     );
     if devices.is_empty() {
         col = col.with_child(
-            Dom::create_div_with_text("(none detected)").with_css("font-size: 13px; color: #667;"),
+            Dom::create_span_with_text("(none detected)").with_css("font-size: 13px; color: #667;"),
         );
     } else {
         for d in devices {
             col = col.with_child(
-                Dom::create_div_with_text(d.as_str()).with_css("font-size: 13px; color: #ccd; padding: 2px 0;"),
+                Dom::create_span_with_text(d.as_str()).with_css("font-size: 13px; color: #ccd; padding: 2px 0;"),
             );
         }
     }
@@ -88,7 +94,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     } else {
         Dom::create_div()
             .with_css(TILE)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("You · camera off"))
+            .with_child(Dom::create_span_with_text("You · camera off"))
     };
 
     // --- video grid: self + (optional) screen-share + remote placeholders ---
@@ -115,7 +121,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(if mic { BTN_ON } else { BTN })
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(if mic { "Mute" } else { "Unmute mic" }))
+                .with_child(Dom::create_span_with_text(if mic { "Mute" } else { "Unmute mic" }))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     data.clone(),
@@ -125,7 +131,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(if cam { BTN_ON } else { BTN })
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(if cam { "Stop video" } else { "Start video" }))
+                .with_child(Dom::create_span_with_text(if cam { "Stop video" } else { "Start video" }))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     data.clone(),
@@ -135,7 +141,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(if screen { BTN_ON } else { BTN })
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(if screen { "Stop share" } else { "Share screen" }))
+                .with_child(Dom::create_span_with_text(if screen { "Stop share" } else { "Share screen" }))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     data.clone(),
@@ -157,7 +163,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
          background: #0e0e14; font-family: sans-serif; color: #e6e6f0;",
     );
     body = body.with_child(
-        Dom::create_div_with_text(format!("AzMeet · meeting {}", link).as_str())
+        Dom::create_span_with_text(format!("AzMeet · meeting {}", link).as_str())
             .with_css("padding: 12px; font-size: 18px; background: #15151c;"),
     );
     // While unmuted, a (visually tiny) MicrophoneWidget captures audio — its
