@@ -3792,6 +3792,17 @@ impl WaylandWindow {
             ws.mouse_state.left_down = false;
             ws.mouse_state.right_down = false;
             ws.mouse_state.middle_down = false;
+            // Drop every held KEY for the same reason as the buttons above: the
+            // key-UP of whatever caused the focus change goes to the app that
+            // took focus. On macOS that is Cmd of Cmd-Tab, which then stays
+            // latched and turns every later keystroke into a shortcut. Windows
+            // has done this since it was written; the other three never did.
+            ws.keyboard_state.current_virtual_keycode =
+            azul_core::window::OptionVirtualKeyCode::None;
+            ws.keyboard_state.pressed_virtual_keycodes =
+            azul_core::window::VirtualKeyCodeVec::from_vec(Vec::new());
+            ws.keyboard_state.pressed_scancodes =
+            azul_core::window::ScanCodeVec::from_vec(Vec::new());
         });
         self.dynamic_selector_context.window_focused = false;
         // Every held key is released somewhere we will never hear about, so drop

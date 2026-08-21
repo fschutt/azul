@@ -73,17 +73,26 @@ fn every_blur_handler_releases_the_mouse_buttons() {
     );
 }
 
-/// The keyboard equivalent must stay too — it is the precedent this rests on.
+/// EVERY backend must drop held keys on blur, not just Windows.
+///
+/// Windows has always done this, with the right reasoning written down. The
+/// other three never did — so on macOS, Cmd of Cmd-Tab stayed latched and every
+/// later keystroke read as a shortcut; on X11 and Wayland the same for Alt.
 #[test]
-fn the_windows_blur_handler_still_drops_held_keys() {
-    let body = handler_body(
-        &repo_root(),
-        "dll/src/desktop/shell2/windows/mod.rs",
-        "Drop every held key",
-    );
+fn every_blur_handler_drops_held_keys() {
+    let root = repo_root();
+    let mut missing = Vec::new();
+    for (file, marker) in BLUR_HANDLERS {
+        let body = handler_body(&root, file, marker);
+        if !body.contains("pressed_virtual_keycodes") {
+            missing.push(*file);
+        }
+    }
     assert!(
-        body.contains("pressed_virtual_keycodes"),
-        "the held-key drop on blur disappeared; the modifier that caused the \
-         focus change (Alt of Alt+Tab) would stay latched"
+        missing.is_empty(),
+        "these blur handlers do not drop held keys: {missing:?}\n\n\
+         The key-UP of whatever caused the focus change is delivered to the app \
+         that took focus — the Cmd of Cmd-Tab, the Alt of Alt-Tab — so it stays \
+         latched and every later keystroke is read as a shortcut."
     );
 }
