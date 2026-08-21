@@ -453,7 +453,12 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
 
     let target: Option<PathBuf> = if current_path.is_none() || always_ask {
         // Native save dialog (tinyfiledialogs). Blocks; fine for a shell.
-        match FileDialog::save_file(AzString::from("Save As"), OptionString::None).into_option() {
+        match FileDialog::save_file(
+            AzString::from("Save As \u{2014} .md for markdown, .pdf to export"),
+            OptionString::None,
+        )
+        .into_option()
+        {
             Some(p) => {
                 let mut path = PathBuf::from(p.as_str());
                 if path.extension().is_none() {
@@ -468,6 +473,37 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
     };
 
     let Some(path) = target else { return Update::DoNothing };
+
+    // Save writes the format the FILENAME asks for. Before this, Save always
+    // wrote markdown and forced a .md extension, so typing "report.pdf" in the
+    // dialog produced a markdown file called report.pdf — the dialog appeared,
+    // something was written, and it was not a PDF. Export-PDF lives in the
+    // backstage, which is not where anyone looks first.
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    {
+        let bytes = pdf_bytes(&model_snapshot.content, info);
+        if bytes.is_empty() {
+            eprintln!("[azwriter] PDF export produced no bytes");
+            return Update::DoNothing;
+        }
+        return match std::fs::write(&path, &bytes) {
+            Ok(()) => {
+                eprintln!(
+                    "[azwriter] exported {} bytes to {}",
+                    bytes.len(),
+                    path.display()
+                );
+                Update::RefreshDom
+            }
+            Err(e) => {
+                eprintln!("[azwriter] PDF write failed: {e}");
+                Update::DoNothing
+            }
+        };
+    }
 
     match document::save_markdown(&path, &model_snapshot) {
         Ok(()) => {
@@ -564,6 +600,36 @@ pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> 
     Update::RefreshDom
 }
 
+/// Render the document to PDF bytes. Shared by the backstage "Export PDF"
+/// button and by Save-with-a-.pdf-extension, so the two cannot drift.
+fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
+    // A4 at 96 dpi CSS px, matching the canvas sheets.
+    const A4_W_PX: f32 = 794.0;
+    const A4_H_PX: f32 = 1123.0;
+
+    // Ask for the token engine; the PDF engine falls back to the slicer
+    // when the variable is unset.
+    std::env::set_var("AZ_PAGINATION_ENGINE", "tokens");
+
+    let mut doc = Dom::create_body().with_css(&format!(
+        "margin: 0; padding: {}px; background: white; {}",
+        96, fonts::UI_FONT_CSS
+    ));
+    doc.add_child(content.clone());
+    let styled = azul_core::styled_dom::StyledDom::create_from_dom(doc);
+
+    let pdf = azul::unified::pdf::Pdf::new();
+    pdf.from_styled_dom_with_resources(
+        styled,
+        A4_W_PX,
+        A4_H_PX,
+        &info.get_font_cache_clone(),
+        &info.get_image_cache_clone(),
+    )
+    .as_slice()
+    .to_vec()
+}
+
 /// Backstage Export -> "Create PDF/XPS": run the whole document through
 /// the engine's DOM->PDF path and write the file.
 ///
@@ -592,32 +658,7 @@ pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Upd
         path.set_extension("pdf");
     }
 
-    // A4 at 96 dpi CSS px, matching the canvas sheets.
-    const A4_W_PX: f32 = 794.0;
-    const A4_H_PX: f32 = 1123.0;
-
-    // Ask for the token engine; the PDF engine falls back to the slicer
-    // when the variable is unset.
-    std::env::set_var("AZ_PAGINATION_ENGINE", "tokens");
-
-    // Style the document the same way the canvas does, then hand the
-    // engine its own resource snapshots (shared parsed fonts + decoded
-    // images - no re-scan, no re-decode).
-    let mut doc = Dom::create_body().with_css(&format!(
-        "margin: 0; padding: {}px; background: white; {}",
-        96, fonts::UI_FONT_CSS
-    ));
-    doc.add_child(content);
-    let styled = azul_core::styled_dom::StyledDom::create_from_dom(doc);
-
-    let pdf = azul::unified::pdf::Pdf::new();
-    let bytes = pdf.from_styled_dom_with_resources(
-        styled,
-        A4_W_PX,
-        A4_H_PX,
-        &info.get_font_cache_clone(),
-        &info.get_image_cache_clone(),
-    );
+    let bytes = azul_css::U8Vec::from_vec(pdf_bytes(&content, &mut info));
 
     if bytes.as_slice().is_empty() {
         eprintln!("[azwriter] PDF export produced no bytes");
