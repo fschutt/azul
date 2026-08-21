@@ -27,7 +27,7 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::CssPropertyWithConditions;
 use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutWidth, LayoutMarginLeft},
@@ -88,6 +88,11 @@ pub struct TimePicker {
     pub state: TimePickerStateWrapper,
     /// Style for the row container.
     pub container_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 /// Wraps [`TimePickerState`] together with its change callback.
@@ -317,6 +322,13 @@ impl TimePicker {
     /// Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)
     /// and minute (`0..=59`), both clamped into range.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(hour: u32, minute: u32) -> Self {
         let mut inner = TimePickerState::default();
         let (lo, hi) = inner.hour_bounds();
@@ -328,6 +340,7 @@ impl TimePicker {
                 on_change: None.into(),
             },
             container_style: CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE),
+            accessibility_name: OptionString::None,
         }
     }
 

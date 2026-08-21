@@ -40,7 +40,7 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutAlignItems, LayoutWidth, LayoutHeight},
@@ -115,6 +115,11 @@ pub struct DatePicker {
     pub state: DatePickerStateWrapper,
     /// Style for the outer container.
     pub container_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 /// Wraps [`DatePickerState`] together with its change callback.
@@ -424,6 +429,13 @@ struct DayCellData {
 impl DatePicker {
     /// Creates a new `DatePicker` showing `year`/`month` with `day` selected.
     /// `month` is clamped to `1..=12` and `day` to `1..=days_in_month`.
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(year: u32, month: u32, day: u32) -> Self {
         let month = month.clamp(1, 12);
         let dim = days_in_month(year, month);
@@ -434,6 +446,7 @@ impl DatePicker {
                 on_change: None.into(),
             },
             container_style: CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE),
+            accessibility_name: OptionString::None,
         }
     }
 

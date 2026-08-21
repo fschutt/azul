@@ -47183,6 +47183,9 @@
                                 },
                                 "arrow_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -47267,6 +47270,24 @@
                                     "type": "DropDown"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new `DropDown` with the given choices and no callback.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDown"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -47320,6 +47341,9 @@
                                 },
                                 "style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -47403,6 +47427,24 @@
                                     "type": "ColorInput"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new `ColorInput` displaying the given color.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ColorInput"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -47551,6 +47593,9 @@
                                 },
                                 "label_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -47806,6 +47851,23 @@
                                     "type": "TextInput"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextInput"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -48083,6 +48145,9 @@
                                 },
                                 "style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -48323,6 +48388,24 @@
                                     "type": "NumberInput"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new `NumberInput` with the given initial value.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NumberInput"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -52498,6 +52581,9 @@
                                 },
                                 "label_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -52704,6 +52790,23 @@
                                     "type": "TextArea"
                                 },
                                 "fn_body": "object.with_on_virtual_key_down(refany, callback)"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextArea"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -54241,6 +54344,9 @@
                                 },
                                 "list_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -54426,6 +54532,24 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new combobox with the given options (no callback, nothing typed).",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComboBox"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -55985,6 +56109,9 @@
                                 },
                                 "container_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -56070,6 +56197,25 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new `DatePicker` showing `year`/`month` with `day` selected.",
+                                    "`month` is clamped to `1..=12` and `day` to `1..=days_in_month`.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DatePicker"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -56172,6 +56318,9 @@
                                 },
                                 "container_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -56317,6 +56466,25 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)",
+                                    "and minute (`0..=59`), both clamped into range.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TimePicker"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"

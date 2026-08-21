@@ -53,7 +53,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
         layout::{LayoutDisplay, LayoutPosition, LayoutFlexGrow, LayoutMinWidth, LayoutFlexDirection, LayoutAlignItems, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutTop, LayoutLeft},
@@ -157,6 +157,11 @@ pub struct ComboBox {
     /// open/close `display` toggle stays widget-managed; anything here wins
     /// over the built-in panel style (inline properties resolve last-wins).
     pub list_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -432,6 +437,13 @@ static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
 
 impl ComboBox {
     /// Creates a new combobox with the given options (no callback, nothing typed).
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn new(items: StringVec) -> Self {
         Self {
             combo_state: ComboBoxStateWrapper {
@@ -446,6 +458,7 @@ impl ComboBox {
             arrow_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE),
             option_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE),
             list_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            accessibility_name: OptionString::None,
         }
     }
 

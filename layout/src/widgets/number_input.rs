@@ -13,7 +13,7 @@ use azul_core::{
     refany::RefAny,
 };
 #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{
+use azul_css::{OptionString, 
     dynamic_selector::CssPropertyWithConditionsVec,
     props::{
         basic::*,
@@ -87,6 +87,11 @@ pub struct NumberInput {
     pub number_input_state: NumberInputStateWrapper,
     pub text_input: TextInput,
     pub style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 /// Wraps `NumberInputState` together with its value-change and focus-lost callbacks.
@@ -125,6 +130,13 @@ impl Default for NumberInputState {
 
 impl NumberInput {
     /// Creates a new `NumberInput` with the given initial value.
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(input: f32) -> Self {
         Self {
             number_input_state: NumberInputStateWrapper {
