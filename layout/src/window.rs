@@ -1880,6 +1880,7 @@ impl LayoutWindow {
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
                 crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
+                crate::dom_lint::warn_a11y_shape(&lr.styled_dom);
             }
         }
 

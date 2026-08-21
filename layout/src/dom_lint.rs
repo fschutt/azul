@@ -628,6 +628,42 @@ mod autotest_generated {
 }
 
 
+
+// ============================================================================
+// Suppression, once, for every lint
+// ============================================================================
+
+/// Is `tag` suppressed via `AZ_SUPPRESS`?
+///
+/// Comma-separated; the common misspelling `AZ_SUPRESS` is accepted too.
+/// `AZ_SUPPRESS=all` turns every engine lint off in one move — a shipped app
+/// that has read its warnings and does not want them in a customer's console
+/// should not have to enumerate them, and a new lint must not suddenly start
+/// talking in that app's logs.
+///
+/// Read once per tag and cached: these run inside the layout pass.
+pub fn lint_suppressed(tag: &str) -> bool {
+    use std::{collections::BTreeMap, sync::{Mutex, OnceLock}};
+    static CACHE: OnceLock<Mutex<BTreeMap<String, bool>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
+    if let Ok(c) = cache.lock() {
+        if let Some(hit) = c.get(tag) {
+            return *hit;
+        }
+    }
+    let v = std::env::var("AZ_SUPPRESS")
+        .or_else(|_| std::env::var("AZ_SUPRESS"))
+        .unwrap_or_default();
+    let hit = v.split(',').any(|t| {
+        let t = t.trim();
+        t.eq_ignore_ascii_case(tag) || t.eq_ignore_ascii_case("all")
+    });
+    if let Ok(mut c) = cache.lock() {
+        c.insert(tag.to_string(), hit);
+    }
+    hit
+}
+
 // ============================================================================
 // Lint: a <div> that holds nothing but text
 // ============================================================================
@@ -636,13 +672,7 @@ mod autotest_generated {
 pub const DIV_TEXT_SUPPRESS_TAG: &str = "div_as_text";
 
 fn div_text_suppressed() -> bool {
-    static SUPPRESSED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SUPPRESSED.get_or_init(|| {
-        let v = std::env::var("AZ_SUPPRESS")
-            .or_else(|_| std::env::var("AZ_SUPRESS"))
-            .unwrap_or_default();
-        v.split(',').any(|t| t.trim().eq_ignore_ascii_case(DIV_TEXT_SUPPRESS_TAG))
-    })
+    lint_suppressed(DIV_TEXT_SUPPRESS_TAG)
 }
 
 /// A `<div>` whose only child is a text node is almost always the wrong
@@ -722,13 +752,7 @@ pub fn warn_div_used_as_text_container(styled_dom: &StyledDom) {
 pub const A11Y_SUPPRESS_TAG: &str = "a11y";
 
 fn a11y_suppressed() -> bool {
-    static SUPPRESSED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SUPPRESSED.get_or_init(|| {
-        let v = std::env::var("AZ_SUPPRESS")
-            .or_else(|_| std::env::var("AZ_SUPRESS"))
-            .unwrap_or_default();
-        v.split(',').any(|t| t.trim().eq_ignore_ascii_case(A11Y_SUPPRESS_TAG))
-    })
+    lint_suppressed(A11Y_SUPPRESS_TAG)
 }
 
 /// A node the user can CLICK, with nothing that names it to assistive
@@ -945,5 +969,155 @@ mod semantic_and_a11y_lint_tests {
         _: crate::callbacks::CallbackInfo,
     ) -> azul_core::callbacks::Update {
         azul_core::callbacks::Update::DoNothing
+    }
+}
+
+// ============================================================================
+// Lint: what this node's SHAPE says it should declare
+// ============================================================================
+
+/// Suppression tag for [`warn_a11y_shape`].
+pub const A11Y_SHAPE_SUPPRESS_TAG: &str = "a11y_shape";
+
+/// Tell a developer, from the shape of the DOM, which accessibility attributes
+/// this particular node is missing — and why each one matters.
+///
+/// ## The distinction this exists to teach
+///
+/// Azul builds its accessibility tree from `NodeData::accessibility`. A node
+/// with `None` there is **not in that tree**: it is on screen and absent from
+/// the interface a screen-reader user actually has. This is not "less
+/// accessible", it is *invisible*, and it is the default for every node you
+/// build. There is no partial credit and no automatic fallback beyond a name
+/// derived from text.
+///
+/// `AccessibilityInfo` carries far more than a name — a role out of 118, a
+/// value, a description, states, `labelled_by` / `described_by` relations, a
+/// default action, an accelerator, and a live-region flag. Nobody discovers
+/// that by reading `core/src/a11y.rs`, so this lint reads the node's shape and
+/// names the specific field it is missing:
+///
+/// | shape observed                      | what to declare        |
+/// |-------------------------------------|------------------------|
+/// | interactive, no accessibility at all | `accessibility_name`, plus a `role` |
+/// | declared, but role is `Unknown`       | `role` — "what IS this" |
+/// | `Slider` / `ProgressBar` / `ScrollBar` | `accessibility_value` |
+/// | `CheckButton` / `RadioButton`         | a checked state       |
+/// | `PushButton` with no action named     | `default_action`      |
+/// | an image with no name                | `accessibility_name` or `description` |
+/// | keyboard-focusable, no role          | `role`                 |
+///
+/// Suppress with `AZ_SUPPRESS=a11y_shape`, or `AZ_SUPPRESS=all` for every lint.
+pub fn warn_a11y_shape(styled_dom: &StyledDom) {
+    if lint_suppressed(A11Y_SHAPE_SUPPRESS_TAG) {
+        return;
+    }
+
+    use azul_core::a11y::{AccessibilityRole, AccessibilityState};
+
+    let nodes = styled_dom.node_data.as_container();
+    let mut reported = 0usize;
+
+    for (node_id, node) in nodes.linear_iter().filter_map(|id| nodes.get(id).map(|n| (id, n))) {
+        if reported >= 8 {
+            break; // one screenful is enough to act on
+        }
+        let idx = node_id.index();
+        let interactive = !node.get_callbacks().is_empty();
+        let focusable = node.get_tab_index().is_some();
+
+        let Some(info) = node.accessibility.as_ref() else {
+            // The no-a11y case is handled by warn_interactive_without_accessibility,
+            // which already reports interactive nodes. Here, add the shapes that
+            // are worth naming even when they are not clickable.
+            if matches!(node.get_node_type(), NodeType::Image(_)) {
+                reported += 1;
+                azul_core::diagnostics::emit(format!(
+                    "[azul][a11y-shape] node {idx} is an IMAGE with no accessibility \
+                     info, so it is absent from the accessibility tree entirely — a \
+                     screen reader announces nothing where a sighted user sees a \
+                     picture. Give it .with_accessibility_info(AccessibilityInfo {{ \
+                     accessibility_name: Some(\"what it shows\".into()).into(), \
+                     role: AccessibilityRole::Graphic, ..Default::default() }}), or \
+                     mark it decorative by naming it explicitly as such. \
+                     (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                ));
+            } else if focusable {
+                reported += 1;
+                azul_core::diagnostics::emit(format!(
+                    "[azul][a11y-shape] node {idx} is KEYBOARD-FOCUSABLE (it has a \
+                     tab_index) but declares no accessibility info, so tabbing lands \
+                     on something the screen reader cannot describe. At minimum give \
+                     it a `role` and an `accessibility_name`. \
+                     (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                ));
+            }
+            continue;
+        };
+
+        // It DECLARED accessibility — now check that the declaration matches the
+        // shape. A half-filled AccessibilityInfo is the subtler failure: the node
+        // is in the tree, so nothing looks broken, and it still announces wrongly.
+        let role = info.role;
+        let has_name = info.accessibility_name.as_ref().is_some();
+        let has_value = info.accessibility_value.as_ref().is_some();
+
+        if matches!(role, AccessibilityRole::Unknown) && (interactive || focusable) {
+            reported += 1;
+            azul_core::diagnostics::emit(format!(
+                "[azul][a11y-shape] node {idx} is interactive and declares \
+                 accessibility, but its `role` is Unknown — a screen reader can say \
+                 its name and not what it IS. Pick from AccessibilityRole \
+                 (PushButton, CheckBox, ComboBox, Slider, Link, Tab, MenuItem, …). \
+                 (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+            ));
+            continue;
+        }
+
+        if matches!(
+            role,
+            AccessibilityRole::Slider | AccessibilityRole::ProgressBar | AccessibilityRole::ScrollBar
+        ) && !has_value
+        {
+            reported += 1;
+            azul_core::diagnostics::emit(format!(
+                "[azul][a11y-shape] node {idx} has role {role:?} but no \
+                 `accessibility_value`. The value IS the content of these controls \
+                 — without it a screen reader announces \"slider\" and never how far \
+                 along it is. Set accessibility_value on every change, not once. \
+                 (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+            ));
+            continue;
+        }
+
+        if matches!(role, AccessibilityRole::CheckButton | AccessibilityRole::RadioButton) {
+            let states = info.states.as_ref();
+            let declares_checked = states.iter().any(|s| {
+                matches!(s, AccessibilityState::CheckedTrue | AccessibilityState::CheckedFalse | AccessibilityState::Selected)
+            });
+            if !declares_checked {
+                reported += 1;
+                azul_core::diagnostics::emit(format!(
+                    "[azul][a11y-shape] node {idx} has role {role:?} but declares no \
+                     CheckedTrue/CheckedFalse/Selected state, so it always announces as unchecked no \
+                     matter what it renders. Push the state into \
+                     AccessibilityInfo::states when the control toggles. \
+                     (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+                ));
+                continue;
+            }
+        }
+
+        if !has_name && info.labelled_by.as_ref().is_none() {
+            reported += 1;
+            azul_core::diagnostics::emit(format!(
+                "[azul][a11y-shape] node {idx} declares accessibility (role \
+                 {role:?}) but has neither an `accessibility_name` nor a \
+                 `labelled_by` pointing at the node that names it. It is in the \
+                 tree and anonymous. Use labelled_by when a separate label element \
+                 already carries the text — that keeps the two from drifting apart. \
+                 (suppress with AZ_SUPPRESS={A11Y_SHAPE_SUPPRESS_TAG})"
+            ));
+        }
     }
 }
