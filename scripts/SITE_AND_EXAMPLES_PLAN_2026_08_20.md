@@ -322,3 +322,53 @@ those, so treat as an open area rather than a regression from one commit.
 Suspected to be the Wayland backbuffer memory optimisation — a buffer being
 reused/released while still referenced, so two frames' contents alternate.
 Start at the wl_buffer release/attach bookkeeping.
+
+---
+
+# Open after the 2026-08-21 naming/mobile session
+
+## O1. Sanitizers: thread leak in the rewritten async example
+
+    SUMMARY: ThreadSanitizer: thread leak (/tmp/async-san+0x618bf) in pthread_create
+
+`examples/c/async.c` (the new slippy map) spawns a framework `Thread` per
+visible tile and TSan sees threads never joined at process exit. Introduced by
+today's example rewrite. Does NOT block the deploy — `sanitizers` is not in
+`deploy_pages`' needs — but it is a real leak.
+
+Likely the same root as the capture-worker teardown bug fixed today: a worker
+that never acknowledges `TerminateThread` is DETACHED rather than joined. Check
+whether the tile workers drain their terminate channel.
+
+## O2. AzMeet / AzWriter APKs are unverified
+
+Both gained Android support today (lib+cdylib, `android-activity`, `#[ctor]`
+calling `start()`), mirroring AzMaps. Neither has been built for Android — no
+NDK on the dev machine. The run that would have proven it failed earlier, on
+AzMaps, for an unrelated reason (the `.so` name guess, fixed in 82f63a875).
+
+## O3. iOS bundles: three blockers cleared, outcome still unknown
+
+  1. `xcrun -p` — not a valid option; exits 64 everywhere. The probe was ALWAYS
+     true, so no bundle was ever attempted. Now `xcrun --sdk iphoneos
+     --show-sdk-path`, which resolves (iPhoneOS17.5.sdk).
+  2. Signing — never required to PRODUCE artifacts. build-ios.sh already
+     bundles unsigned; only `.ipa` INSTALLATION needs a certificate.
+  3. `${FEATURE_ARGS[*]}` on an empty array under `set -u` in bash 3.2 (macOS)
+     — aborted all ten bundles before cargo ran. build-android.sh had the same
+     bug in three places and survived only because Linux ships bash 5.
+
+Each fix revealed the next. A fourth may exist.
+
+## O4. Still unresolved from the day before
+
+- Slider trail: detector written (`a_moved_item_damages_the_pixels_it_vacated`)
+  and it PASSES, so the basic damage diff is not the cause. Look at the
+  patched-build path, or whether the widget re-emits rather than moves.
+- X11/Wayland scroll jitter: six causes eliminated with evidence. Reproduce with
+  `AZ_SCROLL_DEBUG=1` — it prints the raw platform delta and, per tick, the
+  offset READ vs the offset COMMITTED. If a tick's `read=` is not the previous
+  tick's `commit=`, the spring is integrating from a stale base.
+- file_picker `apply_open_file` / `apply_save_file` / `apply_open_directory`:
+  flagged by the new orphan lint, allowlisted pending triage. Same shape as the
+  map bug — an implementation nothing routes to.
