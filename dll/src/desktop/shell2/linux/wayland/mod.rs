@@ -3782,7 +3782,17 @@ impl WaylandWindow {
         // Focus is gone — the compositor will not send the key release.
         self.disarm_key_repeat();
         self.snapshot_window_state_baseline("wayland.handle_keyboard_leave");
-        self.common.update_unsynced_state(|ws| ws.window_focused = false);
+        self.common.update_unsynced_state(|ws| {
+            ws.window_focused = false;
+            // Release the mouse buttons: focus left while a button was down, so the
+                        // OS delivers the mouse-UP elsewhere and `left_down` would stay true
+                        // forever — every later move reads as a DRAG (text selects, buttons stop
+                        // clicking). Clearing the flags lets the normal state diff emit the
+                        // MouseUp that unwinds it. See macos::window_did_resign_key.
+            ws.mouse_state.left_down = false;
+            ws.mouse_state.right_down = false;
+            ws.mouse_state.middle_down = false;
+        });
         self.dynamic_selector_context.window_focused = false;
         // Every held key is released somewhere we will never hear about, so drop
         // them all now. Engine modifiers are DERIVED from pressed_virtual_keycodes

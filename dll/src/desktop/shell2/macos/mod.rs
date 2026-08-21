@@ -2758,7 +2758,29 @@ define_class!(
                     // kept blinking and selections stayed highlighted while
                     // the window was in the background.
                     macos_window.snapshot_window_state_baseline("macos.window_did_resign_key");
-                    macos_window.common.update_unsynced_state(|ws| ws.window_focused = false);
+                    macos_window.common.update_unsynced_state(|ws| {
+                        ws.window_focused = false;
+                        // RELEASE the mouse buttons. When focus leaves while a
+                        // button is down, the OS delivers the mouse-UP to
+                        // whoever took focus — we never see it, so `left_down`
+                        // stays true forever. Every later mouse-move then reads
+                        // as a DRAG: text selects instead of buttons clicking,
+                        // and nothing recovers because the release that would
+                        // clear it already went somewhere else.
+                        //
+                        // AzMeet hits this constantly because the camera and
+                        // screen-recording permission sheets take focus in the
+                        // middle of the click that requested them.
+                        //
+                        // Clearing the flags here (rather than forcing a
+                        // synthetic event) lets the normal state DIFF do the
+                        // work: previous=down, current=up produces the MouseUp
+                        // that unwinds the selection drag through the usual
+                        // path.
+                        ws.mouse_state.left_down = false;
+                        ws.mouse_state.right_down = false;
+                        ws.mouse_state.middle_down = false;
+                    });
                     macos_window.dynamic_selector_context.window_focused = false;
 
                     // Notify accessibility adapter that the view lost focus

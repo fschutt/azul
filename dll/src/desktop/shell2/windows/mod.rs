@@ -5162,6 +5162,20 @@ unsafe extern "system" fn window_proc(
                 ks.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
             }
 
+            // The same argument, for the mouse — and it was missing on every
+            // platform. A button held when focus leaves has its BUTTON-UP
+            // delivered to whoever took focus, so `left_down` stays latched
+            // exactly like the Alt of Alt+Tab. Every later move then reads as a
+            // drag: text selects and buttons stop clicking, with nothing able
+            // to clear it. Clearing here makes the diff fire the matching
+            // MouseUp.
+            {
+                let ms = window.common.mouse_state_mut();
+                ms.left_down = false;
+                ms.right_down = false;
+                ms.middle_down = false;
+            }
+
             window.set_previous_window_state(prev_snapshot);
 
             // Same as WM_SETFOCUS: process + route so blur callbacks fire and

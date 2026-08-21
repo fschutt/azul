@@ -3479,7 +3479,17 @@ impl X11Window {
                     ProcessEventResult::DoNothing
                 } else {
                     self.snapshot_window_state_baseline("x11.handle_event.focus_out");
-                    self.common.update_unsynced_state(|ws| ws.window_focused = false);
+                    self.common.update_unsynced_state(|ws| {
+                        ws.window_focused = false;
+                        // Release the mouse buttons: focus left while a button was down, so the
+                        // OS delivers the mouse-UP elsewhere and `left_down` would stay true
+                        // forever — every later move reads as a DRAG (text selects, buttons stop
+                        // clicking). Clearing the flags lets the normal state diff emit the
+                        // MouseUp that unwinds it. See macos::window_did_resign_key.
+                        ws.mouse_state.left_down = false;
+                        ws.mouse_state.right_down = false;
+                        ws.mouse_state.middle_down = false;
+                    });
                     self.dynamic_selector_context.window_focused = false;
                     // Releases that happen while another window has focus are
                     // never delivered here, so anything still held would stay
