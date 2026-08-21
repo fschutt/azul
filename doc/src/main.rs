@@ -16,6 +16,7 @@ pub mod dllgen;
 pub mod e2erun;
 pub mod gene2e;
 pub mod lint_examples;
+pub mod lint_orphans;
 pub mod lint_links;
 pub mod docgen;
 pub mod patch;
@@ -322,6 +323,22 @@ fn main() -> anyhow::Result<()> {
             // nothing regenerates them. Compiling them is the only other check
             // and it runs late, per-language, and skips any toolchain that
             // fails to install. See doc/src/lint_examples.rs.
+            // Code that is correct, compiles, and is never reached. Three
+            // bugs in one day had this shape — a font cache that was never
+            // written, a map that never fetched a tile, a video that never
+            // decoded — and no compiler warning is possible: `pub` silences
+            // dead-code analysis and the binding that decides which function
+            // ships is a STRING in api.json. See doc/src/lint_orphans.rs.
+            let orphan_wiring = lint_orphans::orphaned_wiring_functions(&project_root);
+            let orphan_fns = lint_orphans::unreferenced_public_fns(&project_root);
+            if orphan_wiring.is_empty() && orphan_fns.is_empty() {
+                println!("[ok] no orphaned wiring functions or unreferenced glue");
+            } else {
+                for o in orphan_wiring.iter().chain(orphan_fns.iter()) {
+                    eprintln!("[FAIL] {}:{}: {} — {}", o.file, o.line, o.symbol, o.why);
+                }
+            }
+
             let stale = lint_examples::run(&project_root, &api_data);
             if stale.is_empty() {
                 println!("[ok] examples reference no removed/renamed API symbols");

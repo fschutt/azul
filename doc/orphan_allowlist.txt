@@ -1,0 +1,33 @@
+# Public functions in the dll's integration glue that nothing calls.
+#
+# This file is the difference between a lint that fires and a lint that fails.
+# Anything listed here is a KNOWN orphan with a reason; anything NOT listed is
+# an error, so a new one cannot join quietly.
+#
+# The lint exists because three bugs in one day had this shape and none of them
+# could produce a compiler warning: `pub` silences dead-code analysis, and the
+# binding that decides which function ships is a string in api.json.
+#   - save_to_disk_cache: zero callers -> the font cache was never written
+#   - map_widget_dom:     zero callers -> the map never fetched a tile
+#   - video_widget_dom:   same, one widget over -> video never decoded
+#
+# Format: <symbol>  # reason
+# To remove an entry: wire the function up, or delete it.
+
+# --- suspected genuinely unwired; triage needed -----------------------------
+apply_open_file             # file-picker result never applied? same shape as the map bug
+apply_save_file             # ditto
+apply_open_directory        # ditto
+
+# --- MVT helpers, superseded by the tile worker's own path -------------------
+calculate_extent            # mvt.rs helper; the worker computes its own extent
+calculate_zoom_level        # mvt.rs helper
+get_tile_coordinates_for_extent  # mvt.rs helper
+tile_coords_to_urls         # mvt.rs helper; MapTileCache builds URLs itself
+stitch_features_to_collection    # mvt.rs helper
+
+# --- capability probes / one-shot actions called from other languages --------
+probe_last_fix              # geolocation probe, reachable from the C API surface
+sqlite_version              # version probe
+peer_left                   # webtransport event hook
+reboot_now                  # provisioning action, invoked by the user not by us

@@ -50319,7 +50319,7 @@
                                 "returns": {
                                     "type": "Dom"
                                 },
-                                "fn_body": "object.dom()"
+                                "fn_body": "crate::unified::video_codec::video_widget_dom(video_widget)"
                             },
                             "with_on_frame": {
                                 "doc": [
