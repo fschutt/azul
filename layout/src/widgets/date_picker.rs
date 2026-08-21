@@ -508,6 +508,11 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
+            // Calendar navigation / day cells act as buttons.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::PushButton,
+                ..Default::default()
+            })
     };
 
     let label = AzString::from(format!("{} {}", month_name(month), year));
@@ -604,6 +609,11 @@ fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
             .into(),
         )
         .with_tab_index(TabIndex::Auto)
+        // The date field opens a chooser.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::ComboBox,
+            ..Default::default()
+        })
 }
 
 /// Day-cell click handler. Reads the cell's baked day, updates the shared

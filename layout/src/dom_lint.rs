@@ -972,6 +972,48 @@ mod semantic_and_a11y_lint_tests {
     }
 }
 
+
+/// Does a readable text label exist at or beneath `node_id`?
+///
+/// "Readable" excludes private-use codepoints: an icon glyph is a picture, and
+/// reads to a screen reader as a meaningless character rather than a name.
+///
+/// Shared by the a11y lints because both need the same question answered, and
+/// answering it differently in two places is how a lint acquires false
+/// positives — the shape lint reported every labelled checkbox as "anonymous"
+/// until it used this.
+fn has_readable_text_label(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut stack = vec![node_id];
+    let mut visited = 0usize;
+    while let Some(cur) = stack.pop() {
+        visited += 1;
+        if visited > 64 {
+            break; // a label is never buried this deep; bound the walk
+        }
+        if let Some(cn) = nodes.get(cur) {
+            if let NodeType::Text(t) = cn.get_node_type() {
+                if t.as_str().chars().any(|ch| {
+                    ch.is_alphanumeric() && !('\u{e000}'..='\u{f8ff}').contains(&ch)
+                }) {
+                    return true;
+                }
+            }
+        }
+        if let Some(item) = hierarchy.get(cur) {
+            if let Some(first) = item.first_child_id(cur) {
+                let mut sib = Some(first);
+                while let Some(sid) = sib {
+                    stack.push(sid);
+                    sib = hierarchy.get(sid).and_then(NodeHierarchyItem::next_sibling_id);
+                }
+            }
+        }
+    }
+    false
+}
+
 // ============================================================================
 // Lint: what this node's SHAPE says it should declare
 // ============================================================================
@@ -1016,6 +1058,7 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
     use azul_core::a11y::{AccessibilityRole, AccessibilityState};
 
     let nodes = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut reported = 0usize;
 
     for (node_id, node) in nodes.linear_iter().filter_map(|id| nodes.get(id).map(|n| (id, n))) {
@@ -1108,7 +1151,13 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             }
         }
 
-        if !has_name && info.labelled_by.as_ref().is_none() {
+        // A control whose visible label is a text node DOES announce itself —
+        // azul derives the name from that text. Reporting those was a false
+        // positive on every correctly-built labelled checkbox and slider.
+        if !has_name
+            && info.labelled_by.as_ref().is_none()
+            && !has_readable_text_label(styled_dom, node_id)
+        {
             reported += 1;
             azul_core::diagnostics::emit(format!(
                 "[azul][a11y-shape] node {idx} declares accessibility (role \

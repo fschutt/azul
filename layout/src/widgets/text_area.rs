@@ -506,6 +506,10 @@ impl TextArea {
     /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
     /// in particular no caret node.
     #[must_use] pub fn dom(mut self) -> Dom {
+        // Read before the state is moved into the DOM below.
+        let ta_name: Option<AzString> =
+            self.text_area_state.inner.placeholder.as_ref().cloned();
+
         use azul_core::dom::{AttributeType, DomVec, EventFilter, FocusEventFilter, IdOrClass::Class, TabIndex};
 
         self.text_area_state.inner.cursor_pos = self.text_area_state.inner.text.len();
@@ -537,6 +541,13 @@ impl TextArea {
             .with_ids_and_classes(vec![Class("__azul-native-text-area-container".into())].into())
             .with_css_props(self.container_style)
             .with_tab_index(TabIndex::Auto)
+            // Same as text_input: an edit field with no name announces as
+            // "edit" and the user cannot tell what it is for.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Text,
+                accessibility_name: ta_name.into(),
+                ..Default::default()
+            })
             .with_contenteditable(true)
             .with_dataset(Some(state_ref.clone()).into())
             .with_callbacks(

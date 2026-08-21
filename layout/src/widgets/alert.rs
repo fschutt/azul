@@ -371,13 +371,17 @@ impl Alert {
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CLOSE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ALERT_CLOSE_STYLE))
                 .with_tab_index(TabIndex::Auto)
-            // Role so the accessibility tree knows what this IS:
-            // an alert is announced as soon as it appears. The NAME comes from the widget's own text,
-            // which azul derives when a readable label is present.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Alert,
-                ..Default::default()
-            })
+                // This is the CLOSE BUTTON, not the alert — the tab stop is on
+                // the dismiss affordance. Its visible label is "\u{00D7}", a
+                // multiplication sign, which is a picture of an X and not a
+                // name: a screen reader reads it as "times" or skips it. So the
+                // name is explicit, and the role is PushButton rather than the
+                // Alert role that belongs to the container.
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::PushButton,
+                    accessibility_name: Some(AzString::from_const_str("Close")).into(),
+                    ..Default::default()
+                })
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseUp),

@@ -433,7 +433,12 @@ impl TimePicker {
                         }]
                         .into(),
                     )
-                    .with_tab_index(TabIndex::Auto),
+                    .with_tab_index(TabIndex::Auto)
+                    // Hour/minute steppers act as buttons.
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::PushButton,
+                        ..Default::default()
+                    }),
             );
         }
 
@@ -472,6 +477,11 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
+            // The time field opens a chooser.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::ComboBox,
+                ..Default::default()
+            })
     };
 
     Dom::create_div()

@@ -283,6 +283,13 @@ impl DropDown {
 
     /// Builds the DOM tree for this drop-down widget.
     #[must_use] pub fn dom(self) -> Dom {
+        // Read the selected label before the options are moved into the DOM.
+        let selected_label: Option<AzString> = self
+            .choices
+            .as_ref()
+            .get(self.selected)
+            .map(|o| AzString::from(o.as_str().to_string()));
+
         const DROPDOWN_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-dropdown"))];
 
@@ -306,6 +313,13 @@ impl DropDown {
             .with_css_props(wrapper_style)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
             .with_tab_index(TabIndex::Auto)
+            // A drop-down announces which option is current; without a value a
+            // reader says "combo box" and never what is selected.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::ComboBox,
+                accessibility_value: selected_label.into(),
+                ..Default::default()
+            })
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Focus(FocusEventFilter::FocusReceived),

@@ -384,6 +384,8 @@ impl RadioGroup {
 
         // One shared RefAny across every row's callback (RefAny::clone shares
         // the underlying state — same pattern as segmented/tabs/map).
+        // Read once, BEFORE the state is moved into the shared RefAny below.
+        let selected_now = self.radio_group_state.inner.selected_index;
         let state = RefAny::new(self.radio_group_state);
 
         let mut children: Vec<Dom> = Vec::with_capacity(count);
@@ -430,6 +432,21 @@ impl RadioGroup {
                         .into(),
                     )
                     .with_tab_index(TabIndex::Auto)
+                    // Each row is its own radio button and must say whether IT
+                    // is the chosen one. A group where every row announces the
+                    // same thing is unusable: the user cannot tell which is
+                    // selected without seeing the dot.
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::RadioButton,
+                        states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                            if i == selected_now {
+                                azul_core::a11y::AccessibilityState::CheckedTrue
+                            } else {
+                                azul_core::a11y::AccessibilityState::CheckedFalse
+                            },
+                        ]),
+                        ..Default::default()
+                    })
                     .with_children(vec![circle, label_node].into()),
             );
         }

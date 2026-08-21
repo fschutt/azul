@@ -408,8 +408,13 @@ impl Toast {
             // Role so the accessibility tree knows what this IS:
             // a transient announcement. The NAME comes from the widget's own text,
             // which azul derives when a readable label is present.
+            // This is the CLOSE BUTTON, not the container — the tab stop is on
+            // the dismiss affordance. Its label is a multiplication sign: a
+            // picture of an X, not a name. Hence an explicit name, and
+            // PushButton rather than the container's role.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::Alert,
+                role: azul_core::a11y::AccessibilityRole::PushButton,
+                accessibility_name: Some(AzString::from_const_str("Close")).into(),
                 ..Default::default()
             })
                 .with_callbacks(

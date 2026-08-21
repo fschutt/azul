@@ -558,6 +558,11 @@ impl ComboBox {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_INPUT_CLASS))
             .with_css_props(self.field_style)
             .with_tab_index(TabIndex::Auto)
+            // The field itself: an editable value with a list of choices.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::ComboBox,
+                ..Default::default()
+            })
             .with_callbacks(
                 alloc::vec![
                     CoreCallbackData {
@@ -598,6 +603,11 @@ impl ComboBox {
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
                     .with_css_props(self.option_style.clone())
                     .with_tab_index(TabIndex::Auto)
+                    // Each option is an item within the popup list.
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::ListItem,
+                        ..Default::default()
+                    })
                     .with_callbacks(
                         alloc::vec![CoreCallbackData {
                             event: EventFilter::Hover(HoverEventFilter::MouseUp),
