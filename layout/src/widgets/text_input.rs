@@ -882,6 +882,18 @@ impl TextInput {
     /// in particular no caret node (the engine paints the caret and the
     /// selection from its display list).
     #[must_use] pub fn dom(mut self) -> Dom {
+        // Read before the state is moved into the DOM/callbacks below.
+        let a11y_name: Option<AzString> =
+            self.text_input_state.inner.placeholder.as_ref().cloned();
+        let a11y_value: String = self
+            .text_input_state
+            .inner
+            .text
+            .as_ref()
+            .iter()
+            .filter_map(|c| char::from_u32(*c))
+            .collect();
+
         use azul_core::{
             callbacks::CoreCallbackData,
             dom::{
@@ -919,6 +931,18 @@ impl TextInput {
             .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
             .with_css_props(self.container_style)
             .with_tab_index(TabIndex::Auto)
+            // A text field with no name is the classic unusable form control: a
+            // reader announces "edit" and the user has no idea what to type.
+            // The PLACEHOLDER is the best name available here — it is what a
+            // sighted user reads for the same purpose — but a caller with a
+            // real label should point `labelled_by` at it instead, which keeps
+            // the two from drifting apart.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Text,
+                accessibility_name: a11y_name.into(),
+                accessibility_value: Some(AzString::from(a11y_value)).into(),
+                ..Default::default()
+            })
             .with_contenteditable(true)
             .with_dataset(Some(state_ref.clone()).into())
             .with_callbacks(

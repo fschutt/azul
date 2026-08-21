@@ -243,7 +243,14 @@ impl Breadcrumb {
                             }]
                             .into(),
                         )
-                        .with_tab_index(TabIndex::Auto),
+                        .with_tab_index(TabIndex::Auto)
+            // Role so the accessibility tree knows what this IS:
+            // each crumb navigates. The NAME comes from the widget's own text,
+            // which azul derives when a readable label is present.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Link,
+                ..Default::default()
+            }),
                 );
                 // Separator after every non-last crumb.
                 children.push(

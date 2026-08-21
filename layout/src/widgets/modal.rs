@@ -414,6 +414,13 @@ impl Modal {
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_CLOSE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_CLOSE_STYLE))
                 .with_tab_index(TabIndex::Auto)
+            // Role so the accessibility tree knows what this IS:
+            // a dialog traps focus and is announced as one. The NAME comes from the widget's own text,
+            // which azul derives when a readable label is present.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Dialog,
+                ..Default::default()
+            })
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
                         event: azul_core::dom::EventFilter::Hover(

@@ -12830,6 +12830,55 @@
                                     }
                                 ],
                                 "fn_body": "object.record_gauge(name, value, labels)"
+                            },
+                            "set_accessibility_value": {
+                                "doc": [
+                                    "Update a node's accessibility VALUE without rebuilding — a slider's",
+                                    "position, a progress bar's percentage, a field's contents."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_accessibility_value(node_id, value)"
+                            },
+                            "set_accessibility_state": {
+                                "doc": [
+                                    "Update a node's accessibility STATE and/or VALUE without rebuilding.",
+                                    "",
+                                    "Use it wherever a control changes what it announces but not its",
+                                    "structure — a toggle flipping checked, a section expanding, a slider",
+                                    "moving. Publishing only at build time leaves the accessibility tree",
+                                    "describing a state the widget left behind, and a screen-reader user has",
+                                    "no way to notice.",
+                                    "",
+                                    "```ignore",
+                                    "info.set_accessibility_state(",
+                                    "    node,",
+                                    "    vec![if open { AccessibilityState::Expanded }",
+                                    "         else     { AccessibilityState::Collapsed }],",
+                                    ");",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "states": "AccessibilityStateVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_accessibility_state(node_id, states)"
                             }
                         },
                         "repr": "C"

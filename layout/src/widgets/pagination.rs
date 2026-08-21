@@ -368,6 +368,13 @@ impl Pagination {
                         .into(),
                     )
                     .with_tab_index(TabIndex::Auto)
+            // Role so the accessibility tree knows what this IS:
+            // each page control is a button. The NAME comes from the widget's own text,
+            // which azul derives when a readable label is present.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::PushButton,
+                ..Default::default()
+            })
             };
 
         let mut children: Vec<Dom> = Vec::with_capacity(total.saturating_add(2));

@@ -245,6 +245,9 @@ impl Switch {
 
     #[inline]
     #[must_use] pub fn dom(self) -> Dom {
+        // Read before the wrapper is moved into the callback below.
+        let switch_checked = self.switch_state.inner.checked;
+
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{Dom, EventFilter, HoverEventFilter},
@@ -265,6 +268,20 @@ impl Switch {
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
+            // A switch announces as a checkbox with a state. Publishing it on
+            // every build (not once at construction) is what keeps the spoken
+            // state in step with the rendered one.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::CheckButton,
+                states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                    if switch_checked {
+                        azul_core::a11y::AccessibilityState::CheckedTrue
+                    } else {
+                        azul_core::a11y::AccessibilityState::CheckedFalse
+                    },
+                ]),
+                ..Default::default()
+            })
             .with_children(
                 vec![Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from(SWITCH_KNOB_CLASS))
@@ -318,6 +335,21 @@ mod input {
                 None => Update::DoNothing,
             }
         };
+
+        // The ANNOUNCED state must follow the rendered one. This handler flips
+        // css properties and returns Update::DoNothing — no rebuild — so the
+        // CheckedTrue/False published at build time would freeze at whatever it
+        // was then, and a screen reader would keep reporting the old position.
+        info.set_accessibility_state(
+            info.get_hit_node(),
+            azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                if switch.inner.checked {
+                    azul_core::a11y::AccessibilityState::CheckedTrue
+                } else {
+                    azul_core::a11y::AccessibilityState::CheckedFalse
+                },
+            ]),
+        );
 
         // CallbackInfo is Copy, so `info` is still usable after the call above.
         if switch.inner.checked {

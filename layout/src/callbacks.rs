@@ -337,6 +337,23 @@ pub enum CallbackChange {
     // Content Modifications
     /// Change the text content of a node
     ChangeNodeText { node_id: DomNodeId, text: AzString },
+    /// Update a node's ACCESSIBILITY declaration in place.
+    ///
+    /// Widgets publish their role and state when they build their DOM, which is
+    /// correct only if every state change rebuilds. Many do not: the accordion
+    /// toggles by `set_css_property` on the body, the switch flips a style — no
+    /// rebuild, so a build-time `Expanded` would keep announcing "expanded"
+    /// after the section closed. This is how a callback corrects that without
+    /// forcing a relayout, and applying it marks the a11y tree dirty so the
+    /// platform adapter re-reads the node.
+    ChangeNodeAccessibilityState {
+        node_id: DomNodeId,
+        /// Replaces `AccessibilityInfo::states` wholesale.
+        states: azul_core::a11y::AccessibilityStateVec,
+    },
+    /// Update a node's announced VALUE in place. See
+    /// [`CallbackChange::ChangeNodeAccessibilityState`].
+    ChangeNodeAccessibilityValue { node_id: DomNodeId, value: AzString },
     /// Change the image of a node
     ChangeNodeImage {
         dom_id: DomId,
@@ -1507,6 +1524,35 @@ impl CallbackInfo {
     /// * `text` - The new text content
     pub fn change_node_text(&mut self, node_id: DomNodeId, text: AzString) {
         self.push_change(CallbackChange::ChangeNodeText { node_id, text });
+    }
+
+    /// Update a node's accessibility STATE and/or VALUE without rebuilding.
+    ///
+    /// Use it wherever a control changes what it announces but not its
+    /// structure — a toggle flipping checked, a section expanding, a slider
+    /// moving. Publishing only at build time leaves the accessibility tree
+    /// describing a state the widget left behind, and a screen-reader user has
+    /// no way to notice.
+    ///
+    /// ```ignore
+    /// info.set_accessibility_state(
+    ///     node,
+    ///     vec![if open { AccessibilityState::Expanded }
+    ///          else     { AccessibilityState::Collapsed }],
+    /// );
+    /// ```
+    pub fn set_accessibility_state(
+        &mut self,
+        node_id: DomNodeId,
+        states: azul_core::a11y::AccessibilityStateVec,
+    ) {
+        self.push_change(CallbackChange::ChangeNodeAccessibilityState { node_id, states });
+    }
+
+    /// Update a node's accessibility VALUE without rebuilding — a slider's
+    /// position, a progress bar's percentage, a field's contents.
+    pub fn set_accessibility_value(&mut self, node_id: DomNodeId, value: AzString) {
+        self.push_change(CallbackChange::ChangeNodeAccessibilityValue { node_id, value });
     }
 
     /// Change the image of a node (applied after callback returns)

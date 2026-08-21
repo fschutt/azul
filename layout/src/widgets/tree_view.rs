@@ -319,6 +319,13 @@ fn render_node(
     let mut row = Dom::create_div()
         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(row_style))
         .with_tab_index(TabIndex::Auto)
+            // Role so the accessibility tree knows what this IS:
+            // a hierarchy, so level and expansion can be reported. The NAME comes from the widget's own text,
+            // which azul derives when a readable label is present.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Outline,
+                ..Default::default()
+            })
         .with_children(DomVec::from_vec(vec![icon_or_spacer, label]));
 
     // Attach click callback if provided

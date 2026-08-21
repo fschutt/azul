@@ -3781,6 +3781,68 @@ pub trait PlatformWindow {
 
             // === Content Modifications ===
 
+            CallbackChange::ChangeNodeAccessibilityState { node_id, states } => {
+                // Widgets publish role and state when they BUILD. That is only
+                // correct if every state change rebuilds, and many do not — the
+                // accordion toggles with set_css_property and Update::DoNothing,
+                // so a build-time `Expanded` would keep announcing "expanded"
+                // after the section closed, with no way for the user to notice.
+                let dom_id = node_id.dom;
+                let Some(nid) = node_id.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                let mut changed = false;
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(lr) = lw.layout_results.get_mut(&dom_id) {
+                        let mut nodes = lr.styled_dom.node_data.as_container_mut();
+                        if let Some(node) = nodes.get_mut(nid) {
+                            let mut info = node
+                                .accessibility
+                                .as_ref()
+                                .map_or_else(Default::default, |b| (**b).clone());
+                            if info.states != *states {
+                                info.states = states.clone();
+                                node.set_accessibility_info(info);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                if changed {
+                    // Tell the platform adapter to re-read: an update nobody is
+                    // notified of is the same as no update at all.
+                    self.get_common_mut().a11y_dirty = true;
+                }
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::ChangeNodeAccessibilityValue { node_id, value } => {
+                let dom_id = node_id.dom;
+                let Some(nid) = node_id.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                let mut changed = false;
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(lr) = lw.layout_results.get_mut(&dom_id) {
+                        let mut nodes = lr.styled_dom.node_data.as_container_mut();
+                        if let Some(node) = nodes.get_mut(nid) {
+                            let mut info = node
+                                .accessibility
+                                .as_ref()
+                                .map_or_else(Default::default, |b| (**b).clone());
+                            let new_val = azul_css::OptionString::Some(value.clone());
+                            if info.accessibility_value != new_val {
+                                info.accessibility_value = new_val;
+                                node.set_accessibility_info(info);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                if changed {
+                    self.get_common_mut().a11y_dirty = true;
+                }
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::ChangeNodeText { node_id, text } => {
                 let dom_id = node_id.dom;
                 let internal_node_id = match node_id.node.into_crate_internal() {

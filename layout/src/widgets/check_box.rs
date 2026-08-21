@@ -317,6 +317,20 @@ mod input {
             }
         };
 
+        // Keep the announced state in step with the rendered one: this handler
+        // changes opacity and returns Update::DoNothing, so nothing rebuilds and
+        // the build-time CheckedTrue/False would go stale on the first click.
+        info.set_accessibility_state(
+            info.get_hit_node(),
+            azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                if check_box.inner.checked {
+                    azul_core::a11y::AccessibilityState::CheckedTrue
+                } else {
+                    azul_core::a11y::AccessibilityState::CheckedFalse
+                },
+            ]),
+        );
+
         if check_box.inner.checked {
             info.set_css_property(
                 checkbox_content_id,
