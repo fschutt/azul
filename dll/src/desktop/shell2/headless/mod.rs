@@ -1366,6 +1366,32 @@ impl HeadlessWindow {
         self.is_open = false;
     }
 
+    /// Drop every live `Thread` so its destructor runs BEFORE the process ends.
+    ///
+    /// `Thread::drop` sends `TerminateThread`, waits out the grace period and
+    /// joins the worker. `std::process::exit` runs no destructors at all, so
+    /// without this the workers are simply abandoned — which is what
+    /// ThreadSanitizer reports as `thread leak ... in pthread_create`.
+    ///
+    /// Clearing the map is enough: the `Thread` values own the handles, so
+    /// dropping them performs the terminate-and-join. Doing this from the
+    /// window rather than the loop keeps it correct for every exit path that
+    /// ends the process instead of unwinding.
+    fn shutdown_threads(&mut self) {
+        let Some(lw) = self.get_layout_window_mut() else {
+            return;
+        };
+        if lw.threads.is_empty() {
+            return;
+        }
+        log_info!(
+            LogCategory::EventLoop,
+            "[Headless] terminating {} background thread(s) before exit",
+            lw.threads.len(),
+        );
+        lw.threads.clear();
+    }
+
     // === Layout ===
 
     /// Regenerate layout and rebuild CPU hit-tester.
@@ -2584,6 +2610,20 @@ impl HeadlessWindow {
         // Handle termination behaviour (same as every platform run())
         match self.config.termination_behavior {
             AppTerminationBehavior::EndProcess => {
+                // `process::exit` does NOT run destructors, so every live
+                // `Thread` would skip its `Drop` — the one that sends
+                // TerminateThread, waits out the grace period and JOINS the
+                // worker. The threads simply vanish with the process, and
+                // ThreadSanitizer reports exactly that:
+                //
+                //   SUMMARY: ThreadSanitizer: thread leak in pthread_create
+                //
+                // The async example makes it visible because it spawns one
+                // worker per visible map tile and the harness exits after a
+                // single frame, with all of them still in flight. Dropping the
+                // registry here runs those destructors while the process is
+                // still alive.
+                self.shutdown_threads();
                 std::process::exit(0);
             }
             AppTerminationBehavior::ReturnToMain => { /* return normally */ }
