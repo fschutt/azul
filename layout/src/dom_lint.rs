@@ -857,9 +857,9 @@ mod semantic_and_a11y_lint_tests {
     use super::*;
     use azul_core::dom::Dom;
 
-    /// The lints share the global diagnostics ring, so they must not run
-    /// concurrently — this has already bitten twice in this codebase.
-    // Workspace-wide: see azul_core::diagnostics::test_lock.
+    // The lints share the global diagnostics ring, so they must not run
+    // concurrently. The lock is workspace-wide and lives beside the ring:
+    // see azul_core::diagnostics::test_lock.
 
     fn styled(dom: Dom) -> StyledDom {
         StyledDom::create_from_dom(dom)
