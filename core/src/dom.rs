@@ -637,6 +637,11 @@ pub enum NodeType {
     Image(BoxOrStatic<ImageRef>),
     /// `VirtualView` (embedded content) - payload stored in `NodeDataExt.virtual_view`
     VirtualView,
+    /// `<transient-window>` — a popup that is a real OS window drawn from this
+    /// node's subtree. Contributes nothing to layout while closed; when `open`
+    /// the engine materialises the children as a window anchored to the PARENT.
+    /// See `crate::transient`.
+    TransientWindow(crate::transient::TransientWindowConfig),
     /// Icon element - resolved to actual content by `IconProvider`.
     /// The string is the icon name (e.g., "home", "settings", "search").
     /// Uses `BoxOrStatic` to keep `NodeType` small.
@@ -829,6 +834,7 @@ impl NodeType {
             Text(s) => Text(BoxOrStatic::heap(s.clone_self())),
             Image(i) => Image(i.clone()),
             VirtualView => VirtualView,
+            Self::TransientWindow(c) => Self::TransientWindow(*c),
             Icon(s) => Icon(BoxOrStatic::heap(s.clone_self())),
             GeolocationProbe(cfg) => GeolocationProbe(*cfg),
             Self::PageBreak => Self::PageBreak,
@@ -836,11 +842,12 @@ impl NodeType {
     }
 
     #[must_use] pub fn format(&self) -> Option<String> {
-        use self::NodeType::{Text, Image, VirtualView, Icon, GeolocationProbe};
+        use self::NodeType::{Text, Image, VirtualView, TransientWindow, Icon, GeolocationProbe};
         match self {
             Text(s) => Some(format!("{s}")),
             Image(id) => Some(format!("image({id:?})")),
             VirtualView => Some("virtualized-view".to_string()),
+            TransientWindow(c) => Some(format!("transient-window(open={})", c.open)),
             Icon(s) => Some(format!("icon({s})")),
             GeolocationProbe(cfg) => Some(format!(
                 "geolocation-probe(hi={}, bg={}, max={}m, every={}ms)",
@@ -1032,6 +1039,7 @@ impl NodeType {
             Self::Text(_) => NodeTypeTag::Text,
             Self::Image(_) => NodeTypeTag::Img,
             Self::VirtualView => NodeTypeTag::VirtualView,
+            Self::TransientWindow(_) => NodeTypeTag::TransientWindow,
             Self::Icon(_) => NodeTypeTag::Icon,
             Self::GeolocationProbe(_) => NodeTypeTag::GeolocationProbe,
             Self::PageBreak => NodeTypeTag::PageBreak,

@@ -3884,6 +3884,23 @@ const fn is_proper_table_child(display: LayoutDisplay) -> bool {
 // enum-return handling — not fixable in Rust. (Original kept.)
 #[must_use] pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     use crate::solver3::getters::get_display_property;
+
+    // A `<transient-window>` never takes part in its PARENT's layout, open or
+    // closed. Closed, it is nothing. Open, its subtree is laid out as the root
+    // of its OWN window (see `transient::collect_open_transient_windows`) —
+    // putting it in the parent's flow as well would render the popup's content
+    // twice: once inline, once in the popup. `display: none` here is the one
+    // choke point every child-collection in this file already honours, which
+    // is why it is done here and not in each of them.
+    if styled_dom
+        .node_data
+        .as_container()
+        .get(node_id)
+        .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::TransientWindow(_)))
+    {
+        return LayoutDisplay::None;
+    }
+
     get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
 }
 

@@ -345,7 +345,9 @@ impl core::fmt::Display for LogicalSize {
 impl_option!(
     LogicalSize,
     OptionLogicalSize,
-    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
+    // Ord + Hash so it can ride inside NodeType (TransientWindowConfig::size);
+    // LogicalSize already implements both by bit pattern.
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
 impl_option!(

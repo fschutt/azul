@@ -501,6 +501,7 @@ pub mod timer;
 /// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;
+pub mod transient;
 /// Content overlay + journal for quickly-mutable content.
 ///
 /// The single write chokepoint and overlay→DOM read order (images now,

@@ -383,10 +383,24 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
         let node_type = tag_to_node_type(tag);
         let mut nd = NodeData::create_node(node_type);
 
+        // `<transient-window open="true" anchor="bottom" …>`: the config rides
+        // INSIDE the NodeType, so its attributes are applied onto that payload
+        // rather than stored as generic attributes. Done before the generic
+        // loop so the keys it consumes never reach `attr_vec`.
+        let mut transient_cfg = match nd.get_node_type() {
+            NodeType::TransientWindow(c) => Some(*c),
+            _ => None,
+        };
+
         // Apply attributes — build AttributeTypeVec directly (avoids the
         // clone + retain dance in set_ids_and_classes for fresh NodeData).
         let mut attr_vec: Vec<azul_core::dom::AttributeType> = Vec::new();
         for (key, value) in attrs {
+            if let Some(cfg) = transient_cfg.as_mut() {
+                if cfg.apply_attr(key.as_str(), value.as_str()) {
+                    continue;
+                }
+            }
             match key.as_str() {
                 "id" => {
                     for id in value.split_whitespace() {
@@ -448,6 +462,10 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
         }
         if !attr_vec.is_empty() {
             nd.set_attributes(attr_vec.into());
+        }
+        // Write the parsed popup config back into the node's payload.
+        if let Some(cfg) = transient_cfg {
+            nd.set_node_type(NodeType::TransientWindow(cfg));
         }
 
         builder.open_node(nd);
@@ -1768,6 +1786,53 @@ mod autotest_generated {
     // ------------------------------------------------------------------
     // parse_xml_to_fast_dom / parse_xml_to_fast_dom_with_css
     // ------------------------------------------------------------------
+
+    /// `<transient-window>` parses to its NodeType with the attributes applied
+    /// onto the inline config — and those attributes do NOT leak into the
+    /// generic attribute list, where they would be meaningless.
+    #[test]
+    fn transient_window_tag_parses_its_attributes_into_the_config() {
+        use azul_core::transient::{TransientAnchor, TransientDismiss};
+        let dom = parse_xml_to_fast_dom(
+            r#"<div><transient-window open="true" anchor="right" dismiss="escape" size="300x200" class="picker"><p>hi</p></transient-window></div>"#,
+        )
+        .expect("parses");
+        let n = nodes(&dom);
+        let tw = n
+            .iter()
+            .find_map(|nd| match nd.get_node_type() {
+                NodeType::TransientWindow(c) => Some((*c, nd)),
+                _ => None,
+            })
+            .expect("a TransientWindow node");
+        let (cfg, nd) = tw;
+        assert!(cfg.open, "open=\"true\" must open it");
+        assert_eq!(cfg.anchor, TransientAnchor::Right);
+        assert_eq!(cfg.dismiss, TransientDismiss::Escape);
+        assert!(matches!(cfg.size, azul_core::geom::OptionLogicalSize::Some(s) if s.width == 300.0));
+        // `class` is an ordinary attribute and must survive; the popup keys
+        // must NOT have been stored as attributes.
+        let classes: Vec<String> = nd
+            .get_ids_and_classes()
+            .iter()
+            .filter_map(|ic| match ic {
+                azul_core::dom::IdOrClass::Class(c) => Some(c.as_str().to_string()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(classes, vec!["picker".to_string()]);
+    }
+
+    /// With no attributes at all the tag is a CLOSED popup — the default must
+    /// never open a window by accident.
+    #[test]
+    fn a_bare_transient_window_tag_is_closed() {
+        let dom = parse_xml_to_fast_dom("<div><transient-window/></div>").expect("parses");
+        let closed = nodes(&dom).iter().any(|nd| {
+            matches!(nd.get_node_type(), NodeType::TransientWindow(c) if !c.open)
+        });
+        assert!(closed, "a bare <transient-window/> must parse as closed");
+    }
 
     #[test]
     fn parse_xml_to_fast_dom_accepts_empty_and_whitespace_only_input() {
