@@ -1928,6 +1928,49 @@ pub struct TranslateHint {
     pub region_old: LogicalRect,
 }
 
+/// Decide whether a layout patch's move may be presented as a BLIT.
+///
+/// Extracted so the real backend and the e2e harness make the same decision
+/// from the same inputs. They did not: `dll/.../headless/mod.rs` had this logic
+/// inline and `layout/src/e2e/cpu_backend.rs` had none of it — zero mentions of
+/// `TranslateHint`, `dominant_delta` or the already-shifted guard. The harness
+/// therefore could not execute the blit path AT ALL, which is where the
+/// "typing does not repaint" bug lives: a stale hint blits the previous frame
+/// by `dominant_delta`, so the damage rect is right and the pixels under it are
+/// the old ones, translated.
+///
+/// The conditions, all of which must hold:
+/// - the dominant delta is INTEGRAL in physical pixels; a fractional blit would
+///   change every subpixel phase, so those frames must re-render
+/// - it actually moved at least one physical pixel
+/// - the previous frame's pixels are trustworthy (`can_reuse_previous_frame`)
+/// - this display list has not already been shifted, which is what
+///   `already_shifted` carries (a buffers-held retry would shift twice)
+#[must_use]
+pub fn translate_hint_for_patch(
+    last_patch_move: Option<&crate::solver3::display_list::PatchMoveSummary>,
+    dpi_factor: f32,
+    can_reuse_previous_frame: bool,
+    already_shifted: bool,
+) -> Option<(TranslateHint, Vec<LogicalRect>)> {
+    let m = last_patch_move?;
+    let px = m.dominant_delta.x * dpi_factor;
+    let py = m.dominant_delta.y * dpi_factor;
+    let integral = (px - px.round()).abs() < 0.001 && (py - py.round()).abs() < 0.001;
+    let moved_any = px.round().abs() >= 1.0 || py.round().abs() >= 1.0;
+    if integral && moved_any && can_reuse_previous_frame && !already_shifted {
+        Some((
+            TranslateHint {
+                delta: (m.dominant_delta.x, m.dominant_delta.y),
+                region_old: m.moved_region_old,
+            },
+            m.exceptions.clone(),
+        ))
+    } else {
+        None
+    }
+}
+
 /// [`compute_display_list_damage`] + the translate hint. Returns
 /// `(damage, moved_union)`; `moved_union` is `None` when nothing matched
 /// the hint (caller falls back to plain damage).
@@ -2432,6 +2475,58 @@ pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
 // ============================================================================
 // scroll_shift_region — unit tests (#14 single-axis, #16 diagonal pan)
 // ============================================================================
+
+#[cfg(test)]
+mod translate_hint_contract {
+    use super::*;
+    use crate::solver3::display_list::PatchMoveSummary;
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    fn mv(dx: f32, dy: f32) -> PatchMoveSummary {
+        let r = LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(100.0, 100.0),
+        );
+        PatchMoveSummary {
+            dominant_delta: LogicalPosition::new(dx, dy),
+            mover_rects_old: vec![r],
+            moved_region_old: r,
+            exceptions: Vec::new(),
+        }
+    }
+
+    /// A fractional physical delta must NOT blit: it would change every
+    /// subpixel phase, so the frame has to re-render.
+    #[test]
+    fn a_fractional_delta_is_not_blittable() {
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 10.5)), 1.0, true, false).is_none());
+        // ... but the SAME logical delta at 2x dpi is integral in physical px.
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 10.5)), 2.0, true, false).is_some());
+    }
+
+    /// A sub-pixel move is not a move.
+    #[test]
+    fn a_delta_that_moves_no_physical_pixel_is_not_blittable() {
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 0.0)), 1.0, true, false).is_none());
+    }
+
+    /// The two guards that make a blit safe at all.
+    #[test]
+    fn an_untrustworthy_previous_frame_or_a_second_shift_is_refused() {
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, true, false).is_some());
+        // previous frame cannot be reused -> no source pixels to blit
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, false, false).is_none());
+        // this display list was already shifted -> shifting twice doubles it
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, true, true).is_none());
+    }
+
+    /// No patch, no hint.
+    #[test]
+    fn no_patch_move_means_no_hint() {
+        assert!(translate_hint_for_patch(None, 1.0, true, false).is_none());
+    }
+}
+
 #[cfg(test)]
 mod scroll_shift_tests {
     use super::*;
@@ -3861,6 +3956,60 @@ mod autotest_generated {
         assert!(!display_lists_visually_equal(&a, &c), "colour differs");
         let d = dlist(vec![DisplayListItem::PopClip]);
         assert!(!display_lists_visually_equal(&a, &d), "discriminant differs");
+    }
+
+    /// DETECTOR for a bug class, not for one widget.
+    ///
+    /// Reported against the slider: dragging it left a trail of blue thumbs on
+    /// the grey track, each the thumb's previous position, never repainted. The
+    /// slider is not special — anything that repositions a child by a layout
+    /// property is exposed the same way. The diff can notice an item at its NEW
+    /// rect and forget the OLD one, and what you see is stale paint that reads
+    /// as a rendering glitch rather than a damage bug.
+    ///
+    /// The invariant, stated once so every future mover inherits it:
+    ///
+    ///   when an item moves, the damage must cover BOTH the rect it left and
+    ///   the rect it arrived at.
+    ///
+    /// Covering only the new rect is the trail. Covering only the old one is an
+    /// element that never appears. Same defect, two symptoms, one assertion.
+    #[test]
+    fn a_moved_item_damages_the_pixels_it_vacated() {
+        let off = ScrollOffsetMap::new();
+
+        // Sweep a range of distances: a mover that overlaps its old position
+        // can be covered by a single sloppy rect and hide the bug, so include
+        // clearly disjoint moves too.
+        for delta in [4.0_f32, 16.0, 64.0, 150.0] {
+            let a = dlist(vec![opaque_rect(0.0, 0.0, 16.0, 16.0)]);
+            let b = dlist(vec![opaque_rect(delta, 0.0, 16.0, 16.0)]);
+            let d = compute_display_list_damage(&a, &b, &off, &off)
+                .expect("a pure move is not a structural change");
+
+            let covers = |x: f32, y: f32, w: f32, h: f32| {
+                let (x1, y1) = (x + w, y + h);
+                d.iter().any(|r| {
+                    r.origin.x <= x + 0.01
+                        && r.origin.y <= y + 0.01
+                        && r.origin.x + r.size.width + 0.01 >= x1
+                        && r.origin.y + r.size.height + 0.01 >= y1
+                })
+            };
+
+            assert!(
+                covers(delta, 0.0, 16.0, 16.0),
+                "delta={delta}: damage misses the NEW rect, so the item would \
+                 never appear there. damage={d:?}"
+            );
+            assert!(
+                covers(0.0, 0.0, 16.0, 16.0),
+                "delta={delta}: damage misses the pixels the item VACATED. The \
+                 old paint stays on screen — this is the slider's trail of blue \
+                 thumbs on the grey track, and it is a property of the damage \
+                 diff, not of the slider. damage={d:?}"
+            );
+        }
     }
 
     #[test]

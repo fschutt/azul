@@ -528,29 +528,18 @@ impl CpuBackend {
         // previous frame's pixels are trustworthy, and this display list has
         // not already been shifted (buffers-held retry).
         let dl_arc_ptr = std::sync::Arc::as_ptr(display_list) as usize;
+        // Shared with the e2e harness on purpose: this logic used to live only
+        // here, and layout/src/e2e/cpu_backend.rs had no notion of a translate
+        // hint at all — zero mentions of TranslateHint, dominant_delta or the
+        // already-shifted guard. So no e2e scenario could execute the blit path,
+        // which is exactly where "typing does not repaint" lives.
         let patch_hint: Option<(cpurender::TranslateHint, Vec<azul_core::geom::LogicalRect>)> =
-            layout_window.layout_cache.last_patch_move.as_ref().and_then(|m| {
-                let px = m.dominant_delta.x * dpi_factor;
-                let py = m.dominant_delta.y * dpi_factor;
-                let integral =
-                    (px - px.round()).abs() < 0.001 && (py - py.round()).abs() < 0.001;
-                let moved_any = px.round().abs() >= 1.0 || py.round().abs() >= 1.0;
-                if integral
-                    && moved_any
-                    && can_reuse_previous_frame
-                    && self.last_patch_shift_dl != dl_arc_ptr
-                {
-                    Some((
-                        cpurender::TranslateHint {
-                            delta: (m.dominant_delta.x, m.dominant_delta.y),
-                            region_old: m.moved_region_old,
-                        },
-                        m.exceptions.clone(),
-                    ))
-                } else {
-                    None
-                }
-            });
+            cpurender::translate_hint_for_patch(
+                layout_window.layout_cache.last_patch_move.as_ref(),
+                dpi_factor,
+                can_reuse_previous_frame,
+                self.last_patch_shift_dl == dl_arc_ptr,
+            );
 
         // Compute display list damage (incremental path)
         let mut patch_moved_union: Option<azul_core::geom::LogicalRect> = None;

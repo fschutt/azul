@@ -2704,8 +2704,15 @@ impl LayoutWindow {
             let _ = &mut root;
             let replacement = Dom {
                 root,
-                children: alloc::vec![Dom::create_p_with_text(merged_text)]
-                    .into(),
+                // BARE text on purpose: `root` is a clone of the spanned BLOCK
+                // element, so these children are its INLINE content. Wrapping
+                // here produces <p><p>text</p></p> and the merge returns a
+                // block where the caller expects runs — the same inline case as
+                // document_edit.rs splitting and rejoining text.
+                children: alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+                    merged_text
+                )]
+                .into(),
                 css: Vec::new().into(),
                 estimated_total_children: 1,
             };
