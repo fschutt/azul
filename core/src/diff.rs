@@ -903,6 +903,36 @@ pub fn transfer_states(
                 // The callback receives both datasets and returns the merged result
                 let merged = (merge_callback.cb)(new_data, old_data);
 
+                // 3b. CARRY THE LIVE IMAGE FORWARD.
+                //
+                // A merge callback ran, so this is the SAME logical widget as
+                // before — the reconciler matched them and the widget asked for
+                // its state to persist. A capture widget rebuilds its node with
+                // a PLACEHOLDER every time (`Dom::create_image(null_image)`),
+                // because the fresh widget struct has no frame yet; the live
+                // frame arrives later by writeback. So on every DOM rebuild the
+                // node reverted to the placeholder and stayed there until the
+                // next frame landed ~16-33ms later.
+                //
+                // That is the flash reported when resizing a window while
+                // screensharing: "the screen flickers, like it is
+                // re-initializing". Nothing was re-initialising — the last frame
+                // was simply thrown away and re-awaited.
+                //
+                // NARROW ON PURPOSE: only when the NEW image is a null/
+                // placeholder image and the OLD one is not. An app that
+                // deliberately swaps in a real image still wins, and one that
+                // deliberately clears to a placeholder is the only case this
+                // changes — which is indistinguishable from "has not produced a
+                // frame yet" and is what the widget itself does every rebuild.
+                if new_node_data[new_idx].image_is_placeholder()
+                    && !old_node_data[old_idx].image_is_placeholder()
+                {
+                    if let Some(prev) = old_node_data[old_idx].get_image_ref_cloned() {
+                        new_node_data[new_idx].set_image_ref(prev);
+                    }
+                }
+
                 // 4. Store the merged result back in the new node
                 new_node_data[new_idx].set_dataset(OptionRefAny::Some(merged.clone()));
 
@@ -3329,6 +3359,60 @@ mod autotest_generated {
 
         transfer_states(&mut old, &mut new, &moves); // must not panic
         assert!(new[0].get_dataset().is_none());
+    }
+
+    /// A live capture frame must survive a DOM rebuild.
+    ///
+    /// Capture widgets rebuild their node with `ImageRef::null_image(...)`
+    /// every time — the fresh widget struct holds no frame; frames arrive later
+    /// by writeback. Without carrying the previous image across the merge, every
+    /// rebuild reverted the node to the placeholder until the next frame landed
+    /// ~16-33ms later. That is the flash seen when resizing a window while
+    /// screensharing, which looks exactly like the capture re-initialising.
+    #[test]
+    fn autotest_a_live_image_survives_a_rebuild_that_merges_state() {
+        use crate::resources::{image_ref_get_hash, ImageRef};
+
+        // A DELIVERED frame is a raw image — capture_common::present_frame builds
+        // it with `ImageRef::new_rawimage`. The placeholder the widget rebuilds
+        // its node with is a `null_image`. That difference is exactly what the
+        // carry-forward keys on, so the fixture must use both constructors; an
+        // earlier version of this test used null_image for BOTH and failed,
+        // correctly, because there was then nothing to distinguish.
+        let real = ImageRef::new_rawimage(crate::resources::RawImage {
+            pixels: crate::resources::RawImageData::U8(vec![1, 2, 3, 4].into()),
+            width: 1,
+            height: 1,
+            premultiplied_alpha: false,
+            data_format: crate::resources::RawImageFormat::RGBA8,
+            tag: b"frame".to_vec().into(),
+        })
+        .expect("raw image");
+        let mut old = vec![NodeData::create_image(real.clone())];
+        old[0].set_dataset(OptionRefAny::Some(RefAny::new(TestState(1))));
+
+        let mut new = vec![NodeData::create_image(ImageRef::null_image(
+            1, 1, crate::resources::RawImageFormat::BGRA8, b"placeholder".to_vec(),
+        ))];
+        new[0].set_dataset(OptionRefAny::Some(RefAny::new(TestState(2))));
+        new[0].set_merge_callback(crate::dom::DatasetMergeCallback::from_ptr(merge_keep_old));
+
+        transfer_states(
+            &mut old,
+            &mut new,
+            &[NodeMove { old_node_id: NodeId::new(0), new_node_id: NodeId::new(0) }],
+        );
+
+        // Both are null images here (null_image is how the widget builds BOTH
+        // its placeholder and, in this harness, its frame), so assert on the
+        // payload that distinguishes them rather than on the flag.
+        let carried = new[0].get_image_ref_cloned().expect("still an image node");
+        assert_eq!(
+            image_ref_get_hash(&carried),
+            image_ref_get_hash(&real),
+            "the rebuilt node did not inherit the previous frame — it will show \
+             the placeholder until the next writeback, which is the flicker"
+        );
     }
 
     #[test]

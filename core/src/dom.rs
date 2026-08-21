@@ -2607,6 +2607,37 @@ impl NodeData {
 
     /// Legacy accessor for raster clip mask. Returns `Some` only for `SvgNodeData::ImageClipMask`.
     #[inline]
+    /// Is this node an image whose content is a null/placeholder image?
+    ///
+    /// Capture widgets (camera, screencapture, microphone level) build their
+    /// node with `ImageRef::null_image(...)` and fill it by writeback later, so
+    /// "placeholder" means "no frame yet" — see `diff::transfer_states`, which
+    /// uses this to keep the previous frame visible across a DOM rebuild
+    /// instead of flashing back to the placeholder.
+    #[must_use]
+    pub fn image_is_placeholder(&self) -> bool {
+        match &self.node_type {
+            NodeType::Image(img) => img.as_ref().is_null_image(),
+            _ => false,
+        }
+    }
+
+    /// Clone this node's `ImageRef`, if it is an image node.
+    #[must_use]
+    pub fn get_image_ref_cloned(&self) -> Option<ImageRef> {
+        match &self.node_type {
+            NodeType::Image(img) => Some(img.as_ref().clone()),
+            _ => None,
+        }
+    }
+
+    /// Replace this node's image. No-op on non-image nodes.
+    pub fn set_image_ref(&mut self, image: ImageRef) {
+        if let NodeType::Image(slot) = &mut self.node_type {
+            *slot = BoxOrStatic::heap(image);
+        }
+    }
+
     #[must_use] pub fn get_image_clip_mask(&self) -> Option<&ImageMask> {
         match self.get_svg_data()? {
             SvgNodeData::ImageClipMask(m) => Some(m),
