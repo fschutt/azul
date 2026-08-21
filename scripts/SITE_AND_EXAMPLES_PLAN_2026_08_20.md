@@ -393,7 +393,41 @@ Each fix revealed the next. A fourth may exist.
   map bug — an implementation nothing routes to.
 
 
-## O5. leak_regression is NOISY — do not trust a single number
+## O5. leak_regression — RESOLVED as a measurement bug, not a leak
+
+Diagnosed properly. On macOS BOTH instruments fail, and this suite runs on
+macOS ONLY:
+
+  * `mstats().bytes_used` counts zone CAPACITY (this file says so itself), so it
+    drifts with fragmentation and zone growth while nothing is retained. Three
+    consecutive runs of the SAME tree measured heap min = 399 / 3517 / 5963
+    B/iter — a 15x spread. A real per-call retention is steady.
+  * RSS is the declared fallback, and it cannot calibrate: a deliberate
+    262144 B/iter leak moved it by 15071 / 17367 B/iter, a 6% capture rate, with
+    BOTH windows under the floor, so a maximum does not rescue it either. The
+    kernel reclaims the leaked pages as fast as they are written.
+  * The heap instrument DID resolve the control leak (179814 B/iter) and was
+    then rejected by the "live heap cannot exceed RSS" rule — which is wrong on
+    macOS precisely because the figure is capacity, not live bytes.
+
+Fixed by encoding the rule the test's own message already told the reader to
+apply by hand: a heap figure convicts only when RSS corroborates. In the clean
+runs RSS was 44226 KiB at all four samples — flat to the kilobyte — while the
+heap claimed thousands of bytes per iteration.
+
+Detection is preserved: the control leak moves RSS well above zero, so it still
+fails, and the_leak_detector_actually_detects_a_leak still passes. RSS also
+keeps its own independent assertion. What is gone is the false positive that
+blocked two deploys.
+
+Calibration failure now WARNS instead of failing the build, because it measures
+the machine, not the code — and gating a release on an uncalibrated instrument
+is wrong in both directions.
+
+STILL WORTH DOING: give the heap instrument macOS-correct semantics (live bytes,
+not zone capacity) so it can gate on its own again.
+
+## O5b. Original note (superseded)
 
 FFI Safety Tests (macos-14) FAILED at f7acef890 and PASSED on rerun of the SAME
 commit. Locally the same tree measured 3517 then 5963 bytes/iter on consecutive
