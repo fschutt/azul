@@ -7486,15 +7486,22 @@ jobs:
               '' \
               '    "cannot be opened because the developer cannot be verified"' \
               '' \
-              'To clear that, double-click' \
+              'The reliable fix is one line. Open Terminal, cd into this' \
+              'folder, and run:' \
               '' \
-              '    unquarantine.command' \
+              '    xattr -dr com.apple.quarantine .' \
               '' \
-              'in this folder. It removes the quarantine flag from the file' \
-              'next to it, and nothing else. If Finder will not run it either,' \
-              'open Terminal in this folder and run:' \
+              'That clears the flag from everything here, including the' \
+              'helper script below. Then open the app normally.' \
               '' \
-              "    xattr -dr com.apple.quarantine $2" \
+              'Why not just double-click unquarantine.command? Because it was' \
+              'downloaded too, so macOS quarantines IT as well, and' \
+              'double-clicking it raises the very dialog it exists to remove.' \
+              'On macOS 15 that dialog no longer offers "Open Anyway" — it' \
+              'sends you to System Settings > Privacy & Security, where you' \
+              'must scroll to the bottom and click "Open Anyway" there. The' \
+              'script is still included, and it works once you have cleared' \
+              'the flag or approved it that way.' \
               '' \
               'You only need to do this once per download.' \
               > "$1/README-macOS.txt"
@@ -7556,7 +7563,11 @@ jobs:
                     "# Double-click me — I live next to $bn. I clear the macOS" \
                     '# download quarantine on that azul demo, then launch it.' \
                     'cd "$(dirname "$0")" || exit 1' \
-                    "xattr -dr com.apple.quarantine \"./$bn\" 2>/dev/null || true" \
+                    '# Clear the WHOLE folder, not just the binary: the README and' \
+                    '# this script were downloaded too, so they carry the flag as' \
+                    '# well, and a user who got this far should not have to repeat' \
+                    '# the exercise for the next file.' \
+                    'xattr -dr com.apple.quarantine . 2>/dev/null || true' \
                     "chmod +x \"./$bn\" 2>/dev/null || true" \
                     "echo \"Unquarantined ./$bn — launching…\"" \
                     "exec \"./$bn\"" \
