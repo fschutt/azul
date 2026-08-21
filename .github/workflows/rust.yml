@@ -224,12 +224,31 @@ jobs:
   # deliberate trade-offs documented on those jobs, not accidents.
 
   content_state_lint:
-    name: Content-state architecture lint
+    # The cheap preflight lane: checkout + grep + python, no compilation, and a
+    # gate for most of the run. It is the right home for CLASS checks — the ones
+    # that cost a full hour of CI, or a whole release, to discover otherwise.
+    # (The job KEY stays content_state_lint because ~34 `needs:` entries name it.)
+    name: Architecture + release contracts (preflight)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Release contracts (naming, widget wiring, sparse checkout, api.json)
+        # Every failure this catches shipped in 0.2.0 and cost either a full CI
+        # run or an entire release to notice:
+        #   * azul-writer built `azwriter`; three desktop downloads 404'd for a
+        #     version while the staging job reported success.
+        #   * api.json bound MapWidget.dom to azul-layout's PLACEHOLDER, so the
+        #     map panned and never painted a tile on every desktop platform.
+        #     VideoWidget.dom had the same bug.
+        #   * deploy_pages runs scripts by path under a cone-mode-off sparse
+        #     checkout; an unlisted one killed the deploy after every artifact
+        #     had already built. The same trap silently disabled the registry
+        #     mirrors for two months.
+        # Runs in well under a second, here, before anything is compiled.
+        run: python3 scripts/preflight_contracts.py
 
       - name: Backends must not touch content state
         # The content-overlay architecture (scripts/OVERLAY_JOURNAL_REFACTOR_PLAN.md)

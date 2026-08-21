@@ -36,6 +36,7 @@ cd "$REPO_ROOT"
 # Ordered fastest-time-to-first-failure first.
 # --------------------------------------------------------------------------
 STAGES=(
+  "contracts|fast|release contracts: naming, widget wiring, sparse checkout (preflight job)"
   "arch-lint|fast|shell2 architecture greps (content_state_lint job)"
   "member-coverage|fast|no workspace member may join untested (check_crates job)"
   "check|fast|cargo check azul-css / azul-core / azul-layout"
@@ -246,6 +247,14 @@ run_stage() {
 }
 
 # ---------------------------------------------------------------- stage bodies
+
+stage_contracts() {
+  # The class checks CI runs first. Cheap enough (<1s, no compilation) that it
+  # belongs ahead of even the greps: a naming or binding mismatch here means the
+  # release ships a 404 or a widget that never receives data, and neither shows
+  # up in any compiler or test until an hour of CI has burned.
+  python3 scripts/preflight_contracts.py
+}
 
 stage_arch_lint() {
   local bad=0
@@ -468,6 +477,7 @@ for s in "${STAGES[@]}"; do
     continue
   fi
   case "$name" in
+    contracts)       run_stage "$name" "$desc" stage_contracts ;;
     arch-lint)       run_stage "$name" "$desc" stage_arch_lint ;;
     member-coverage) run_stage "$name" "$desc" stage_member_coverage ;;
     check)           run_stage "$name" "$desc" stage_check ;;
