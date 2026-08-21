@@ -233,6 +233,9 @@ impl CheckBox {
 
     #[inline]
     #[must_use] pub fn dom(self) -> Dom {
+        // Read the state BEFORE the wrapper is moved into the callback below.
+        let checked_now = self.check_box_state.inner.checked;
+
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{Dom, EventFilter, HoverEventFilter},
@@ -253,6 +256,20 @@ impl CheckBox {
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
+            // A checkbox that does not publish its checked state announces as
+            // unchecked forever, however it renders. The state must travel with
+            // every build, not be set once at construction.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::CheckButton,
+                states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                    if checked_now {
+                        azul_core::a11y::AccessibilityState::CheckedTrue
+                    } else {
+                        azul_core::a11y::AccessibilityState::CheckedFalse
+                    },
+                ]),
+                ..Default::default()
+            })
             .with_children(
                 vec![Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))

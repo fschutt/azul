@@ -294,6 +294,9 @@ impl Slider {
 
     #[inline]
     #[must_use] pub fn dom(self) -> Dom {
+        // Read the value BEFORE the fields are moved into the DOM below.
+        let value_now = self.slider_state.inner.value;
+
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -348,6 +351,18 @@ impl Slider {
             .with_css_props(self.track_style)
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)
+            // For a slider the VALUE is the content. Without it a screen reader
+            // announces "slider" and never where the thumb sits, which is the
+            // one thing the control exists to communicate. Published on every
+            // build so it tracks the thumb rather than freezing at construction.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Slider,
+                accessibility_value: Some(AzString::from(
+                    alloc::format!("{value_now}"),
+                ))
+                .into(),
+                ..Default::default()
+            })
             .with_children(
                 vec![Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(SLIDER_THUMB_CLASS))

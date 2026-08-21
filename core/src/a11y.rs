@@ -60,6 +60,44 @@ pub struct AccessibilityInfo {
     pub is_live_region: bool,
 }
 
+impl Default for AccessibilityInfo {
+    /// An empty declaration: no name, no value, `Unknown` role.
+    ///
+    /// Exists so the idiomatic form works — the one the engine's own a11y lint
+    /// tells developers to write:
+    ///
+    /// ```ignore
+    /// dom.with_accessibility_info(AccessibilityInfo {
+    ///     accessibility_name: Some("Mute microphone".into()).into(),
+    ///     role: AccessibilityRole::PushButton,
+    ///     ..Default::default()
+    /// })
+    /// ```
+    ///
+    /// Without it, declaring one field meant spelling out all eleven, and the
+    /// advice the lint prints did not compile.
+    ///
+    /// The default role is `Unknown` ON PURPOSE rather than something
+    /// plausible-looking: a node that reaches the accessibility tree announcing
+    /// the wrong KIND of control is worse than one that admits it does not
+    /// know, and `warn_a11y_shape` reports `Unknown` on an interactive node.
+    fn default() -> Self {
+        Self {
+            accessibility_name: OptionString::None,
+            accessibility_value: OptionString::None,
+            description: OptionString::None,
+            accelerator: OptionVirtualKeyCodeCombo::None,
+            default_action: OptionString::None,
+            states: AccessibilityStateVec::from_const_slice(&[]),
+            supported_actions: AccessibilityActionVec::from_const_slice(&[]),
+            labelled_by: OptionDomNodeId::None,
+            described_by: OptionDomNodeId::None,
+            role: AccessibilityRole::Unknown,
+            is_live_region: false,
+        }
+    }
+}
+
 /// Actions that can be performed on an accessible element.
 /// This is a simplified version of `accesskit::Action` to avoid direct dependency in core.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
