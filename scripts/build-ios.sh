@@ -90,11 +90,16 @@ if [[ "$CRATE" == "azul-dll" ]]; then
 else
     FEATURE_ARGS=()
 fi
-echo "==> cargo build --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]}"
+# `${ARR[@]}` on an EMPTY array is an "unbound variable" error under `set -u`
+# in bash 3.2, which is what macOS ships and therefore what every CI runner
+# uses. A demo crate takes no feature args, so FEATURE_ARGS is empty for all
+# five of them and this line aborted every single iOS bundle. Use the
+# empty-safe expansion.
+echo "==> cargo build --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]:-}"
 CARGO_LOG="$WORKSPACE_ROOT/target/ios-build-${CRATE}-${TARGET}.json"
 mkdir -p "$WORKSPACE_ROOT/target"
 ( cd "$WORKSPACE_ROOT" \
-  && cargo build --target "$TARGET" --release -p "$CRATE" "${FEATURE_ARGS[@]}" \
+  && cargo build --target "$TARGET" --release -p "$CRATE" ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"} \
        --message-format=json-render-diagnostics > "$CARGO_LOG" )
 
 # A bin crate produces an executable Mach-O whose main() runs App::run →

@@ -69,9 +69,13 @@ fi
 # library target. A demo's `[[bin]]` is the desktop/iOS entry point and links as
 # an executable (no undefined symbols allowed), which fails on the NDK media
 # symbols — and we don't ship it in the APK anyway.
-echo "==> cargo build --lib --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]}"
+# Empty-safe: bash 3.2 (macOS) treats ${ARR[@]} on an empty array as an
+# unbound variable under `set -u`. Linux runners have bash 5 and do not care,
+# which is exactly why the identical bug in build-ios.sh went unnoticed while
+# this script worked.
+echo "==> cargo build --lib --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]:-}"
 (cd "$WORKSPACE_ROOT" \
-  && cargo build --lib --target "$TARGET" --release -p "$CRATE" "${FEATURE_ARGS[@]}")
+  && cargo build --lib --target "$TARGET" --release -p "$CRATE" ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"})
 
 SRC_SO="$WORKSPACE_ROOT/target/$TARGET/release/lib${LIB_NAME}.so"
 [[ -f "$SRC_SO" ]] || { echo "missing $SRC_SO — '$CRATE' produced no cdylib (.so). A demo must declare crate-type=cdylib + android_main to ship as an APK; skipping." >&2; exit 4; }
@@ -103,7 +107,7 @@ if (( HAS_JAVA == 1 )); then
     "$JAVA_HOME/bin/javac" -source 11 -target 11 \
         -classpath "$PLATFORM/android.jar" \
         -d "$BUILD_DIR/classes" \
-        "${JAVA_SOURCES[@]}"
+        ${JAVA_SOURCES[@]+"${JAVA_SOURCES[@]}"}
     echo "==> d8 classes -> classes.dex"
     "$BT/d8" \
         --output "$BUILD_DIR/dex" \
