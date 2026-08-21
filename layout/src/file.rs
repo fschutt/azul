@@ -1330,7 +1330,13 @@ mod autotest_generated {
         // separators collapse. Anything treating these as rejected input is
         // wrong.
         let climb = "../".repeat(64);
-        let slashes = "/".repeat(1024);
+        // 512, not 1024: PATH_MAX is 1024 on macOS and 4096 on Linux, and a
+        // 1024-BYTE path leaves no room for the NUL, so stat() returns
+        // ENAMETOOLONG and the OS is right to reject it. This test is about
+        // separator runs collapsing, which 512 shows exactly as well — the
+        // old length made it a PATH_MAX test by accident, green on Linux and
+        // red on every mac.
+        let slashes = "/".repeat(512);
 
         for p in [climb.as_str(), slashes.as_str()] {
             assert!(path_exists(p), "{p:?} resolves to /, so it exists");
@@ -1816,13 +1822,31 @@ mod autotest_generated {
             canon.as_str()
         );
 
+        // `f.txt/../f.txt` — `..` applied THROUGH a regular file.
+        //
+        // POSIX realpath(3) answers ENOTDIR, and so does Linux's
+        // std::fs::canonicalize. macOS's does NOT: it resolves the path and
+        // hands back the file. Verified directly, outside azul —
+        // std::fs::canonicalize returns Ok on macOS for exactly this input
+        // while Python's os.path.realpath(strict=True) on the same path raises
+        // NotADirectoryError. It is a difference in std, not in this crate, and
+        // asserting the Linux answer everywhere made every mac run red.
+        //
+        // What must hold on BOTH platforms is the part that matters: the path
+        // does not ESCAPE. Whether it errors or resolves, it must never name
+        // anything other than the file itself.
         let through_a_file = path_join(path_join(&f, "..").as_str(), "f.txt")
             .as_str()
             .to_string();
-        assert!(
-            path_canonicalize(&through_a_file).is_err(),
-            "a regular file must not act as a directory component"
-        );
+        match path_canonicalize(&through_a_file) {
+            Err(_) => { /* POSIX answer: a file is not a directory component */ }
+            Ok(resolved) => assert_eq!(
+                resolved.as_str(),
+                canon.as_str(),
+                "resolving `..` through a regular file must not escape to a \
+                 different path than the file itself"
+            ),
+        }
     }
 
     #[test]
