@@ -6336,6 +6336,14 @@ jobs:
             examples/assets/screenshots
             scripts/build_registry_mirrors.sh
             scripts/verify_install_commands.sh
+            # Same trap as build_registry_mirrors.sh above, and it caught us
+            # again: the "Remove links to artifacts that were never published"
+            # step runs this by path, it was not listed, and the job died with
+            #   python3: can't open file '.../scripts/prune_dead_release_links.py'
+            # That step has no `|| true`, so unlike the 2026-05-30 case it did
+            # not pass silently — it FAILED the deploy, and the website did not
+            # publish even though every artifact had built correctly.
+            scripts/prune_dead_release_links.py
           sparse-checkout-cone-mode: false
 
       - name: Download website skeleton

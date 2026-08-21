@@ -327,7 +327,26 @@ Start at the wl_buffer release/attach bookkeeping.
 
 # Open after the 2026-08-21 naming/mobile session
 
-## O1. Sanitizers: thread leak in the rewritten async example
+## O1. Sanitizers: thread leak — CORRECTED, still open
+
+CORRECTION to what e81a90e6b's message claims. Making the tile worker poll for
+TerminateThread while it waits is a real improvement, but it does NOT fix this
+leak, and the leak persisted after it. The log says why:
+
+    [Headless] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER: a frame rendered, exiting 0
+    [Headless] Event loop finished (elapsed: 5.5s)
+    WARNING: ThreadSanitizer: thread leak (pid=19013)
+
+The harness renders ONE frame and exits. The tile workers were spawned moments
+earlier and are still in flight; nothing ever SENDS TerminateThread, so a worker
+that polls for it is beside the point. The threads leak because the process
+exits without joining them.
+
+That is a shutdown-path gap in the framework, not an example bug: exiting an
+azul app should terminate and join its outstanding threads. Fix there, not in
+async.c. Does NOT block deploy_pages (sanitizers is not in its needs).
+
+## O1b. Original (superseded) note
 
     SUMMARY: ThreadSanitizer: thread leak (/tmp/async-san+0x618bf) in pthread_create
 
@@ -372,3 +391,31 @@ Each fix revealed the next. A fourth may exist.
 - file_picker `apply_open_file` / `apply_save_file` / `apply_open_directory`:
   flagged by the new orphan lint, allowlisted pending triage. Same shape as the
   map bug — an implementation nothing routes to.
+
+
+## O5. leak_regression is NOISY — do not trust a single number
+
+FFI Safety Tests (macos-14) FAILED at f7acef890 and PASSED on rerun of the SAME
+commit. Locally the same tree measured 3517 then 5963 bytes/iter on consecutive
+runs. The five commits between the passing run (ede945eb6) and the failing one
+touch only scripts, docs and iOS Cargo.toml blocks; resolver = "2" and
+map-tiles is absent from the macOS feature tree, so none of them can reach that
+build.
+
+So the failure is NOT attributable to those commits, and the absolute figure
+varies ~70% run to run.
+
+What is NOT ruled out: a real retention introduced earlier on 2026-08-20,
+most plausibly the font-request guard in
+dll/src/desktop/shell2/common/layout.rs, which now calls request_fonts() on
+every layout while the build is incomplete where it previously called it once.
+A leak that only sometimes crosses the threshold looks exactly like this.
+
+An attempted fix — request only when chain_cache_len() == 0 — was written and
+REVERTED unshipped: it did not clear the local failure (5963 B/iter after), and
+the proxy is unvalidated (if that counter stays 0 the guard never engages). It
+touches the path that caused the macOS textless bug, so it must not ship on a
+hunch.
+
+To do this properly: bisect with a worktree at a commit before bf393e353,
+measure, then decide. Needs disk headroom for a second target dir.
