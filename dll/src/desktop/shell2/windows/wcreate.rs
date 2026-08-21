@@ -169,6 +169,32 @@ pub fn create_hwnd(
             return Err(WindowError::PlatformError("Failed to create HWND".into()));
         }
 
+        // Restore the drop shadow, the Windows 11 rounded corners and the
+        // snap-layouts affordance that WS_POPUP strips from a frameless window.
+        //
+        // This must happen HERE as well as in sync_window_state, because that
+        // one is diff-gated on `previous.flags.decorations != current` — and a
+        // window CREATED frameless never trips that diff. It is the same shape
+        // as the maximize flag: a state that is applied on CHANGE is not
+        // applied at BIRTH unless someone says so.
+        //
+        // Electron does not expose this either; Chromium calls it internally
+        // for every frameless window, which is why `frame: false` still looks
+        // like a real window. One-pixel top margin rather than -1: the "sheet
+        // of glass" form composites the entire client area as frame and shows
+        // through wherever the app draws with alpha.
+        if matches!(options.window_state.flags.decorations, WindowDecorations::None) {
+            if let Some(ref dwm) = win32.dwmapi_funcs {
+                let margins = crate::desktop::shell2::windows::dlopen::MARGINS {
+                    cxLeftWidth: 0,
+                    cxRightWidth: 0,
+                    cyTopHeight: 1,
+                    cyBottomHeight: 0,
+                };
+                (dwm.DwmExtendFrameIntoClientArea)(hwnd, &margins);
+            }
+        }
+
         Ok(hwnd)
     }
 }

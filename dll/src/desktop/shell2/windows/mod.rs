@@ -2299,6 +2299,38 @@ impl Win32Window {
                     self.hwnd, std::ptr::null_mut(), 0, 0, 0, 0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
                 );
+
+                // A frameless window loses more than its title bar. WS_POPUP
+                // strips the DROP SHADOW, the rounded corners on Windows 11,
+                // and the snap-layouts affordance with it — the window ends up
+                // a flat rectangle that does not look like it belongs to the
+                // desktop.
+                //
+                // DwmExtendFrameIntoClientArea pushes the DWM frame back INTO
+                // the client area, which restores all three while leaving the
+                // whole surface ours to draw. This is what Electron does — and
+                // it is not an option Electron exposes: Chromium calls it
+                // internally for every frameless window, which is why an
+                // Electron app with `frame: false` still has a shadow and still
+                // snaps. So azul does it here, in the backend, rather than
+                // making an application ask.
+                //
+                // A ONE-pixel top margin, not -1: `-1` ("sheet of glass")
+                // extends the frame over the entire client area and the DWM
+                // then composites the whole window as frame, which shows
+                // through anywhere the app draws with alpha. One pixel is
+                // enough for the shadow and the corners.
+                if matches!(current.flags.decorations, WindowDecorations::None) {
+                    if let Some(ref dwm) = self.win32.dwmapi_funcs {
+                        let margins = dlopen::MARGINS {
+                            cxLeftWidth: 0,
+                            cxRightWidth: 0,
+                            cyTopHeight: 1,
+                            cyBottomHeight: 0,
+                        };
+                        (dwm.DwmExtendFrameIntoClientArea)(self.hwnd, &margins);
+                    }
+                }
             }
         }
 
