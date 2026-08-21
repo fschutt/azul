@@ -2105,6 +2105,36 @@ impl Win32Window {
         self.common.mark_os_synced();
     }
 
+    /// Hand the drag to WINDOWS via `WM_NCLBUTTONDOWN` with `HTCAPTION` — the
+    /// standard way to say "treat this as a title-bar press".
+    ///
+    /// `ReleaseCapture()` first, because the click that started the drag left
+    /// this window holding the mouse capture and Windows will not run its own
+    /// move loop while someone else owns it.
+    ///
+    /// The manual alternative — reading the cursor each mouse-move and writing
+    /// a new window position — makes the window trail the pointer, and once the
+    /// pointer leaves the dragged element the moves stop arriving at all, so
+    /// the drag dies mid-gesture. The OS loop owns the pointer until the button
+    /// comes up, and brings snap layouts and multi-monitor DPI with it.
+    ///
+    /// Wayland and macOS already took their native paths; Windows and X11 fell
+    /// through to the no-op default in `common::event`, which is why dragging
+    /// felt worse on exactly those two.
+    fn handle_begin_interactive_move(&mut self) {
+        const WM_NCLBUTTONDOWN: u32 = 0x00A1;
+        const HTCAPTION: usize = 2;
+        unsafe {
+            (self.win32.user32.ReleaseCapture)();
+            (self.win32.user32.PostMessageW)(
+                self.hwnd,
+                WM_NCLBUTTONDOWN,
+                HTCAPTION,
+                0,
+            );
+        }
+    }
+
     /// Synchronize window state with Windows OS
     ///
     /// Applies changes from current_window_state to the OS window.

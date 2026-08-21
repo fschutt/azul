@@ -5996,6 +5996,55 @@ pub trait PlatformWindow {
     /// * `ProcessEventResult` - The maximum framework-determined processing level from applied changes
     /// * `Update` - The maximum update level requested by all invoked callbacks
     /// * `bool` - Whether any callback called preventDefault()
+    /// Does this node — or an ancestor — declare `-azul-app-region: drag`?
+    ///
+    /// The property does NOT cascade, deliberately: a drag region names the
+    /// element that is draggable, and inheriting it would make every label and
+    /// icon inside a title bar drag the window. But a press usually lands on a
+    /// CHILD of the bar (the title text), so the lookup walks up until it finds
+    /// a declaration. A child that declares `no-drag` — a close button — stops
+    /// the walk at itself and is never treated as draggable, which is exactly
+    /// the escape hatch Electron's `no-drag` provides.
+    fn node_is_window_drag_region(&self, target: azul_core::dom::DomNodeId) -> bool {
+        use azul_css::props::style::transform::StyleAppRegion;
+
+        let Some(lw) = self.get_layout_window() else {
+            return false;
+        };
+        let Some(lr) = lw.layout_results.get(&target.dom) else {
+            return false;
+        };
+        let Some(mut node) = target.node.into_crate_internal() else {
+            return false;
+        };
+
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let states = lr.styled_dom.styled_nodes.as_container();
+        for _ in 0..32 {
+            // Bounded: a title bar is never 32 levels deep, and an unbounded
+            // walk on a malformed tree would hang the event loop.
+            let Some(sn) = states.get(node) else { break };
+            match azul_layout::solver3::getters::get_app_region(
+                &lr.styled_dom,
+                node,
+                &sn.styled_node_state,
+            ) {
+                azul_layout::solver3::getters::MultiValue::Exact(StyleAppRegion::Drag) => {
+                    return true
+                }
+                azul_layout::solver3::getters::MultiValue::Exact(StyleAppRegion::NoDrag) => {
+                    return false
+                }
+                _ => {}
+            }
+            match hierarchy.get(node).and_then(|h| h.parent_id()) {
+                Some(parent) => node = parent,
+                None => break,
+            }
+        }
+        false
+    }
+
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
@@ -6007,6 +6056,46 @@ pub trait PlatformWindow {
             id::NodeId,
             styled_dom::NodeHierarchyItem,
         };
+
+        // `-azul-app-region: drag` — Electron's rule, enforced by the FRAMEWORK
+        // rather than by a callback the app has to remember to attach.
+        //
+        // A DragStart landing on a node that declares `drag` hands the gesture
+        // to the WINDOW MANAGER (X11 _NET_WM_MOVERESIZE, Wayland
+        // xdg_toplevel.move, Windows WM_NCLBUTTONDOWN/HTCAPTION, macOS
+        // performWindowDragWithEvent:) and a DoubleClick on one toggles
+        // maximize/restore, exactly as a native title bar does.
+        //
+        // Checked on the node the event TARGETS, walking up to its ancestors:
+        // the property does not cascade, but a press usually lands on a child
+        // of the bar — the text inside it — and the bar is what declared the
+        // region. Walking up is how a click on the title text still drags,
+        // while a button that sets `no-drag` stops the walk at itself.
+        for ev in events {
+            let is_drag_start =
+                matches!(ev.event_type, azul_core::events::EventType::DragStart);
+            let is_double = matches!(ev.event_type, azul_core::events::EventType::DoubleClick);
+            if !(is_drag_start || is_double) {
+                continue;
+            }
+            let target = ev.target;
+            if !self.node_is_window_drag_region(target) {
+                continue;
+            }
+            if is_drag_start {
+                self.handle_begin_interactive_move();
+            } else {
+                // Double-click on a drag region toggles the frame, the way
+                // double-clicking a native title bar does.
+                let cur = self.get_common_mut().current_window_state().flags.frame;
+                let next = if cur == azul_core::window::WindowFrame::Maximized {
+                    azul_core::window::WindowFrame::Normal
+                } else {
+                    azul_core::window::WindowFrame::Maximized
+                };
+                self.get_common_mut().update_unsynced_state(|ws| ws.flags.frame = next);
+            }
+        }
 
         // Internal struct to track a planned callback invocation
         #[derive(Clone)]

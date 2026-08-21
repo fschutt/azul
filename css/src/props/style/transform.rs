@@ -130,6 +130,46 @@ impl PrintAsCssValue for StyleBackfaceVisibility {
     }
 }
 
+/// Whether dragging this element moves the WINDOW — azul's `app-region`.
+///
+/// Modelled on Electron's `-webkit-app-region`, and accepted under both
+/// `-azul-app-region` and `-webkit-app-region` so existing CSS ports over
+/// unchanged.
+///
+/// ```css
+/// .titlebar        { -azul-app-region: drag; }
+/// .titlebar button { -azul-app-region: no-drag; }
+/// ```
+///
+/// This is what lets an application turn window decorations off and draw its
+/// own title bar without losing what a native one does: drag to move,
+/// double-click to maximize.
+///
+/// It does NOT cascade. A drag region names the exact element that is
+/// draggable, and inheriting it would make every button, label and icon inside
+/// a title bar drag the window instead of doing its own job — which is the bug
+/// `no-drag` exists to undo in Electron. Here the default simply never
+/// propagates, so children opt IN rather than out.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleAppRegion {
+    /// Normal content: the element handles its own input.
+    #[default]
+    NoDrag,
+    /// Dragging this element moves the window; double-clicking it toggles
+    /// maximize/restore.
+    Drag,
+}
+
+impl PrintAsCssValue for StyleAppRegion {
+    fn print_as_css_value(&self) -> String {
+        String::from(match self {
+            Self::Drag => "drag",
+            Self::NoDrag => "no-drag",
+        })
+    }
+}
+
 /// Represents one component of a `transform` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -618,6 +658,39 @@ pub enum CssBackfaceVisibilityParseErrorOwned {
     InvalidValue(AzString),
 }
 
+#[derive(Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum CssAppRegionParseError<'a> {
+    InvalidValue(&'a str),
+}
+
+impl_debug_as_display!(CssAppRegionParseError<'a>);
+impl_display! { CssAppRegionParseError<'a>, {
+    InvalidValue(s) => format!("Invalid value for app-region: \"{}\", expected \"drag\" or \"no-drag\"", s),
+}}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum CssAppRegionParseErrorOwned {
+    InvalidValue(AzString),
+}
+
+impl CssAppRegionParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> CssAppRegionParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => CssAppRegionParseErrorOwned::InvalidValue((*s).into()),
+        }
+    }
+}
+
+impl CssAppRegionParseErrorOwned {
+    #[must_use] pub fn to_shared(&self) -> CssAppRegionParseError<'_> {
+        match self {
+            Self::InvalidValue(s) => CssAppRegionParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
 impl CssBackfaceVisibilityParseError<'_> {
     #[must_use] pub fn to_contained(&self) -> CssBackfaceVisibilityParseErrorOwned {
         match self {
@@ -963,6 +1036,23 @@ pub fn parse_style_perspective_origin(
     let x = parse_pixel_value(components[0])?;
     let y = parse_pixel_value(components[1])?;
     Ok(StylePerspectiveOrigin { x, y })
+}
+
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not `drag` or `no-drag`.
+///
+/// Electron writes `-webkit-app-region: drag`; both spellings map here, so CSS
+/// written for Electron works unchanged.
+pub fn parse_style_app_region(
+    input: &str,
+) -> Result<StyleAppRegion, CssAppRegionParseError<'_>> {
+    match input.trim() {
+        "drag" => Ok(StyleAppRegion::Drag),
+        "no-drag" | "none" => Ok(StyleAppRegion::NoDrag),
+        _ => Err(CssAppRegionParseError::InvalidValue(input)),
+    }
 }
 
 #[cfg(feature = "parser")]
@@ -2393,5 +2483,49 @@ mod autotest_generated {
         assert!(parse_float_value("").is_err());
         assert!(parse_float_value("abc").is_err());
         assert!(parse_float_value("\u{1F600}").is_err());
+    }
+}
+
+#[cfg(all(test, feature = "parser"))]
+mod app_region_tests {
+    use super::*;
+
+    /// Both spellings must reach the same property, so CSS written for Electron
+    /// works unchanged.
+    #[test]
+    fn both_spellings_map_to_the_same_property() {
+        use crate::props::property::{get_css_key_map, CssPropertyType};
+        let map = get_css_key_map();
+        // Go through the public lookup rather than the private table: this is
+        // the path a stylesheet actually takes.
+        assert_eq!(
+            CssPropertyType::from_str("-azul-app-region", &map),
+            Some(CssPropertyType::AppRegion)
+        );
+        assert_eq!(
+            CssPropertyType::from_str("-webkit-app-region", &map),
+            Some(CssPropertyType::AppRegion),
+            "Electron's spelling must be accepted verbatim"
+        );
+    }
+
+    #[test]
+    fn drag_and_no_drag_parse_and_round_trip() {
+        assert_eq!(parse_style_app_region("drag"), Ok(StyleAppRegion::Drag));
+        assert_eq!(parse_style_app_region(" no-drag "), Ok(StyleAppRegion::NoDrag));
+        // `none` is what someone reaches for after writing `-webkit-app-region:
+        // none` out of habit; accept it rather than silently dropping the rule.
+        assert_eq!(parse_style_app_region("none"), Ok(StyleAppRegion::NoDrag));
+        assert!(parse_style_app_region("sometimes").is_err());
+
+        assert_eq!(StyleAppRegion::Drag.print_as_css_value(), "drag");
+        assert_eq!(StyleAppRegion::NoDrag.print_as_css_value(), "no-drag");
+    }
+
+    /// The DEFAULT must be NoDrag. A default of Drag would make every element
+    /// in the tree move the window.
+    #[test]
+    fn the_default_is_not_draggable() {
+        assert_eq!(StyleAppRegion::default(), StyleAppRegion::NoDrag);
     }
 }

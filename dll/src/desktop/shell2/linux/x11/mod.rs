@@ -5380,6 +5380,46 @@ impl X11Window {
     }
 
     /// Synchronize X11 window properties with current_window_state
+    /// Hand the drag to the WINDOW MANAGER via `_NET_WM_MOVERESIZE`, direction
+    /// 8 (`_NET_WM_MOVERESIZE_MOVE`).
+    ///
+    /// The manual alternative — reading the pointer every motion event and
+    /// writing a new window position — cannot keep up: the window trails the
+    /// cursor, and once the cursor leaves the dragged element the events stop
+    /// arriving at it at all, so the drag dies mid-gesture. A WM-managed move
+    /// has none of that: the WM owns the pointer grab until the button is
+    /// released, and it gets snapping and multi-monitor behaviour right for
+    /// free.
+    ///
+    /// Wayland (xdg_toplevel.move) and macOS (performWindowDragWithEvent:)
+    /// already took the native path; X11 fell through to the default no-op in
+    /// `common::event`, which is why dragging felt worse here.
+    ///
+    /// The pointer position comes from the CURRENT state — the WM wants the
+    /// coordinates of the press that started the drag, and this runs from the
+    /// callback that press dispatched.
+    fn handle_begin_interactive_move(&mut self) {
+        let (x, y) = {
+            let ws = self.common.current_window_state();
+            match ws.mouse_state.cursor_position.get_position() {
+                Some(p) => (p.x, p.y),
+                None => return, // no cursor, nothing to drag from
+            }
+        };
+        // Window-relative -> root: the WM needs screen coordinates.
+        let (ox, oy) = match self.common.current_window_state().position {
+            azul_core::window::WindowPosition::Initialized(pos) => {
+                (pos.x as f32, pos.y as f32)
+            }
+            azul_core::window::WindowPosition::Uninitialized => (0.0, 0.0),
+        };
+        self.begin_net_wm_moveresize(
+            (x + ox) as std::os::raw::c_long,
+            (y + oy) as std::os::raw::c_long,
+            8, // _NET_WM_MOVERESIZE_MOVE
+        );
+    }
+
     fn sync_window_state(&mut self) {
         use std::ffi::CString;
 

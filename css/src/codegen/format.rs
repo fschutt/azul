@@ -736,6 +736,7 @@ impl_enum_fmt!(
 impl_enum_fmt!(ExtendMode, Clamp, Repeat);
 
 impl_enum_fmt!(StyleBackfaceVisibility, Visible, Hidden);
+impl_enum_fmt!(StyleAppRegion, NoDrag, Drag);
 
 impl_enum_fmt!(StyleUnicodeBidi, Normal, Embed, Isolate, BidiOverride, IsolateOverride, Plaintext);
 impl_enum_fmt!(StyleTextBoxTrim, None, TrimStart, TrimEnd, TrimBoth);
