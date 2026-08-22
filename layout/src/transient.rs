@@ -88,6 +88,7 @@ impl TransientPlacement {
 #[must_use]
 pub fn collect_open_transient_windows(
     styled_dom: &StyledDom,
+    forced_open: &[NodeId],
     mut rect_of: impl FnMut(NodeId) -> Option<LogicalRect>,
 ) -> Vec<TransientPlacement> {
     let nodes = styled_dom.node_data.as_container();
@@ -97,7 +98,10 @@ pub fn collect_open_transient_windows(
     for node in nodes.linear_iter() {
         let Some(nd) = nodes.get(node) else { continue };
         let NodeType::TransientWindow(cfg) = nd.get_node_type() else { continue };
-        if !cfg.open {
+        // The attribute, or a callback's `set_transient_window_open(true)`
+        // held by the manager — a widget can open its own popup without the
+        // app carrying a flag for it.
+        if !cfg.open && !forced_open.contains(&node) {
             continue;
         }
         let Some(parent) = hierarchy.get(node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) else {
@@ -172,9 +176,8 @@ mod tests {
 
         // Give every node a distinct rect keyed by its index so we can tell
         // "anchored to parent" from "anchored to self".
-        let found = collect_open_transient_windows(&styled, |n| {
-            Some(rect(n.index() as f32 * 100.0, 0.0, 50.0, 20.0))
-        });
+        let rect_of = |n: NodeId| Some(rect(n.index() as f32 * 100.0, 0.0, 50.0, 20.0));
+        let found = collect_open_transient_windows(&styled, &[], rect_of);
 
         assert_eq!(found.len(), 1, "the closed one must not be returned");
         let p = &found[0];
@@ -183,6 +186,17 @@ mod tests {
         assert_eq!(p.anchor_rect.origin.x, 100.0, "anchored to the parent, not itself");
         assert_eq!(p.anchor, TransientAnchor::Bottom);
         assert_eq!(p.dismiss, TransientDismiss::Outside);
+
+        // A callback's `set_transient_window_open(node, true)` opens the
+        // CLOSED one too (body=0, div=1, tw=2, div=3, tw=4) — anchored to
+        // its own parent (x=300), never to the other popup's.
+        let forced = collect_open_transient_windows(&styled, &[NodeId::new(4)], rect_of);
+        assert_eq!(forced.len(), 2, "attribute-open plus forced-open");
+        assert_eq!(forced[1].node, NodeId::new(4));
+        assert_eq!(forced[1].anchor_rect.origin.x, 300.0);
+        // Forcing a node that is not a transient window is ignored.
+        let bogus = collect_open_transient_windows(&styled, &[NodeId::new(1)], rect_of);
+        assert_eq!(bogus.len(), 1);
     }
 
     /// Placement arithmetic: the popup's top-left for each edge.
@@ -283,6 +297,12 @@ pub struct TransientWindowManager {
     /// collect them with [`Self::take_closed_surfaces`] and tear the surfaces
     /// down. A dismissal hands its window straight back to the caller instead.
     closed_surfaces: Vec<OptionRefAny>,
+    /// Nodes a callback opened with `set_transient_window_open(node, true)`.
+    /// Held here, node-keyed, so a self-contained widget (the colour picker's
+    /// swatch) can open its popup without the app threading an `open` flag
+    /// through its state and layout callback. Cleared by
+    /// `set_transient_window_open(node, false)` or by a user dismissal.
+    forced_open: Vec<NodeId>,
 }
 
 /// What changed between two parent layouts, so the backend knows which
@@ -346,6 +366,7 @@ impl TransientWindowManager {
             next_index: 0,
             dismissed: Vec::new(),
             closed_surfaces: Vec::new(),
+            forced_open: Vec::new(),
         }
     }
 
@@ -374,6 +395,8 @@ impl TransientWindowManager {
     /// that was closed, so the caller can drop its surface and its layout
     /// result and tell the app.
     pub fn dismiss(&mut self, source_node: NodeId) -> Option<OpenTransientWindow> {
+        // The user closed it: a callback's "keep open" is over too.
+        self.forced_open.retain(|n| *n != source_node);
         if !self.dismissed.contains(&source_node) {
             self.dismissed.push(source_node);
         }
@@ -391,6 +414,30 @@ impl TransientWindowManager {
     /// out exactly once.
     pub fn take_closed_surfaces(&mut self) -> Vec<OptionRefAny> {
         core::mem::take(&mut self.closed_surfaces)
+    }
+
+    /// A callback asked for `node`'s popup to be open (or closed) regardless
+    /// of its `open` attribute. Opening also lifts an earlier user dismissal —
+    /// the user clicked the swatch again, which is the re-arm. Takes effect
+    /// on the next reconcile. Returns whether anything changed.
+    pub fn set_forced_open(&mut self, node: NodeId, open: bool) -> bool {
+        let was = self.forced_open.contains(&node);
+        if open {
+            self.dismissed.retain(|n| *n != node);
+            if !was {
+                self.forced_open.push(node);
+            }
+            !was
+        } else {
+            self.forced_open.retain(|n| *n != node);
+            was
+        }
+    }
+
+    /// Nodes currently held open by a callback.
+    #[must_use]
+    pub fn forced_open_nodes(&self) -> &[NodeId] {
+        &self.forced_open
     }
 
     /// Is `dom` one of ours? Lets a dispatcher route a click on a popup surface
@@ -509,6 +556,7 @@ impl crate::managers::NodeIdRemap for TransientWindowManager {
         self.closed_surfaces.extend(unmounted);
         // A dismissal follows its node too; an unmounted node's is moot.
         self.dismissed = self.dismissed.iter().filter_map(|n| map.resolve(*n)).collect();
+        self.forced_open = self.forced_open.iter().filter_map(|n| map.resolve(*n)).collect();
     }
 }
 

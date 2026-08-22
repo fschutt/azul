@@ -3380,6 +3380,48 @@ impl LayoutWindow {
         styled_dom: &StyledDom,
         available: LogicalSize,
     ) -> LogicalSize {
+        self.scratch_layout(styled_dom, available)
+            .map_or_else(LogicalSize::zero, |cache| Self::scratch_extent(&cache))
+    }
+
+    /// Measure a DOM the way a popup wants to be measured: as wide as its
+    /// content asks for, no wider than `bound`, and as tall as that makes it.
+    ///
+    /// A block root stretches to whatever width it is given, so a single
+    /// layout against the bound says nothing about the content's own width
+    /// (the colour picker's panel came out as wide as the parent window).
+    /// Intrinsic sizing (phase 2a of every layout) leaves the root's
+    /// max-content width behind, so: lay out once against the bound, read
+    /// that width, lay out again at `min(max-content, bound)` so the content
+    /// wraps and stretches to exactly it, and take the extent. Two cold
+    /// layouts of a popup-sized DOM are cheap. Returns `None` if layout
+    /// failed.
+    pub fn measure_styled_dom_shrink_to_fit(
+        &self,
+        styled_dom: &StyledDom,
+        bound: LogicalSize,
+    ) -> Option<LogicalSize> {
+        let first = self.scratch_layout(styled_dom, bound)?;
+        let max_content = first
+            .tree
+            .as_ref()
+            .and_then(|t| t.warm.get(t.root))
+            .and_then(|w| w.intrinsic_sizes.map(|i| i.max_content_width));
+        let Some(w) = max_content else {
+            return Some(Self::scratch_extent(&first));
+        };
+        let w = w.ceil().max(1.0);
+        if w + 0.5 >= bound.width {
+            return Some(Self::scratch_extent(&first));
+        }
+        let second = self.scratch_layout(styled_dom, LogicalSize::new(w, bound.height))?;
+        Some(Self::scratch_extent(&second))
+    }
+
+    /// Style + lay `styled_dom` out against `available` on fresh scratch
+    /// caches — nothing of the window's live layout state is touched. The
+    /// returned cache holds the tree and positions for the caller to read.
+    fn scratch_layout(&self, styled_dom: &StyledDom, available: LogicalSize) -> Option<Solver3LayoutCache> {
         let mut scratch_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
@@ -3436,20 +3478,22 @@ impl LayoutWindow {
             external.get_system_time_fn,
             &[],
         );
-        if layout_result.is_err() {
-            return LogicalSize::zero();
-        }
+        layout_result.ok()?;
+        scratch_cache.tree.as_ref()?;
+        Some(scratch_cache)
+    }
 
-        // Union of every node's absolute bounds = true content extent
-        // (root.used_size alone can be clamped to the viewport).
-        let Some(tree) = scratch_cache.tree.as_ref() else {
+    /// Union of every node's absolute bounds = true content extent
+    /// (`root.used_size` alone can be clamped to the viewport).
+    fn scratch_extent(cache: &Solver3LayoutCache) -> LogicalSize {
+        let Some(tree) = cache.tree.as_ref() else {
             return LogicalSize::zero();
         };
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
         for (idx, node) in tree.nodes.iter().enumerate() {
             let Some(size) = node.used_size else { continue };
-            let pos = solver3::pos_get(&scratch_cache.calculated_positions, idx)
+            let pos = solver3::pos_get(&cache.calculated_positions, idx)
                 .unwrap_or(LogicalPosition::zero());
             max_x = max_x.max(pos.x + size.width);
             max_y = max_y.max(pos.y + size.height);
@@ -3457,29 +3501,6 @@ impl LayoutWindow {
         LogicalSize::new(max_x, max_y)
     }
 
-    /// # Errors
-    ///
-    /// Returns a [`solver3::LayoutError`] if the solver fails to lay out the
-    /// root DOM or any child (`VirtualView` / iframe) DOM.
-    /// Lay out an open `<transient-window>`'s content as the ROOT of its own
-    /// dom, and report the size the content came out at.
-    ///
-    /// The subtree is extracted from the parent dom (sharing every `RefAny`
-    /// by refcount, so callbacks fire against the same app state), given the
-    /// transient `content_dom` id, and laid out through `layout_dom_recursive`
-    /// — which already gives any non-root dom a scratch cache and restores the
-    /// parent's afterwards, so the popup cannot disturb the parent's
-    /// incremental state. The result lands in `layout_results[content_dom]`,
-    /// exactly where a `VirtualView` child's would.
-    ///
-    /// Sizing: a requested size is used as-is. Otherwise the content is laid
-    /// out against the PARENT window's dimensions as a maximum (an unbounded
-    /// width would let text never wrap, so "content-sized" really means "as
-    /// big as the content needs, up to the window") and the popup takes the
-    /// extent the root actually used.
-    ///
-    /// Returns `None` if the node is not an open transient window or its
-    /// content could not be laid out — the manager then does not open it.
     /// Hand the accumulated popup diff to the backend, leaving it empty.
     pub fn take_transient_diff(&mut self) -> crate::transient::TransientDiff {
         core::mem::take(&mut self.pending_transient_diff)
@@ -3520,78 +3541,45 @@ impl LayoutWindow {
         Some(closed)
     }
 
+    /// Measure the content of the `<transient-window>` at `source_node` for
+    /// the popup the backend is about to open: the subtree is extracted with
+    /// its resolved style baked in, given its own `DomId`, styled with this
+    /// window's dynamic-selector context, and laid out on SCRATCH caches —
+    /// shrink-to-fit within the parent window (or at `requested`, if given).
+    ///
+    /// Nothing is written into `layout_results`: the popup is a separate
+    /// window that lays the same subtree out itself, and every consumer of
+    /// `layout_results` (hit testing, the display list, scroll registration,
+    /// accessibility) would otherwise see the popup's content sitting at
+    /// (0,0) INSIDE the parent — which is exactly how the second click on
+    /// the colour swatch once landed on the picker's plane instead.
     pub fn layout_transient_content(
-        &mut self,
+        &self,
         source_node: NodeId,
         content_dom: DomId,
         requested: azul_core::geom::OptionLogicalSize,
         window_state: &FullWindowState,
-        renderer_resources: &RendererResources,
-        system_callbacks: &ExternalSystemCallbacks,
-        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Option<LogicalSize> {
         use azul_core::geom::OptionLogicalSize;
-
-        let parent = self.layout_results.get(&DomId::ROOT_ID)?;
-        let dom = azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
-        let mut styled = StyledDom::create_from_dom(dom);
-        styled.dom_id = content_dom;
-
-        // The content lays out against a window-state whose size is the popup's
-        // bound: the requested size, or the parent window as a ceiling.
-        let bound = match requested {
-            OptionLogicalSize::Some(sz) => sz,
-            OptionLogicalSize::None => window_state.size.dimensions,
-        };
-        let mut popup_state = window_state.clone();
-        popup_state.size.dimensions = bound;
-
-        self.layout_dom_recursive(
-            styled,
-            &popup_state,
-            renderer_resources,
-            system_callbacks,
-            debug_messages,
-        )
-        .ok()?;
 
         if let OptionLogicalSize::Some(sz) = requested {
             return Some(sz);
         }
-        // Content-sized: the extent of what the popup CONTAINS, not of its
-        // root. The root is a block container laid out against the bound, so
-        // it stretches to the full bound width and sits at the height of its
-        // inline content — measuring it gave 784x64 for a 240x160 child. The
-        // children are the content; their union is the size the user asked
-        // for by styling them.
-        let root = self.layout_results.get(&content_dom)?;
-        let root_id = root.styled_dom.root.into_crate_internal()?;
-        let hierarchy = root.styled_dom.node_hierarchy.as_container();
-        // The extent is the far edge of the furthest child, measured from the
-        // popup's origin — so a child at (0,0) 240x160 yields 240x160.
-        let mut max_x: Option<f32> = None;
-        let mut max_y: Option<f32> = None;
-        let mut child = hierarchy.get(root_id).and_then(|h| h.first_child_id(root_id));
-        while let Some(c) = child {
-            let id = DomNodeId {
-                dom: content_dom,
-                node: NodeHierarchyItemId::from_crate_internal(Some(c)),
-            };
-            if let Some(r) = self.get_node_layout_rect(id) {
-                max_x = Some(max_x.map_or(r.max_x(), |m| m.max(r.max_x())));
-                max_y = Some(max_y.map_or(r.max_y(), |m| m.max(r.max_y())));
-            }
-            child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+        let parent = self.layout_results.get(&DomId::ROOT_ID)?;
+        let dom = azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
+        let mut styled = StyledDom::create_from_dom(dom);
+        styled.dom_id = content_dom;
+        {
+            let dims = window_state.size.dimensions;
+            let base = self.system_style.as_deref().map_or_else(
+                azul_css::dynamic_selector::DynamicSelectorContext::default,
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+            );
+            let mut ctx = base.with_viewport(dims.width, dims.height);
+            ctx.window_focused = window_state.flags.has_focus;
+            styled.set_dynamic_selector_context(ctx);
         }
-        // A popup with no laid-out children still opens: fall back to the root.
-        if let (Some(x), Some(y)) = (max_x, max_y) {
-            return Some(LogicalSize::new(x, y));
-        }
-        let root_node = DomNodeId {
-            dom: content_dom,
-            node: NodeHierarchyItemId::from_crate_internal(Some(root_id)),
-        };
-        self.get_node_layout_rect(root_node).map(|r| r.size)
+        self.measure_styled_dom_shrink_to_fit(&styled, window_state.size.dimensions)
     }
 
     pub fn layout_dom_recursive(

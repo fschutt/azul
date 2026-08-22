@@ -424,11 +424,29 @@ pub fn dismiss_outside_on_press(
     if !(was_down(current) && !was_down(previous)) {
         return false;
     }
+    // A press on the popup's own ANCHOR is not "outside": the anchor is the
+    // invoker (a swatch, a button), and its own click handler decides — a
+    // toggle there closes the popup itself. Dismissing here as well would
+    // let the release re-open it, the press/release flip HTML popovers
+    // avoid by exempting the invoker from light dismiss.
+    let press_at = match current.mouse_state.cursor_position {
+        azul_core::window::CursorPosition::InWindow(p) => Some(p),
+        _ => None,
+    };
+    let on_anchor = |w: &OpenTransientWindow| {
+        press_at.is_some_and(|p| {
+            let a = w.placement.anchor_rect;
+            p.x >= a.origin.x
+                && p.x <= a.origin.x + a.size.width
+                && p.y >= a.origin.y
+                && p.y <= a.origin.y + a.size.height
+        })
+    };
     let targets: Vec<NodeId> = lw
         .transient_windows
         .open_windows()
         .iter()
-        .filter(|w| w.placement.dismiss == TransientDismiss::Outside)
+        .filter(|w| w.placement.dismiss == TransientDismiss::Outside && !on_anchor(w))
         .map(|w| w.source_node)
         .collect();
     let mut any = false;
