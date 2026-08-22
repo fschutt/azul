@@ -276,11 +276,11 @@ other widget (b7ab320ad). Nothing in it knows it is inside a window.
 | 1 lift Menu's window | **done (shared builder + shared dismiss)** — `popup_window_state` is the one "what a popup window is" for menus and transient windows; Escape/focus-loss dismiss serves window-based menus too. Menu CONTENT still comes from `menu_renderer`, not from `<transient-window>` nodes. | `dll/src/desktop/menu.rs`, `common/transient.rs` |
 | 2 node type + layout + UA CSS + web fallback | **done** | `core/src/transient.rs`, `ua_css.rs`, `solver3/layout_tree.rs`, `dll/src/web/html_render.rs` |
 | 3 reconcile survival | **done** (manager matched by source node, `NodeIdRemap`, content ids never reused; `transient-churn` lint NOT added) | `layout/src/transient.rs` |
-| 3b surfaces | **done on macOS (verified on screen), X11/Windows ride the same Menu-window path (type-checked, not run), Wayland = existing click-only `WaylandPopup` with anchor/edge from the mailbox** — the full "WaylandWindow with the xdg_popup role" port is still open | `common/transient.rs`, `macos/mod.rs`, `linux/wayland/mod.rs` |
+| 3b surfaces | **done on macOS (verified on screen), X11/Windows ride the same Menu-window path (type-checked, not run), Wayland = `WaylandPopup` is now a FULL `PlatformWindow`** (its own `CommonWindowState`, the real regenerate/process pipeline, keyboard + pointer capture + engine dismissal) | `common/transient.rs`, `macos/mod.rs`, `linux/wayland/mod.rs` |
 | 4 dismiss | **done** (outside press in the parent, Escape in popup or parent, focus loss; `ComponentEventFilter::Dismissed`; edge-triggered re-arm) | `common/transient.rs`, `common/event.rs` |
 | 5 colour picker | **done** (plane/hue/alpha with pointer capture, hex + RGBA fields, themed div checkerboards, a11y names/values). No eyedropper, no R/G/B⌃ mode toggle. | `layout/src/widgets/color_input.rs` |
-| 6 tearoff | **not started** | — |
-| 7 shape | **not started** (deliberately last) | — |
+| 6 tearoff | **done** (grip drag off the anchor -> `Normal` toplevel, drag back docks, `tearoff="zone:.sel"` re-anchors, `torn` attribute + `TornOff`/`Docked` events + `set_transient_window_torn`; macOS verified on screen incl. the reverse drag). The drag runs in the popup's OWN pipeline; runtime `RelativeToParentWindow` re-placement on mac/win/x11, arithmetic on Wayland. | `layout/src/transient.rs`, `common/transient.rs`, `color_input.rs` |
+| 7 shape | **not started** (deliberately last) | - |
 
 Engine fixes that fell out of it (all general): `get_node_layout_rect` ignored
 the dom id and halved sizes on HiDPI; the pre-cascade fast path forked widget
