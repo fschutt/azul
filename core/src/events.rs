@@ -2704,6 +2704,22 @@ pub trait EventProvider {
         E::MouseOut => vec![EF::Hover(H::MouseOut)],
 
         E::DoubleClick => vec![EF::Hover(H::DoubleClick), EF::Window(W::DoubleClick)],
+        // Gestures: the detectors emitted these for years and this table sent
+        // them to `vec![]` — no filter, no callback, whatever the widget
+        // registered. Every gesture reaches its hover / focus / window filters.
+        E::LongPress => vec![EF::Hover(H::LongPress), EF::Focus(F::LongPress), EF::Window(W::LongPress)],
+        E::SwipeLeft => vec![EF::Hover(H::SwipeLeft), EF::Focus(F::SwipeLeft), EF::Window(W::SwipeLeft)],
+        E::SwipeRight => vec![EF::Hover(H::SwipeRight), EF::Focus(F::SwipeRight), EF::Window(W::SwipeRight)],
+        E::SwipeUp => vec![EF::Hover(H::SwipeUp), EF::Focus(F::SwipeUp), EF::Window(W::SwipeUp)],
+        E::SwipeDown => vec![EF::Hover(H::SwipeDown), EF::Focus(F::SwipeDown), EF::Window(W::SwipeDown)],
+        E::PinchIn => vec![EF::Hover(H::PinchIn), EF::Focus(F::PinchIn), EF::Window(W::PinchIn)],
+        E::PinchOut => vec![EF::Hover(H::PinchOut), EF::Focus(F::PinchOut), EF::Window(W::PinchOut)],
+        E::RotateClockwise => vec![EF::Hover(H::RotateClockwise), EF::Focus(F::RotateClockwise), EF::Window(W::RotateClockwise)],
+        E::RotateCounterClockwise => vec![
+            EF::Hover(H::RotateCounterClockwise),
+            EF::Focus(F::RotateCounterClockwise),
+            EF::Window(W::RotateCounterClockwise),
+        ],
         E::ContextMenu => vec![EF::Hover(H::RightMouseDown)],
 
         // Keyboard events
@@ -6107,6 +6123,12 @@ mod autotest_generated {
             // ...and the table is a truth table, not a wildcard.
             let other = SyntheticEvent::new(EventType::MouseDown, EventSource::User, dnid(0, 0), tick(0), EventData::None);
             assert!(!matches_hover_filter(hover, &other, EventPhase::Target));
+            // The dispatcher asks THIS table which filters to try for an event
+            // type; it sent every gesture to `vec![]`.
+            let filters = event_type_to_filters(ty, &EventData::None);
+            assert!(filters.contains(&EventFilter::Hover(hover)), "{ty:?} must dispatch to Hover({hover:?})");
+            assert!(filters.contains(&EventFilter::Focus(focus)), "{ty:?} must dispatch to Focus({focus:?})");
+            assert!(filters.contains(&EventFilter::Window(window)), "{ty:?} must dispatch to Window({window:?})");
         }
     }
 

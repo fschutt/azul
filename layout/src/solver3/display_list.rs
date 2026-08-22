@@ -3415,12 +3415,6 @@ where
             return Ok(());
         }
 
-        // Get inline layout
-        // (d6h) Materialized: sentinel-safe caret/selection geometry.
-        let Some(layout) = self.positioned_tree.tree.materialized_inline_layout_for_node(node_index) else {
-            return Ok(());
-        };
-
         // Compute content-box offset once
         let node_pos = self
             .positioned_tree
@@ -3435,6 +3429,43 @@ where
         let content_box_offset_y = node_pos.y + padding.top + border.top;
 
         let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+
+        // Get inline layout
+        // (d6h) Materialized: sentinel-safe caret/selection geometry.
+        let Some(layout) = self.positioned_tree.tree.materialized_inline_layout_for_node(node_index) else {
+            // NO INLINE LAYOUT AT ALL — an editing HOST with no text yet (an
+            // empty TextInput: the value `<p>` is empty and the container that
+            // carries `contenteditable` is a block box, so nothing here has a
+            // line box). A focused empty field showed no caret. If a cursor is
+            // parked on this node, paint the strut caret at the content-box
+            // origin — where the first character's line box will be — one
+            // line-height tall. (A proper line-box for an empty editing host
+            // is the engine fix; this makes the caret visible meanwhile.)
+            let owns_cursor = self.ctx.cursor_locations.iter().any(|(cd, cn, _)| {
+                *cd == self.ctx.styled_dom.dom_id
+                    && (*cn == dom_id || self.ifc_root_owns_dom_node(node_index, *cn))
+            });
+            if owns_cursor {
+                let font_size =
+                    super::getters::get_element_font_size(self.ctx.styled_dom, dom_id, node_state);
+                let line_height = super::getters::get_line_height_value(
+                    self.ctx.styled_dom,
+                    dom_id,
+                    node_state,
+                )
+                .map_or(1.2, |lh| lh.inner.normalized());
+                let mut rect = empty_editable_caret_rect(font_size, line_height);
+                rect.origin.x += content_box_offset_x;
+                rect.origin.y += content_box_offset_y;
+                let caret_color = if self.ctx.cursor_is_visible {
+                    style.color
+                } else {
+                    ColorU { a: 0, ..style.color }
+                };
+                builder.push_cursor_rect(rect, caret_color);
+            }
+            return Ok(());
+        };
 
         // Find the index of the last (primary) cursor that belongs to this DOM/node,
         // so preedit underline is only drawn on the actual primary cursor.
