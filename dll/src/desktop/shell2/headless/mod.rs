@@ -6194,6 +6194,139 @@ mod tests {
         }
     }
 
+    // --- The patched display list equals the wholesale build -----------------
+    //
+    // REPORTED (AzWidgets, 2026-08-21): "the placeholder text jumps when I
+    // hover over the slider". Two builders produce a frame over the same
+    // tree: a PATCHED build (the previous list spliced, each node's items
+    // translated by its position delta — every structure-preserved
+    // RefreshDom) and a WHOLESALE build (a paint-only restyle such as a
+    // `:hover` re-emits everything from the layout results). They disagreed,
+    // so the SAME layout painted text in two places depending on which
+    // builder ran last. The class invariant is that the two builders agree
+    // item for item; `LayoutWindow::verify_patched_display_list` is the
+    // checker (also behind `AZ_PATCH_VERIFY=1` for every layout pass), and
+    // this drives the report's exact scene — TextArea with a placeholder
+    // (an absolutely positioned box whose interior is re-run every pass)
+    // plus a Slider — through the passes the report named.
+
+    extern "C" fn text_area_and_slider_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::slider::Slider;
+        use azul_layout::widgets::text_area::TextArea;
+        let slider_value = data
+            .downcast_ref::<SliderUiState>()
+            .map_or(40.0, |s| s.slider_value);
+        let labelled = |label: &str, class: &str, widget: Dom| {
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
+                .with_child(
+                    Dom::create_span_with_text(label)
+                        .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class(class.into())].into())
+                        .with_css("font-size: 13px; margin-bottom: 4px;"),
+                )
+                .with_child(widget)
+        };
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; padding: 20px;")
+            .with_child(labelled(
+                "TextArea",
+                "cap-ta",
+                TextArea::create().with_placeholder("Multi line text area".into()).dom(),
+            ))
+            .with_child(labelled(
+                "Slider",
+                "cap-slider",
+                Slider::create(slider_value, 0.0, 100.0)
+                    .with_on_value_change(
+                        data.clone(),
+                        azul_layout::widgets::slider::SliderOnValueChangeCallback {
+                            cb: slider_demo_on_change,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                    )
+                    .dom(),
+            ))
+    }
+
+    /// The rects the report watched: textarea box, its placeholder, the
+    /// caption under it (the slider's label).
+    fn watched_rects(window: &HeadlessWindow, when: &str) -> (azul_core::geom::LogicalRect, azul_core::geom::LogicalRect, azul_core::geom::LogicalRect) {
+        let ta = rects_by_class(window, "__azul-native-text-area-container");
+        let ph = rects_by_class(window, "__azul-native-text-area-placeholder");
+        let cap = rects_by_class(window, "cap-slider");
+        assert_eq!(ta.len(), 1, "{when}: {ta:?}");
+        assert_eq!(ph.len(), 1, "{when}: {ph:?}");
+        assert_eq!(cap.len(), 1, "{when}: {cap:?}");
+        (ta[0], ph[0], cap[0])
+    }
+
+    fn assert_builders_agree(window: &mut HeadlessWindow, when: &str) {
+        let lw = window.common.layout_window.as_mut().expect("layout window");
+        let was_patched = lw.layout_cache.last_build_was_patched;
+        let mismatches = lw.verify_patched_display_list(azul_core::dom::DomId::ROOT_ID);
+        assert!(
+            mismatches.is_empty(),
+            "{when} (patched build = {was_patched}): the PATCHED display list differs from the \
+             WHOLESALE build of the same layout results — two builders, two pictures:\n{}",
+            mismatches.join("\n")
+        );
+    }
+
+    #[test]
+    fn the_patched_display_list_equals_the_wholesale_build_for_the_widgets_scene() {
+        use azul_core::events::MouseButton;
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(SliderUiState {
+            slider_value: 40.0,
+            interactions: 0,
+        })));
+        let mut window = make_window_sized(&state, text_area_and_slider_layout, 400.0, 400.0);
+        window.regenerate_layout().expect("initial layout");
+        let first = watched_rects(&window, "first layout");
+        // The second pass is the structure-preserved one: a PATCHED build.
+        window.regenerate_layout().expect("settle");
+        let second = watched_rects(&window, "settle");
+        assert_eq!(first, second, "pass 1 and pass 2 must place the textarea, its placeholder and the caption identically");
+        assert!(
+            second.1.origin.y >= second.0.origin.y && second.1.origin.y < second.0.origin.y + 30.0,
+            "the placeholder sits at the top of its textarea: {second:?}"
+        );
+        assert_builders_agree(&mut window, "after the settle pass");
+
+        // Hover the slider thumb (a paint-only restyle: wholesale re-emit),
+        // then a RefreshDom rebuild under that hover (a patched build).
+        let thumbs = rects_by_class(&window, "__azul-native-slider-thumb");
+        assert_eq!(thumbs.len(), 1, "{thumbs:?}");
+        let t = thumbs[0];
+        step(&mut window, HeadlessEvent::MouseMove { x: t.origin.x + t.size.width / 2.0, y: t.origin.y + t.size.height / 2.0 });
+        let hovered = watched_rects(&window, "hovering the thumb");
+        assert_eq!(second, hovered, "a hover on the slider must not move the textarea's placeholder");
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window.regenerate_layout().expect("RefreshDom under hover");
+        assert_eq!(second, watched_rects(&window, "RefreshDom under hover"));
+        assert_builders_agree(&mut window, "after a RefreshDom under the thumb hover");
+
+        // Drag the slider (the widget's own RefreshDom + dataset merge), then
+        // hover the textarea itself (its :hover border) — every frame agrees.
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseMove { x: t.origin.x + 40.0, y: t.origin.y + t.size.height / 2.0 });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(second, watched_rects(&window, "after the drag"));
+        assert_builders_agree(&mut window, "after the slider drag");
+        let ta = second.0;
+        step(&mut window, HeadlessEvent::MouseMove { x: ta.origin.x + 10.0, y: ta.origin.y + 10.0 });
+        assert_eq!(second, watched_rects(&window, "hovering the textarea"));
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window.regenerate_layout().expect("RefreshDom under the textarea hover");
+        assert_eq!(second, watched_rects(&window, "RefreshDom under the textarea hover"));
+        assert_builders_agree(&mut window, "after a RefreshDom under the textarea hover");
+    }
+
     // --- The pressed node gets its release ------------------------------------
     //
     // REPORTED (demo test 2026-08-21, the whole "stuck input" family): a

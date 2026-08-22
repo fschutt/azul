@@ -1899,6 +1899,25 @@ impl LayoutWindow {
             self.queue_resize_events_after_layout(system_callbacks, dpi);
         }
 
+        // PATCH VERIFY (`AZ_PATCH_VERIFY=1`): a PATCHED display list (the
+        // previous list spliced and translated) must equal what the WHOLESALE
+        // builder makes of the same layout results — that is the patch's
+        // whole contract. The two builders producing different pictures for
+        // one tree is how a hover made a placeholder jump (AzWidgets, report
+        // 3.5-1). Off by default (it doubles display-list work); the e2e
+        // suites and the headless widget tests turn it on.
+        #[cfg(feature = "std")]
+        if result.is_ok() && std::env::var_os("AZ_PATCH_VERIFY").is_some() {
+            let mismatches = self.verify_patched_display_list(DomId::ROOT_ID);
+            assert!(
+                mismatches.is_empty(),
+                "AZ_PATCH_VERIFY: the patched display list differs from the wholesale build \
+                 of the same layout results in {} item(s):\n{}",
+                mismatches.len(),
+                mismatches.join("\n")
+            );
+        }
+
         // Developer warning pass: raw text nodes used without a containing
         // block (azul does not auto-wrap them in anonymous blocks the way
         // browsers do — state on a text node is inert). One warning per
@@ -12541,6 +12560,55 @@ impl LayoutWindow {
     ///
     /// This method creates a temporary `LayoutContext` from the existing `LayoutWindow` state
     /// and calls `generate_display_list` on the already-computed layout tree and positions.
+    /// THE PATCH CONTRACT, checked: if the last build of `dom_id`'s display
+    /// list was a PATCHED one (the previous list spliced and translated by
+    /// node deltas — see `solver3::display_list::PatchState`), rebuild the
+    /// list WHOLESALE from the same layout results and report every item
+    /// that differs (`"#index: patched … | wholesale …"`). Empty when the two
+    /// builders agree, and when the last build was not patched (nothing to
+    /// verify). Leaves the wholesale list installed — it is the reference.
+    ///
+    /// Used by the `AZ_PATCH_VERIFY` gate in
+    /// [`Self::layout_and_generate_display_list`] and by the headless
+    /// widget tests, so a translate that drifts from a re-layout (an
+    /// absolutely positioned box whose interior was re-run, a node whose
+    /// inline layout was replaced without a size change) fails a test
+    /// instead of moving text on screen.
+    #[must_use]
+    pub fn verify_patched_display_list(&mut self, dom_id: DomId) -> Vec<String> {
+        if !self.layout_cache.last_build_was_patched {
+            return Vec::new();
+        }
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let patched: Vec<String> = lr.display_list.items.iter().map(|i| format!("{i:?}")).collect();
+        self.regenerate_display_list_for_dom(dom_id);
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let wholesale: Vec<String> = lr.display_list.items.iter().map(|i| format!("{i:?}")).collect();
+        let mut out = Vec::new();
+        if patched.len() != wholesale.len() {
+            out.push(format!(
+                "item count: patched {} vs wholesale {}",
+                patched.len(),
+                wholesale.len()
+            ));
+        }
+        for (i, (p, w)) in patched.iter().zip(wholesale.iter()).enumerate() {
+            if p != w {
+                let clip = |s: &str| s.chars().take(240).collect::<String>();
+                out.push(format!("#{i}: patched {} | wholesale {}", clip(p), clip(w)));
+                if out.len() >= 12 {
+                    out.push("…".to_string());
+                    break;
+                }
+            }
+        }
+        out
+    }
+
     pub fn regenerate_display_list_for_dom(&mut self, dom_id: DomId) {
         use crate::solver3::{
             display_list::generate_display_list,

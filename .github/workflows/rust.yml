@@ -4121,6 +4121,14 @@ jobs:
 
       - name: Run every e2e/*.json scenario (BLOCKING)
         shell: bash
+        # AZ_PATCH_VERIFY: after every PATCHED display-list build, rebuild the
+        # list wholesale from the same layout results and fail the scenario if
+        # the two differ (`LayoutWindow::verify_patched_display_list`). The two
+        # builders disagreeing is how a hover moved a placeholder in AzWidgets;
+        # every scenario here exercises the incremental paths, so this is the
+        # cheapest place to hold the patch contract.
+        env:
+          AZ_PATCH_VERIFY: "1"
         run: |
           set -uo pipefail
           mkdir -p target/e2e
