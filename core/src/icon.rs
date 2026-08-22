@@ -701,10 +701,17 @@ fn collect_icon_nodes(styled_dom: &StyledDom) -> Vec<CollectedIcon> {
                 else {
                     continue;
                 };
-                let Some(&icon_pos) = unnamed_icon_pos.get(&parent.index()) else {
+                // A text leaf directly under an icon: for an un-named icon it
+                // is the spec; for every icon it is the slot the resolved
+                // glyph is written into (see `resolve_icons_in_styled_dom`).
+                let Some(icon_pos) = unnamed_icon_pos.get(&parent.index()).copied().or_else(|| {
+                    icons.iter().rposition(|i| i.node_idx == parent.index())
+                }) else {
                     continue;
                 };
-                specs[icon_pos].push_str(text.as_ref().as_str());
+                if unnamed_icon_pos.contains_key(&parent.index()) {
+                    specs[icon_pos].push_str(text.as_ref().as_str());
+                }
                 icons[icon_pos].text_children.push(idx);
             }
             _ => {}
@@ -960,18 +967,34 @@ fn apply_multi_node_replacement(
         return;
     }
 
-    // For now, just apply the root node (same as single-node). Ownership is
-    // threaded through so the root's fields MOVE rather than being cloned;
-    // see apply_single_node_replacement.
+    // The ROOT's fields move onto the icon node. The arena is in DFS order
+    // (a node's first child is the next index), so a replacement's children
+    // cannot be appended under the icon node after the fact — they would
+    // have to be INSERTED mid-arena with every index after them shifted.
+    // Instead the one child a resolution has, the glyph text leaf of a font
+    // icon, travels through [`glyph_of`] into the text leaf every icon node
+    // carries (`Dom::create_icon` creates it; `<icon>name</icon>` has it).
     apply_single_node_replacement(styled_dom, node_idx, replacement);
-    
-    if replacement_len > 1 {
-        // TODO: Full subtree splicing requires inserting nodes into arrays
-        #[cfg(all(debug_assertions, feature = "std"))]
-        eprintln!(
-            "Warning: Icon replacement has {replacement_len} nodes, only root node used."
-        );
+}
+
+/// The glyph a resolution wants rendered inside the icon node: the text of
+/// the first text leaf under the replacement's root (a font icon's
+/// `<span>glyph</span>`). `None` for image icons and empty resolutions.
+fn glyph_of(resolution: &CachedIconResolution) -> Option<AzString> {
+    let CachedIconResolution::Subtree(sd) = resolution else {
+        return None;
+    };
+    let root = sd.root.into_crate_internal().unwrap_or(crate::id::NodeId::ZERO);
+    let hierarchy = sd.node_hierarchy.as_container();
+    let nodes = sd.node_data.as_container();
+    let mut child = hierarchy.get(root).and_then(|h| h.first_child_id(root));
+    while let Some(c) = child {
+        if let Some(NodeType::Text(t)) = nodes.get(c).map(NodeData::get_node_type) {
+            return Some(t.clone_self());
+        }
+        child = hierarchy.get(c).and_then(|h| h.next_sibling_id());
     }
+    None
 }
 
 /// Resolve all Icon nodes in a `StyledDom` to their actual content.
@@ -1003,20 +1026,31 @@ pub fn resolve_icons_in_styled_dom(
 
     // Step 3: Apply replacements (reverse order to preserve indices)
     for replacement in replacements.into_iter().rev() {
+        let mut glyph = glyph_of(&replacement.replacement);
+        if glyph.is_some() && replacement.text_children.is_empty() {
+            // A bare `NodeType::Icon` built without `Dom::create_icon`: it
+            // has no text leaf to carry the glyph, so the glyph is lost.
+            #[cfg(all(debug_assertions, feature = "std"))]
+            eprintln!(
+                "Warning: icon node {} has no text child to hold its glyph; \
+                 build icons with Dom::create_icon",
+                replacement.node_idx
+            );
+        }
         apply_cached_resolution(
             styled_dom,
             replacement.node_idx,
             replacement.replacement,
         );
 
-        // `<icon>name</icon>`: the spec text was consumed by the resolution —
-        // clear the contributing text children so the raw name never renders
-        // next to (or instead of) the resolved icon.
+        // The icon's text leaves: the first one carries the resolved glyph
+        // (a font icon), the rest - and all of them for an image icon - are
+        // cleared so the raw `<icon>name</icon>` spec never renders next to
+        // (or instead of) the resolved icon.
         for &child_idx in &replacement.text_children {
             if let Some(node) = styled_dom.node_data.as_mut().get_mut(child_idx) {
-                node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(
-                    AzString::from_const_str(""),
-                )));
+                let text = glyph.take().unwrap_or_else(|| AzString::from_const_str(""));
+                node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(text)));
             }
         }
     }
@@ -1904,12 +1938,40 @@ mod autotest_generated {
             Dom::create_div().with_child(Dom::create_div()).with_child(Dom::create_div()),
         );
         assert!(repl.node_data.as_ref().len() > 1);
-
         apply_multi_node_replacement(&mut sd, idx, repl);
 
-        // Documented TODO: subtree splicing is not implemented, only the root is used.
         assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
-        assert_eq!(sd.node_data.as_ref().len(), before_len, "children are dropped, not spliced");
+        // The arena is DFS-ordered: children cannot be appended after the
+        // fact, so the replacement's own children are NOT spliced in. A font
+        // icon's glyph travels through the icon's text leaf instead.
+        assert_eq!(sd.node_data.as_ref().len(), before_len);
+    }
+
+    #[test]
+    fn a_font_icons_glyph_lands_in_the_icons_text_leaf() {
+        // `Dom::create_icon` gives the icon node a text leaf; a resolver that
+        // answers with <span>glyph</span> must put the glyph THERE (the span's
+        // fields on the icon node, the text in the leaf), not lose it.
+        extern "C" fn span_glyph_resolver(
+            _data: OptionRefAny,
+            _original: &StyledDom,
+            _style: &SystemStyle,
+        ) -> StyledDom {
+            StyledDom::create_from_dom(Dom::create_span_with_text("\u{e3b8}"))
+        }
+        let shared = SharedIconProvider::from_handle(IconProviderHandle::with_resolver(span_glyph_resolver));
+        let mut sd = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_icon("colorize")));
+        let icon = icon_indices(&sd)[0];
+        let hierarchy = sd.node_hierarchy.as_container();
+        let leaf = hierarchy.get(crate::id::NodeId::new(icon)).and_then(|h| h.first_child_id(crate::id::NodeId::new(icon)))
+            .expect("create_icon gives the icon a text leaf");
+        drop(hierarchy);
+        resolve_icons_in_styled_dom(&mut sd, &shared, &SystemStyle::default());
+        assert!(matches!(node_type_at(&sd, icon), NodeType::Span), "the span's type moved onto the icon node");
+        match sd.node_data.as_ref()[leaf.index()].get_node_type() {
+            NodeType::Text(t) => assert_eq!(t.as_ref().as_str(), "\u{e3b8}", "the glyph is in the leaf"),
+            other => panic!("the leaf is not text: {other:?}"),
+        }
     }
 
     #[test]

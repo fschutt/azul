@@ -5729,6 +5729,10 @@ impl X11Window {
 // PlatformWindow Trait Implementation
 
 impl PlatformWindow for X11Window {
+    fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
+        crate::desktop::eyedropper::x11::capture(self)
+    }
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {

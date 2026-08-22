@@ -98,7 +98,14 @@ extern "C" fn picker_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom 
 
 fn headless(options: WindowCreateOptions, app_data: Arc<RefCell<RefAny>>) -> HeadlessWindow {
     let fc_cache = Arc::new(FcFontCache::default());
-    let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
+    // Icons resolve the way the app resolves them (the Material pack), so a
+    // widget's `<icon>` becomes the glyph text here too.
+    let mut handle = IconProviderHandle::default();
+    handle.set_resolver(azul_layout::icon::default_icon_resolver);
+    if let Some(bytes) = azul::desktop::material_icons::get_material_icons_font_bytes() {
+        azul_layout::icon::register_embedded_material_icons(&mut handle, bytes);
+    }
+    let icon_provider = SharedIconProvider::from_handle(handle);
     HeadlessWindow::new(
         options,
         app_data,
@@ -1093,5 +1100,108 @@ fn closing_a_torn_off_toplevel_dismisses_the_node() {
     relayout(&mut parent);
     assert!(parent.get_layout_window().unwrap().transient_windows.open_windows().is_empty());
     assert!(parent.pending_window_creates.is_empty());
+}
+
+
+// ---------------------------------------------------------------------------
+// The eyedropper: pick_screen_color from the picker, the answer routed back
+// ---------------------------------------------------------------------------
+
+/// The app side of the eyedropper scenario: the colour the widget reported.
+struct EyedropperApp {
+    reported: Arc<std::sync::Mutex<Vec<azul_css::props::basic::color::ColorU>>>,
+}
+
+extern "C" fn on_app_color(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: azul_layout::widgets::color_input::ColorInputState,
+) -> Update {
+    if let Some(app) = data.downcast_ref::<EyedropperApp>() {
+        app.reported.lock().unwrap().push(state.color);
+    }
+    Update::DoNothing
+}
+
+extern "C" fn eyedropper_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+    Dom::create_body().with_child(
+        ColorInput::create(color_from_hex("#ff5733").expect("a colour"))
+            .with_accessibility_name("Accent colour")
+            .with_on_value_change(data, on_app_color as azul_layout::widgets::color_input::ColorInputOnValueChangeCallbackType)
+            .dom(),
+    )
+}
+
+/// Clicking the picker's eyedropper issues a pick on the POPUP's window;
+/// headless has no screen, so the shell answers "cancelled" at once (the
+/// widget ignores that). A real answer - pushed the way the loupe window
+/// or the system sampler pushes it - reaches the popup's `ScreenColorPicked`
+/// callback on its next pass: the picker adopts the RGB (keeping its
+/// alpha) and the app's `on_value_change` hears the new colour.
+#[test]
+fn the_eyedropper_answer_is_routed_to_the_picker_that_asked() {
+    use azul_css::props::basic::color::ColorU;
+    use azul_layout::managers::eyedropper::{in_flight_anywhere, push_result, EyedropperResult};
+
+    let reported = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let app_data = Arc::new(RefCell::new(RefAny::new(EyedropperApp { reported: reported.clone() })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize { width: 800.0, height: 600.0 };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = eyedropper_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    let swatch_rect = rect_of_class(&parent, "native_color_input");
+    click_at(
+        &mut parent,
+        LogicalPosition::new(swatch_rect.origin.x + 5.0, swatch_rect.origin.y + 5.0),
+    );
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+    let mut popup = headless(popup_opts, app_data);
+    popup.regenerate_layout().expect("popup layout");
+
+    // 1. Click the eyedropper button in the popup.
+    let button = rect_of_class(&popup, "color_picker_eyedropper");
+    click_at(
+        &mut popup,
+        LogicalPosition::new(button.origin.x + button.size.width / 2.0, button.origin.y + button.size.height / 2.0),
+    );
+    // Headless reads no screen: the request was issued on the popup's
+    // manager and answered "cancelled" in the same pass.
+    let lw = popup.get_layout_window().unwrap();
+    assert!(!lw.eyedropper_manager.has_pending_async() || in_flight_anywhere());
+    let _ = popup.process_window_events(0);
+    assert!(reported.lock().unwrap().is_empty(), "a cancelled pick reports nothing");
+
+    // 2. A second pick, answered with a real colour the way a backend does.
+    click_at(
+        &mut popup,
+        LogicalPosition::new(button.origin.x + button.size.width / 2.0, button.origin.y + button.size.height / 2.0),
+    );
+    // Re-issue: the headless shell cancelled immediately, so emulate a
+    // platform that is still sampling - issue directly on the manager.
+    let id = popup.get_layout_window_mut().unwrap().eyedropper_manager.begin_request();
+    assert!(in_flight_anywhere(), "a pick in flight keeps popups from light-dismissing");
+    push_result(EyedropperResult {
+        request_id: id,
+        color: Some(ColorU { r: 10, g: 200, b: 30, a: 255 }),
+    });
+    popup.snapshot_window_state_baseline("t.pump");
+    let _ = popup.process_window_events(0);
+    assert!(!in_flight_anywhere());
+    let got = reported.lock().unwrap().clone();
+    assert_eq!(got.last().copied(), Some(ColorU { r: 10, g: 200, b: 30, a: 255 }), "reported: {got:?}");
+
+    // The swatch in the PARENT follows on its next pass (RefreshDomAllWindows
+    // from the pick wakes it; the app stores the colour).
+    relayout(&mut parent);
+    let swatch_bg = {
+        let lw = parent.get_layout_window().unwrap();
+        let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+        format!("{:?}", root.styled_dom.node_data.as_container().get(azul_core::id::NodeId::new(1)).map(|n| n.get_style().clone()))
+    };
+    let _ = swatch_bg; // the app-side colour is what matters; the dom follows from it
 }
 

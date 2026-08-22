@@ -1155,6 +1155,11 @@ impl WaylandWindow {
 // PlatformWindow Trait Implementation (Cross-platform V2 Event System)
 
 impl PlatformWindow for WaylandWindow {
+    fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
+        let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
+        crate::desktop::eyedropper::wayland::capture(scale)
+    }
+
     /// Wayland owns its shm pool / EGL drawable, so an application-initiated
     /// resize must rebuild them here — the compositor will not send a
     /// configure for a size the client chose itself.
@@ -7680,6 +7685,11 @@ impl WaylandPopup {
 }
 
 impl PlatformWindow for WaylandPopup {
+    fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
+        let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
+        crate::desktop::eyedropper::wayland::capture(scale)
+    }
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {

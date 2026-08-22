@@ -495,6 +495,11 @@ pub enum CallbackChange {
     /// "float" / "dock" button as well.
     SetTransientWindowTorn { node: DomNodeId, torn: bool },
 
+    /// Start the platform eyedropper (`CallbackInfo::pick_screen_color`). The
+    /// request is routed through this window's `EyedropperManager` so the
+    /// answer - `EventType::ScreenColorPicked` - comes back to THIS window.
+    PickScreenColor,
+
     /// Route every mouse move and the release to `node` until the button
     /// comes up, whatever is under the cursor (W3C `setPointerCapture`).
     CapturePointer { node: DomNodeId },
@@ -2253,6 +2258,28 @@ impl CallbackInfo {
     /// `ComponentEventFilter::TornOff` / `Docked` on the node.
     pub fn set_transient_window_torn(&mut self, node: DomNodeId, torn: bool) {
         self.push_change(CallbackChange::SetTransientWindowTorn { node, torn });
+    }
+
+    /// Let the user pick a colour from the screen with the platform
+    /// eyedropper: macOS's system sampler; elsewhere a screenshot shown in
+    /// a fullscreen loupe window (Wayland asks the user's permission through
+    /// the desktop portal first - the screen is not readable there without
+    /// it). Asynchronous: when the user picks or cancels, every callback in
+    /// THIS window registered for `WindowEventFilter::ScreenColorPicked`
+    /// runs and reads the answer with [`Self::get_picked_screen_color`].
+    pub fn pick_screen_color(&mut self) {
+        self.push_change(CallbackChange::PickScreenColor);
+    }
+
+    /// The outcome of the most recent [`Self::pick_screen_color`] in this
+    /// window: the colour under the pointer when the user clicked, or
+    /// `None` if they cancelled (or no pick has completed yet).
+    #[must_use]
+    pub fn get_picked_screen_color(&self) -> azul_css::props::basic::color::OptionColorU {
+        match self.get_layout_window().eyedropper_manager.last_result() {
+            Some(Some(c)) => azul_css::props::basic::color::OptionColorU::Some(c),
+            _ => azul_css::props::basic::color::OptionColorU::None,
+        }
     }
 
     /// Capture the pointer for `node`: until the mouse button is released,

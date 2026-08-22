@@ -807,6 +807,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         geolocation_manager: _,
         biometric_manager: _,
         keyring_manager: _,
+        eyedropper_manager: _,
         sensor_manager: _,
         gamepad_manager: _,
         safe_area_insets: _,
@@ -1194,6 +1195,9 @@ pub struct LayoutWindow {
     /// the OS keyring (Keychain / `KeyStore` / libsecret / `CredentialLocker`)
     /// and parks results in the async channel the layout pass folds in here.
     pub keyring_manager: crate::managers::keyring::KeyringManager,
+    /// `CallbackInfo::pick_screen_color` requests issued by this window and
+    /// the outcome of the last one (`EventType::ScreenColorPicked`).
+    pub eyedropper_manager: crate::managers::eyedropper::EyedropperManager,
     /// Cross-platform motion-sensor state — latest accel / gyro / mag
     /// reading. The platform backend (`dll::desktop::extra::sensors`)
     /// subscribes to `CoreMotion` / Android `SensorManager` and parks
@@ -1656,6 +1660,7 @@ impl LayoutWindow {
             geolocation_manager: crate::managers::geolocation::GeolocationManager::new(),
             biometric_manager: crate::managers::biometric::BiometricManager::new(),
             keyring_manager: crate::managers::keyring::KeyringManager::new(),
+            eyedropper_manager: crate::managers::eyedropper::EyedropperManager::new(),
             sensor_manager: crate::managers::sensors::SensorManager::new(),
             gamepad_manager: crate::managers::gamepad::GamepadManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
@@ -15022,6 +15027,7 @@ impl LayoutWindow {
             geolocation_manager: _,
             biometric_manager: _,
             keyring_manager: _,
+            eyedropper_manager: _,
             sensor_manager: _,
             gamepad_manager: _,
             // Payload-only state (file paths / clipboard contents), no NodeIds:

@@ -738,6 +738,11 @@ pub enum EventType {
     /// A biometric authentication prompt completed. Read the outcome via
     /// `CallbackInfo::get_biometric_result`.
     BiometricResult,
+    /// The screen eyedropper started by `CallbackInfo::pick_screen_color`
+    /// finished - the user picked a pixel, or cancelled. Window-level (the
+    /// pick is not bound to a node); read the colour via
+    /// `CallbackInfo::get_picked_screen_color` (`None` = cancelled).
+    ScreenColorPicked,
     /// A keyring store / get / delete operation completed. Read the outcome
     /// via `CallbackInfo::get_keyring_result`.
     KeyringResult,
@@ -1329,7 +1334,7 @@ fn matches_hover_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult};
+    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, ScreenColorPicked};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1379,6 +1384,7 @@ fn matches_hover_filter(
         (GeolocationError, EventType::GeolocationError) => true,
         (PermissionChanged, EventType::PermissionChanged) => true,
         (BiometricResult, EventType::BiometricResult) => true,
+        (ScreenColorPicked, EventType::ScreenColorPicked) => true,
         (KeyringResult, EventType::KeyringResult) => true,
         // Gestures. These filters existed, the detectors produced the events,
         // and this table had no arm for them — a `PinchOut` handler on a map
@@ -1472,7 +1478,7 @@ fn matches_window_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, FrameChanged, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
+    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, FrameChanged, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, ScreenColorPicked, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1523,6 +1529,7 @@ fn matches_window_filter(
         (GeolocationError, EventType::GeolocationError) => true,
         (PermissionChanged, EventType::PermissionChanged) => true,
         (BiometricResult, EventType::BiometricResult) => true,
+        (ScreenColorPicked, EventType::ScreenColorPicked) => true,
         (KeyringResult, EventType::KeyringResult) => true,
         (DragStart, EventType::DragStart) => true,
         (Drag, EventType::Drag) => true,
@@ -2010,6 +2017,8 @@ pub enum HoverEventFilter {
     PermissionChanged,
     /// A biometric authentication prompt completed.
     BiometricResult,
+    /// The screen eyedropper finished (picked or cancelled).
+    ScreenColorPicked,
     /// A keyring store / get / delete operation completed.
     KeyringResult,
 }
@@ -2098,6 +2107,7 @@ impl HoverEventFilter {
             // Async capability outcomes — no focus-filter equivalents
             Self::PermissionChanged => None,
             Self::BiometricResult => None,
+            Self::ScreenColorPicked => None,
             Self::KeyringResult => None,
         }
     }
@@ -2373,6 +2383,8 @@ pub enum WindowEventFilter {
     PermissionChanged,
     /// A biometric authentication prompt completed.
     BiometricResult,
+    /// The screen eyedropper finished (picked or cancelled).
+    ScreenColorPicked,
     /// A keyring store / get / delete operation completed.
     KeyringResult,
 }
@@ -2456,6 +2468,7 @@ impl WindowEventFilter {
             // Async capability outcomes — mirror to the hover twin
             Self::PermissionChanged => Some(HoverEventFilter::PermissionChanged),
             Self::BiometricResult => Some(HoverEventFilter::BiometricResult),
+            Self::ScreenColorPicked => Some(HoverEventFilter::ScreenColorPicked),
             Self::KeyringResult => Some(HoverEventFilter::KeyringResult),
         }
     }
@@ -2849,6 +2862,7 @@ pub trait EventProvider {
         // window-level filter.
         E::PermissionChanged => vec![EF::Hover(H::PermissionChanged), EF::Window(W::PermissionChanged)],
         E::BiometricResult => vec![EF::Hover(H::BiometricResult), EF::Window(W::BiometricResult)],
+        E::ScreenColorPicked => vec![EF::Hover(H::ScreenColorPicked), EF::Window(W::ScreenColorPicked)],
         E::KeyringResult => vec![EF::Hover(H::KeyringResult), EF::Window(W::KeyringResult)],
 
         // MWA-C-clipboard: W3C clipboard events — fire on the focused
@@ -5406,6 +5420,7 @@ mod autotest_generated {
             WindowEventFilter::DoubleClick,
             WindowEventFilter::PermissionChanged,
             WindowEventFilter::BiometricResult,
+            WindowEventFilter::ScreenColorPicked,
             WindowEventFilter::KeyringResult,
         ] {
             let hover = w
@@ -5943,6 +5958,7 @@ mod autotest_generated {
             (EventType::GeolocationError, EventData::None),
             (EventType::PermissionChanged, EventData::None),
             (EventType::BiometricResult, EventData::None),
+            (EventType::ScreenColorPicked, EventData::None),
             (EventType::KeyringResult, EventData::None),
             (EventType::LongPress, EventData::None),
             (EventType::Play, EventData::None),

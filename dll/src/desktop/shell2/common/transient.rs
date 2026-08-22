@@ -777,6 +777,11 @@ pub fn popup_dismiss_cause(
     if policy == TransientDismiss::None {
         return None;
     }
+    // The eyedropper's loupe window (or the system sampler) takes the
+    // focus; the popup that asked must survive that to hear the answer.
+    if azul_layout::managers::eyedropper::in_flight_anywhere() {
+        return None;
+    }
     let escape_now = current
         .keyboard_state
         .pressed_virtual_keycodes

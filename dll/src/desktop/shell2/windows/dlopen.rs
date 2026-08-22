@@ -469,6 +469,9 @@ pub struct User32Functions {
 
     // Cursor and position
     pub GetCursorPos: unsafe extern "system" fn(*mut POINT) -> BOOL,
+    /// Screen metrics (`SM_CXSCREEN` / `SM_CYSCREEN` for the eyedropper's
+    /// screenshot of the primary monitor).
+    pub GetSystemMetrics: unsafe extern "system" fn(i32) -> i32,
     pub ScreenToClient: unsafe extern "system" fn(HWND, *mut POINT) -> BOOL,
     pub ClientToScreen: unsafe extern "system" fn(HWND, *mut POINT) -> BOOL,
 
@@ -802,6 +805,7 @@ impl Win32Libraries {
 
                 // Cursor
                 GetCursorPos: user32_dll.get_symbol("GetCursorPos")?,
+                GetSystemMetrics: user32_dll.get_symbol("GetSystemMetrics")?,
                 ScreenToClient: user32_dll.get_symbol("ScreenToClient")?,
                 ClientToScreen: user32_dll.get_symbol("ClientToScreen")?,
 

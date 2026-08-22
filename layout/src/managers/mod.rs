@@ -31,6 +31,7 @@ pub mod a11y;
 #[cfg(feature = "a11y")]
 pub mod a11y_snapshot;
 pub mod biometric;
+pub mod eyedropper;
 pub mod changeset;
 pub mod clipboard;
 pub mod drag_drop;

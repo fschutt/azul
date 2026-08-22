@@ -1049,7 +1049,7 @@ mod autotest_generated {
             NodeType::Icon(s) => assert_eq!(s.as_ref().as_str(), "arrow_drop_down"),
             other => panic!("expected the arrow icon, got {other:?}"),
         }
-        assert!(kids[1].children.is_empty(), "the icon is a leaf");
+        assert_eq!(kids[1].children.len(), 1, "the icon carries its glyph slot (a text leaf)");
     }
 
     #[test]
@@ -1063,7 +1063,7 @@ mod autotest_generated {
                 count_descendants(&dom),
                 "selected = {idx}: a stale cache makes the compact-DOM arena under-allocate",
             );
-            assert_eq!(dom.estimated_total_children, 3, "p + text + icon");
+            assert_eq!(dom.estimated_total_children, 4, "p + text + icon + its glyph slot");
         }
     }
 
@@ -1134,7 +1134,7 @@ mod autotest_generated {
         let dom = dd.dom();
         assert_eq!(label_of(&dom), (n - 1).to_string());
         assert_eq!(
-            dom.estimated_total_children, 3,
+            dom.estimated_total_children, 4,
             "the trigger must not materialise one node per choice",
         );
     }

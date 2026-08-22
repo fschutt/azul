@@ -1110,6 +1110,13 @@ pub type XVaCreateNestedList = unsafe extern "C" fn(c_int, ...) -> XVaNestedList
 
 // Display dimension functions
 pub type XDisplayWidth = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+/// (display, drawable, x, y, w, h, plane_mask, format) - the eyedropper's
+/// one-shot read of the root window (`ZPixmap`).
+pub type XGetImage = unsafe extern "C" fn(*mut Display, Drawable, c_int, c_int, c_uint, c_uint, c_ulong, c_int) -> *mut XImage;
+/// `XGetImage` format: pixels packed as in the framebuffer.
+pub const ZPixmap: c_int = 2;
+/// `XGetImage` plane mask: every plane.
+pub const AllPlanes: c_ulong = !0;
 pub type XDisplayHeight = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 pub type XDisplayWidthMM = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 pub type XDisplayHeightMM = unsafe extern "C" fn(*mut Display, c_int) -> c_int;

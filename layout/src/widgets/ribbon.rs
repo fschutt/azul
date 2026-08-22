@@ -3055,7 +3055,9 @@ mod tests {
                     bad.push(t.as_ref().as_str().to_string());
                 }
             }
-            let is_p = matches!(node.root.get_node_type(), NodeType::P);
+            // An icon's text leaf is the glyph slot icon resolution fills
+            // (the icon becomes an inline <span> around it): by convention.
+            let is_p = matches!(node.root.get_node_type(), NodeType::P | NodeType::Icon(_));
             for c in node.children.as_ref() {
                 walk(c, is_p, bad);
             }

@@ -6267,6 +6267,10 @@ impl Win32Window {
 // PlatformWindow Trait Implementation
 
 impl PlatformWindow for Win32Window {
+    fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
+        crate::desktop::eyedropper::windows::capture(self)
+    }
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {

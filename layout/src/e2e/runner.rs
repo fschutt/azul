@@ -2581,6 +2581,17 @@ impl Runner {
                     ProcessEventResult::DoNothing
                 }
             }
+            CallbackChange::PickScreenColor => {
+                // The request is recorded (a scenario can assert the widget
+                // asked); there is no screen to read headless, so the answer
+                // is an immediate "cancelled" on the next pass.
+                let id = self.layout_window.eyedropper_manager.begin_request();
+                crate::managers::eyedropper::push_result(crate::managers::eyedropper::EyedropperResult {
+                    request_id: id,
+                    color: None,
+                });
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::ShowTooltip { .. } => {
                 self.unsupported("ShowTooltip", "tooltips are a second platform window")
             }

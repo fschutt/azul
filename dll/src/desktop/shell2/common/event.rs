@@ -3338,6 +3338,47 @@ pub trait PlatformWindow {
         }
     }
 
+    /// Start the OS's own eyedropper for `request_id` (macOS: the system
+    /// sampler). `true` if one started - the answer arrives through
+    /// `azul_layout::managers::eyedropper::push_result`. The default has none.
+    fn start_native_eyedropper(&mut self, _request_id: u64) -> bool {
+        false
+    }
+
+    /// Read the screen for the eyedropper's loupe window. `None` when the
+    /// platform cannot (or the user declined - Wayland asks through the
+    /// portal). The default reads nothing.
+    fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
+        None
+    }
+
+    /// Run every queued `pick_screen_color`: the native sampler where there
+    /// is one, else a screenshot in a fullscreen loupe window; a request
+    /// neither can serve is answered "cancelled" so the asking callback is
+    /// not left waiting.
+    fn dispatch_eyedropper_requests(&mut self) {
+        for req in azul_layout::managers::eyedropper::drain_requests() {
+            if self.start_native_eyedropper(req.request_id) {
+                continue;
+            }
+            let dpi = self.get_current_window_state().size.dpi;
+            match self
+                .capture_screen_for_eyedropper()
+                .and_then(|shot| crate::desktop::eyedropper::loupe_window(shot, req.request_id, dpi))
+            {
+                Some(options) => {
+                    log_debug!(
+                        super::debug_server::LogCategory::Window,
+                        "[eyedropper] opening the loupe window for request {}",
+                        req.request_id
+                    );
+                    self.queue_window_create(options);
+                }
+                None => crate::desktop::eyedropper::finish(req.request_id, None),
+            }
+        }
+    }
+
     /// Does applying a new `position` through `sync_window_state` actually
     /// move this window? `true` everywhere a window can be placed; a Wayland
     /// popup (no `xdg_popup.reposition` at the bound protocol version) says
@@ -4490,6 +4531,20 @@ pub trait PlatformWindow {
                 } else {
                     ProcessEventResult::DoNothing
                 }
+            }
+
+            CallbackChange::PickScreenColor => {
+                // Issued on THIS window's manager so the answer routes back
+                // here; dispatched right away (the loupe is queued, or the
+                // system sampler starts) rather than on the next pump.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let id = lw.eyedropper_manager.begin_request();
+                    azul_layout::managers::eyedropper::push_request(
+                        azul_layout::managers::eyedropper::EyedropperRequest { request_id: id },
+                    );
+                }
+                self.dispatch_eyedropper_requests();
+                ProcessEventResult::DoNothing
             }
 
             CallbackChange::ShowTooltip { text, position } => {
@@ -7629,6 +7684,7 @@ pub trait PlatformWindow {
                 &w.permission_manager,
                 &w.biometric_manager,
                 &w.keyring_manager,
+                &w.eyedropper_manager,
             )
         });
 
@@ -7645,7 +7701,7 @@ pub trait PlatformWindow {
         if let Some(p) = document_edit_provider.as_ref() {
             event_providers.push(p as &dyn azul_core::events::EventProvider);
         }
-        if let Some((tm, sm, gm, geo, pm, bm, km)) = providers_ref {
+        if let Some((tm, sm, gm, geo, pm, bm, km, ed)) = providers_ref {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
             event_providers.push(sm as &dyn azul_core::events::EventProvider);
             event_providers.push(gm as &dyn azul_core::events::EventProvider);
@@ -7653,6 +7709,7 @@ pub trait PlatformWindow {
             event_providers.push(pm as &dyn azul_core::events::EventProvider);
             event_providers.push(bm as &dyn azul_core::events::EventProvider);
             event_providers.push(km as &dyn azul_core::events::EventProvider);
+            event_providers.push(ed as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -7766,6 +7823,7 @@ pub trait PlatformWindow {
             w.permission_manager.clear_pending_changed();
             w.biometric_manager.clear_pending_event();
             w.keyring_manager.clear_pending_event();
+            w.eyedropper_manager.clear_pending_event();
             w.gesture_drag_manager.clear_pen_event_pending();
             // The injected native gesture (macOS magnify/rotate, debug-server
             // injection) is NOT cleared here: the PinchIn/PinchOut callbacks

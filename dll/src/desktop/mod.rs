@@ -58,6 +58,8 @@ pub mod dialogs {
 }
 /// Display/Monitor management for menu positioning
 pub mod display;
+/// The screen eyedropper (`CallbackInfo::pick_screen_color`).
+pub mod eyedropper;
 
 /// Open the first available shared library from `names` (tries each in order).
 ///

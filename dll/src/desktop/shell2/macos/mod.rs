@@ -209,6 +209,20 @@ struct DisplayLinkTarget {
 unsafe impl Send for DisplayLinkTarget {}
 unsafe impl Sync for DisplayLinkTarget {}
 
+/// Wake every registered window (regenerate + redraw) from a context that
+/// is not a window - an AppKit completion block, say. Main thread only
+/// (the registry is).
+pub fn wake_all_windows() {
+    for wptr in registry::get_all_window_ptrs() {
+        if wptr.is_null() {
+            continue;
+        }
+        let w = unsafe { &mut *wptr };
+        w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        w.request_redraw();
+    }
+}
+
 fn primary_screen_height() -> Option<f64> {
     let mtm = MainThreadMarker::new()?;
     unsafe {
@@ -3366,6 +3380,10 @@ pub struct MacOSWindow {
 // Implement PlatformWindow trait for cross-platform event processing
 
 impl event::PlatformWindow for MacOSWindow {
+    fn start_native_eyedropper(&mut self, request_id: u64) -> bool {
+        crate::desktop::eyedropper::macos::start(request_id)
+    }
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {

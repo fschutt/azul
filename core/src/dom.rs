@@ -4083,7 +4083,13 @@ impl Dom {
     /// ```
     #[inline]
     pub fn create_icon<S: Into<AzString>>(icon_name: S) -> Self {
+        // The empty text leaf is where icon resolution writes a font icon's
+        // glyph (the node itself becomes the inline `<span>` box around it):
+        // the arena is DFS-ordered, so the leaf has to exist from the start -
+        // see `icon::resolve_icons_in_styled_dom`. `<icon>name</icon>` in
+        // markup has its spec text in that place.
         Self::create_node(NodeType::Icon(BoxOrStatic::heap(icon_name.into())))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(""))
     }
 
     #[inline]

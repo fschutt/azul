@@ -119,6 +119,8 @@ pub const COLOR_PICKER_ALPHA_CLASS: &str = "__azul_native_color_picker_alpha";
 /// Class on the picker's grip strip: drag it to tear the picker off into a
 /// floating palette, drag the palette back over the swatch to dock it.
 pub const COLOR_PICKER_GRIP_CLASS: &str = "__azul_native_color_picker_grip";
+/// Class on the eyedropper button (`pick_screen_color`).
+pub const COLOR_PICKER_EYEDROPPER_CLASS: &str = "__azul_native_color_picker_eyedropper";
 
 /// Width of the plane and hue bar, in px. The panel is this plus padding.
 const PLANE_WIDTH: f32 = 216.0;
@@ -747,10 +749,45 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             cb
         })
         .dom();
+    // The eyedropper: `pick_screen_color` runs the platform's sampler (the
+    // system loupe on macOS; a screenshot in a fullscreen loupe elsewhere -
+    // Wayland asks the user through the portal first). The answer comes
+    // back as the window-level `ScreenColorPicked`, registered on this
+    // very node so it reaches the picker's data.
+    let eyedropper = Dom::create_div()
+        .with_ids_and_classes(vec![Class(COLOR_PICKER_EYEDROPPER_CLASS.into())].into())
+        .with_css(
+            "display: flex; align-items: center; justify-content: center; width: 28px; \
+             height: 28px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; \
+             background: #f4f4f4; color: #404040; font-size: 18px;",
+        )
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::PushButton,
+            accessibility_name: Some("Pick a colour from the screen".into()).into(),
+            ..Default::default()
+        })
+        .with_callbacks(
+            vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    refany: data.clone(),
+                    callback: CoreCallback { cb: on_eyedropper_clicked as usize, ctx: azul_core::refany::OptionRefAny::None },
+                },
+                CoreCallbackData {
+                    event: EventFilter::Window(azul_core::events::WindowEventFilter::ScreenColorPicked),
+                    refany: data.clone(),
+                    callback: CoreCallback { cb: on_screen_color_picked as usize, ctx: azul_core::refany::OptionRefAny::None },
+                },
+            ]
+            .into(),
+        )
+        .with_child(Dom::create_icon("colorize"));
+
     let preview_row = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
         .with_child(preview)
-        .with_child(hex_input);
+        .with_child(hex_input)
+        .with_child(eyedropper);
 
     // R / G / B.
     let channel = |name: &str, short: &str, value: u8, cb: crate::widgets::number_input::NumberInputOnValueChangeCallbackType| {
@@ -863,18 +900,19 @@ fn cursor_fraction(info: &CallbackInfo) -> Option<(f32, f32)> {
 }
 
 /// Push the picked colour to the popup's own controls (instant, no relayout)
-/// and to the app.
-fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, control: DomNodeId) -> Update {
+/// and to the app. `panel` is the picker panel node (the parent of the three
+/// bars; the grandparent of the eyedropper button).
+fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, panel: Option<DomNodeId>) -> Update {
     let hsv = picker.hsv;
     let color = picker.color();
     let hex = color_to_hex(color);
 
-    // The panel holds [plane, hue, alpha, preview_row, rgb_row]; `control`
-    // is one of the three bars, so the panel is its parent. Children:
-    // plane = [shade, marker]; hue = [marker]; alpha = [board?, fill, marker]
-    // (the board is the last child of alpha-less builds, so walk from the end).
-    if let Some(panel) = info.get_parent(control) {
-        if let Some(plane) = info.get_first_child(panel) {
+    // The panel holds [grip, plane, hue, alpha, preview_row, rgb_row].
+    // Children: plane = [shade, marker]; hue = [marker]; alpha = [board?,
+    // fill, marker] (the board is the last child of alpha-less builds, so
+    // walk from the end).
+    if let Some(panel) = panel {
+        if let Some(plane) = info.get_first_child(panel).and_then(|grip| info.get_next_sibling(grip)) {
             if let Some(prop) = css_prop(CssPropertyType::BackgroundContent, &plane_background_css(hsv.h)) {
                 info.set_css_property(plane, prop);
             }
@@ -949,8 +987,8 @@ fn apply_plane(picker: &mut ColorPickerData, info: &mut CallbackInfo) -> Update 
     };
     let hsv = Hsv { h: picker.hsv.h, s: x, v: 1.0 - y };
     picker.set_hsv(hsv);
-    let control = info.get_hit_node();
-    publish(picker, info, control)
+    let panel = info.get_parent(info.get_hit_node());
+    publish(picker, info, panel)
 }
 
 fn apply_hue(picker: &mut ColorPickerData, info: &mut CallbackInfo) -> Update {
@@ -959,8 +997,32 @@ fn apply_hue(picker: &mut ColorPickerData, info: &mut CallbackInfo) -> Update {
     };
     let hsv = Hsv { h: (x * 360.0).min(359.9), s: picker.hsv.s, v: picker.hsv.v };
     picker.set_hsv(hsv);
-    let control = info.get_hit_node();
-    publish(picker, info, control)
+    let panel = info.get_parent(info.get_hit_node());
+    publish(picker, info, panel)
+}
+
+/// The eyedropper button: ask the platform to sample a screen pixel. The
+/// answer arrives in `on_screen_color_picked`.
+extern "C" fn on_eyedropper_clicked(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.pick_screen_color();
+    Update::DoNothing
+}
+
+/// `ScreenColorPicked` (window-level) in the picker's window: adopt the
+/// sampled colour - RGB from the screen, the alpha the user had set - and
+/// publish it like any other change. A cancelled pick changes nothing.
+extern "C" fn on_screen_color_picked(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let azul_css::props::basic::color::OptionColorU::Some(picked) = info.get_picked_screen_color() else {
+        return Update::DoNothing;
+    };
+    let Some(mut picker) = data.downcast_mut::<ColorPickerData>() else {
+        return Update::DoNothing;
+    };
+    let a = picker.color().a;
+    picker.set_color(ColorU { a, ..picked });
+    // The button sits in the preview row: the panel is two levels up.
+    let panel = info.get_parent(info.get_hit_node()).and_then(|row| info.get_parent(row));
+    publish(&mut picker, &mut info, panel)
 }
 
 extern "C" fn on_plane_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1026,8 +1088,8 @@ fn apply_alpha(picker: &mut ColorPickerData, info: &mut CallbackInfo) -> Update 
     let mut c = picker.color();
     c.a = channel_value(x * 255.0);
     picker.set_color(c);
-    let control = info.get_hit_node();
-    publish(picker, info, control)
+    let panel = info.get_parent(info.get_hit_node());
+    publish(picker, info, panel)
 }
 
 extern "C" fn on_alpha_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
