@@ -928,8 +928,8 @@ pub fn propagate_event(
         propagate_target_phase(event, target_node_id, callbacks, &mut result);
     }
 
-    // Phase 3: Bubble (target → root)
-    if !event.stopped {
+    // Phase 3: Bubble (target → root) — unless the event type does not bubble.
+    if !event.stopped && event.event_type.bubbles() {
         propagate_phase(
             event,
             ancestors.iter().rev().copied(),
@@ -941,6 +941,26 @@ pub fn propagate_event(
 
     result.default_prevented = event.prevented_default;
     result
+}
+
+impl EventType {
+    /// Whether the event reaches the target's ANCESTORS in the bubble phase.
+    ///
+    /// Enter/leave events do not bubble (W3C `mouseenter`/`mouseleave`,
+    /// `pointerenter`/`pointerleave`): each node that gained or lost hover
+    /// gets its OWN event (`event_determination` generates them per node), so
+    /// bubbling a child's leave to its parent tells the parent the pointer
+    /// left IT while it is still inside — which is how a slider's drag ended
+    /// the moment the pointer slid off the thumb, a map pan ended on every
+    /// tile crossing, and a split-pane drag ended on its first motion.
+    /// `dragenter`/`dragleave` DO bubble in the W3C model and keep doing so.
+    #[must_use]
+    pub const fn bubbles(self) -> bool {
+        !matches!(
+            self,
+            Self::MouseEnter | Self::MouseLeave | Self::PenEnter | Self::PenLeave
+        )
+    }
 }
 
 /// Process a single propagation phase (Capture or Bubble)
@@ -5922,6 +5942,42 @@ mod autotest_generated {
             "target first, then bubbling up to the root — each node once"
         );
         assert!(!result.default_prevented);
+    }
+
+    /// Bug class: a child's enter/leave reaching its parent. W3C `mouseleave`
+    /// does not bubble, and every node that lost hover already gets its own
+    /// event, so a parent that handles `MouseLeave` must hear ONLY about the
+    /// pointer leaving the parent — not a child inside it. (The slider, the
+    /// map and the split pane all ended their drags on a bubbled child leave.)
+    #[test]
+    fn enter_and_leave_events_stop_at_their_target() {
+        let hier = hierarchy_chain(3); // 0 <- 1 <- 2
+        for ty in [EventType::MouseEnter, EventType::MouseLeave, EventType::PenEnter, EventType::PenLeave] {
+            let filter = || {
+                EventFilter::Hover(match ty {
+                    EventType::MouseEnter => HoverEventFilter::MouseEnter,
+                    EventType::MouseLeave => HoverEventFilter::MouseLeave,
+                    EventType::PenEnter => HoverEventFilter::PenEnter,
+                    _ => HoverEventFilter::PenLeave,
+                })
+            };
+            let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+            for i in 0..3 {
+                callbacks.insert(NodeId::new(i), vec![filter()]);
+            }
+            let mut ev = SyntheticEvent::new(ty, EventSource::User, dnid(0, 2), tick(0), EventData::None);
+            let result = propagate_event(&mut ev, &hier, &callbacks);
+            let nodes: Vec<NodeId> = result.callbacks_to_invoke.iter().map(|(n, _)| *n).collect();
+            assert_eq!(
+                nodes,
+                vec![NodeId::new(2)],
+                "{ty:?} reached ancestors — it must stop at its target"
+            );
+            assert!(!ty.bubbles());
+        }
+        // The rule is narrow: a move still bubbles to every ancestor.
+        assert!(EventType::MouseOver.bubbles());
+        assert!(EventType::DragLeave.bubbles(), "W3C dragleave bubbles");
     }
 
     #[test]
