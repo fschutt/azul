@@ -304,7 +304,9 @@ extern "C" fn on_focus_lost(
     }
 }
 
-/// Is `s` a PREFIX of some string `<f32 as FromStr>` accepts — i.e. can it
+/// Is `s` a PREFIX of some string `<f32 as FromStr>` accepts — i.e.
+///
+/// can it
 /// still become a number with more characters? Grammar:
 /// `[+-]? digits* ('.' digits*)? ([eE] [+-]? digits*)?`, with the exponent
 /// allowed only after at least one mantissa digit (`e`, `.e` can never

@@ -99,7 +99,9 @@ pub fn present_frame(
 
 /// [`present_frame`] taking the pixels BY VALUE: the writebacks `mem::take`
 /// them out of the frame `RefAny` (dropped right after) instead of cloning
-/// a full frame on the main thread. `premultiplied_alpha: true` because every
+/// a full frame on the main thread.
+///
+/// `premultiplied_alpha: true` because every
 /// capture backend forces alpha 255, for which straight == premultiplied —
 /// `load_rgba8` then skips its per-pixel multiply.
 pub fn present_frame_pixels(

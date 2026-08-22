@@ -64,7 +64,9 @@ const ASSUMED_FPS: f32 = 60.0;
 
 /// Ticks without a delta after which a finger's raw accumulator is dropped
 /// (≈ 200 ms at the 16 ms tick; X11 synthesises its gesture end after
-/// 100 ms). A lost `TrackpadEnd` must not pin the timer and must not leave
+/// 100 ms).
+///
+/// A lost `TrackpadEnd` must not pin the timer and must not leave
 /// a stretched view without a spring-back.
 const GESTURE_STALE_TICKS: u32 = 12;
 
@@ -998,7 +1000,9 @@ fn rubber_band_clamp(
 }
 
 /// Inverse of [`rubber_band_clamp`]: the RAW (unbanded) position that would
-/// display as `displayed`. In range it is the identity; past an edge it
+/// display as `displayed`.
+///
+/// In range it is the identity; past an edge it
 /// inverts `D(o) = M·(1 − e^(−e·o/M))` into `o = −(M/e)·ln(1 − shown/M)`.
 /// The band's asymptote `M` is unreachable, so `shown` is capped just inside
 /// it. Used to seed a gesture's raw accumulator from a committed offset that
@@ -1032,7 +1036,9 @@ fn rubber_band_unclamp(
 
 /// The offset a rubber-band spring-back axis commits this tick, given the
 /// overshoot it started from and the exact overshoot its closed-form step
-/// produced. Lands EXACTLY: a step that crosses the boundary (only the
+/// produced.
+///
+/// Lands EXACTLY: a step that crosses the boundary (only the
 /// band/threshold interplay can make a critically-damped spring do that)
 /// or ends within half a pixel snaps onto the boundary with the velocity
 /// zeroed — never a crossing velocity falling through to free momentum

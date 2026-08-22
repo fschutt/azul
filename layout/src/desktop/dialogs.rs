@@ -404,7 +404,7 @@ impl FileDialog {
 
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// Result of polling a [`FilePickerHandle`]. Mirrors the W3C
+/// Result of polling a [`FilePickerHandle`]. Mirrors the `W3C`
 /// `showOpenFilePicker()` promise shape so a web backend lands without API
 /// churn.
 #[derive(Debug, Clone, PartialEq)]
@@ -413,7 +413,7 @@ pub enum FilePickerStatus {
     /// Picker is still on-screen; no user action yet.
     Pending,
     /// User dismissed the picker without selecting anything. Maps to the
-    /// W3C `<input type="file">` cancel semantics (an empty selection).
+    /// `W3C` `<input type="file">` cancel semantics (an empty selection).
     Cancelled,
     /// Single-file picker resolved: the chosen path.
     Selected(AzString),
@@ -426,7 +426,9 @@ pub enum FilePickerStatus {
     Error(AzString),
 }
 
-/// Shared state behind [`FilePickerHandle`]. Held in an `Arc<Mutex<…>>` so
+/// Shared state behind [`FilePickerHandle`].
+///
+/// Held in an `Arc<Mutex<…>>` so
 /// the OS delegate / activity-result handler can write into it from the UI
 /// thread while the layout callback reads it from the engine thread.
 #[derive(Debug)]
@@ -561,7 +563,9 @@ impl Drop for FilePickerHandle {
 }
 
 /// The OS file-picker plumbing a platform shell installs at startup — the
-/// async equivalent of the `tfd` calls above. Each function must return
+/// async equivalent of the `tfd` calls above.
+///
+/// Each function must return
 /// IMMEDIATELY with a `Pending` handle it later resolves from the OS callback.
 #[derive(Debug, Clone, Copy)]
 pub struct FilePickerBackend {
@@ -575,7 +579,9 @@ pub struct FilePickerBackend {
 
 static FILE_PICKER_BACKEND: OnceLock<FilePickerBackend> = OnceLock::new();
 
-/// Install the platform's async file picker. The first registration wins;
+/// Install the platform's async file picker.
+///
+/// The first registration wins;
 /// returns `false` when one was already installed (the shells register from
 /// a `OnceLock`-guarded site, so that is a programming error, not a race to
 /// paper over).

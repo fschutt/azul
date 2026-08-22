@@ -1099,11 +1099,13 @@ pub fn transfer_states(
 }
 
 /// Re-point every `RefAny` across `node_data` that is a clone of the
-/// allocation `orphan_alloc` (a dataset the merge discarded) at `merged`, so
-/// the whole widget reads ONE state: VirtualView content refanys, event
-/// callback refanys and datasets cloned from the same source. The MapWidget
-/// puts its VirtualView in a CHILD and its pan/zoom callbacks on the parent,
-/// which is why this scans the whole arena and not just the merge node.
+/// allocation `orphan_alloc` (a dataset the merge discarded) at `merged`.
+///
+/// The whole widget then reads ONE state: `VirtualView` content refanys,
+/// event callback refanys and datasets cloned from the same source. The
+/// `MapWidget` puts its `VirtualView` in a CHILD and its pan/zoom callbacks
+/// on the parent, which is why this scans the whole arena and not just the
+/// merge node.
 fn repoint_orphaned_refanys(node_data: &mut [NodeData], orphan_alloc: usize, merged: &RefAny) {
     use crate::refany::OptionRefAny;
     if merged.sharing_info.ptr as usize == orphan_alloc {
@@ -1824,7 +1826,7 @@ pub struct NodeDataFingerprint {
     /// `RefAny` on every build, and `RefAny` hashes by pointer, so hashing the
     /// dataset into `attrs_hash` (which maps to `CONTENTEDITABLE`, a layout
     /// change) made every `with_dataset` node LAYOUT-DIRTY on every
-    /// `RefreshDom`: the TextArea became a standalone layout root on each
+    /// `RefreshDom`: the `TextArea` became a standalone layout root on each
     /// callback, was re-laid-out with its `min-height` while its flex
     /// container kept the old slot, and painted 64 px into a 36 px slot — over
     /// the slider beneath it. A dataset change is [`NodeChangeSet::DATASET`],
@@ -4416,11 +4418,11 @@ mod autotest_generated {
         // dirty on every RefreshDom. The dataset is state: same type, new
         // allocation, IDENTICAL fingerprint.
         let a = NodeDataFingerprint::compute(
-            &NodeData::create_div().with_dataset(RefAny::new(42u32).into()),
+            &NodeData::create_div().with_dataset(crate::refany::OptionRefAny::Some(RefAny::new(42u32))),
             None,
         );
         let b = NodeDataFingerprint::compute(
-            &NodeData::create_div().with_dataset(RefAny::new(43u32).into()),
+            &NodeData::create_div().with_dataset(crate::refany::OptionRefAny::Some(RefAny::new(43u32))),
             None,
         );
         assert!(a.is_identical(&b), "a new allocation of the same dataset type is not a change");
@@ -4430,7 +4432,7 @@ mod autotest_generated {
         // A dataset of another TYPE (or none) is a DATASET change — and
         // still not a layout one.
         let c = NodeDataFingerprint::compute(
-            &NodeData::create_div().with_dataset(RefAny::new(String::from("x")).into()),
+            &NodeData::create_div().with_dataset(crate::refany::OptionRefAny::Some(RefAny::new(String::from("x")))),
             None,
         );
         let changes = a.diff(&c);

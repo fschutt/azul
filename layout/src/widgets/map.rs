@@ -568,12 +568,13 @@ impl MapTileCache {
     }
 }
 
-/// How far a tile is from what the viewport shows: zoom mismatch first
-/// (10 000 per level), then the squared distance of the tile's centre from
-/// the viewport centre, both measured in the CURRENT zoom's tile space so
-/// tiles of different zooms compare. Lower = nearer. One function for both
-/// the fetch order (nearest first) and the cache eviction (farthest first),
-/// so the two can never disagree about what "near the user" means.
+/// How far a tile is from what the viewport shows (lower = nearer).
+///
+/// Zoom mismatch first (10 000 per level), then the squared distance of the
+/// tile's centre from the viewport centre, both measured in the CURRENT
+/// zoom's tile space so tiles of different zooms compare. One function for
+/// both the fetch order (nearest first) and the cache eviction (farthest
+/// first), so the two can never disagree about what "near the user" means.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn tile_viewport_score(viewport: &MapViewport, layer: &MapTileLayer, id: MapTileId) -> f64 {

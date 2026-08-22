@@ -1547,8 +1547,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // `record_patch_damage`.
         cache.build_seq = cache.build_seq.wrapping_add(1);
         cache.patch_damage_log.push((cache.build_seq, rects.clone()));
-        if cache.patch_damage_log.len() > crate::solver3::cache::PATCH_DAMAGE_LOG_CAP {
-            let excess = cache.patch_damage_log.len() - crate::solver3::cache::PATCH_DAMAGE_LOG_CAP;
+        if cache.patch_damage_log.len() > cache::PATCH_DAMAGE_LOG_CAP {
+            let excess = cache.patch_damage_log.len() - cache::PATCH_DAMAGE_LOG_CAP;
             cache.patch_damage_log.drain(..excess);
         }
         cache.last_patch_damage = Some(rects);

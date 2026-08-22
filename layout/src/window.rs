@@ -1266,7 +1266,9 @@ pub struct LayoutWindow {
     pub pending_lifecycle_events: Vec<azul_core::events::SyntheticEvent>,
     /// Layout box of every node subscribed to `NodeResized`, as of the last
     /// layout pass — the "previous" side of the next pass's `Resize` events
-    /// (see [`Self::queue_resize_events_after_layout`]). Node-keyed: remapped
+    /// (see [`Self::queue_resize_events_after_layout`]).
+    ///
+    /// Node-keyed: remapped
     /// with the managers on a rebuild, so a subscriber that keeps its identity
     /// across a DOM regeneration keeps its baseline too.
     pub resize_watch: BTreeMap<(DomId, NodeId), LogicalRect>,
@@ -13509,7 +13511,7 @@ impl LayoutWindow {
                     hit_test.hovered_nodes.iter().any(|(dom_id, hit)| {
                         self.layout_results.get(dom_id).is_some_and(|lr| {
                             hit.regular_hit_test_nodes.keys().any(|node_id| {
-                                crate::solver3::getters::is_node_contenteditable_inherited(
+                                solver3::getters::is_node_contenteditable_inherited(
                                     &lr.styled_dom,
                                     *node_id,
                                 )

@@ -533,7 +533,9 @@ fn multi_value_to_lpa_margin(mv: MultiValue<PixelValue>) -> LengthPercentageAuto
 }
 
 /// `em` / `rem` resolved against the NODE's font sizes; every other unit as
-/// [`pixel_value_to_pixels_fallback`]. The fallback's `DEFAULT_FONT_SIZE`
+/// [`pixel_value_to_pixels_fallback`].
+///
+/// The fallback's `DEFAULT_FONT_SIZE`
 /// (16 px) is only right for a 16 px font: a widget label's `margin: 1em`
 /// at 11 px came out as 16 px top and bottom, which is the bug class "a
 /// relative unit resolved against a constant" — use this wherever the font

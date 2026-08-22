@@ -22,10 +22,10 @@ const MAX_HOVER_HISTORY: usize = 5;
 /// Iterates DOMs from highest `DomId` (most-nested child, composited on top)
 /// to lowest and returns the deepest node (last in `NodeId` order) of the first
 /// DOM that actually has a regular hit. See [`HoverManager::current_hover_node_full`].
-fn deepest_node_across_doms(ht: &FullHitTest) -> Option<azul_core::dom::DomNodeId> {
+fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
     for (dom_id, hit) in ht.hovered_nodes.iter().rev() {
         if let Some(node_id) = hit.regular_hit_test_nodes.keys().last().copied() {
-            return Some(azul_core::dom::DomNodeId {
+            return Some(DomNodeId {
                 dom: *dom_id,
                 node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
                     node_id,
@@ -86,7 +86,9 @@ impl HoverManager {
         self.press_targets.clear();
     }
 
-    /// PRESS-TARGET CAPTURE. Events are derived from window-state diffs and
+    /// PRESS-TARGET CAPTURE.
+    ///
+    /// Events are derived from window-state diffs and
     /// targeted at whatever is under the pointer NOW, so a widget that
     /// latched on `MouseDown` only saw its `MouseUp` if the pointer was still
     /// over it when the button came up. Every "stuck input" of the demo test
@@ -310,12 +312,12 @@ impl HoverManager {
     ///
     /// For single-DOM apps only `DomId 0` is ever hit, so this is equivalent to
     /// [`current_hover_node`] wrapped in `DomId { inner: 0 }`.
-    #[must_use] pub fn current_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
+    #[must_use] pub fn current_hover_node_full(&self) -> Option<DomNodeId> {
         deepest_node_across_doms(self.get_current_mouse()?)
     }
 
     /// Multi-DOM aware counterpart of [`previous_hover_node`] (one frame ago).
-    #[must_use] pub fn previous_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
+    #[must_use] pub fn previous_hover_node_full(&self) -> Option<DomNodeId> {
         let history = self.hover_histories.get(&InputPointId::Mouse)?;
         deepest_node_across_doms(history.get(1)?)
     }
@@ -329,7 +331,7 @@ impl HoverManager {
     #[must_use] pub fn hover_node_full_for(
         &self,
         input_id: &InputPointId,
-    ) -> Option<azul_core::dom::DomNodeId> {
+    ) -> Option<DomNodeId> {
         deepest_node_across_doms(self.get_current(input_id)?)
     }
 }

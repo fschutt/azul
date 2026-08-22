@@ -1005,6 +1005,15 @@ jobs:
           cargo test -p AzPaint --lib --no-fail-fast 2>&1 | tee azul-paint-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-paint-tests.txt
 
+      # AzMaps grew unit tests on 2026-08-22 (the demo's arrow-button pan math
+      # had a sign bug — "UP pans south" — and `pan_tests` pins the projection).
+      # Same crate shape as AzPaint: tests in the LIB, a trivially empty bin.
+      - name: Run AzMaps tests
+        run: |
+          set -o pipefail
+          cargo test -p AzMaps --lib --no-fail-fast 2>&1 | tee azul-maps-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-maps-tests.txt
+
       - name: Run AzWriter tests
         run: |
           set -o pipefail

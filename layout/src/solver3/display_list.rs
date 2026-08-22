@@ -1898,8 +1898,8 @@ impl DisplayListBuilder {
     /// The published 0.2.0 azul-self-test-linux display list carried 24 of
     /// them, e.g.
     ///
-    ///     Border      { bounds: WindowLogicalRect(624x0 @ (-3.4028235e38, -3.4028235e38)) }
-    ///     HitTestArea { bounds: WindowLogicalRect(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    ///     Border      { bounds: `WindowLogicalRect`(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    ///     `HitTestArea` { bounds: `WindowLogicalRect`(624x0 @ (-3.4028235e38, -3.4028235e38)) }
     ///
     /// A `Border` at -3.4e38 is merely invisible. A `HitTestArea` there is
     /// ACTIVELY WRONG: it is a live hit-test rectangle at a coordinate no
@@ -3371,6 +3371,7 @@ where
     }
 
     /// Emits drawing commands for all text cursors (carets).
+    ///
     /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
     /// An editable with NO text gets the strut caret of
     /// [`empty_editable_caret_rect`].

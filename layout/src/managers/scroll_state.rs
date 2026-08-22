@@ -85,7 +85,9 @@ pub enum ScrollInputSource {
     /// Position is set directly — the OS handles momentum/physics.
     TrackpadContinuous,
     /// The OS momentum tail after the fingers lifted (macOS
-    /// `momentumPhase == Began | Changed`). Moves the content like
+    /// `momentumPhase == Began | Changed`).
+    ///
+    /// Moves the content like
     /// `TrackpadContinuous` while the node is in range; the first delta that
     /// pushes past an edge hands the axis to the rubber-band spring (with the
     /// delta's velocity as the bump) and every later momentum delta on that

@@ -422,12 +422,16 @@ pub struct LayoutCache {
     /// but the patch knows exactly what it touched, so the renderers prefer
     /// this when the diff gives up. `None` after a full emission.
     pub last_patch_damage: Option<Vec<LogicalRect>>,
-    /// Monotonic count of display-list BUILDS, full or patched. A renderer
+    /// Monotonic count of display-list BUILDS, full or patched.
+    ///
+    /// A renderer
     /// remembers the value it last presented against, so
     /// [`Self::pending_patch_damage`] can hand it the damage of EVERY
     /// patched build since — not just the last one.
     pub build_seq: u64,
-    /// `build_seq` of the last FULL emission (0 = none yet). A renderer that
+    /// `build_seq` of the last FULL emission (0 = none yet).
+    ///
+    /// A renderer that
     /// has not presented that build cannot use the patch log in its place:
     /// its own item diff against the list it last presented is the
     /// authority, and when that bails it repaints in full.
@@ -592,7 +596,9 @@ pub enum PendingPatchDamage {
     /// Every build since then was patched, the chain is complete, and this
     /// is the union of their damage.
     Rects(Vec<LogicalRect>),
-    /// A FULL emission happened since the renderer's last present. The log
+    /// A FULL emission happened since the renderer's last present.
+    ///
+    /// The log
     /// cannot stand in for that: the renderer's item diff against the list
     /// it last presented is the authority, and when that bails it repaints
     /// in full.
@@ -1187,7 +1193,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     // painted 64 px into a 36 px slot, over the widget beneath it. (The
     // `reposition_clean_subtrees` comment always claimed the parent would
     // "already be a layout root"; now it is.)
-    let promoted_layout_roots: alloc::collections::BTreeSet<usize> = recon_result
+    let promoted_layout_roots: BTreeSet<usize> = recon_result
         .layout_roots
         .iter()
         .map(|&idx| {

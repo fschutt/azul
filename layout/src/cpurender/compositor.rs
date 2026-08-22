@@ -77,7 +77,9 @@ pub struct Layer {
 
 /// The `w × h` device-pixel window of `parent` whose top-left sits at
 /// (`ox`, `oy`) in the parent's pixel space, as RGBA bytes; pixels outside
-/// the parent are transparent black. The backdrop a plain child layer is
+/// the parent are transparent black.
+///
+/// The backdrop a plain child layer is
 /// seeded with (see `render_layers`).
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap, clippy::cast_possible_truncation)] // bounded pixel/coord cast
 fn backdrop_under(parent: &AzulPixmap, ox: i32, oy: i32, w: u32, h: u32) -> Vec<u8> {

@@ -495,7 +495,7 @@ extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Upd
 
 /// Pointer leave → end the drag, but only when the pointer left the TRACK.
 ///
-/// Every event bubbles here (W3C `mouseleave` does not), so the thumb's own
+/// Every event bubbles here (`W3C` `mouseleave` does not), so the thumb's own
 /// `MouseLeave` reaches this handler too — and the first real drag motion
 /// leaves the thumb, because the thumb is slid to the cursor only by the
 /// `MouseOver` handler that runs before the leave is delivered. Ending the
@@ -524,7 +524,7 @@ extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> U
 
 /// Carry the interaction state across a parent rebuild.
 ///
-/// A callback that returns `RefreshDom` — the AzWidgets demo does, on every
+/// A callback that returns `RefreshDom` — the `AzWidgets` demo does, on every
 /// `on_value_change` — rebuilds the slider from the app's state. Without this,
 /// the rebuilt slider started with `dragging = false` and the app's (possibly
 /// stale) value: the SECOND pointer move of every drag found no drag in

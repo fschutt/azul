@@ -739,6 +739,7 @@ pub enum EventType {
 /// All events in the system are wrapped in this structure, providing
 /// a consistent interface and enabling event propagation control.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::struct_excessive_bools)] // four independent propagation flags — W3C's own model
 pub struct SyntheticEvent {
     /// The type of event
     pub event_type: EventType,
@@ -972,14 +973,14 @@ pub fn propagate_event(
 impl EventType {
     /// Whether the event reaches the target's ANCESTORS in the bubble phase.
     ///
-    /// Enter/leave events do not bubble (W3C `mouseenter`/`mouseleave`,
+    /// Enter/leave events do not bubble (`W3C` `mouseenter`/`mouseleave`,
     /// `pointerenter`/`pointerleave`): each node that gained or lost hover
     /// gets its OWN event (`event_determination` generates them per node), so
     /// bubbling a child's leave to its parent tells the parent the pointer
     /// left IT while it is still inside — which is how a slider's drag ended
     /// the moment the pointer slid off the thumb, a map pan ended on every
     /// tile crossing, and a split-pane drag ended on its first motion.
-    /// `dragenter`/`dragleave` DO bubble in the W3C model and keep doing so.
+    /// `dragenter`/`dragleave` DO bubble in the `W3C` model and keep doing so.
     #[must_use]
     pub const fn bubbles(self) -> bool {
         !matches!(
@@ -1662,10 +1663,11 @@ fn create_resize_event(
 }
 
 /// A `Resize` lifecycle event (`ComponentEventFilter::NodeResized`) for
-/// `node_id` whose layout box went from `old` to `new` — or `None` when its
-/// SIZE did not change: a position-only move is not a resize, and a NaN
-/// dimension present on both sides reads as unchanged (see `size_changed`;
-/// a raw `!=` once produced a Resize every frame forever).
+/// `node_id` whose layout box went from `old` to `new`.
+///
+/// `None` when its SIZE did not change: a position-only move is not a
+/// resize, and a NaN dimension present on both sides reads as unchanged (see
+/// `size_changed`; a raw `!=` once produced a Resize every frame forever).
 ///
 /// This is the constructor the layout tail uses after EVERY solve (full
 /// rebuild, pre-cascade relayout, window-resize fast path). The older
