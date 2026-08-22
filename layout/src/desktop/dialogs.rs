@@ -484,7 +484,7 @@ impl FilePickerHandle {
     }
 
     /// The shared slot, or `None` for the null `Default` handle.
-    fn inner(&self) -> Option<&SharedInner> {
+    const fn inner(&self) -> Option<&SharedInner> {
         if self.ptr.is_null() {
             return None;
         }

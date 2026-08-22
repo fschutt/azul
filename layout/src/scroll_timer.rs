@@ -256,7 +256,7 @@ pub extern "C" fn scroll_physics_timer_callback(
     // GESTURE_STALE_TICKS lost its `TrackpadEnd`: drop it, and give an
     // overshot node the spring-back the End would have armed.
     let mut stale: Vec<(DomId, NodeId)> = Vec::new();
-    for (key, (_, idle)) in physics.trackpad_raw_positions.iter_mut() {
+    for (key, (_, idle)) in &mut physics.trackpad_raw_positions {
         *idle += 1;
         if *idle > GESTURE_STALE_TICKS {
             stale.push(*key);

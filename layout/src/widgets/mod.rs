@@ -538,8 +538,10 @@ mod ua_paragraph_margin {
         );
         let sheet = &p.css.as_ref()[0];
         assert_eq!(sheet.rules.as_ref()[0].priority, rule_priority::AUTHOR);
-        assert!(rule_priority::AUTHOR < rule_priority::INLINE, "an explicit inline margin wins");
     }
+
+    // An explicit inline margin wins over the reset: checked at compile time.
+    const _: () = assert!(rule_priority::AUTHOR < rule_priority::INLINE);
 }
 
 #[cfg(test)]

@@ -14220,7 +14220,7 @@ impl LayoutWindow {
     /// app: its only emitter lived in `reconcile_dom`, which compared layout
     /// maps that production passed EMPTY, ran BEFORE the new tree was solved,
     /// and was not even reached by a window resize (the fast path re-solves
-    /// the existing StyledDom without reconciling). Deriving the event from
+    /// the existing `StyledDom` without reconciling). Deriving the event from
     /// the solved boxes covers all three paths with one rule.
     ///
     /// The first pass a node is seen records its box and emits nothing (a
