@@ -1471,7 +1471,18 @@ impl WaylandWindow {
     /// Dismiss (close + drop) the active menu popup, if any. Dropping the popup
     /// destroys its wl objects and releases the seat grab.
     pub fn dismiss_active_popup(&mut self) {
-        if self.active_popup.take().is_some() {
+        if let Some(popup) = self.active_popup.take() {
+            // A `<transient-window>` popup tells its parent — this window —
+            // through the mailbox, so the engine's manager and the widget
+            // learn it was dismissed (popup_done / click-outside) instead of
+            // keeping a ghost "open" that the next swatch click only closes.
+            use crate::desktop::shell2::common::transient::{poll_popup, post_dismissed, PopupAction};
+            let closed_by_parent = poll_popup(&popup.current_window_state) == PopupAction::Close;
+            if !closed_by_parent && post_dismissed(&popup.current_window_state) {
+                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                self.request_redraw();
+            }
+            drop(popup);
             unsafe {
                 (self.wayland.wl_display_flush)(self.display);
             }
@@ -1483,7 +1494,15 @@ impl WaylandWindow {
     /// compositor has configured it.
     pub fn drive_active_popup(&mut self) {
         let dismissed = match self.active_popup.as_ref() {
-            Some(p) => p.is_dismissed() || !p.is_open,
+            // The compositor dismissed it, it closed itself, or the parent's
+            // engine told it to close through the mailbox (the app set
+            // `open=false`, Escape, a press in the parent).
+            Some(p) => {
+                p.is_dismissed()
+                    || !p.is_open
+                    || crate::desktop::shell2::common::transient::poll_popup(&p.current_window_state)
+                        == crate::desktop::shell2::common::transient::PopupAction::Close
+            }
             None => return,
         };
         if dismissed {

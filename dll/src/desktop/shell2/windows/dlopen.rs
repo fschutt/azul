@@ -219,6 +219,8 @@ pub mod constants {
     // Extended Window Styles
     pub const WS_EX_APPWINDOW: u32 = 0x00040000;
     pub const WS_EX_ACCEPTFILES: u32 = 0x00000010;
+    /// No taskbar button, no Alt-Tab entry: a popup / tool window.
+    pub const WS_EX_TOOLWINDOW: u32 = 0x00000080;
 
     // Window Class Styles
     pub const CS_HREDRAW: u32 = 0x0002;
