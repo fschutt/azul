@@ -6135,6 +6135,99 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "MapTheme": {
+                        "external": "azul_layout::widgets::map::MapTheme",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "System": {},
+                                "Positron": {},
+                                "Bright": {},
+                                "Liberty": {},
+                                "Dark": {},
+                                "GoogleLight": {},
+                                "GoogleNight": {},
+                                "AppleLight": {},
+                                "AppleDark": {},
+                                "Custom": {}
+                            }
+                        ],
+                        "functions": {
+                            "stylesheet": {
+                                "doc": [
+                                    "The MapCSS sheet of a preset; empty for `Custom` and the unresolved",
+                                    "`System` (resolve it with [`Self::resolve`] first)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.stylesheet()"
+                            },
+                            "is_dark": {
+                                "doc": [
+                                    "Is this a dark look? (`System` answers for the dark resolution.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_dark()"
+                            },
+                            "resolve": {
+                                "doc": [
+                                    "`System` resolved against the window's theme; every other preset",
+                                    "is its own resolution."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "window_theme": "WindowTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapTheme"
+                                },
+                                "fn_body": "object.resolve(window_theme)"
+                            },
+                            "credit": {
+                                "doc": [
+                                    "The credit line a preset's licence asks for (CC BY 4.0 for the",
+                                    "OpenFreeMap designs, Apache-2.0 for Google's sample); empty for the",
+                                    "authored looks and `Custom`. Appended to the layer's attribution by",
+                                    "[`MapTileLayer::with_theme`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.credit()"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -46594,29 +46687,63 @@
                             {
                                 "url_template": {
                                     "type": "String"
-                                }
-                            },
-                            {
+                                },
                                 "min_zoom": {
                                     "type": "u8"
-                                }
-                            },
-                            {
+                                },
                                 "max_zoom": {
                                     "type": "u8"
-                                }
-                            },
-                            {
+                                },
                                 "attribution": {
                                     "type": "String"
-                                }
-                            },
-                            {
+                                },
                                 "style_css": {
                                     "type": "String"
+                                },
+                                "theme": {
+                                    "type": "MapTheme"
                                 }
                             }
                         ],
+                        "functions": {
+                            "with_theme": {
+                                "doc": [
+                                    "Pick a look. Appends the preset's licence credit (if any) to the",
+                                    "attribution so an app that shows `attribution` complies with CC BY."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "MapTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapTileLayer"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "effective_style_css": {
+                                "doc": [
+                                    "The MapCSS the tiles are decoded with for `resolved` (a resolved",
+                                    "theme, see [`MapTheme::resolve`]): a non-empty `style_css` always",
+                                    "wins; else the preset's sheet; else the built-in palette (empty)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "resolved": "MapTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.effective_style_css(resolved).into()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "MapViewport": {
@@ -46923,6 +47050,24 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom_with_fetch(cb)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "Pick a look for the tile layer (see [`MapTheme`]); `System` follows",
+                                    "the window's light / dark theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "MapTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_theme(theme)"
                             }
                         },
                         "repr": "C"

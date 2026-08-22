@@ -112,11 +112,12 @@ pub extern "C" fn tile_fetch_worker(
         map_tile_writeback, TileFetchInit, TileReadyMsg,
     };
 
-    let (tile, url, mapcss) = match init.downcast_ref::<TileFetchInit>() {
+    let (tile, url, mapcss, theme) = match init.downcast_ref::<TileFetchInit>() {
         Some(i) => (
             i.tile,
             i.url.as_str().to_string(),
             i.style_css.as_str().to_string(),
+            i.theme,
         ),
         None => return,
     };
@@ -127,7 +128,12 @@ pub extern "C" fn tile_fetch_worker(
                 cb: map_tile_writeback,
                 ctx: OptionRefAny::None,
             },
-            RefAny::new(TileReadyMsg { tile, svg, error }),
+            RefAny::new(TileReadyMsg {
+                tile,
+                svg,
+                error,
+                theme,
+            }),
         )
     };
 

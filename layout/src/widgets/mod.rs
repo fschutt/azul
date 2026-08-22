@@ -179,6 +179,8 @@ pub mod microphone;
 /// Cache lives in a dataset RefAny owned by a merge callback so it
 /// survives relayout. See `layout/src/widgets/map.rs` for the design.
 pub mod map;
+/// Built-in map themes (vendored MapCSS palettes, see the file header for licences).
+pub mod map_themes;
 /// Software menu-bar widget (Linux fallback when there is no native global menu).
 ///
 /// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the

@@ -89,11 +89,19 @@ fn default_style(layer_name: &str) -> LayerStyle {
 /// token is the lookup key, matched against the MVT layer name.
 struct MapCss {
     rules: BTreeMap<String, LayerStyle>,
+    /// `canvas { fill: … }` — the tile's base (land) colour. Themes set it
+    /// (a dark theme needs a dark base under the water holes); absent, the
+    /// built-in light land colour.
+    canvas_fill: Option<String>,
 }
+
+/// The built-in base (land) colour behind every tile.
+const DEFAULT_CANVAS_FILL: &str = "#d6d8db";
 
 impl MapCss {
     fn parse(src: &str) -> Self {
         let mut rules = BTreeMap::new();
+        let mut canvas_fill = None;
         // Split into `selector { body }` chunks on `}`.
         for block in src.split('}') {
             let block = block.trim();
@@ -134,28 +142,45 @@ impl MapCss {
                     _ => {}
                 }
             }
+            if key == "canvas" {
+                if fill != "none" {
+                    canvas_fill = Some(fill);
+                }
+                continue;
+            }
             rules.insert(key, LayerStyle { fill, stroke, stroke_width });
         }
-        Self { rules }
+        Self { rules, canvas_fill }
     }
 
-    /// Resolve a layer's style: a MapCSS rule whose key is a substring
-    /// of (or equal to) the layer name wins; otherwise the built-in
-    /// palette. Empty stylesheet → always the palette.
-    fn resolve(&self, layer_name: &str) -> LayerStyle {
+    /// Resolve a feature's style. Lookup order: `layer.class` (a rule like
+    /// `transportation.motorway { … }`), then the layer name exactly, then
+    /// a rule whose key is a substring of the layer name, then the built-in
+    /// palette. A rule with a `.class` key never matches by substring, so
+    /// `transportation.motorway` cannot capture a minor road.
+    fn resolve(&self, layer_name: &str, class: Option<&str>) -> LayerStyle {
         if !self.rules.is_empty() {
             let lower = layer_name.to_ascii_lowercase();
-            // Exact match first, then substring.
+            if let Some(class) = class {
+                let key = format!("{lower}.{}", class.to_ascii_lowercase());
+                if let Some(s) = self.rules.get(&key) {
+                    return s.clone();
+                }
+            }
             if let Some(s) = self.rules.get(&lower) {
                 return s.clone();
             }
             for (key, style) in &self.rules {
-                if lower.contains(key.as_str()) {
+                if !key.contains('.') && lower.contains(key.as_str()) {
                     return style.clone();
                 }
             }
         }
         default_style(layer_name)
+    }
+
+    fn canvas(&self) -> &str {
+        self.canvas_fill.as_deref().unwrap_or(DEFAULT_CANVAS_FILL)
     }
 }
 
@@ -179,8 +204,14 @@ pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &
     // show whatever is behind the tile (a dark parent → solid-black islands once
     // the placeholder tile background was removed). The base = the land colour,
     // so holes read as land and ocean is painted over it by the `water` polygons.
-    // (A future MapCSS `canvas { fill: … }` rule should drive this base colour.)
-    out.push_str("<rect x=\"0\" y=\"0\" width=\"256\" height=\"256\" fill=\"#d6d8db\" />");
+    // A theme's `canvas { fill: … }` rule drives this base colour (a dark
+    // theme needs a dark land under the water holes); the built-in light
+    // land colour otherwise.
+    let _ = write!(
+        out,
+        "<rect x=\"0\" y=\"0\" width=\"256\" height=\"256\" fill=\"{}\" />",
+        style_sheet.canvas()
+    );
 
     // Tile bounding box in degrees. We project each Position back into
     // the 0..256 pixel range of *this* tile.
@@ -216,7 +247,11 @@ pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &
             .property("layer")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let style = style_sheet.resolve(layer_name);
+        // OpenMapTiles puts the road / land kind in `class`
+        // (`motorway`, `minor`, `grass`, `wood`, …): what lets a theme colour
+        // a motorway differently from a lane.
+        let class = feature.property("class").and_then(|v| v.as_str());
+        let style = style_sheet.resolve(layer_name, class);
 
         let Some(geom) = feature.geometry.as_ref() else {
             continue;
@@ -354,6 +389,66 @@ fn write_points<F: Fn(f64, f64) -> (f64, f64)>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn line_feature(layer: &str, class: Option<&str>) -> geojson::Feature {
+        let mut props = serde_json::Map::new();
+        props.insert("layer".to_string(), serde_json::Value::String(layer.to_string()));
+        if let Some(c) = class {
+            props.insert("class".to_string(), serde_json::Value::String(c.to_string()));
+        }
+        geojson::Feature {
+            bbox: None,
+            geometry: Some(geojson::Geometry::new(geojson::Value::LineString(vec![
+                vec![-122.40, 37.78],
+                vec![-122.41, 37.77],
+            ]))),
+            id: None,
+            properties: Some(props),
+            foreign_members: None,
+        }
+    }
+
+    #[test]
+    fn a_theme_drives_the_canvas_and_colours_a_motorway_by_class() {
+        use azul_layout::widgets::map::MapTheme;
+        let tile = MapTileId { z: 11, x: 327, y: 791 };
+        // Dark Matter: dark base, motorway lighter than a minor road.
+        let dark = MapTheme::Dark.stylesheet();
+        let dark = dark.as_str();
+        let svg = features_to_svg(&[line_feature("transportation", Some("motorway"))], tile, dark);
+        assert!(svg.contains("fill=\"#0c0c0c\""), "the theme's canvas fill is the base rect: {svg}");
+        assert!(svg.contains("stroke=\"#333333\""), "transportation.motorway rule applies: {svg}");
+        let svg = features_to_svg(&[line_feature("transportation", Some("minor"))], tile, dark);
+        assert!(svg.contains("stroke=\"#222222\""), "no `.minor` rule: the layer rule applies: {svg}");
+        // No theme: the built-in light base and palette, unchanged.
+        let svg = features_to_svg(&[line_feature("transportation", Some("motorway"))], tile, "");
+        assert!(svg.contains("fill=\"#d6d8db\""), "{svg}");
+        assert!(svg.contains("stroke=\"#f0e8d8\""), "{svg}");
+    }
+
+    #[test]
+    fn every_preset_parses_into_rules_with_a_canvas() {
+        use azul_layout::widgets::map::MapTheme;
+        for theme in [
+            MapTheme::Positron,
+            MapTheme::Bright,
+            MapTheme::Liberty,
+            MapTheme::Dark,
+            MapTheme::GoogleLight,
+            MapTheme::GoogleNight,
+            MapTheme::AppleLight,
+            MapTheme::AppleDark,
+        ] {
+            let sheet = MapCss::parse(theme.stylesheet().as_str());
+            assert!(sheet.canvas_fill.is_some(), "{theme:?}: no canvas rule parsed");
+            assert!(sheet.rules.contains_key("water"), "{theme:?}: no water rule");
+            assert!(sheet.rules.contains_key("transportation.motorway"), "{theme:?}: no motorway rule");
+            let water = sheet.resolve("water", None);
+            assert!(water.fill.starts_with('#'), "{theme:?}: water fill {:?}", water.fill);
+            // a `.class` key never captures a plain layer by substring
+            assert_eq!(sheet.resolve("transportation", None).stroke, sheet.rules["transportation"].stroke);
+        }
+    }
 
     #[test]
     fn empty_features_emit_empty_svg() {

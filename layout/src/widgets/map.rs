@@ -86,6 +86,155 @@ pub struct MapTileLayer {
     /// layer name (e.g. `water { fill: #9ecae1; }`, `.buildings { … }`).
     /// Parsed by `azul_dll::desktop::extra::map`'s tile decoder.
     pub style_css: AzString,
+    /// The look: a built-in preset, `System` (follows the window's light /
+    /// dark theme), or `Custom` (your `style_css`). A non-empty `style_css`
+    /// always wins over a preset. See [`MapTheme`].
+    pub theme: MapTheme,
+}
+
+/// A map look. Presets are vendored MapCSS palettes
+/// (`widgets::map_themes`, see its header for provenance and licences —
+/// the OpenFreeMap designs are CC BY 4.0, credit is shown through
+/// [`MapTheme::credit`] / the layer's attribution); `System` follows the
+/// window's light / dark theme with the platform-native look; `Custom`
+/// uses `MapTileLayer::style_css` (the built-in palette when that is
+/// empty). A theme change re-decodes the visible tiles.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MapTheme {
+    /// Follow the window theme: the platform's familiar look in light mode
+    /// (Apple-like on macOS / iOS, Google-like on Android, Positron
+    /// elsewhere) and its dark counterpart in dark mode.
+    #[default]
+    System,
+    /// CARTO Positron via OpenFreeMap (light, desaturated).
+    Positron,
+    /// OSM Bright via OpenFreeMap (light, colourful).
+    Bright,
+    /// OSM Liberty via OpenFreeMap (light, blue sea).
+    Liberty,
+    /// CARTO Dark Matter via OpenFreeMap (dark).
+    Dark,
+    /// A Google-Maps-like light look.
+    GoogleLight,
+    /// Google Maps' published "Night mode" palette (dark).
+    GoogleNight,
+    /// An Apple-Maps-like light look.
+    AppleLight,
+    /// An Apple-Maps-like dark look.
+    AppleDark,
+    /// The caller's own `MapTileLayer::style_css`.
+    Custom,
+}
+
+impl MapTheme {
+    /// The MapCSS sheet of a preset; empty for `Custom` and the unresolved
+    /// `System` (resolve it with [`Self::resolve`] first).
+    #[must_use]
+    pub fn stylesheet(self) -> AzString {
+        AzString::from(self.sheet())
+    }
+
+    /// [`Self::stylesheet`] as the static slice (internal, no allocation).
+    #[must_use]
+    pub(crate) const fn sheet(self) -> &'static str {
+        use super::map_themes as t;
+        match self {
+            Self::Positron => t::POSITRON,
+            Self::Bright => t::BRIGHT,
+            Self::Liberty => t::LIBERTY,
+            Self::Dark => t::DARK,
+            Self::GoogleLight => t::GOOGLE_LIGHT,
+            Self::GoogleNight => t::GOOGLE_NIGHT,
+            Self::AppleLight => t::APPLE_LIGHT,
+            Self::AppleDark => t::APPLE_DARK,
+            Self::System | Self::Custom => "",
+        }
+    }
+
+    /// Is this a dark look? (`System` answers for the dark resolution.)
+    #[must_use]
+    pub const fn is_dark(self) -> bool {
+        matches!(self, Self::Dark | Self::GoogleNight | Self::AppleDark)
+    }
+
+    /// `System` resolved against the window's theme; every other preset
+    /// is its own resolution.
+    #[must_use]
+    pub fn resolve(self, window_theme: azul_core::window::WindowTheme) -> Self {
+        use azul_core::window::WindowTheme;
+        if self != Self::System {
+            return self;
+        }
+        let dark = matches!(window_theme, WindowTheme::DarkMode);
+        if cfg!(any(target_os = "macos", target_os = "ios")) {
+            if dark { Self::AppleDark } else { Self::AppleLight }
+        } else if cfg!(target_os = "android") {
+            if dark { Self::GoogleNight } else { Self::GoogleLight }
+        } else if dark {
+            Self::Dark
+        } else {
+            Self::Positron
+        }
+    }
+
+    /// The credit line a preset's licence asks for (CC BY 4.0 for the
+    /// OpenFreeMap designs, Apache-2.0 for Google's sample); empty for the
+    /// authored looks and `Custom`. Appended to the layer's attribution by
+    /// [`MapTileLayer::with_theme`].
+    #[must_use]
+    pub fn credit(self) -> AzString {
+        AzString::from(self.credit_str())
+    }
+
+    /// [`Self::credit`] as the static slice (internal, no allocation).
+    #[must_use]
+    pub(crate) const fn credit_str(self) -> &'static str {
+        match self {
+            Self::Positron => "Style: Positron © CARTO (CC BY 4.0) via OpenFreeMap",
+            Self::Dark => "Style: Dark Matter © CARTO (CC BY 4.0) via OpenFreeMap",
+            Self::Bright => "Style: OSM Bright © OpenMapTiles (CC BY 4.0) via OpenFreeMap",
+            Self::Liberty => "Style: OSM Liberty (CC BY 4.0) via OpenFreeMap",
+            Self::GoogleNight => "Style: Google Maps Platform night-mode sample (Apache-2.0)",
+            Self::System
+            | Self::GoogleLight
+            | Self::AppleLight
+            | Self::AppleDark
+            | Self::Custom => "",
+        }
+    }
+}
+
+impl MapTileLayer {
+    /// Pick a look. Appends the preset's licence credit (if any) to the
+    /// attribution so an app that shows `attribution` complies with CC BY.
+    #[must_use]
+    pub fn with_theme(mut self, theme: MapTheme) -> Self {
+        self.theme = theme;
+        for t in [theme, theme.resolve(azul_core::window::WindowTheme::LightMode), theme.resolve(azul_core::window::WindowTheme::DarkMode)] {
+            let credit = t.credit_str();
+            if !credit.is_empty() && !self.attribution.as_str().contains(credit) {
+                let mut s = self.attribution.as_str().to_string();
+                if !s.is_empty() {
+                    s.push_str(" · ");
+                }
+                s.push_str(credit);
+                self.attribution = AzString::from(s);
+            }
+        }
+        self
+    }
+
+    /// The MapCSS the tiles are decoded with for `resolved` (a resolved
+    /// theme, see [`MapTheme::resolve`]): a non-empty `style_css` always
+    /// wins; else the preset's sheet; else the built-in palette (empty).
+    #[must_use]
+    pub fn effective_style_css(&self, resolved: MapTheme) -> AzString {
+        if !self.style_css.as_str().is_empty() {
+            return self.style_css.clone();
+        }
+        AzString::from(resolved.sheet())
+    }
 }
 
 impl Default for MapTileLayer {
@@ -109,6 +258,7 @@ impl Default for MapTileLayer {
                 "© OpenFreeMap © OpenMapTiles · Data © OpenStreetMap contributors",
             ),
             style_css: AzString::from(""),
+            theme: MapTheme::System,
         }
     }
 }
@@ -183,6 +333,13 @@ impl MapWidget {
 
     #[must_use] pub const fn with_viewport(mut self, viewport: MapViewport) -> Self {
         self.viewport = viewport;
+        self
+    }
+
+    /// Pick a look for the tile layer (see [`MapTheme`]); `System` follows
+    /// the window's light / dark theme.
+    #[must_use] pub fn with_theme(mut self, theme: MapTheme) -> Self {
+        self.layer = self.layer.with_theme(theme);
         self
     }
 
@@ -466,6 +623,12 @@ pub struct MapTileCache {
     /// Pixel position of the last pointer-down (the original press point, not
     /// overwritten by pan moves). Used to tell a tap from a drag in pointer-up.
     pub press_origin: Option<azul_core::geom::LogicalPosition>,
+    /// The RESOLVED theme the cached tiles were decoded with (see
+    /// [`MapTheme::resolve`]). The render callback compares it with the
+    /// window's current theme every frame; a mismatch re-queues every tile
+    /// (the decode happens on the fetch worker with the sheet of record)
+    /// and drops in-flight results decoded with the old sheet.
+    pub decoded_theme: MapTheme,
     /// The user's `on_pin_tap` hook, copied from the builder so pointer-up can
     /// fire it. Carried across relayout.
     pub on_pin_tap: OptionMapPinTap,
@@ -481,9 +644,26 @@ impl MapTileCache {
             drag_anchor: None,
             pinch_anchor: None,
             press_origin: None,
+            decoded_theme: layer.theme,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
         }
+    }
+
+    /// Adopt a newly resolved theme: every decoded tile goes back to
+    /// `Pending` so the fetch worker re-decodes it with the new sheet.
+    /// `true` when something changed.
+    pub fn adopt_theme(&mut self, resolved: MapTheme) -> bool {
+        if self.decoded_theme == resolved {
+            return false;
+        }
+        self.decoded_theme = resolved;
+        for entry in self.tiles.values_mut() {
+            if matches!(entry, TileEntry::Ready { .. } | TileEntry::Failed { .. }) {
+                *entry = TileEntry::Pending;
+            }
+        }
+        true
     }
 
     /// Worker-thread → main-thread write path. Set the decoded SVG for
@@ -620,8 +800,13 @@ pub enum TileEntry {
 pub struct TileFetchInit {
     pub tile: MapTileId,
     pub url: AzString,
-    /// Copy of `MapTileLayer::style_css` (empty = default palette).
+    /// The MapCSS to decode with: `MapTileLayer::effective_style_css` for
+    /// the resolved theme (empty = the built-in palette).
     pub style_css: AzString,
+    /// The resolved theme `style_css` belongs to — echoed back in
+    /// `TileReadyMsg` so a result decoded for a theme the widget has since
+    /// left is dropped instead of painted.
+    pub theme: MapTheme,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -635,6 +820,8 @@ pub struct TileReadyMsg {
     pub svg: AzString,
     /// Empty on success; an error message on failure.
     pub error: AzString,
+    /// The theme the SVG was decoded for (from `TileFetchInit::theme`).
+    pub theme: MapTheme,
 }
 
 // ────────── Merge callback — cache survives relayout ─────────────────
@@ -675,7 +862,17 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
                 old_g.fetch_callback.clone_from(&new_g.fetch_callback);
             }
             old_g.viewport = new_g.viewport;
+            let theme_changed = old_g.layer.theme != new_g.layer.theme
+                || old_g.layer.style_css != new_g.layer.style_css;
             old_g.layer = new_g.layer.clone();
+            if theme_changed {
+                // The app picked another look (or another custom sheet):
+                // the decoded tiles are the OLD look. Re-queue them; the
+                // render resolves `System` against the window next frame.
+                let resolved = new_g.layer.theme;
+                old_g.decoded_theme = MapTheme::Custom; // force adopt
+                old_g.adopt_theme(resolved);
+            }
             old_g.on_viewport_changed = new_g.on_viewport_changed.clone();
         }
     }
@@ -1208,7 +1405,8 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             return; // no worker wired — leave tiles Pending (placeholder grid)
         }
         let template = cache.layer.url_template.as_str().to_string();
-        let style_css = cache.layer.style_css.clone();
+        let theme = cache.decoded_theme;
+        let style_css = cache.layer.effective_style_css(theme);
         // Centre-out: the tiles under the user's eyes first, the off-screen
         // margin and other-zoom leftovers last (see `pending_tiles_nearest_first`).
         let pending: Vec<MapTileId> = cache
@@ -1223,6 +1421,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 tile,
                 url: AzString::from(url),
                 style_css: style_css.clone(),
+                theme,
             });
         }
         // Now that the current view's tiles are queued (Fetching, so eviction
@@ -1319,7 +1518,7 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
         }
         return Update::DoNothing;
     };
-    let msg = (m.tile, m.svg.clone(), m.error.clone());
+    let msg = (m.tile, m.svg.clone(), m.error.clone(), m.theme);
     drop(m);
     {
         let Some(mut cache) = cache_dataset.downcast_mut::<MapTileCache>() else {
@@ -1343,7 +1542,13 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
                 msg.2.as_str().is_empty(), msg.1.as_str().len(), msg.2.as_str()
             );
         }
-        if msg.2.as_str().is_empty() {
+        if msg.3 != cache.decoded_theme {
+            // Decoded with the sheet of a theme the widget has since left
+            // (the window flipped light/dark mid-fetch): painting it would
+            // mix palettes. Back to Pending; the next sweep refetches it
+            // with the sheet of record.
+            cache.tiles.insert(msg.0, TileEntry::Pending);
+        } else if msg.2.as_str().is_empty() {
             cache.mark_tile_ready(msg.0, msg.1);
         } else {
             cache.mark_tile_failed(msg.0, msg.2);
@@ -1466,8 +1671,16 @@ extern "C" fn map_widget_render(
         };
     }
 
-    let (layer, viewport) = match data.downcast_ref::<MapTileCache>() {
-        Some(c) => (c.layer.clone(), c.viewport),
+    let (layer, viewport) = match data.downcast_mut::<MapTileCache>() {
+        Some(mut c) => {
+            // THE THEME FOLLOWS THE WINDOW: `System` resolves against the
+            // window's light / dark theme here, every frame, so an OS theme
+            // flip re-decodes the visible tiles with the other palette (no
+            // rebuild, no app code). A preset resolves to itself.
+            let resolved = c.layer.theme.resolve(info.window_theme);
+            c.adopt_theme(resolved);
+            (c.layer.clone(), c.viewport)
+        }
         None => {
             return VirtualViewReturn {
                 dom: OptionDom::None,
@@ -1716,6 +1929,67 @@ extern "C" fn map_widget_render(
         dom: OptionDom::Some(grid),
         materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
         virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use azul_core::window::WindowTheme;
+
+    #[test]
+    fn system_follows_the_window_theme_and_presets_resolve_to_themselves() {
+        let light = MapTheme::System.resolve(WindowTheme::LightMode);
+        let dark = MapTheme::System.resolve(WindowTheme::DarkMode);
+        assert!(!light.is_dark() && dark.is_dark(), "{light:?} / {dark:?}");
+        assert_ne!(light, MapTheme::System);
+        assert!(!light.sheet().is_empty() && !dark.sheet().is_empty());
+        for preset in [MapTheme::Positron, MapTheme::Dark, MapTheme::GoogleNight, MapTheme::AppleLight, MapTheme::Custom] {
+            assert_eq!(preset.resolve(WindowTheme::DarkMode), preset);
+            assert_eq!(preset.resolve(WindowTheme::LightMode), preset);
+        }
+        assert!(MapTheme::Custom.sheet().is_empty());
+        assert_eq!(MapTheme::Dark.stylesheet().as_str(), MapTheme::Dark.sheet());
+    }
+
+    #[test]
+    fn a_custom_sheet_wins_over_a_preset_and_with_theme_credits_the_design() {
+        let layer = MapTileLayer::default().with_theme(MapTheme::Positron);
+        assert_eq!(layer.effective_style_css(MapTheme::Positron).as_str(), super::super::map_themes::POSITRON);
+        assert!(
+            layer.attribution.as_str().contains("CC BY 4.0"),
+            "the CC BY design credit must reach the attribution: {}",
+            layer.attribution.as_str()
+        );
+        // with_theme twice does not duplicate the credit
+        let twice = layer.clone().with_theme(MapTheme::Positron);
+        assert_eq!(twice.attribution.as_str().matches("CC BY 4.0").count(), 1);
+
+        let mut custom = MapTileLayer::default().with_theme(MapTheme::Dark);
+        custom.style_css = AzString::from("water { fill: #123456; }");
+        assert_eq!(custom.effective_style_css(MapTheme::Dark).as_str(), "water { fill: #123456; }");
+        // authored looks carry no third-party credit
+        assert!(MapTheme::AppleLight.credit_str().is_empty() && MapTheme::GoogleLight.credit_str().is_empty());
+        assert_eq!(MapTheme::Positron.credit().as_str(), MapTheme::Positron.credit_str());
+        // System credits BOTH resolutions' designs where they have one
+        let sys = MapTileLayer::default().with_theme(MapTheme::System);
+        let l = MapTheme::System.resolve(WindowTheme::LightMode).credit_str();
+        let d = MapTheme::System.resolve(WindowTheme::DarkMode).credit_str();
+        assert!(l.is_empty() || sys.attribution.as_str().contains(l));
+        assert!(d.is_empty() || sys.attribution.as_str().contains(d));
+    }
+
+    #[test]
+    fn adopting_another_theme_requeues_decoded_tiles_and_the_fetch_carries_the_sheet() {
+        let mut cache = MapTileCache::new(MapTileLayer::default(), MapViewport::default());
+        let id = MapTileId { z: 1, x: 0, y: 0 };
+        cache.mark_tile_ready(id, AzString::from("<svg/>"));
+        assert!(!cache.adopt_theme(cache.decoded_theme), "same theme: nothing to do");
+        assert!(matches!(cache.tiles[&id], TileEntry::Ready { .. }));
+        assert!(cache.adopt_theme(MapTheme::Dark));
+        assert!(matches!(cache.tiles[&id], TileEntry::Pending), "a decoded tile is re-queued for the new look");
+        assert_eq!(cache.decoded_theme, MapTheme::Dark);
+        assert_eq!(cache.layer.effective_style_css(cache.decoded_theme).as_str(), super::super::map_themes::DARK);
     }
 }
 
@@ -2063,6 +2337,7 @@ mod tests {
             max_zoom: 19,
             attribution: AzString::from(""),
             style_css: AzString::from(""),
+            theme: MapTheme::System,
         };
         let viewport = MapViewport {
             centre_lat_deg: 0.0,
@@ -2180,6 +2455,7 @@ mod autotest_generated {
             max_zoom,
             attribution: AzString::from("attr"),
             style_css: AzString::from(""),
+            theme: MapTheme::System,
         }
     }
 
@@ -2969,6 +3245,7 @@ mod autotest_generated {
             max_zoom: 0,
             attribution: AzString::from(""),
             style_css: AzString::from(""),
+            theme: MapTheme::System,
         });
         assert_eq!(widget.layer.min_zoom, 30);
         assert_eq!(widget.layer.max_zoom, 0);
@@ -4028,6 +4305,7 @@ mod autotest_generated {
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
 
         let ok = RefAny::new(TileReadyMsg {
+            theme: MapTheme::System,
             tile,
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
@@ -4045,6 +4323,7 @@ mod autotest_generated {
         }
 
         let failed = RefAny::new(TileReadyMsg {
+            theme: MapTheme::System,
             tile,
             svg: AzString::from(""),
             error: AzString::from("404"),
@@ -4066,6 +4345,7 @@ mod autotest_generated {
         };
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
         let msg = RefAny::new(TileReadyMsg {
+            theme: MapTheme::System,
             tile,
             svg: AzString::from("<svg/>".repeat(50_000)),
             error: AzString::from(""),
@@ -4092,6 +4372,7 @@ mod autotest_generated {
     #[test]
     fn tile_writeback_with_a_wrong_typed_cache_is_a_no_op() {
         let msg = RefAny::new(TileReadyMsg {
+            theme: MapTheme::System,
             tile: MapTileId { z: 1, x: 0, y: 0 },
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
