@@ -3359,7 +3359,10 @@ pub trait PlatformWindow {
         }
 
         let dismissed_any = match self.get_layout_window_mut() {
-            Some(lw) => dismiss_outside_on_press(&previous, &current, lw),
+            Some(lw) => {
+                dismiss_outside_on_press(&previous, &current, lw)
+                    | super::transient::dismiss_on_escape(&previous, &current, lw)
+            }
             None => false,
         };
         if dismissed_any {
@@ -4380,6 +4383,20 @@ pub trait PlatformWindow {
                 let pos = position.unwrap_or(LogicalPosition::new(0.0, 0.0));
                 self.show_menu_from_callback(menu, pos);
                 ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::CapturePointer { node } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = Some(*node);
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::ReleasePointerCapture => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = None;
+                }
+                ProcessEventResult::DoNothing
             }
 
             CallbackChange::SetTransientWindowOpen { node, open } => {
@@ -7377,6 +7394,26 @@ pub trait PlatformWindow {
             };
             lw.hover_manager
                 .apply_press_target_capture(&mut synthetic_events, &in_release_path);
+        }
+
+        // Pointer capture: while a node holds the pointer, moves and the
+        // release go to IT, not to whatever the hit test found. The capture
+        // ends with the release (W3C `setPointerCapture` semantics).
+        if let Some(captured) = self.get_layout_window().and_then(|lw| lw.pointer_capture) {
+            use azul_core::events::EventType;
+            let mut released = false;
+            for ev in &mut synthetic_events {
+                if matches!(ev.event_type, EventType::MouseOver | EventType::MouseUp) {
+                    ev.target = captured;
+                    ev.current_target = captured;
+                    released |= ev.event_type == EventType::MouseUp;
+                }
+            }
+            if released {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = None;
+                }
+            }
         }
 
         // Clear the sensor/gamepad pending-event flags now that this pass has

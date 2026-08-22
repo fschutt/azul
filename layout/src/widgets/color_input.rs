@@ -114,6 +114,8 @@ pub const COLOR_PICKER_CLASS: &str = "__azul_native_color_picker";
 pub const COLOR_PICKER_PLANE_CLASS: &str = "__azul_native_color_picker_plane";
 /// Class on the hue bar.
 pub const COLOR_PICKER_HUE_CLASS: &str = "__azul_native_color_picker_hue";
+/// Class on the alpha bar.
+pub const COLOR_PICKER_ALPHA_CLASS: &str = "__azul_native_color_picker_alpha";
 
 /// Width of the plane and hue bar, in px. The panel is this plus padding.
 const PLANE_WIDTH: f32 = 216.0;
@@ -225,7 +227,25 @@ impl ColorInput {
         );
         let popup = Dom::create_from_data(transient).with_child(panel);
 
-        Dom::create_div()
+        // A translucent colour shows a checkerboard through it: the board and
+        // a colour overlay go in as children, under the popup node. The
+        // swatch's own background stays the colour (what an opaque swatch is).
+        let translucent = color.a < 255;
+        let mut swatch = Dom::create_div();
+        if translucent {
+            style.push(CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)));
+            style.push(CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)));
+            style.push(CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)));
+            let (w, h) = swatch_size(&style);
+            swatch = swatch
+                .with_child(checkerboard(w, h, (w.min(h) / 2.0).max(1.0)))
+                .with_child(Dom::create_div().with_css(&format!(
+                    "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background: {};",
+                    css_rgba(ColorU { a: 255, ..color }, color.a)
+                )));
+        }
+
+        swatch
             .with_ids_and_classes(vec![Class(COLOR_INPUT_CLASS.into())].into())
             .with_css_props(style.into())
             .with_tab_index(azul_core::dom::TabIndex::Auto)
@@ -250,6 +270,30 @@ impl ColorInput {
             )
             .with_child(popup)
     }
+}
+
+/// The swatch's declared width/height (for the checkerboard behind a
+/// translucent colour); the 14px default when the style does not say.
+fn swatch_size(style: &[CssPropertyWithConditions]) -> (f32, f32) {
+    let px = |ty: CssPropertyType, default: f32| -> f32 {
+        style
+            .iter()
+            .rev()
+            .find(|p| p.property.get_type() == ty)
+            .and_then(|p| match &p.property {
+                CssProperty::Width(v) => v.get_property().and_then(|w| match w {
+                    LayoutWidth::Px(px) => Some(px.to_pixels_internal(default, 16.0, 16.0)),
+                    _ => None,
+                }),
+                CssProperty::Height(v) => v.get_property().and_then(|h| match h {
+                    LayoutHeight::Px(px) => Some(px.to_pixels_internal(default, 16.0, 16.0)),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .unwrap_or(default)
+    };
+    (px(CssPropertyType::Width, 14.0), px(CssPropertyType::Height, 14.0))
 }
 
 impl From<ColorInput> for Dom {
@@ -322,34 +366,34 @@ impl Hsv {
     }
 }
 
-/// `#rrggbb` (alpha is not shown; the picker has no alpha control).
+/// `#rrggbb`, or `#rrggbbaa` when the colour is not fully opaque.
 #[must_use]
 pub fn color_to_hex(c: ColorU) -> String {
-    format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+    if c.a == 255 {
+        format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+    } else {
+        format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
+    }
 }
 
-/// Parse `#rgb`, `#rrggbb`, `rgb`, `rrggbb` (case-insensitive, surrounding
-/// whitespace ignored). Alpha comes out opaque.
+/// Parse `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (the `#` optional,
+/// case-insensitive, surrounding whitespace ignored). A missing alpha is
+/// opaque.
 #[must_use]
+#[allow(clippy::many_single_char_names)] // r, g, b, a: the channels
 pub fn color_from_hex(text: &str) -> Option<ColorU> {
     let t = text.trim().trim_start_matches('#');
     let nib = |ch: u8| -> Option<u8> { char::from(ch).to_digit(16).map(|d| d as u8) };
     let bytes = t.as_bytes();
-    let (r, g, b) = match bytes.len() {
-        3 => {
-            let r = nib(bytes[0])?;
-            let g = nib(bytes[1])?;
-            let b = nib(bytes[2])?;
-            (r * 17, g * 17, b * 17)
-        }
-        6 => (
-            nib(bytes[0])? * 16 + nib(bytes[1])?,
-            nib(bytes[2])? * 16 + nib(bytes[3])?,
-            nib(bytes[4])? * 16 + nib(bytes[5])?,
-        ),
+    let pair = |i: usize| -> Option<u8> { Some(nib(bytes[i])? * 16 + nib(bytes[i + 1])?) };
+    let (r, g, b, a) = match bytes.len() {
+        3 => (nib(bytes[0])? * 17, nib(bytes[1])? * 17, nib(bytes[2])? * 17, 255),
+        4 => (nib(bytes[0])? * 17, nib(bytes[1])? * 17, nib(bytes[2])? * 17, nib(bytes[3])? * 17),
+        6 => (pair(0)?, pair(2)?, pair(4)?, 255),
+        8 => (pair(0)?, pair(2)?, pair(4)?, pair(6)?),
         _ => return None,
     };
-    Some(ColorU { r, g, b, a: 255 })
+    Some(ColorU { r, g, b, a })
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +406,7 @@ enum Drag {
     None,
     Plane,
     Hue,
+    Alpha,
 }
 
 /// The swatch's dataset: what must outlive one build of the DOM.
@@ -378,6 +423,12 @@ impl ColorPickerData {
     #[must_use]
     pub const fn is_open(&self) -> bool {
         self.open
+    }
+
+    /// The colour the picker currently holds (tests / diagnostics).
+    #[must_use]
+    pub const fn current_color(&self) -> ColorU {
+        self.state.inner.color
     }
 
     const fn color(&self) -> ColorU {
@@ -430,12 +481,85 @@ extern "C" fn merge_picker_data(mut new_data: RefAny, mut old_data: RefAny) -> R
 // The panel
 // ---------------------------------------------------------------------------
 
+/// The plane's own background: white → the pure hue, left to right. The
+/// darkening towards the bottom is a separate overlay child (see
+/// [`SHADE_CSS`]) — stacking it as a second background layer painted only
+/// one of the two, so the plane never went to black.
 fn plane_background_css(hue: f32) -> String {
+    format!("linear-gradient(to right, #ffffff, hsl({}, 100%, 50%))", hue.round())
+}
+
+/// The plane's shade overlay: transparent at the top, black at the bottom.
+const SHADE_CSS: &str = "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; \
+    border-radius: 4px; background: linear-gradient(to bottom, rgba(0, 0, 0, 0), #000000);";
+
+/// `rgba(r, g, b, a)` for CSS, alpha as a fraction.
+fn css_rgba(color: ColorU, alpha: u8) -> String {
     format!(
-        "linear-gradient(to top, #000000, rgba(0, 0, 0, 0)), \
-         linear-gradient(to right, #ffffff, hsl({}, 100%, 50%))",
-        hue.round()
+        "rgba({}, {}, {}, {:.3})",
+        color.r,
+        color.g,
+        color.b,
+        f32::from(alpha) / 255.0
     )
+}
+
+/// Class on a checkerboard (the thing behind a non-opaque colour).
+pub const CHECKERBOARD_CLASS: &str = "__azul_native_checkerboard";
+/// Class on a checkerboard's light cells.
+pub const CHECKERBOARD_LIGHT_CLASS: &str = "__azul_native_checkerboard_light";
+/// Class on a checkerboard's dark cells.
+pub const CHECKERBOARD_DARK_CLASS: &str = "__azul_native_checkerboard_dark";
+
+/// A checkerboard of `cell`-px squares filling `w`×`h`, built from DIVS so a
+/// stylesheet can restyle it (`.__azul_native_checkerboard_dark { … }`) and
+/// so it follows the theme: the cells carry a light-theme colour and a dark
+/// one gated on `theme: dark`. What sits behind any colour that is not fully
+/// opaque. (An image would tile faster, but could not be styled or themed.)
+fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
+    use azul_core::dom::IdOrClass::Class;
+    use azul_css::dynamic_selector::{DynamicSelector, ThemeCondition};
+
+    let cell_css = |dark: bool| -> CssPropertyWithConditionsVec {
+        let (light_mode, dark_mode) = if dark {
+            (ColorU { r: 0xcc, g: 0xcc, b: 0xcc, a: 255 }, ColorU { r: 0x33, g: 0x33, b: 0x33, a: 255 })
+        } else {
+            (ColorU { r: 0xff, g: 0xff, b: 0xff, a: 255 }, ColorU { r: 0x55, g: 0x55, b: 0x55, a: 255 })
+        };
+        let bg = |c: ColorU| CssProperty::const_background_content(vec![StyleBackgroundContent::Color(c)].into());
+        CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(cell as isize))),
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(cell as isize))),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+            CssPropertyWithConditions::simple(bg(light_mode)),
+            CssPropertyWithConditions {
+                property: bg(dark_mode),
+                apply_if: vec![DynamicSelector::Theme(ThemeCondition::Dark)].into(),
+            },
+        ])
+    };
+    let cols = (w / cell).ceil().max(1.0) as usize;
+    let rows = (h / cell).ceil().max(1.0) as usize;
+    let mut board = Dom::create_div()
+        .with_ids_and_classes(vec![Class(CHECKERBOARD_CLASS.into())].into())
+        .with_css(&format!(
+            "position: absolute; left: 0px; top: 0px; width: {w}px; height: {h}px; \
+             display: flex; flex-direction: column; overflow: hidden;"
+        ));
+    for y in 0..rows {
+        let mut row = Dom::create_div().with_css("display: flex; flex-direction: row;");
+        for x in 0..cols {
+            let dark = (x + y) % 2 == 1;
+            let class = if dark { CHECKERBOARD_DARK_CLASS } else { CHECKERBOARD_LIGHT_CLASS };
+            row = row.with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![Class(class.into())].into())
+                    .with_css_props(cell_css(dark)),
+            );
+        }
+        board = board.with_child(row);
+    }
+    board
 }
 
 const HUE_BACKGROUND_CSS: &str = "linear-gradient(to right, #ff0000 0%, #ffff00 17%, \
@@ -483,11 +607,13 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             refany: data.clone(),
             callback: CoreCallback { cb, ctx: azul_core::refany::OptionRefAny::None },
         };
+        // The press captures the pointer (see `capture_pointer`), so the
+        // moves and the release reach this node wherever the cursor goes —
+        // no `MouseLeave` ends the drag the moment the cursor slips off.
         vec![
             mk(EventFilter::Hover(HoverEventFilter::MouseDown), down),
             mk(EventFilter::Hover(HoverEventFilter::MouseOver), over),
             mk(EventFilter::Hover(HoverEventFilter::MouseUp), up),
-            mk(EventFilter::Hover(HoverEventFilter::MouseLeave), up),
         ]
     };
 
@@ -500,6 +626,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             (1.0 - hsv.v) * 100.0
         ),
     );
+    // Children: [shade overlay, marker] — the marker stays on top.
     let plane = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_PLANE_CLASS.into())].into())
         .with_css(&format!(
@@ -522,6 +649,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             )
             .into(),
         )
+        .with_child(Dom::create_div().with_css(SHADE_CSS))
         .with_child(plane_marker);
 
     // Hue bar with its marker.
@@ -551,12 +679,44 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         )
         .with_child(hue_marker);
 
-    // Preview + hex.
-    let preview = Dom::create_div()
+    // Alpha bar: checkerboard, then transparent→colour over it, then the marker.
+    let opaque = ColorU { a: 255, ..color };
+    let alpha_marker = Dom::create_div().with_css(&format!(
+        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; \
+         margin-left: -6px; border: 2px solid #ffffff; border-radius: 6px; \
+         box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
+        f32::from(color.a) / 255.0 * 100.0
+    ));
+    let alpha_fill = Dom::create_div().with_css(&format!(
+        "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; border-radius: 6px; \
+         background: linear-gradient(to right, {}, {});",
+        css_rgba(opaque, 0),
+        css_rgba(opaque, 255)
+    ));
+    let mut alpha = Dom::create_div()
+        .with_ids_and_classes(vec![Class(COLOR_PICKER_ALPHA_CLASS.into())].into())
         .with_css(&format!(
-                "width: 28px; height: 28px; border-radius: 4px; border: 1px solid #c8c8c8; \
-                 background: {hex};"
-            )
+            "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
+             cursor: pointer; overflow: hidden;"
+        ))
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Slider,
+            accessibility_name: Some("Opacity".into()).into(),
+            accessibility_value: Some(AzString::from(alpha_a11y_value(color.a))).into(),
+            ..Default::default()
+        })
+        .with_callbacks(
+            drag_callbacks(on_alpha_down as usize, on_alpha_move as usize, on_alpha_up as usize)
+                .into(),
+        );
+    alpha = alpha.with_child(checkerboard(PLANE_WIDTH, 12.0, 6.0));
+    let alpha = alpha.with_child(alpha_fill).with_child(alpha_marker);
+
+    // Preview + hex. A translucent colour shows the checkerboard through it.
+    let mut preview = Dom::create_div()
+        .with_css(
+            "position: relative; width: 28px; height: 28px; border-radius: 4px; \
+             border: 1px solid #c8c8c8; overflow: hidden;",
         )
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Graphic,
@@ -564,6 +724,11 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             accessibility_value: Some(AzString::from(hex.clone())).into(),
             ..Default::default()
         });
+    preview = preview.with_child(checkerboard(26.0, 26.0, 6.5));
+    let preview = preview.with_child(Dom::create_div().with_css(&format!(
+        "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background: {};",
+        css_rgba(opaque, color.a)
+    )));
     let hex_input = TextInput::create()
         .with_text(hex.into())
         .with_accessibility_name("Hex colour")
@@ -582,7 +747,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     let channel = |name: &str, short: &str, value: u8, cb: crate::widgets::number_input::NumberInputOnValueChangeCallbackType| {
         let field = NumberInput::create(f32::from(value))
             .with_accessibility_name(name)
-            .with_container_style(field_container_style(52, false))
+            .with_container_style(field_container_style(44, false))
             .with_on_value_change(data.clone(), cb)
             .dom();
         Dom::create_div()
@@ -594,7 +759,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
         .with_child(channel("Red", "R", color.r, on_red_changed))
         .with_child(channel("Green", "G", color.g, on_green_changed))
-        .with_child(channel("Blue", "B", color.b, on_blue_changed));
+        .with_child(channel("Blue", "B", color.b, on_blue_changed))
+        .with_child(channel("Opacity", "A", color.a, on_alpha_changed));
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_CLASS.into())].into())
@@ -610,8 +776,13 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         })
         .with_child(plane)
         .with_child(hue)
+        .with_child(alpha)
         .with_child(preview_row)
         .with_child(rgb_row)
+}
+
+fn alpha_a11y_value(a: u8) -> String {
+    format!("{}%", (f32::from(a) / 255.0 * 100.0).round())
 }
 
 fn sv_a11y_value(hsv: Hsv) -> String {
@@ -669,15 +840,17 @@ fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, control: DomNo
     let color = picker.color();
     let hex = color_to_hex(color);
 
-    // The panel holds [plane, hue, preview_row, rgb_row]; `control` is the
-    // plane or the hue bar, so the panel is its parent.
+    // The panel holds [plane, hue, alpha, preview_row, rgb_row]; `control`
+    // is one of the three bars, so the panel is its parent. Children:
+    // plane = [shade, marker]; hue = [marker]; alpha = [board?, fill, marker]
+    // (the board is the last child of alpha-less builds, so walk from the end).
     if let Some(panel) = info.get_parent(control) {
         if let Some(plane) = info.get_first_child(panel) {
             if let Some(prop) = css_prop(CssPropertyType::BackgroundContent, &plane_background_css(hsv.h)) {
                 info.set_css_property(plane, prop);
             }
             info.set_accessibility_value(plane, sv_a11y_value(hsv).into());
-            if let Some(marker) = info.get_first_child(plane) {
+            if let Some(marker) = info.get_last_child(plane) {
                 info.set_css_property(
                     marker,
                     CssProperty::const_left(LayoutLeft { inner: PixelValue::percent(hsv.s * 100.0) }),
@@ -689,18 +862,46 @@ fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, control: DomNo
             }
             if let Some(hue) = info.get_next_sibling(plane) {
                 info.set_accessibility_value(hue, format!("{}°", hsv.h.round()).into());
-                if let Some(marker) = info.get_first_child(hue) {
+                if let Some(marker) = info.get_last_child(hue) {
                     info.set_css_property(
                         marker,
                         CssProperty::const_left(LayoutLeft { inner: PixelValue::percent(hsv.h / 360.0 * 100.0) }),
                     );
                 }
-                if let Some(preview) = info.get_next_sibling(hue).and_then(|row| info.get_first_child(row)) {
-                    info.set_css_property(
-                        preview,
-                        CssProperty::const_background_content(vec![StyleBackgroundContent::Color(color)].into()),
-                    );
-                    info.set_accessibility_value(preview, hex.into());
+                if let Some(alpha) = info.get_next_sibling(hue) {
+                    info.set_accessibility_value(alpha, alpha_a11y_value(color.a).into());
+                    let opaque = ColorU { a: 255, ..color };
+                    if let Some(marker) = info.get_last_child(alpha) {
+                        info.set_css_property(
+                            marker,
+                            CssProperty::const_left(LayoutLeft {
+                                inner: PixelValue::percent(f32::from(color.a) / 255.0 * 100.0),
+                            }),
+                        );
+                        if let Some(fill) = info.get_previous_sibling(marker) {
+                            if let Some(prop) = css_prop(
+                                CssPropertyType::BackgroundContent,
+                                &format!(
+                                    "linear-gradient(to right, {}, {})",
+                                    css_rgba(opaque, 0),
+                                    css_rgba(opaque, 255)
+                                ),
+                            ) {
+                                info.set_css_property(fill, prop);
+                            }
+                        }
+                    }
+                    if let Some(preview) = info.get_next_sibling(alpha).and_then(|row| info.get_first_child(row)) {
+                        info.set_accessibility_value(preview, hex.into());
+                        if let Some(overlay) = info.get_last_child(preview) {
+                            info.set_css_property(
+                                overlay,
+                                CssProperty::const_background_content(
+                                    vec![StyleBackgroundContent::Color(color)].into(),
+                                ),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -738,6 +939,7 @@ extern "C" fn on_plane_down(mut data: RefAny, mut info: CallbackInfo) -> Update 
         return Update::DoNothing;
     };
     picker.drag = Drag::Plane;
+    info.capture_pointer(info.get_hit_node());
     apply_plane(&mut picker, &mut info)
 }
 
@@ -765,6 +967,7 @@ extern "C" fn on_hue_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     picker.drag = Drag::Hue;
+    info.capture_pointer(info.get_hit_node());
     apply_hue(&mut picker, &mut info)
 }
 
@@ -781,6 +984,45 @@ extern "C" fn on_hue_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
 extern "C" fn on_hue_up(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut picker) = data.downcast_mut::<ColorPickerData>() {
         if picker.drag == Drag::Hue {
+            picker.drag = Drag::None;
+        }
+    }
+    Update::DoNothing
+}
+
+fn apply_alpha(picker: &mut ColorPickerData, info: &mut CallbackInfo) -> Update {
+    let Some((x, _)) = cursor_fraction(info) else {
+        return Update::DoNothing;
+    };
+    let mut c = picker.color();
+    c.a = channel_value(x * 255.0);
+    picker.set_color(c);
+    let control = info.get_hit_node();
+    publish(picker, info, control)
+}
+
+extern "C" fn on_alpha_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut picker) = data.downcast_mut::<ColorPickerData>() else {
+        return Update::DoNothing;
+    };
+    picker.drag = Drag::Alpha;
+    info.capture_pointer(info.get_hit_node());
+    apply_alpha(&mut picker, &mut info)
+}
+
+extern "C" fn on_alpha_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut picker) = data.downcast_mut::<ColorPickerData>() else {
+        return Update::DoNothing;
+    };
+    if picker.drag != Drag::Alpha {
+        return Update::DoNothing;
+    }
+    apply_alpha(&mut picker, &mut info)
+}
+
+extern "C" fn on_alpha_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut picker) = data.downcast_mut::<ColorPickerData>() {
+        if picker.drag == Drag::Alpha {
             picker.drag = Drag::None;
         }
     }
@@ -846,6 +1088,14 @@ extern "C" fn on_green_changed(
     n: crate::widgets::number_input::NumberInputState,
 ) -> Update {
     on_channel_changed(&mut data, info, n.number, |c, v| c.g = v)
+}
+
+extern "C" fn on_alpha_changed(
+    mut data: RefAny,
+    info: CallbackInfo,
+    n: crate::widgets::number_input::NumberInputState,
+) -> Update {
+    on_channel_changed(&mut data, info, n.number, |c, v| c.a = v)
 }
 
 extern "C" fn on_blue_changed(
@@ -1699,21 +1949,27 @@ mod autotest_generated {
                 vec!["__azul_native_color_input".to_string()],
                 "{c:?}: wrong class list",
             );
-            // Exactly one child: the picker's transient window, CLOSED by
+            // The LAST child is the picker's transient window, CLOSED by
             // attribute (a click opens it through the engine), anchored below
-            // the swatch, dismissed by an outside click.
+            // the swatch, dismissed by an outside click. An opaque swatch has
+            // nothing else; a translucent one carries a checkerboard and a
+            // colour overlay before it.
             let kids = dom.children.as_ref();
-            assert_eq!(kids.len(), 1, "{c:?}: the swatch must carry exactly its popup");
-            let NodeType::TransientWindow(cfg) = kids[0].root.get_node_type() else {
-                panic!("{c:?}: the child is not a <transient-window>");
+            let expected = if c.a < 255 { 3 } else { 1 };
+            assert_eq!(kids.len(), expected, "{c:?}: wrong children for the swatch");
+            if c.a < 255 {
+                assert_eq!(classes(&kids[0]), vec![CHECKERBOARD_CLASS.to_string()], "{c:?}: board first");
+            }
+            let NodeType::TransientWindow(cfg) = kids[expected - 1].root.get_node_type() else {
+                panic!("{c:?}: the last child is not a <transient-window>");
             };
             assert!(!cfg.open, "{c:?}: the popup must start closed");
             assert_eq!(cfg.anchor, TransientAnchor::Bottom);
             assert_eq!(cfg.dismiss, TransientDismiss::Outside);
             // ...holding the panel.
-            let panel = &kids[0].children.as_ref()[0];
+            let panel = &kids[expected - 1].children.as_ref()[0];
             assert_eq!(classes(panel), vec![COLOR_PICKER_CLASS.to_string()]);
-            assert_eq!(panel.children.as_ref().len(), 4, "plane, hue, preview row, rgb row");
+            assert_eq!(panel.children.as_ref().len(), 5, "plane, hue, alpha, preview row, rgb row");
         }
     }
     #[test]
@@ -1725,10 +1981,14 @@ mod autotest_generated {
             let base = properties(&ColorInput::create(c).style);
             let rendered = inline_properties(&ColorInput::create(c).dom());
 
+            // The colour, plus — for a translucent swatch only — the three
+            // props that let the checkerboard sit under it (relative
+            // positioning, overflow hidden x/y).
+            let extra = if c.a < 255 { 4 } else { 1 };
             assert_eq!(
                 rendered.len(),
-                base.len() + 1,
-                "{c:?}: dom() added {} properties instead of exactly one",
+                base.len() + extra,
+                "{c:?}: dom() added {} properties instead of {extra}",
                 rendered.len() as i64 - base.len() as i64,
             );
             assert_eq!(&rendered[..base.len()], &base[..], "{c:?}: dom() rewrote the base style");

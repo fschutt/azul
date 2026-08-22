@@ -468,6 +468,40 @@ pub fn post_dismissed(state: &FullWindowState) -> bool {
     mailbox_of(state).is_some_and(|m| write(&m, |d| d.dismissed = true))
 }
 
+/// The parent side: Escape was pressed while popups are open. The popup
+/// handles its own Escape when it has keyboard focus; on a platform (or in a
+/// moment) where the parent still has it, the parent closes every popup
+/// whose policy allows Escape. Returns whether any were.
+pub fn dismiss_on_escape(
+    previous: &FullWindowState,
+    current: &FullWindowState,
+    lw: &mut LayoutWindow,
+) -> bool {
+    let esc = |s: &FullWindowState| {
+        s.keyboard_state.pressed_virtual_keycodes.as_ref().contains(&VirtualKeyCode::Escape)
+    };
+    if !(esc(current) && !esc(previous)) {
+        return false;
+    }
+    let targets: Vec<NodeId> = lw
+        .transient_windows
+        .open_windows()
+        .iter()
+        .filter(|w| w.placement.dismiss != TransientDismiss::None)
+        .map(|w| w.source_node)
+        .collect();
+    let mut any = false;
+    for node in targets {
+        if let Some(closed) = lw.dismiss_transient_window(node) {
+            if let OptionRefAny::Some(m) = &closed.surface {
+                write(m, |d| d.closed = true);
+            }
+            any = true;
+        }
+    }
+    any
+}
+
 /// The parent side: a fresh mouse press landed in the parent while popups
 /// with `dismiss=outside` are open — that press is, by construction, outside
 /// them. Dismisses those popups; returns whether any were.

@@ -559,3 +559,102 @@ fn clicking_a_color_input_opens_and_closes_its_picker_popup() {
     let _ = take_queued_popup(&mut parent);
 }
 
+/// Pointer capture: a press on the picker's plane captures the pointer, so
+/// a move that ends far outside the plane still drives the drag — the
+/// colour follows the clamped position instead of the drag dying the moment
+/// the cursor leaves the hit area. Release ends the capture.
+#[test]
+fn a_drag_on_the_plane_keeps_following_the_pointer_outside_it() {
+    use azul_layout::widgets::color_input::ColorPickerData;
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize { width: 800.0, height: 600.0 };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = picker_widget_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    let swatch = azul_core::geom::LogicalPosition::new(15.0, 23.0);
+    click_at(&mut parent, swatch);
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+
+    // The popup window, laid out like the run loop would.
+    let mut popup = headless(popup_opts, app_data);
+    popup.regenerate_layout().expect("popup layout");
+    let plane = {
+        let lw = popup.get_layout_window().unwrap();
+        let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+        let nodes = root.styled_dom.node_data.as_container();
+        let n = nodes
+            .linear_iter()
+            .find(|n| nodes.get(*n).is_some_and(|nd| format!("{:?}", nd.get_ids_and_classes()).contains("color_picker_plane")))
+            .expect("plane node");
+        lw.get_node_layout_rect(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+        })
+        .expect("plane rect")
+    };
+    let picker_color = |w: &HeadlessWindow| {
+        let lw = w.get_layout_window().unwrap();
+        let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+        let nodes = root.styled_dom.node_data.as_container();
+        let n = nodes
+            .linear_iter()
+            .find(|n| nodes.get(*n).is_some_and(|nd| format!("{:?}", nd.get_ids_and_classes()).contains("color_picker_plane")))
+            .unwrap();
+        let mut ds = nodes.get(n).unwrap().get_callbacks().as_ref()[0].refany.clone();
+        let d = ds.downcast_ref::<ColorPickerData>().unwrap();
+        d.current_color()
+    };
+
+    // Press in the middle of the plane...
+    let mid = azul_core::geom::LogicalPosition::new(
+        plane.origin.x + plane.size.width / 2.0,
+        plane.origin.y + plane.size.height / 2.0,
+    );
+    popup.snapshot_window_state_baseline("t.move");
+    popup.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(mid);
+    popup.update_hit_test_at(mid);
+    let _ = popup.process_window_events(0);
+    popup.snapshot_window_state_baseline("t.down");
+    popup.common.mouse_state_mut().left_down = true;
+    let _ = popup.process_window_events(0);
+    assert!(popup.get_layout_window().unwrap().pointer_capture.is_some(), "the press captured the pointer");
+    let after_press = picker_color(&popup);
+
+    // ...then move far OUTSIDE the plane (below the whole popup) with the
+    // button held: the plane must still receive the move and pick the
+    // clamped bottom-right = the darkest value, not keep the press colour.
+    let far = azul_core::geom::LogicalPosition::new(plane.origin.x + plane.size.width + 200.0, plane.origin.y + plane.size.height + 400.0);
+    popup.snapshot_window_state_baseline("t.drag");
+    popup.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(far);
+    popup.update_hit_test_at(far);
+    let _ = popup.process_window_events(0);
+    let after_drag = picker_color(&popup);
+    assert_ne!(after_drag, after_press, "the drag kept following the pointer outside the plane");
+    assert_eq!((after_drag.r, after_drag.g, after_drag.b), (0, 0, 0), "clamped to the plane's bottom = black");
+
+    // Release ends the capture.
+    popup.snapshot_window_state_baseline("t.up");
+    popup.common.mouse_state_mut().left_down = false;
+    let _ = popup.process_window_events(0);
+    assert!(popup.get_layout_window().unwrap().pointer_capture.is_none(), "released on mouse-up");
+}
+
+/// Escape pressed in the PARENT (the popup may not hold keyboard focus on
+/// every platform) dismisses its popups too.
+#[test]
+fn escape_in_the_parent_dismisses_its_popups() {
+    let mut parent = make_parent(true, TransientDismiss::Outside);
+    parent.regenerate_layout().expect("layout");
+    let popup_opts = take_queued_popup(&mut parent);
+    parent.snapshot_window_state_baseline("test.escape");
+    parent.common.keyboard_state_mut().pressed_virtual_keycodes = vec![VirtualKeyCode::Escape].into();
+    let _ = parent.process_window_events(0);
+    assert!(parent.get_layout_window().unwrap().transient_windows.open_windows().is_empty());
+    assert!(mailbox_state(&popup_opts.window_state).0, "the popup was told to close");
+    parent.regenerate_layout().expect("drain");
+    assert_eq!(dismissed_calls(&parent), 1);
+}
+

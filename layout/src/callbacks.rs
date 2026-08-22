@@ -489,6 +489,12 @@ pub enum CallbackChange {
     /// manager, so it survives rebuilds; a user dismissal clears it.
     SetTransientWindowOpen { node: DomNodeId, open: bool },
 
+    /// Route every mouse move and the release to `node` until the button
+    /// comes up, whatever is under the cursor (W3C `setPointerCapture`).
+    CapturePointer { node: DomNodeId },
+    /// Drop an active pointer capture before the release would.
+    ReleasePointerCapture,
+
     // Tooltip Management
     /// Show a tooltip at a specific position
     ///
@@ -2231,6 +2237,22 @@ impl CallbackInfo {
     /// is the dismiss path.
     pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
         self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
+    }
+
+    /// Capture the pointer for `node`: until the mouse button is released,
+    /// `MouseOver` and `MouseUp` are delivered to `node` even when the cursor
+    /// has left it — a drag that must follow the mouse (a slider thumb, a
+    /// colour plane) calls this from its `MouseDown` handler.
+    /// `get_cursor_relative_to_node` keeps reading against the node's rect
+    /// while captured, so coordinates may run outside `[0, size]`.
+    /// Released automatically on mouse-up, or by [`Self::release_pointer_capture`].
+    pub fn capture_pointer(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::CapturePointer { node });
+    }
+
+    /// End an active pointer capture early.
+    pub fn release_pointer_capture(&mut self) {
+        self.push_change(CallbackChange::ReleasePointerCapture);
     }
 
     /// Open a menu at a specific position
