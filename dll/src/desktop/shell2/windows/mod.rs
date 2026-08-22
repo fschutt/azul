@@ -2233,24 +2233,28 @@ impl Win32Window {
             return Some(HTCLIENT);
         }
 
-        let band = libm::roundf(
-            crate::desktop::shell2::common::event::CSD_RESIZE_BAND_PX * dpi_factor,
-        )
-        .max(1.0) as i32;
-        let left = x < wr.left + band;
-        let right = x >= wr.right - band;
-        let top = y < wr.top + band;
-        let bottom = y >= wr.bottom - band;
-        Some(match (top, bottom, left, right) {
-            (true, _, true, _) => HTTOPLEFT,
-            (true, _, _, true) => HTTOPRIGHT,
-            (_, true, true, _) => HTBOTTOMLEFT,
-            (_, true, _, true) => HTBOTTOMRIGHT,
-            (true, _, _, _) => HTTOP,
-            (_, true, _, _) => HTBOTTOM,
-            (_, _, true, _) => HTLEFT,
-            (_, _, _, true) => HTRIGHT,
-            _ => HTCLIENT,
+        // ONE edge classifier for every frameless backend (X11 / Wayland /
+        // Win32): `csd_resize_edge_at` is pure and unit-tested on every CI
+        // host, so the band geometry cannot drift per platform. Everything
+        // here is in PHYSICAL screen pixels — position, size and band alike.
+        use azul_core::geom::{LogicalPosition, LogicalSize};
+        use crate::desktop::shell2::common::event::{csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX};
+        let band = libm::roundf(CSD_RESIZE_BAND_PX * dpi_factor).max(1.0);
+        let edge = csd_resize_edge_at(
+            LogicalPosition::new((x - wr.left) as f32, (y - wr.top) as f32),
+            LogicalSize::new((wr.right - wr.left) as f32, (wr.bottom - wr.top) as f32),
+            band,
+        );
+        Some(match edge {
+            Some(CsdResizeEdge::TopLeft) => HTTOPLEFT,
+            Some(CsdResizeEdge::TopRight) => HTTOPRIGHT,
+            Some(CsdResizeEdge::BottomLeft) => HTBOTTOMLEFT,
+            Some(CsdResizeEdge::BottomRight) => HTBOTTOMRIGHT,
+            Some(CsdResizeEdge::Top) => HTTOP,
+            Some(CsdResizeEdge::Bottom) => HTBOTTOM,
+            Some(CsdResizeEdge::Left) => HTLEFT,
+            Some(CsdResizeEdge::Right) => HTRIGHT,
+            None => HTCLIENT,
         })
     }
 
