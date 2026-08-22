@@ -19609,6 +19609,9 @@
                         ],
                         "priority": 71.0,
                         "external": "azul_core::a11y::AccessibilityInfo",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "PartialEq",
@@ -26231,6 +26234,9 @@
                                 },
                                 "BackfaceVisibility": {
                                     "type": "StyleBackfaceVisibilityValue"
+                                },
+                                "AppRegion": {
+                                    "type": "StyleAppRegionValue"
                                 },
                                 "MixBlendMode": {
                                     "type": "StyleMixBlendModeValue"
@@ -38774,6 +38780,7 @@
                                 "TransformOrigin": {},
                                 "PerspectiveOrigin": {},
                                 "BackfaceVisibility": {},
+                                "AppRegion": {},
                                 "MixBlendMode": {},
                                 "Filter": {},
                                 "BackdropFilter": {},
@@ -106309,6 +106316,9 @@
                                 },
                                 "BackfaceVisibility": {
                                     "type": "CssBackfaceVisibilityParseErrorOwned"
+                                },
+                                "AppRegion": {
+                                    "type": "CssAppRegionParseErrorOwned"
                                 },
                                 "MixBlendMode": {
                                     "type": "MixBlendModeParseErrorOwned"
