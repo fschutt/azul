@@ -2768,6 +2768,12 @@ impl PlatformWindow for HeadlessWindow {
         // No-op
     }
 
+    fn window_follows_position_changes(&self) -> bool {
+        // Nothing moves headless: a tear-off drag tracks the pointer
+        // arithmetically, the same regime as a Wayland popup.
+        false
+    }
+
     fn sync_window_state(&mut self) {
         // No native window to synchronise, so there is no OS-sync baseline to
         // diff either (`os_synced_state` stays `None`).

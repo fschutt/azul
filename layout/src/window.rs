@@ -3574,6 +3574,124 @@ impl LayoutWindow {
         Some(closed)
     }
 
+    /// The user's tear-off drag of the window at `source_node` ended with the
+    /// window's top-left at `window_origin` and the pointer at `cursor`, both
+    /// in this (parent) window's logical coordinates. Decides what that means
+    /// (see [`crate::transient::decide_drop`]) - the current anchor docks,
+    /// a `tearoff-zone` node re-anchors, anywhere else tears off - applies
+    /// it, accumulates the surface diff, and queues `TornOff` / `Docked` on
+    /// the node when the torn-ness flipped. Returns whether anything changed.
+    pub fn drop_transient_window(
+        &mut self,
+        source_node: NodeId,
+        window_origin: LogicalPosition,
+        cursor: LogicalPosition,
+    ) -> bool {
+        use crate::transient::{decide_drop, nodes_matching_selector, tearoff_zone_selector, TearDrop};
+        let Some(open) = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == source_node)
+            .cloned()
+        else {
+            return false;
+        };
+        // Zones: the nodes matching the window's `tearoff-zone` selector,
+        // hit-tested by their viewport rects; the innermost (last in
+        // document order) one under the pointer wins.
+        let zones: Vec<(NodeId, LogicalRect)> = if open.placement.tearoff == azul_core::transient::TransientTearoff::Zone {
+            let root = self.layout_results.get(&DomId::ROOT_ID);
+            let selector = root.and_then(|r| tearoff_zone_selector(&r.styled_dom, source_node));
+            match (root, selector) {
+                (Some(r), Some(sel)) => nodes_matching_selector(&r.styled_dom, &sel)
+                    .into_iter()
+                    .filter(|n| *n != source_node)
+                    .filter_map(|n| {
+                        let rect = self.get_node_rect_in_viewport(DomNodeId {
+                            dom: DomId::ROOT_ID,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                        })?;
+                        Some((n, rect))
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+        let drop = decide_drop(cursor, open.placement.anchor_rect, window_origin, |p| {
+            zones.iter().rev().find(|(_, r)| r.contains(p)).map(|(n, _)| *n)
+        });
+        self.apply_transient_drop(source_node, drop)
+    }
+
+    /// A callback's `set_transient_window_torn`: tear the window off at its
+    /// anchor position, or dock it back. Returns whether anything changed.
+    pub fn set_transient_window_torn(&mut self, source_node: NodeId, torn: bool) -> bool {
+        let Some(w) = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == source_node)
+        else {
+            return false;
+        };
+        if w.torn.is_some() == torn {
+            return false; // already so
+        }
+        let drop = if torn {
+            crate::transient::TearDrop::TearOff(w.placement.resolve(w.content_size, None))
+        } else {
+            crate::transient::TearDrop::Dock
+        };
+        self.apply_transient_drop(source_node, drop)
+    }
+
+    fn apply_transient_drop(&mut self, source_node: NodeId, drop: crate::transient::TearDrop) -> bool {
+        let Some((diff, changed)) = self.transient_windows.apply_drop(source_node, drop) else {
+            return false;
+        };
+        for dom in &diff.closed {
+            self.layout_results.remove(dom);
+        }
+        self.pending_transient_diff.merge(diff);
+        let Some(w) = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == source_node)
+        else {
+            return changed;
+        };
+        if changed {
+            let bounds = match w.torn {
+                Some(origin) => LogicalRect::new(origin, w.content_size),
+                None => w.placement.anchor_rect,
+            };
+            let now = {
+                #[cfg(feature = "std")]
+                {
+                    Instant::now()
+                }
+                #[cfg(not(feature = "std"))]
+                {
+                    azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
+                }
+            };
+            self.pending_lifecycle_events.push(azul_core::diff::create_tearoff_event(
+                source_node,
+                DomId::ROOT_ID,
+                &now,
+                w.torn.is_some(),
+                bounds,
+            ));
+        }
+        // A re-anchor (a zone) or a move of a torn window changes placement
+        // without changing kind: the next reconcile re-places it.
+        changed || matches!(drop, crate::transient::TearDrop::DockOnto(_) | crate::transient::TearDrop::TearOff(_))
+    }
+
     /// Measure the content of the `<transient-window>` at `source_node` for
     /// the popup the backend is about to open: the subtree is extracted with
     /// its resolved style baked in, given its own `DomId`, styled with this

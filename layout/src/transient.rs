@@ -21,7 +21,7 @@ use azul_core::{
     id::NodeId,
     refany::OptionRefAny,
     styled_dom::StyledDom,
-    transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
+    transient::{TransientAnchor, TransientDismiss, TransientTearoff, TransientWindowConfig},
 };
 
 /// Everything a backend needs to materialise one open transient window.
@@ -45,8 +45,12 @@ pub struct TransientPlacement {
     /// subtree out with `available = size` when given, and with an unbounded
     /// available size otherwise, then uses the content's extent.
     pub size: OptionLogicalSize,
-    /// Whether the user may tear it off into a free toplevel (phase 6).
-    pub tearoff: bool,
+    /// Whether the user may tear it off into a free toplevel, and whether
+    /// drop zones take part.
+    pub tearoff: TransientTearoff,
+    /// The app's `torn` attribute: a request, applied when it CHANGES (the
+    /// manager keeps the user's own tear-offs in between).
+    pub torn: bool,
 }
 
 impl TransientPlacement {
@@ -124,10 +128,16 @@ impl TransientPlacement {
 /// `rect_of` is how the caller supplies "where did node N land in the parent's
 /// layout"; it is a closure rather than a map so a `DomLayoutResult` and a test
 /// fixture can both drive it without converting.
+///
+/// `anchor_overrides` are `(transient node, zone node)` pairs for windows the
+/// user docked onto a drop zone: such a window anchors to the ZONE's rect,
+/// not its parent's. A zone that is no longer laid out falls back to the
+/// parent, so the window never anchors to nothing.
 #[must_use]
 pub fn collect_open_transient_windows(
     styled_dom: &StyledDom,
     forced_open: &[NodeId],
+    anchor_overrides: &[(NodeId, NodeId)],
     mut rect_of: impl FnMut(NodeId) -> Option<LogicalRect>,
 ) -> Vec<TransientPlacement> {
     let nodes = styled_dom.node_data.as_container();
@@ -146,7 +156,11 @@ pub fn collect_open_transient_windows(
         let Some(parent) = hierarchy.get(node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) else {
             continue; // a root transient window has nothing to anchor to
         };
-        let Some(anchor_rect) = rect_of(parent) else {
+        let zone_rect = anchor_overrides
+            .iter()
+            .find(|(n, _)| *n == node)
+            .and_then(|(_, zone)| rect_of(*zone));
+        let Some(anchor_rect) = zone_rect.or_else(|| rect_of(parent)) else {
             continue; // the parent was not laid out (display:none ancestor)
         };
         out.push(placement_for(node, anchor_rect, cfg));
@@ -165,7 +179,70 @@ pub const fn placement_for(node: NodeId, anchor_rect: LogicalRect, cfg: &Transie
         dismiss: cfg.dismiss,
         size: cfg.size,
         tearoff: cfg.tearoff,
+        torn: cfg.torn,
     }
+}
+
+/// The selector naming a `tearoff="zone"` window's drop zones, from the
+/// node's `tearoff-zone` attribute (XML: `tearoff="zone:<selector>"` sets it).
+#[must_use]
+pub fn tearoff_zone_selector(styled_dom: &StyledDom, node: NodeId) -> Option<String> {
+    use azul_core::dom::AttributeType;
+    let nodes = styled_dom.node_data.as_container();
+    let nd = nodes.get(node)?;
+    nd.attributes().as_ref().iter().find_map(|a| match a {
+        AttributeType::Custom(kv) | AttributeType::Data(kv) if kv.attr_name.as_str() == "tearoff-zone" => {
+            Some(kv.value.as_str().to_owned())
+        }
+        _ => None,
+    })
+}
+
+/// The nodes of `styled_dom` matching `selector` - the drop zones of a
+/// `tearoff="zone:<selector>"` window. An unparsable selector matches nothing.
+#[must_use]
+pub fn nodes_matching_selector(styled_dom: &StyledDom, selector: &str) -> Vec<NodeId> {
+    let Ok(path) = azul_css::parser2::parse_css_path(selector) else {
+        return Vec::new();
+    };
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let nodes = styled_dom.node_data.as_container();
+    let cascade = styled_dom.cascade_info.as_container();
+    (0..nodes.len())
+        .map(NodeId::new)
+        .filter(|n| azul_core::style::matches_html_element(&path, *n, &hierarchy, &nodes, &cascade, None))
+        .collect()
+}
+
+/// What the end of a tear-off drag means. Decided from WHERE THE POINTER
+/// IS, in the parent's coordinates - that is what the user aimed with.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TearDrop {
+    /// Released over the window's current anchor: it docks back (or stays).
+    Dock,
+    /// Released over a drop zone: it docks onto THAT node from now on.
+    DockOnto(NodeId),
+    /// Released anywhere else: a free toplevel at `origin` (the window's
+    /// top-left in parent coordinates).
+    TearOff(azul_core::geom::LogicalPosition),
+}
+
+/// Decide a drop. `zone_at` answers "which drop zone, if any, is under this
+/// point" - the caller hit-tests its zone rects in the parent's layout.
+#[must_use]
+pub fn decide_drop(
+    cursor: azul_core::geom::LogicalPosition,
+    anchor_rect: LogicalRect,
+    window_origin: azul_core::geom::LogicalPosition,
+    zone_at: impl FnOnce(azul_core::geom::LogicalPosition) -> Option<NodeId>,
+) -> TearDrop {
+    if anchor_rect.contains(cursor) {
+        return TearDrop::Dock;
+    }
+    if let Some(zone) = zone_at(cursor) {
+        return TearDrop::DockOnto(zone);
+    }
+    TearDrop::TearOff(window_origin)
 }
 
 /// The `DomId` under which an open transient window's subtree is laid out.
@@ -216,7 +293,7 @@ mod tests {
         // Give every node a distinct rect keyed by its index so we can tell
         // "anchored to parent" from "anchored to self".
         let rect_of = |n: NodeId| Some(rect(n.index() as f32 * 100.0, 0.0, 50.0, 20.0));
-        let found = collect_open_transient_windows(&styled, &[], rect_of);
+        let found = collect_open_transient_windows(&styled, &[], &[], rect_of);
 
         assert_eq!(found.len(), 1, "the closed one must not be returned");
         let p = &found[0];
@@ -229,12 +306,12 @@ mod tests {
         // A callback's `set_transient_window_open(node, true)` opens the
         // CLOSED one too (body=0, div=1, tw=2, div=3, tw=4) — anchored to
         // its own parent (x=300), never to the other popup's.
-        let forced = collect_open_transient_windows(&styled, &[NodeId::new(4)], rect_of);
+        let forced = collect_open_transient_windows(&styled, &[NodeId::new(4)], &[], rect_of);
         assert_eq!(forced.len(), 2, "attribute-open plus forced-open");
         assert_eq!(forced[1].node, NodeId::new(4));
         assert_eq!(forced[1].anchor_rect.origin.x, 300.0);
         // Forcing a node that is not a transient window is ignored.
-        let bogus = collect_open_transient_windows(&styled, &[NodeId::new(1)], rect_of);
+        let bogus = collect_open_transient_windows(&styled, &[NodeId::new(1)], &[], rect_of);
         assert_eq!(bogus.len(), 1);
     }
 
@@ -248,7 +325,8 @@ mod tests {
             anchor,
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
-            tearoff: false,
+            tearoff: TransientTearoff::None,
+            torn: false,
         };
         let size = LogicalSize::new(200.0, 150.0);
         let bounds = rect(0.0, 0.0, 800.0, 600.0);
@@ -281,7 +359,8 @@ mod tests {
             anchor,
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
-            tearoff: false,
+            tearoff: TransientTearoff::None,
+            torn: false,
         };
         let popup = LogicalSize::new(300.0, 150.0);
 
@@ -341,6 +420,16 @@ pub struct OpenTransientWindow {
     /// the backend has acted on `opened`, and always `None` headless. Opaque
     /// to this crate on purpose: the engine does not know what a surface is.
     pub surface: OptionRefAny,
+    /// `Some` while the window is TORN OFF into a free toplevel: the
+    /// toplevel's top-left in the parent's coordinates. `None` = a popup on
+    /// its anchor.
+    pub torn: Option<azul_core::geom::LogicalPosition>,
+    /// The drop zone this window was docked onto, if any: it anchors to
+    /// that node instead of its parent from then on.
+    pub anchor_override: Option<NodeId>,
+    /// The app's `torn` attribute as last seen, so a CHANGE of it can be
+    /// told from the user's own drags. Bookkeeping, not state a backend reads.
+    pub attr_torn: bool,
 }
 
 /// Tracks the open transient windows across parent layouts.
@@ -391,13 +480,18 @@ pub struct TransientDiff {
     pub moved: Vec<DomId>,
     /// Content dom ids whose window must be DESTROYED.
     pub closed: Vec<DomId>,
+    /// Nodes whose window was torn off (`true`) or docked (`false`) by the
+    /// app's `torn` attribute during this reconcile, with the rect to report
+    /// (the toplevel's, or the anchor's). The caller fires
+    /// `TornOff` / `Docked` for them - the same events a user's drag fires.
+    pub torn_changes: Vec<(NodeId, bool, LogicalRect)>,
 }
 
 impl TransientDiff {
     /// Nothing to do.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.opened.is_empty() && self.moved.is_empty() && self.closed.is_empty()
+        self.opened.is_empty() && self.moved.is_empty() && self.closed.is_empty() && self.torn_changes.is_empty()
     }
 
     /// Fold a later pass's diff into this one.
@@ -428,6 +522,7 @@ impl TransientDiff {
                 self.moved.push(dom);
             }
         }
+        self.torn_changes.extend(later.torn_changes);
     }
 }
 
@@ -558,7 +653,8 @@ impl TransientWindowManager {
 
         // 2. Update or open each wanted window.
         for p in &wanted {
-            if let Some(existing) = self.open.iter_mut().find(|w| w.source_node == p.node) {
+            if let Some(i) = self.open.iter().position(|w| w.source_node == p.node) {
+                let existing = &mut self.open[i];
                 let moved = existing.placement != *p;
                 existing.placement = *p;
                 if let Some(sz) = content_size_of(existing.content_dom, p) {
@@ -569,6 +665,25 @@ impl TransientWindowManager {
                 } else if moved {
                     diff.moved.push(existing.content_dom);
                 }
+                // The app flipped `torn`: follow it. Unchanged, the user's
+                // own drags stand.
+                if p.torn != existing.attr_torn {
+                    existing.attr_torn = p.torn;
+                    let want = p.torn && p.tearoff != TransientTearoff::None;
+                    if want != existing.torn.is_some() {
+                        let origin = p.resolve(existing.content_size, None);
+                        existing.torn = want.then_some(origin);
+                        let bounds = if want {
+                            LogicalRect::new(origin, existing.content_size)
+                        } else {
+                            p.anchor_rect
+                        };
+                        let (old, new) = self.recreate(i);
+                        diff.closed.push(old);
+                        diff.opened.push(new);
+                        diff.torn_changes.push((p.node, want, bounds));
+                    }
+                }
                 continue;
             }
 
@@ -577,17 +692,95 @@ impl TransientWindowManager {
             let Some(content_size) = content_size_of(content_dom, p) else {
                 continue; // content could not be laid out; do not open onto nothing
             };
+            let torn = (p.torn && p.tearoff != TransientTearoff::None).then(|| p.resolve(content_size, None));
             self.open.push(OpenTransientWindow {
                 source_node: p.node,
                 content_dom,
                 placement: *p,
                 content_size,
                 surface: OptionRefAny::None,
+                torn,
+                anchor_override: None,
+                attr_torn: p.torn,
             });
             diff.opened.push(content_dom);
         }
 
         diff
+    }
+
+    /// The window at `i` changes KIND (popup <-> toplevel): its surface must
+    /// be destroyed and a new one created. Gives it a fresh content id - ids
+    /// are never reused, so the backend sees an ordinary close + open - and
+    /// hands the old surface to `closed_surfaces`. Returns `(old, new)`.
+    fn recreate(&mut self, i: usize) -> (DomId, DomId) {
+        let w = &mut self.open[i];
+        let old = w.content_dom;
+        let new = transient_dom_id(self.next_index);
+        self.next_index += 1;
+        w.content_dom = new;
+        let surface = core::mem::replace(&mut w.surface, OptionRefAny::None);
+        self.closed_surfaces.push(surface);
+        (old, new)
+    }
+
+    /// `(transient node, zone node)` for every window docked onto a drop
+    /// zone - what [`collect_open_transient_windows`] anchors them by.
+    #[must_use]
+    pub fn anchor_overrides(&self) -> Vec<(NodeId, NodeId)> {
+        self.open
+            .iter()
+            .filter_map(|w| w.anchor_override.map(|z| (w.source_node, z)))
+            .collect()
+    }
+
+    /// The user's drag of the window at `source_node` ended as `drop`. Applies
+    /// it: tears the window off (a popup becomes a toplevel at the drop
+    /// origin; an already-torn window just moves), docks it back, or docks
+    /// it onto a zone. Returns the diff to accumulate and whether the
+    /// window's torn-ness CHANGED (the lifecycle event the caller fires);
+    /// `None` if no such window is open or it is not tear-off capable.
+    pub fn apply_drop(&mut self, source_node: NodeId, drop: TearDrop) -> Option<(TransientDiff, bool)> {
+        let i = self.open.iter().position(|w| w.source_node == source_node)?;
+        if self.open[i].placement.tearoff == TransientTearoff::None {
+            return None;
+        }
+        let mut diff = TransientDiff::default();
+        let was_torn = self.open[i].torn.is_some();
+        match drop {
+            TearDrop::TearOff(origin) => {
+                self.open[i].torn = Some(origin);
+            }
+            TearDrop::Dock => {
+                self.open[i].torn = None;
+            }
+            TearDrop::DockOnto(zone) => {
+                self.open[i].torn = None;
+                self.open[i].anchor_override = Some(zone);
+            }
+        }
+        // Same kind (a torn window moved, a docked one released back on an
+        // anchor): the surface is kept; a changed anchor re-places it on the
+        // next reconcile.
+        let changed = was_torn != self.open[i].torn.is_some();
+        if changed {
+            let (old, new) = self.recreate(i);
+            diff.closed.push(old);
+            diff.opened.push(new);
+        }
+        Some((diff, changed))
+    }
+
+    /// A callback's `set_transient_window_torn(node, torn)`: the same as the
+    /// app flipping the `torn` attribute, without waiting for a layout.
+    pub fn set_torn(&mut self, source_node: NodeId, torn: bool) -> Option<(TransientDiff, bool)> {
+        let w = self.open.iter().find(|w| w.source_node == source_node)?;
+        let drop = if torn {
+            TearDrop::TearOff(w.torn.unwrap_or_else(|| w.placement.resolve(w.content_size, None)))
+        } else {
+            TearDrop::Dock
+        };
+        self.apply_drop(source_node, drop)
     }
 
     /// Close everything — the parent window is going away.
@@ -620,6 +813,8 @@ impl crate::managers::NodeIdRemap for TransientWindowManager {
             if let Some(new_id) = map.resolve(w.source_node) {
                 w.source_node = new_id;
                 w.placement.node = new_id;
+                // A zone that unmounted is no anchor; back to the parent.
+                w.anchor_override = w.anchor_override.and_then(|z| map.resolve(z));
                 true
             } else {
                 unmounted.push(core::mem::replace(&mut w.surface, OptionRefAny::None));
@@ -645,7 +840,8 @@ mod manager_tests {
             anchor: TransientAnchor::Bottom,
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
-            tearoff: false,
+            tearoff: TransientTearoff::None,
+            torn: false,
         }
     }
     fn sized(_: DomId, _: &TransientPlacement) -> Option<LogicalSize> {
@@ -693,5 +889,122 @@ mod manager_tests {
         let d = m.reconcile(&[placement(4, 0.0)], |_, _| None);
         assert!(d.opened.is_empty());
         assert!(m.open_windows().is_empty());
+    }
+
+    fn tearable(node: usize) -> TransientPlacement {
+        TransientPlacement { tearoff: TransientTearoff::Free, ..placement(node, 0.0) }
+    }
+
+    #[test]
+    fn a_drop_off_the_anchor_tears_off_with_a_fresh_id_and_back_on_it_docks() {
+        let mut m = TransientWindowManager::new();
+        let d = m.reconcile(&[tearable(4)], sized);
+        let popup = d.opened[0];
+        assert!(m.get(popup).unwrap().torn.is_none());
+
+        // Off the anchor: a toplevel at the drop origin, under a NEW id (the
+        // backend sees close + open, never a popup that changes shape).
+        let (d, changed) = m
+            .apply_drop(NodeId::new(4), TearDrop::TearOff(LogicalPosition::new(300.0, 40.0)))
+            .unwrap();
+        assert!(changed);
+        assert_eq!(d.closed, vec![popup]);
+        assert_eq!(d.opened.len(), 1);
+        let top = d.opened[0];
+        assert_ne!(top, popup);
+        assert!(m.get(popup).is_none(), "the old id is gone");
+        assert_eq!(m.get(top).unwrap().torn, Some(LogicalPosition::new(300.0, 40.0)));
+        assert_eq!(m.take_closed_surfaces().len(), 1, "the popup's surface is handed back");
+
+        // A torn window dropped elsewhere just moves: same id, no diff.
+        let (d, changed) = m
+            .apply_drop(NodeId::new(4), TearDrop::TearOff(LogicalPosition::new(10.0, 10.0)))
+            .unwrap();
+        assert!(!changed);
+        assert!(d.is_empty());
+        assert_eq!(m.get(top).unwrap().torn, Some(LogicalPosition::new(10.0, 10.0)));
+
+        // Back over the anchor: a popup again, again under a fresh id.
+        let (d, changed) = m.apply_drop(NodeId::new(4), TearDrop::Dock).unwrap();
+        assert!(changed);
+        assert_eq!(d.closed, vec![top]);
+        let popup2 = d.opened[0];
+        assert!(popup2 != top && popup2 != popup);
+        assert!(m.get(popup2).unwrap().torn.is_none());
+
+        // A rebuild keeps it: still one window, still the same id.
+        let d = m.reconcile(&[tearable(4)], sized);
+        assert!(d.is_empty());
+        assert_eq!(m.open_windows().len(), 1);
+        assert_eq!(m.open_windows()[0].content_dom, popup2);
+    }
+
+    #[test]
+    fn a_window_without_tearoff_ignores_drops() {
+        let mut m = TransientWindowManager::new();
+        m.reconcile(&[placement(4, 0.0)], sized);
+        assert!(m
+            .apply_drop(NodeId::new(4), TearDrop::TearOff(LogicalPosition::zero()))
+            .is_none());
+        assert!(m.open_windows()[0].torn.is_none());
+    }
+
+    #[test]
+    fn the_torn_attribute_is_followed_on_change_and_the_users_drag_stands_otherwise() {
+        let mut m = TransientWindowManager::new();
+        let torn_attr = |torn: bool| TransientPlacement { torn, ..tearable(4) };
+
+        // Opens torn when the app says so, at the anchor position.
+        let d = m.reconcile(&[torn_attr(true)], sized);
+        let first = d.opened[0];
+        let w = m.get(first).unwrap();
+        assert_eq!(w.torn, Some(w.placement.resolve(w.content_size, None)));
+
+        // The attribute stays true while the user docks it: the dock stands.
+        let (_, changed) = m.apply_drop(NodeId::new(4), TearDrop::Dock).unwrap();
+        assert!(changed);
+        let d = m.reconcile(&[torn_attr(true)], sized);
+        assert!(d.is_empty(), "unchanged attribute must not re-tear");
+        assert!(m.open_windows()[0].torn.is_none());
+
+        // The attribute flipping false->true tears it off again.
+        m.reconcile(&[torn_attr(false)], sized);
+        let d = m.reconcile(&[torn_attr(true)], sized);
+        assert_eq!(d.closed.len(), 1);
+        assert_eq!(d.opened.len(), 1);
+        assert!(m.open_windows()[0].torn.is_some());
+
+        // And true->false docks it.
+        let d = m.reconcile(&[torn_attr(false)], sized);
+        assert_eq!(d.closed.len(), 1);
+        assert!(m.open_windows()[0].torn.is_none());
+    }
+
+    #[test]
+    fn docking_onto_a_zone_re_anchors_and_survives_remaps() {
+        let mut m = TransientWindowManager::new();
+        m.reconcile(&[TransientPlacement { tearoff: TransientTearoff::Zone, ..placement(4, 0.0) }], sized);
+        let (d, changed) = m.apply_drop(NodeId::new(4), TearDrop::DockOnto(NodeId::new(9))).unwrap();
+        assert!(!changed, "popup to popup: same kind, the surface is kept");
+        assert!(d.is_empty());
+        assert_eq!(m.anchor_overrides(), vec![(NodeId::new(4), NodeId::new(9))]);
+
+        // Torn off from the zone and docked back onto the anchor it has now.
+        m.apply_drop(NodeId::new(4), TearDrop::TearOff(LogicalPosition::zero())).unwrap();
+        m.apply_drop(NodeId::new(4), TearDrop::Dock).unwrap();
+        assert_eq!(m.anchor_overrides(), vec![(NodeId::new(4), NodeId::new(9))], "Dock keeps the zone");
+    }
+
+    #[test]
+    fn decide_drop_prefers_the_anchor_then_a_zone_then_tears_off() {
+        let anchor = LogicalRect::new(LogicalPosition::new(10.0, 10.0), LogicalSize::new(50.0, 20.0));
+        let zone_at = |p: LogicalPosition| (p.x > 200.0).then_some(NodeId::new(7));
+        let origin = LogicalPosition::new(400.0, 400.0);
+        assert_eq!(decide_drop(LogicalPosition::new(20.0, 20.0), anchor, origin, zone_at), TearDrop::Dock);
+        assert_eq!(
+            decide_drop(LogicalPosition::new(250.0, 20.0), anchor, origin, zone_at),
+            TearDrop::DockOnto(NodeId::new(7))
+        );
+        assert_eq!(decide_drop(LogicalPosition::new(100.0, 100.0), anchor, origin, zone_at), TearDrop::TearOff(origin));
     }
 }

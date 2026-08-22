@@ -978,6 +978,15 @@ impl GestureAndDragManager {
     #[must_use] pub fn detect_drag(&self) -> Option<DetectedDrag> {
         let session = self.get_current_session()?;
 
+        // A released button ended the session; the samples stay for velocity
+        // queries, but they are no longer a drag. Without this every pass
+        // after `DragEnd` re-detected the finished drag and re-fired
+        // `DragStart` (the tear-off drag on a popup began again on the very
+        // mouse-up that ended it).
+        if session.ended {
+            return None;
+        }
+
         if session.samples.len() < self.config.min_samples_for_gesture {
             return None;
         }

@@ -489,6 +489,12 @@ pub enum CallbackChange {
     /// manager, so it survives rebuilds; a user dismissal clears it.
     SetTransientWindowOpen { node: DomNodeId, open: bool },
 
+    /// Tear a `tearoff`-capable `<transient-window>` off into a free toplevel
+    /// (`torn = true`) or dock it back onto its anchor (`false`) — what the
+    /// user's drag of its `-azul-app-region: drag` strip does, available to a
+    /// "float" / "dock" button as well.
+    SetTransientWindowTorn { node: DomNodeId, torn: bool },
+
     /// Route every mouse move and the release to `node` until the button
     /// comes up, whatever is under the cursor (W3C `setPointerCapture`).
     CapturePointer { node: DomNodeId },
@@ -2237,6 +2243,16 @@ impl CallbackInfo {
     /// is the dismiss path.
     pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
         self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
+    }
+
+    /// Tear the open `<transient-window>` at `node` off into a free toplevel
+    /// (`torn = true`, placed where the popup is) or dock it back onto its
+    /// anchor (`false`). Needs `tearoff` on the node; a plain popup ignores
+    /// it. The same thing the user's drag of the window's
+    /// `-azul-app-region: drag` strip does, and it fires the same
+    /// `ComponentEventFilter::TornOff` / `Docked` on the node.
+    pub fn set_transient_window_torn(&mut self, node: DomNodeId, torn: bool) {
+        self.push_change(CallbackChange::SetTransientWindowTorn { node, torn });
     }
 
     /// Capture the pointer for `node`: until the mouse button is released,

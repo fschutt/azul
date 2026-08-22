@@ -7579,8 +7579,28 @@ impl WaylandPopup {
         self.snapshot_window_state_baseline("wayland.popup.pointer_motion");
         self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
         self.update_hit_test_at(pos);
+        // Gestures (a tear-off drag on the popup's grip) need the samples.
+        let buttons = self.pressed_button_state();
+        self.record_input_sample(pos, buttons, false, false, None);
         let r = self.process_window_events(0);
         self.apply_event_result(r);
+    }
+
+    /// The gesture manager's button bitfield from the popup's mouse state.
+    fn pressed_button_state(&self) -> u8 {
+        use crate::desktop::shell2::common::event::{BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT};
+        let ms = &self.common.current_window_state().mouse_state;
+        let mut state = BUTTON_STATE_NONE;
+        if ms.left_down {
+            state |= BUTTON_STATE_LEFT;
+        }
+        if ms.right_down {
+            state |= BUTTON_STATE_RIGHT;
+        }
+        if ms.middle_down {
+            state |= BUTTON_STATE_MIDDLE;
+        }
+        state
     }
 
     /// A button went down/up over the popup. `button` is the evdev code
@@ -7600,6 +7620,8 @@ impl WaylandPopup {
         }
         if let CursorPosition::InWindow(pos) = self.common.current_window_state().mouse_state.cursor_position {
             self.update_hit_test_at(pos);
+            let buttons = self.pressed_button_state();
+            self.record_input_sample(pos, buttons, down, !down, None);
         }
         let r = self.process_window_events(0);
         self.apply_event_result(r);
@@ -7788,6 +7810,14 @@ impl PlatformWindow for WaylandPopup {
     fn hide_tooltip_from_callback(&mut self) {}
 
     fn sync_window_state(&mut self) {}
+
+    fn window_follows_position_changes(&self) -> bool {
+        // `xdg_wm_base` is bound at v1: no `xdg_popup.reposition`, so a
+        // popup cannot be moved once mapped. The tear-off drag still works
+        // (the drop is computed arithmetically); the popup just does not
+        // travel with the pointer until it becomes a toplevel.
+        false
+    }
 }
 
 impl Drop for WaylandPopup {

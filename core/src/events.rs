@@ -323,6 +323,12 @@ pub enum LifecycleReason {
     /// A `<transient-window>` was closed by the USER (outside click, Escape),
     /// not by the app flipping `open`.
     Dismiss,
+    /// A `<transient-window>` was torn off its anchor into a free toplevel
+    /// by the user's drag. `current_bounds` is where it went, in the parent.
+    TearOff,
+    /// A torn-off `<transient-window>` was docked back (onto its anchor or a
+    /// drop zone) by the user's drag.
+    Dock,
 }
 
 /// Keyboard modifier keys state.
@@ -657,6 +663,13 @@ pub enum EventType {
     /// Escape). Fired on the transient node so the app can drop its `open`
     /// flag; the surface is already gone by the time this runs.
     Dismiss,
+    /// A `<transient-window>` was torn off by the user's drag and is now a
+    /// free toplevel. Fired on the transient node; the lifecycle data's
+    /// `current_bounds` is the toplevel's rect in the parent's coordinates,
+    /// for apps that persist their palette layout.
+    TearOff,
+    /// A torn-off `<transient-window>` was docked back by the user's drag.
+    Dock,
 
     // Window Events
     /// Window resized
@@ -1292,6 +1305,8 @@ const fn matches_component_filter(
             | (ComponentEventFilter::Updated, EventType::Update)
             | (ComponentEventFilter::NodeResized, EventType::Resize)
             | (ComponentEventFilter::Dismissed, EventType::Dismiss)
+            | (ComponentEventFilter::TornOff, EventType::TearOff)
+            | (ComponentEventFilter::Docked, EventType::Dock)
     )
 }
 
@@ -2466,6 +2481,14 @@ pub enum ComponentEventFilter {
     /// Escape). The popup is closed by the engine regardless; this is where
     /// the app clears its own `open` state so the next layout agrees.
     Dismissed,
+    /// Fired on a `<transient-window>` the user tore off its anchor by
+    /// dragging its `-azul-app-region: drag` strip; it is a free toplevel
+    /// now. The event's `current_bounds` is its rect in the parent.
+    TornOff,
+    /// Fired on a torn-off `<transient-window>` the user docked back - onto
+    /// its anchor, or onto a `tearoff-zone` node, which is its anchor from
+    /// here on.
+    Docked,
 }
 
 /// Defines application-level events not tied to a specific window or node.
@@ -2807,6 +2830,8 @@ pub trait EventProvider {
         E::Update => vec![EF::Component(ComponentEventFilter::Updated)],
         E::Resize => vec![EF::Component(ComponentEventFilter::NodeResized)],
         E::Dismiss => vec![EF::Component(ComponentEventFilter::Dismissed)],
+        E::TearOff => vec![EF::Component(ComponentEventFilter::TornOff)],
+        E::Dock => vec![EF::Component(ComponentEventFilter::Docked)],
 
         // Hardware input-device events (P6) — node-level Hover mirror + the
         // window-level filter (the device isn't bound to a node).
@@ -5803,6 +5828,8 @@ mod autotest_generated {
             (ComponentEventFilter::Updated, EventType::Update),
             (ComponentEventFilter::NodeResized, EventType::Resize),
             (ComponentEventFilter::Dismissed, EventType::Dismiss),
+            (ComponentEventFilter::TornOff, EventType::TearOff),
+            (ComponentEventFilter::Docked, EventType::Dock),
         ];
         for (filter, ty) in pairs {
             let ev = lifecycle(ty);
@@ -5898,6 +5925,8 @@ mod autotest_generated {
             (EventType::Update, EventData::None),
             (EventType::Resize, EventData::None),
             (EventType::Dismiss, EventData::None),
+            (EventType::TearOff, EventData::None),
+            (EventType::Dock, EventData::None),
             (EventType::WindowResize, EventData::None),
             (EventType::WindowMove, EventData::None),
             (EventType::WindowClose, EventData::None),

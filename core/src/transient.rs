@@ -70,6 +70,46 @@ pub enum TransientDismiss {
     None,
 }
 
+/// Whether - and how - the user may drag a transient window away from its
+/// anchor.
+///
+/// A torn-off window is a free toplevel that is STILL the same DOM subtree:
+/// Photoshop palettes, GIMP tear-off menus, Firefox tear-off tabs. The drag
+/// starts on any node inside the window that declares `-azul-app-region:
+/// drag` (the window's own title strip); the engine moves the window with the
+/// pointer and decides on release.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum TransientTearoff {
+    /// The window stays where its anchor put it. The default.
+    #[default]
+    None,
+    /// Dropping it anywhere off its anchor makes it a free toplevel; dragging
+    /// the toplevel back over the anchor docks it again.
+    Free,
+    /// Like `Free`, and dropping it onto a DROP ZONE re-anchors the window
+    /// there instead. Zones are the nodes matching the selector carried in
+    /// the node's `tearoff-zone` attribute (`tearoff="zone:.sidebar"` in
+    /// XML sets both); they are hit-tested in the PARENT's layout.
+    Zone,
+}
+
+impl TransientTearoff {
+    /// `"true"` / `"free"` / `"1"` / `""` -> `Free`, `"zone"` or
+    /// `"zone:<selector>"` -> `Zone`, anything else -> `None`.
+    #[must_use]
+    pub fn parse(value: &str) -> Self {
+        let v = value.trim();
+        if matches!(v, "true" | "free" | "1" | "") {
+            Self::Free
+        } else if v == "zone" || v.starts_with("zone:") {
+            Self::Zone
+        } else {
+            Self::None
+        }
+    }
+}
+
 /// The inline configuration of a `NodeType::TransientWindow`.
 ///
 /// `Copy` and small on purpose: it rides inside `NodeType` the way
@@ -92,13 +132,20 @@ pub struct TransientWindowConfig {
     pub anchor: TransientAnchor,
     /// What closes it.
     pub dismiss: TransientDismiss,
+    /// Whether the user may drag the window OUT of its anchor into a free
+    /// toplevel that is still the same DOM subtree (see [`TransientTearoff`]).
+    pub tearoff: TransientTearoff,
     /// The ONLY thing an application toggles. `true` materialises the subtree
     /// as a window; `false` tears it down and drops it from layout entirely.
     pub open: bool,
-    /// `true` lets the user drag the window OUT of its anchor, at which point
-    /// it becomes a free toplevel that is still the same DOM subtree. Phase 6
-    /// of the plan; parsed and carried now so the attribute is stable.
-    pub tearoff: bool,
+    /// The app's word on whether the window is currently torn off. Like
+    /// `open`, this is a REQUEST the engine follows on every change: flipping
+    /// it `true` tears the window off at its anchor position, flipping it
+    /// `false` docks it. In between, the user's own drags win - a palette the
+    /// user parked by the document does not snap back on the next layout
+    /// just because the app still says `torn="false"`. The app learns about
+    /// user tear-offs through `ComponentEventFilter::TornOff` / `Docked`.
+    pub torn: bool,
 }
 
 impl Default for TransientWindowConfig {
@@ -109,7 +156,8 @@ impl Default for TransientWindowConfig {
             anchor: TransientAnchor::Bottom,
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
-            tearoff: false,
+            tearoff: TransientTearoff::None,
+            torn: false,
         }
     }
 }
@@ -123,7 +171,8 @@ impl TransientWindowConfig {
             anchor: TransientAnchor::Bottom,
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
-            tearoff: false,
+            tearoff: TransientTearoff::None,
+            torn: false,
         }
     }
 
@@ -152,8 +201,14 @@ impl TransientWindowConfig {
     }
 
     #[must_use]
-    pub const fn with_tearoff(mut self, tearoff: bool) -> Self {
+    pub const fn with_tearoff(mut self, tearoff: TransientTearoff) -> Self {
         self.tearoff = tearoff;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_torn(mut self, torn: bool) -> Self {
+        self.torn = torn;
         self
     }
 }
@@ -180,7 +235,11 @@ impl TransientWindowConfig {
                 true
             }
             "tearoff" => {
-                self.tearoff = matches!(value.trim(), "true" | "1" | "");
+                self.tearoff = TransientTearoff::parse(value);
+                true
+            }
+            "torn" => {
+                self.torn = matches!(value.trim(), "true" | "1" | "");
                 true
             }
             "size" => {
@@ -293,13 +352,19 @@ mod tests {
         assert!(c.apply_attr("dismiss", "escape"));
         assert!(c.apply_attr("size", "320x240"));
         assert!(c.apply_attr("tearoff", "true"));
+        assert!(c.apply_attr("torn", "true"));
         assert!(!c.apply_attr("class", "x"), "not ours - the caller keeps it");
 
         assert!(c.open);
         assert_eq!(c.anchor, TransientAnchor::Right);
         assert_eq!(c.dismiss, TransientDismiss::Escape);
         assert!(matches!(c.size, OptionLogicalSize::Some(s) if s.width == 320.0 && s.height == 240.0));
-        assert!(c.tearoff);
+        assert_eq!(c.tearoff, TransientTearoff::Free);
+        assert!(c.torn);
+        c.apply_attr("tearoff", "zone:.sidebar");
+        assert_eq!(c.tearoff, TransientTearoff::Zone);
+        c.apply_attr("tearoff", "nope");
+        assert_eq!(c.tearoff, TransientTearoff::None);
 
         // Degrade, never refuse: a bad size means content-sized.
         c.apply_attr("size", "big");

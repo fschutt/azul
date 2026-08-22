@@ -116,6 +116,9 @@ pub const COLOR_PICKER_PLANE_CLASS: &str = "__azul_native_color_picker_plane";
 pub const COLOR_PICKER_HUE_CLASS: &str = "__azul_native_color_picker_hue";
 /// Class on the alpha bar.
 pub const COLOR_PICKER_ALPHA_CLASS: &str = "__azul_native_color_picker_alpha";
+/// Class on the picker's grip strip: drag it to tear the picker off into a
+/// floating palette, drag the palette back over the swatch to dock it.
+pub const COLOR_PICKER_GRIP_CLASS: &str = "__azul_native_color_picker_grip";
 
 /// Width of the plane and hue bar, in px. The panel is this plus padding.
 const PLANE_WIDTH: f32 = 216.0;
@@ -215,11 +218,17 @@ impl ColorInput {
 
         let panel = picker_panel(&data, color);
 
+        // `tearoff`: the grip strip at the top of the panel tears the picker
+        // off into a floating palette (a real toplevel) and docks it back.
         let mut transient = NodeData::create_node(NodeType::TransientWindow(
             TransientWindowConfig::closed()
                 .with_anchor(TransientAnchor::Bottom)
-                .with_dismiss(TransientDismiss::Outside),
+                .with_dismiss(TransientDismiss::Outside)
+                .with_tearoff(azul_core::transient::TransientTearoff::Free),
         ));
+        transient.set_attributes(
+            vec![azul_core::dom::AttributeType::Title("Colour".into())].into(),
+        );
         transient.add_callback(
             EventFilter::Component(ComponentEventFilter::Dismissed),
             data.clone(),
@@ -762,6 +771,25 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         .with_child(channel("Blue", "B", color.b, on_blue_changed))
         .with_child(channel("Opacity", "A", color.a, on_alpha_changed));
 
+    // The grip: a drag region (`-azul-app-region: drag`). In the popup the
+    // engine runs the tear-off drag on it; in the torn-off palette, a drag
+    // back over the swatch docks it.
+    let grip = Dom::create_div()
+        .with_ids_and_classes(vec![Class(COLOR_PICKER_GRIP_CLASS.into())].into())
+        .with_css(
+            "display: flex; flex-direction: row; justify-content: center; align-items: center; \
+             height: 10px; margin-top: -4px; margin-bottom: -2px; cursor: grab; \
+             -azul-app-region: drag;",
+        )
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Separator,
+            accessibility_name: Some("Drag to tear off".into()).into(),
+            ..Default::default()
+        })
+        .with_child(Dom::create_div().with_css(
+            "width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8;",
+        ));
+
     Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_CLASS.into())].into())
         .with_css(
@@ -774,6 +802,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             accessibility_name: Some("Colour picker".into()).into(),
             ..Default::default()
         })
+        .with_child(grip)
         .with_child(plane)
         .with_child(hue)
         .with_child(alpha)
@@ -1969,7 +1998,13 @@ mod autotest_generated {
             // ...holding the panel.
             let panel = &kids[expected - 1].children.as_ref()[0];
             assert_eq!(classes(panel), vec![COLOR_PICKER_CLASS.to_string()]);
-            assert_eq!(panel.children.as_ref().len(), 5, "plane, hue, alpha, preview row, rgb row");
+            assert_eq!(panel.children.as_ref().len(), 6, "grip, plane, hue, alpha, preview row, rgb row");
+            assert_eq!(cfg.tearoff, azul_core::transient::TransientTearoff::Free, "{c:?}: the picker tears off");
+            assert_eq!(
+                classes(&panel.children.as_ref()[0]),
+                vec![COLOR_PICKER_GRIP_CLASS.to_string()],
+                "{c:?}: the grip comes first"
+            );
         }
     }
     #[test]
@@ -2338,7 +2373,7 @@ mod autotest_generated {
         // "nothing concrete was hit" case. With no popup child to find, the click is a
         // no-op — never a panic, never a stray change.
         let c = SAMPLE_COLORS[4];
-        for hit in [node(99), node(usize::MAX - 1), node_none()] {
+        for hit in [node(9_999), node(usize::MAX - 1), node_none()] {
             let (styled, state) = laid_out(ColorInput::create(c));
             let (update, changes) = click(styled, &state, hit);
             assert_eq!(update, Update::DoNothing, "{hit:?}: wrong verdict");
