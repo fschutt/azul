@@ -222,3 +222,238 @@ mod tests {
         assert_ne!(transient_dom_id(0), transient_dom_id(1));
     }
 }
+
+// ============================================================================
+// The manager: which transient windows are open, and their laid-out content
+// ============================================================================
+
+/// One open transient window as the ENGINE sees it: where it is anchored,
+/// what it contains, and how big its content came out.
+///
+/// The backend owns the SURFACE (an `xdg_popup`, an `NSPanel`, a `WS_POPUP` hwnd,
+/// or nothing at all headless); this owns everything the surface displays.
+/// The split is deliberate — it is what lets one dismiss implementation and
+/// one layout path serve every platform.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct OpenTransientWindow {
+    /// The `<transient-window>` node in the parent DOM that this window IS.
+    /// Identity: if the parent rebuilds and the same node is still open, the
+    /// window persists rather than closing and re-opening.
+    pub source_node: NodeId,
+    /// The id under which the popup's content is laid out. Stable for the
+    /// window's lifetime, so `layout_results[content_dom]` is its content.
+    pub content_dom: DomId,
+    /// Anchor, edge, dismiss, requested size — from the last parent layout.
+    pub placement: TransientPlacement,
+    /// The size the content came out at after its own layout, or the
+    /// requested size if one was given. What the backend sizes the surface to.
+    pub content_size: LogicalSize,
+}
+
+/// Tracks the open transient windows across parent layouts.
+///
+/// The hard part is CONTINUITY. The parent may rebuild its DOM sixty times a
+/// second (a resize drag), and each rebuild produces a fresh `StyledDom` with
+/// fresh node ids. A popup must not close and re-open on every one of those —
+/// that is the flicker the screenshare fix (d386614cd) chased out of image
+/// nodes, and it would be far worse on a window. So a window is matched to its
+/// source node across rebuilds, and only a node that is genuinely gone (or
+/// `open=false`) tears its window down.
+#[derive(Debug, Default)]
+pub struct TransientWindowManager {
+    open: Vec<OpenTransientWindow>,
+    /// Monotonic: a content `DomId` is never reused within a window's lifetime,
+    /// so a stale reference to a closed popup cannot alias a new one.
+    next_index: usize,
+}
+
+/// What changed between two parent layouts, so the backend knows which
+/// surfaces to create, move, or destroy. Returned by
+/// [`TransientWindowManager::reconcile`].
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct TransientDiff {
+    /// Content dom ids whose window must be CREATED.
+    pub opened: Vec<DomId>,
+    /// Content dom ids whose window still exists but moved or resized.
+    pub moved: Vec<DomId>,
+    /// Content dom ids whose window must be DESTROYED.
+    pub closed: Vec<DomId>,
+}
+
+impl TransientWindowManager {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { open: Vec::new(), next_index: 0 }
+    }
+
+    /// Every currently open window.
+    #[must_use]
+    pub fn open_windows(&self) -> &[OpenTransientWindow] {
+        &self.open
+    }
+
+    /// The open window whose content is laid out under `dom`, if any.
+    #[must_use]
+    pub fn get(&self, dom: DomId) -> Option<&OpenTransientWindow> {
+        self.open.iter().find(|w| w.content_dom == dom)
+    }
+
+    /// Is `dom` one of ours? Lets a dispatcher route a click on a popup surface
+    /// to the right content without the backend knowing about content ids.
+    #[must_use]
+    pub fn is_transient_dom(&self, dom: DomId) -> bool {
+        self.get(dom).is_some()
+    }
+
+    /// Bring the open set in line with what the parent's latest layout says.
+    ///
+    /// `wanted` is what [`collect_open_transient_windows`] found this pass.
+    /// `content_size_of` lays out a window's content and reports its extent;
+    /// it is a closure because layout needs the whole `LayoutWindow` and this
+    /// struct must not borrow it.
+    ///
+    /// Matching is by `source_node`. That is exactly right for a rebuild that
+    /// preserved structure and exactly wrong for one that reordered siblings —
+    /// which is the same trade the reconciler already makes for every other
+    /// per-node state (datasets, images), so a transient window is no more and
+    /// no less stable than the node it hangs off.
+    pub fn reconcile(
+        &mut self,
+        wanted: &[TransientPlacement],
+        mut content_size_of: impl FnMut(DomId, &TransientPlacement) -> Option<LogicalSize>,
+    ) -> TransientDiff {
+        let mut diff = TransientDiff::default();
+
+        // 1. Close anything no longer wanted.
+        let still_wanted = |w: &OpenTransientWindow| wanted.iter().any(|p| p.node == w.source_node);
+        let (keep, close): (Vec<_>, Vec<_>) = core::mem::take(&mut self.open)
+            .into_iter()
+            .partition(still_wanted);
+        diff.closed.extend(close.iter().map(|w| w.content_dom));
+        self.open = keep;
+
+        // 2. Update or open each wanted window.
+        for p in wanted {
+            if let Some(existing) = self.open.iter_mut().find(|w| w.source_node == p.node) {
+                let moved = existing.placement != *p;
+                existing.placement = *p;
+                if let Some(sz) = content_size_of(existing.content_dom, p) {
+                    if moved || sz != existing.content_size {
+                        existing.content_size = sz;
+                        diff.moved.push(existing.content_dom);
+                    }
+                } else if moved {
+                    diff.moved.push(existing.content_dom);
+                }
+                continue;
+            }
+
+            let content_dom = transient_dom_id(self.next_index);
+            self.next_index += 1;
+            let Some(content_size) = content_size_of(content_dom, p) else {
+                continue; // content could not be laid out; do not open onto nothing
+            };
+            self.open.push(OpenTransientWindow {
+                source_node: p.node,
+                content_dom,
+                placement: *p,
+                content_size,
+            });
+            diff.opened.push(content_dom);
+        }
+
+        diff
+    }
+
+    /// Close everything — the parent window is going away.
+    pub fn close_all(&mut self) -> Vec<DomId> {
+        core::mem::take(&mut self.open).into_iter().map(|w| w.content_dom).collect()
+    }
+}
+
+/// A popup is keyed by the node it hangs off, and node ids are arena indices
+/// that shift when the parent rebuilds. Without this the popup would point at
+/// a live but WRONG node after any rebuild that inserted or removed a sibling
+/// above it — and `LayoutWindow`'s remap destructure refuses to compile until
+/// every node-keyed manager is listed, which is how this impl came to exist.
+///
+/// A source node that is UNMOUNTED by the rebuild drops its window: the thing
+/// it was anchored to is gone, so there is nothing for the popup to belong to.
+impl crate::managers::NodeIdRemap for TransientWindowManager {
+    fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        if dom != DomId::ROOT_ID {
+            return; // transient windows hang off the parent (root) dom only
+        }
+        self.open.retain_mut(|w| match map.resolve(w.source_node) {
+            Some(new_id) => {
+                w.source_node = new_id;
+                w.placement.node = new_id;
+                true
+            }
+            None => false,
+        });
+    }
+}
+
+#[cfg(test)]
+mod manager_tests {
+    use super::*;
+    use azul_core::geom::LogicalPosition;
+
+    fn placement(node: usize, x: f32) -> TransientPlacement {
+        TransientPlacement {
+            node: NodeId::new(node),
+            anchor_rect: LogicalRect::new(LogicalPosition::new(x, 0.0), LogicalSize::new(10.0, 10.0)),
+            anchor: TransientAnchor::Bottom,
+            dismiss: TransientDismiss::Outside,
+            size: OptionLogicalSize::None,
+            tearoff: false,
+        }
+    }
+    fn sized(_: DomId, _: &TransientPlacement) -> Option<LogicalSize> {
+        Some(LogicalSize::new(100.0, 50.0))
+    }
+
+    /// THE property this exists for: a window that is still wanted after a
+    /// parent rebuild keeps its content dom — it is not closed and re-opened.
+    #[test]
+    fn a_still_open_window_survives_a_rebuild_without_reopening() {
+        let mut m = TransientWindowManager::new();
+        let d1 = m.reconcile(&[placement(4, 0.0)], sized);
+        assert_eq!(d1.opened.len(), 1);
+        let id = d1.opened[0];
+
+        // Same node, same place: nothing happens.
+        let d2 = m.reconcile(&[placement(4, 0.0)], sized);
+        assert_eq!(d2, TransientDiff::default(), "nothing changed, nothing to do");
+        assert_eq!(m.get(id).map(|w| w.source_node), Some(NodeId::new(4)));
+
+        // Same node, anchor moved (the parent was resized): MOVED, not re-opened.
+        let d3 = m.reconcile(&[placement(4, 50.0)], sized);
+        assert_eq!(d3.moved, vec![id]);
+        assert!(d3.opened.is_empty() && d3.closed.is_empty());
+    }
+
+    /// A node that stops being open closes its window, and a new open node
+    /// gets a FRESH id — never a recycled one.
+    #[test]
+    fn closing_and_reopening_never_reuses_an_id() {
+        let mut m = TransientWindowManager::new();
+        let first = m.reconcile(&[placement(4, 0.0)], sized).opened[0];
+        let d = m.reconcile(&[], sized);
+        assert_eq!(d.closed, vec![first]);
+        assert!(m.open_windows().is_empty());
+
+        let second = m.reconcile(&[placement(4, 0.0)], sized).opened[0];
+        assert_ne!(first, second, "a stale handle to the old popup must not alias the new one");
+    }
+
+    /// Content that cannot be laid out does not open a window.
+    #[test]
+    fn unlayoutable_content_does_not_open() {
+        let mut m = TransientWindowManager::new();
+        let d = m.reconcile(&[placement(4, 0.0)], |_, _| None);
+        assert!(d.opened.is_empty());
+        assert!(m.open_windows().is_empty());
+    }
+}
