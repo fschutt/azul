@@ -75,6 +75,36 @@ pub struct Layer {
     pub composite_dirty: bool,
 }
 
+/// The `w × h` device-pixel window of `parent` whose top-left sits at
+/// (`ox`, `oy`) in the parent's pixel space, as RGBA bytes; pixels outside
+/// the parent are transparent black. The backdrop a plain child layer is
+/// seeded with (see `render_layers`).
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap, clippy::cast_possible_truncation)] // bounded pixel/coord cast
+fn backdrop_under(parent: &AzulPixmap, ox: i32, oy: i32, w: u32, h: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (w as usize) * (h as usize) * 4];
+    let pw = parent.width as i32;
+    let ph = parent.height as i32;
+    let src = parent.data();
+    for y in 0..h as i32 {
+        let py = oy.saturating_add(y);
+        if py < 0 || py >= ph {
+            continue;
+        }
+        // Overlap of [ox, ox + w) with [0, pw).
+        let x0 = ox.max(0);
+        let x1 = ox.saturating_add(w as i32).min(pw);
+        if x1 <= x0 {
+            continue;
+        }
+        let src_start = ((py * pw + x0) as usize) * 4;
+        let src_end = ((py * pw + x1) as usize) * 4;
+        let dst_start = ((y * w as i32) + (x0 - ox)) as usize * 4;
+        let len = src_end - src_start;
+        out[dst_start..dst_start + len].copy_from_slice(&src[src_start..src_end]);
+    }
+    out
+}
+
 /// Reason a layer was created.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayerReason {
@@ -100,8 +130,9 @@ impl CompositorState {
         // colorimetric LCD text blend reads destination pixels, so any
         // path that touches the root pixbuf before the first
         // render_layers (which re-fills it per frame) must find the same
-        // base a fresh repaint would. Non-root layers stay transparent —
-        // they composite.
+        // base a fresh repaint would. Effect layers (opacity / filter /
+        // transform) stay transparent — they composite; a PLAIN layer is
+        // seeded with its parent's backdrop in `render_layers`.
         let mut root_layer = Layer::new(
             root_id,
             LogicalRect {
@@ -453,6 +484,33 @@ impl CompositorState {
         render_state: &CpuRenderState,
     ) -> Result<(), String> {
         let scroll_offsets = &render_state.scroll_offsets;
+
+        // PARENT-FIRST ORDER. A plain scroll-frame layer is seeded with its
+        // parent's already-rendered pixels below, so the parent must have
+        // rendered first; `self.layers` is a HashMap and iterates in no
+        // order. Walk the tree from the root (children in z-order) and
+        // remember each layer's parent.
+        let mut order: Vec<LayerId> = Vec::with_capacity(self.layers.len());
+        let mut parent_of: HashMap<LayerId, LayerId> = HashMap::new();
+        let mut stack: Vec<LayerId> = vec![self.root_layer];
+        while let Some(id) = stack.pop() {
+            order.push(id);
+            if let Some(layer) = self.layers.get(&id) {
+                for child in layer.children.iter().rev() {
+                    parent_of.insert(*child, id);
+                    stack.push(*child);
+                }
+            }
+        }
+        // A layer unreachable from the root cannot exist after
+        // `allocate_layers_from_display_list`, but render it rather than
+        // drop it if it ever does.
+        for id in self.layers.keys() {
+            if !order.contains(id) {
+                order.push(*id);
+            }
+        }
+
         // Collect layer IDs, ranges, bounds, scroll_id and child ranges.
         let layer_ranges: Vec<(
             LayerId,
@@ -460,9 +518,9 @@ impl CompositorState {
             LogicalRect,
             Option<LocalScrollId>,
             Vec<(usize, usize)>,
-        )> = self
-            .layers
+        )> = order
             .iter()
+            .filter_map(|id| self.layers.get(id).map(|layer| (id, layer)))
             .map(|(id, layer)| {
                 // Ranges of this layer's DIRECT children (nested scroll frames /
                 // opacity / transform groups). They render into their own
@@ -504,12 +562,59 @@ impl CompositorState {
                 .and_then(|id| scroll_offsets.get(&id).copied())
                 .unwrap_or((0.0, 0.0));
 
+            // THE BACKDROP A LAYER'S CONTENT IS DRAWN OVER.
+            //
+            // A plain layer — opacity 1, no filter, identity transform; in
+            // practice every scroll frame — is composited by a verbatim
+            // copy of its opaque pixels and a blend of the rest, so the
+            // pixels it did not paint must already BE the parent's pixels.
+            // They used to be transparent black, and the LCD text sweep
+            // blends per stripe against whatever is in the destination
+            // row, then forces the pixel opaque: every glyph inside a scroll
+            // frame without a local background got dark RGB fringes blended
+            // against black — the "ghosted subtitle on the first draw"
+            // (the first frame is the only routinely layered render; later
+            // repaints are flat and silently fixed it). Seed such a layer
+            // with the parent's pixels under its bounds instead. Where the
+            // layer paints nothing the composite is a no-op, where it
+            // paints the blend sees the true backdrop — full == flat.
+            //
+            // Opacity / filter / transform layers keep the transparent clear:
+            // their content must be composited through the effect.
+            let seed_from_parent = *layer_id != self.root_layer
+                && self.layers.get(layer_id).is_some_and(|l| {
+                    l.opacity >= 1.0
+                        && l.filters.is_empty()
+                        && !l.is_backdrop_filter
+                        && l.transform.is_identity(IDENTITY_EPSILON_F64)
+                });
+            let seed: Option<Vec<u8>> = if seed_from_parent {
+                let (w, h) = self
+                    .layers
+                    .get(layer_id)
+                    .map_or((0, 0), |l| (l.pixbuf.width, l.pixbuf.height));
+                // Child-local (0, 0) lands at `bounds.origin` in the parent's
+                // pixel space — the same placement `composite_layer_recursive`
+                // uses for an untransformed layer.
+                let ox = (layer_bounds.origin.x * dpi_factor).round() as i32;
+                let oy = (layer_bounds.origin.y * dpi_factor).round() as i32;
+                parent_of
+                    .get(layer_id)
+                    .and_then(|pid| self.layers.get(pid))
+                    .map(|parent| backdrop_under(&parent.pixbuf, ox, oy, w, h))
+            } else {
+                None
+            };
+
             let layer = self.layers.get_mut(layer_id).unwrap();
             layer.scroll_offset = soff;
 
-            // Clear the layer pixbuf (transparent for non-root, white for root)
+            // Clear the layer pixbuf: white for the root, the parent's
+            // backdrop for a plain layer, transparent for an effect layer.
             if *layer_id == self.root_layer {
                 layer.pixbuf.fill(255, 255, 255, 255);
+            } else if let Some(seed) = seed.filter(|s| s.len() == layer.pixbuf.data().len()) {
+                layer.pixbuf.data_mut().copy_from_slice(&seed);
             } else {
                 layer.pixbuf.fill(0, 0, 0, 0);
             }
