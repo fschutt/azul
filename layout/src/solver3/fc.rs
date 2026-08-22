@@ -1852,18 +1852,27 @@ fn layout_bfc<T: ParsedFontTrait>(
                 is_first_child = false;
                 // Empty first child: its collapsed margin can escape with parent's
                 if parent_has_top_blocker {
-                    // Parent has blocker: add margins
-                    if accumulated_top_margin == 0.0 {
-                        accumulated_top_margin = parent_margin_top;
-                    }
-                    main_pen += accumulated_top_margin + self_collapsed;
+                    // Parent has a top blocker (padding / border): the empty
+                    // child's collapsed-through margin is ONE margin inside the
+                    // parent's content box. It is CARRIED in `last_margin_bottom`
+                    // — the next sibling's top margin collapses with it, or the
+                    // parent's bottom blocker adds it once at the end — and the
+                    // pen does not move. Advancing the pen by it here AND
+                    // carrying it counted it twice: `<div style="padding:4px">
+                    // <p></p></div>` came out 4 + 13 + 13 + 4 instead of
+                    // 4 + 13 + 4 (the AzWidgets placeholder sat 13 px too low).
+                    // The parent's own top margin lives in the GRANDPARENT's
+                    // coordinate space and is never added here (see the
+                    // non-empty blocked case below).
                     top_margin_resolved = true;
                     accumulated_top_margin = 0.0;
+                    // The empty block's border edges sit after its collapsed
+                    // top margin (Chrome: offsetTop = padding + margin).
+                    seam_main = main_pen + self_collapsed;
                 } else {
                     accumulated_top_margin = collapse_margins(parent_margin_top, self_collapsed);
+                    seam_main = main_pen;
                 }
-                // Both arms seat the seam at the (possibly advanced) pen.
-                seam_main = main_pen;
                 last_margin_bottom = self_collapsed;
             } else {
                 // Empty sibling: collapse with previous sibling's bottom margin

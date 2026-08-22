@@ -28,8 +28,43 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
     run_layout_with_size(html, 800.0, 600.0)
 }
 
+/// `(x, y, width, height)` of the first node carrying `class`, from a laid-out
+/// cache + the DOM it was built from. The smoke tests above only asserted
+/// "positions exist"; the empty-block tests below assert GEOMETRY.
+fn rect_of_class(cache: &Solver3LayoutCache, dom: &azul_core::styled_dom::StyledDom, class: &str) -> (f32, f32, f32, f32) {
+    use azul_core::dom::IdOrClass;
+    let tree = cache.tree.as_ref().expect("layout tree");
+    let nodes = dom.node_data.as_container();
+    let (layout_idx, _) = tree
+        .nodes
+        .iter()
+        .enumerate()
+        .find(|(_, n)| {
+            n.dom_node_id.is_some_and(|id| {
+                nodes[id].get_ids_and_classes().iter().any(|c| match c {
+                    IdOrClass::Class(s) => s.as_str() == class,
+                    IdOrClass::Id(_) => false,
+                })
+            })
+        })
+        .unwrap_or_else(|| panic!("no laid-out node with class {class}"));
+    let pos = cache.calculated_positions[layout_idx];
+    let size = tree.nodes[layout_idx].used_size.expect("used size");
+    (pos.x, pos.y, size.width, size.height)
+}
+
+fn run_layout_keep_dom(html: &str) -> (Solver3LayoutCache, azul_core::styled_dom::StyledDom) {
+    let styled_dom = Dom::from_xml_string(html);
+    let cache = run_layout_styled(&styled_dom, 800.0, 600.0);
+    (cache, styled_dom)
+}
+
 fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
     let styled_dom = Dom::from_xml_string(html);
+    run_layout_styled(&styled_dom, w, h)
+}
+
+fn run_layout_styled(styled_dom: &azul_core::styled_dom::StyledDom, w: f32, h: f32) -> Solver3LayoutCache {
     let fc_cache = build_font_cache();
     let mut font_manager = FontManager::new(fc_cache).expect("Failed to create FontManager");
     let mut layout_cache = Solver3LayoutCache {
@@ -69,7 +104,7 @@ fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        &styled_dom,
+        styled_dom,
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
@@ -322,6 +357,102 @@ fn test_empty_block_margins_collapse_through() {
     "#;
     let cache = run_layout(html);
     assert!(!cache.calculated_positions.is_empty());
+}
+
+/// CSS 2.2 §8.3.1: an empty block's top and bottom margins collapse through
+/// each other — ONE margin, `max(top, bottom)` — and that one margin collapses
+/// with the neighbours'. Here a(50, mb 10) / empty(mt 20, mb 30) / b(mt 5):
+/// every margin between a and b is adjoining, so b sits at 50 + max(10, 20,
+/// 30, 5) = 80.
+#[test]
+fn an_empty_block_between_siblings_collapses_every_margin_to_the_max() {
+    let html = r#"
+    <html><head><style>
+        * { padding: 0; }
+        body { margin: 0; }
+        .a { height: 50px; margin-bottom: 10px; }
+        .empty { margin-top: 20px; margin-bottom: 30px; }
+        .b { height: 50px; margin-top: 5px; }
+    </style></head>
+    <body>
+        <div class="a"></div>
+        <div class="empty"></div>
+        <div class="b"></div>
+    </body></html>
+    "#;
+    let (cache, dom) = run_layout_keep_dom(html);
+    let (_, b_y, _, _) = rect_of_class(&cache, &dom, "b");
+    assert!((b_y - 80.0).abs() < 0.5, "b must start at 50 + max(10, 20, 30, 5) = 80, got {b_y}");
+    let (_, e_y, _, e_h) = rect_of_class(&cache, &dom, "empty");
+    assert!(e_h.abs() < 0.5, "an empty block is zero tall, got {e_h}");
+    assert!(e_y >= 50.0 && e_y <= 80.5, "the empty block sits inside the collapsed seam: {e_y}");
+}
+
+/// THE CLASS (AzWidgets 2026-08-21, "placeholder drawn low"): an EMPTY FIRST
+/// child under a parent with a top blocker (padding/border). Its collapsed-
+/// through margin is one margin inside the parent's content box — 4 + 13 + 4
+/// = 21 tall for `<div style="padding:4px"><p style="margin:13px 0"></p></div>`
+/// (Chrome: 21). The pen used to advance by the margin AND carry it for the
+/// parent's bottom blocker to add again: 34.
+#[test]
+fn an_empty_first_child_inside_a_padded_parent_counts_its_margin_once() {
+    let html = r#"
+    <html><head><style>
+        body { margin: 0; padding: 0; }
+        .wrap { padding: 4px; }
+        .e { margin-top: 13px; margin-bottom: 13px; }
+    </style></head>
+    <body>
+        <div class="wrap"><div class="e"></div></div>
+    </body></html>
+    "#;
+    let (cache, dom) = run_layout_keep_dom(html);
+    let (_, _, _, wrap_h) = rect_of_class(&cache, &dom, "wrap");
+    assert!(
+        (wrap_h - 21.0).abs() < 0.5,
+        "padding 4 + the empty child's ONE collapsed margin 13 + padding 4 = 21, got {wrap_h}"
+    );
+    let (_, e_y, _, _) = rect_of_class(&cache, &dom, "e");
+    assert!(
+        (e_y - 17.0).abs() < 0.5,
+        "the empty block's border edges sit after its top margin: 4 + 13 = 17, got {e_y}"
+    );
+
+    // The same margin under a padded parent AFTER a sibling: counted once too.
+    let html = r#"
+    <html><head><style>
+        body { margin: 0; padding: 0; }
+        .wrap { padding: 4px; }
+        .a { height: 10px; }
+        .e { margin-top: 13px; margin-bottom: 13px; }
+    </style></head>
+    <body>
+        <div class="wrap"><div class="a"></div><div class="e"></div></div>
+    </body></html>
+    "#;
+    let (cache, dom) = run_layout_keep_dom(html);
+    let (_, _, _, wrap_h) = rect_of_class(&cache, &dom, "wrap");
+    assert!((wrap_h - 31.0).abs() < 0.5, "4 + 10 + 13 + 4 = 31, got {wrap_h}");
+}
+
+/// And the parent's OWN top margin never leaks into its content box through
+/// an empty first child (the "feet to meters" bug the non-empty arm documents).
+#[test]
+fn a_parents_margin_does_not_leak_into_its_content_box_through_an_empty_first_child() {
+    let html = r#"
+    <html><head><style>
+        body { margin: 0; padding: 0; }
+        .wrap { margin-top: 40px; padding: 4px; }
+        .e { margin-top: 13px; margin-bottom: 13px; }
+    </style></head>
+    <body>
+        <div class="wrap"><div class="e"></div></div>
+    </body></html>
+    "#;
+    let (cache, dom) = run_layout_keep_dom(html);
+    let (_, wrap_y, _, wrap_h) = rect_of_class(&cache, &dom, "wrap");
+    assert!((wrap_y - 40.0).abs() < 0.5, "the parent's margin positions the parent: {wrap_y}");
+    assert!((wrap_h - 21.0).abs() < 0.5, "…and is not added inside it again: {wrap_h}");
 }
 
 #[test]
