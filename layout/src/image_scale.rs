@@ -117,6 +117,7 @@ impl SrcImage<'_> {
 /// nearest at 1:1.
 #[must_use]
 #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(clippy::many_single_char_names)] // r/g/b/a channel accumulators + tap coords
 pub fn sample(src: &SrcImage<'_>, dst_w: u32, dst_h: u32, dx: u32, dy: u32) -> [u8; 4] {
     let scale_x = src.width as f32 / dst_w.max(1) as f32;
     let scale_y = src.height as f32 / dst_h.max(1) as f32;
@@ -158,6 +159,7 @@ pub fn sample(src: &SrcImage<'_>, dst_w: u32, dst_h: u32, dx: u32, dy: u32) -> [
 /// Bilinear sample at source coordinate `(fx, fy)` in pixel units (a pixel's
 /// centre is at its integer index). Used on an upscale.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[allow(clippy::many_single_char_names)] // p00/p10/.. corners + tx/ty weights
 fn bilinear(src: &SrcImage<'_>, fx: f32, fy: f32) -> [u8; 4] {
     let x0 = fx.floor();
     let y0 = fy.floor();
