@@ -798,6 +798,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         clipboard_manager: _,
         hover_manager: _,
         virtual_view_manager: _,
+        transient_windows: _,
+        pending_transient_diff: _,
         gpu_state_manager: _,
         a11y_manager: _,
         permission_manager: _,
@@ -1149,6 +1151,13 @@ pub struct LayoutWindow {
     pub hover_manager: crate::managers::hover::HoverManager,
     /// `VirtualView` manager for all nodes across all DOMs
     pub virtual_view_manager: VirtualViewManager,
+    /// Open `<transient-window>`s: which nodes are materialised as popups,
+    /// and under which `DomId` each one's content is laid out. See
+    /// `crate::transient`.
+    pub transient_windows: crate::transient::TransientWindowManager,
+    /// What the last layout pass did to the set of open popups — the backend
+    /// drains this after `regenerate_layout` to create/move/destroy surfaces.
+    pub pending_transient_diff: crate::transient::TransientDiff,
     /// GPU state manager for all nodes across all DOMs
     pub gpu_state_manager: GpuStateManager,
     /// Accessibility manager for screen reader support
@@ -1627,6 +1636,8 @@ impl LayoutWindow {
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
             virtual_view_manager: VirtualViewManager::new(),
+            transient_windows: crate::transient::TransientWindowManager::new(),
+            pending_transient_diff: crate::transient::TransientDiff::default(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),
                 default_duration_200ms(),
@@ -3449,6 +3460,99 @@ impl LayoutWindow {
     ///
     /// Returns a [`solver3::LayoutError`] if the solver fails to lay out the
     /// root DOM or any child (`VirtualView` / iframe) DOM.
+    /// Lay out an open `<transient-window>`'s content as the ROOT of its own
+    /// dom, and report the size the content came out at.
+    ///
+    /// The subtree is extracted from the parent dom (sharing every `RefAny`
+    /// by refcount, so callbacks fire against the same app state), given the
+    /// transient `content_dom` id, and laid out through `layout_dom_recursive`
+    /// — which already gives any non-root dom a scratch cache and restores the
+    /// parent's afterwards, so the popup cannot disturb the parent's
+    /// incremental state. The result lands in `layout_results[content_dom]`,
+    /// exactly where a `VirtualView` child's would.
+    ///
+    /// Sizing: a requested size is used as-is. Otherwise the content is laid
+    /// out against the PARENT window's dimensions as a maximum (an unbounded
+    /// width would let text never wrap, so "content-sized" really means "as
+    /// big as the content needs, up to the window") and the popup takes the
+    /// extent the root actually used.
+    ///
+    /// Returns `None` if the node is not an open transient window or its
+    /// content could not be laid out — the manager then does not open it.
+    pub fn layout_transient_content(
+        &mut self,
+        source_node: NodeId,
+        content_dom: DomId,
+        requested: azul_core::geom::OptionLogicalSize,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Option<LogicalSize> {
+        use azul_core::geom::OptionLogicalSize;
+
+        let parent = self.layout_results.get(&DomId::ROOT_ID)?;
+        let dom = azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
+        let mut styled = StyledDom::create_from_dom(dom);
+        styled.dom_id = content_dom;
+
+        // The content lays out against a window-state whose size is the popup's
+        // bound: the requested size, or the parent window as a ceiling.
+        let bound = match requested {
+            OptionLogicalSize::Some(sz) => sz,
+            OptionLogicalSize::None => window_state.size.dimensions,
+        };
+        let mut popup_state = window_state.clone();
+        popup_state.size.dimensions = bound;
+
+        self.layout_dom_recursive(
+            styled,
+            &popup_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
+        )
+        .ok()?;
+
+        if let OptionLogicalSize::Some(sz) = requested {
+            return Some(sz);
+        }
+        // Content-sized: the extent of what the popup CONTAINS, not of its
+        // root. The root is a block container laid out against the bound, so
+        // it stretches to the full bound width and sits at the height of its
+        // inline content — measuring it gave 784x64 for a 240x160 child. The
+        // children are the content; their union is the size the user asked
+        // for by styling them.
+        let root = self.layout_results.get(&content_dom)?;
+        let root_id = root.styled_dom.root.into_crate_internal()?;
+        let hierarchy = root.styled_dom.node_hierarchy.as_container();
+        // The extent is the far edge of the furthest child, measured from the
+        // popup's origin — so a child at (0,0) 240x160 yields 240x160.
+        let mut max_x: Option<f32> = None;
+        let mut max_y: Option<f32> = None;
+        let mut child = hierarchy.get(root_id).and_then(|h| h.first_child_id(root_id));
+        while let Some(c) = child {
+            let id = DomNodeId {
+                dom: content_dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(c)),
+            };
+            if let Some(r) = self.get_node_layout_rect(id) {
+                max_x = Some(max_x.map_or(r.max_x(), |m| m.max(r.max_x())));
+                max_y = Some(max_y.map_or(r.max_y(), |m| m.max(r.max_y())));
+            }
+            child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+        }
+        // A popup with no laid-out children still opens: fall back to the root.
+        if let (Some(x), Some(y)) = (max_x, max_y) {
+            return Some(LogicalSize::new(x, y));
+        }
+        let root_node = DomNodeId {
+            dom: content_dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(root_id)),
+        };
+        self.get_node_layout_rect(root_node).map(|r| r.size)
+    }
+
     pub fn layout_dom_recursive(
         &mut self,
         mut styled_dom: StyledDom,
@@ -8737,23 +8841,34 @@ impl LayoutWindow {
     /// for positioning menus, tooltips, or other overlays.
     ///
     /// Returns None if the node is not currently laid out (e.g., display:none)
+    ///
+    /// The root dom reads the live layout cache; any other dom (a `VirtualView`,
+    /// an iframe, a transient window's content) reads the snapshot in
+    /// `layout_results` — its scratch cache is discarded after the pass (see
+    /// `layout_dom_recursive`). Before this dispatch a child-dom id silently
+    /// returned the ROOT's node of the same index: asking for a popup's
+    /// 240x160 child answered with the parent's swatch rect.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn get_node_layout_rect(
         &self,
         node_id: DomNodeId,
     ) -> Option<LogicalRect> {
-        // Get the layout tree from cache
-        let layout_tree = self.layout_cache.tree.as_ref()?;
+        let target_node_id = node_id.node.into_crate_internal();
+        let (layout_tree, positions): (&LayoutTree, &solver3::PositionVec) =
+            if node_id.dom == DomId::ROOT_ID {
+                (self.layout_cache.tree.as_ref()?, &self.layout_cache.calculated_positions)
+            } else {
+                let lr = self.layout_results.get(&node_id.dom)?;
+                (&lr.layout_tree, &lr.calculated_positions)
+            };
         { let _ = (0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8)); }
 
         // Find the layout node index corresponding to this DOM node
-        // Convert NodeHierarchyItemId to Option<NodeId> for comparison
-        let target_node_id = node_id.node.into_crate_internal();
         let Some(layout_idx) = layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) else { { let _ = (0xE5_0000FFu32); } return None; };
-        { let _ = (0xE5_000003u32 | ((self.layout_cache.calculated_positions.len() as u32 & 0xfff) << 8)); }
+        { let _ = (0xE5_000003u32 | ((positions.len() as u32 & 0xfff) << 8)); }
 
-        // Get the calculated layout position from cache (already in logical units)
-        let Some(calc_pos) = self.layout_cache.calculated_positions.get(layout_idx) else { { let _ = (0xE5_0000FEu32); } return None; };
+        // Get the calculated layout position (already in logical units)
+        let Some(calc_pos) = positions.get(layout_idx) else { { let _ = (0xE5_0000FEu32); } return None; };
 
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
@@ -14646,6 +14761,7 @@ impl LayoutWindow {
             text_edit_manager,
             hover_manager,
             virtual_view_manager,
+            transient_windows,
             gpu_state_manager,
             text_input_manager,
             undo_redo_manager,
@@ -14661,6 +14777,8 @@ impl LayoutWindow {
             content_journal,
 
             // --- EXEMPT: not keyed by NodeId ---------------------------------
+            // holds content DomIds, which a rebuild does not renumber
+            pending_transient_diff: _,
             // Rebuilt wholesale by the very layout pass that triggered this remap:
             // Exempt: damage rects + frame counters only, keyed by nothing.
             frame_report: _,
@@ -14810,6 +14928,7 @@ impl LayoutWindow {
         scroll_manager.remap_node_ids(dom, map);
         gesture_drag_manager.remap_node_ids(dom, map);
         focus_manager.remap_node_ids(dom, map);
+        transient_windows.remap_node_ids(dom, map);
         text_edit_manager.remap_node_ids(dom, map);
         hover_manager.remap_node_ids(dom, map);
         virtual_view_manager.remap_node_ids(dom, map);

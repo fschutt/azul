@@ -235,6 +235,13 @@ pub fn regenerate_layout(
     relayout_reason: azul_core::callbacks::RelayoutReason,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
+    // The popup diff is per-PASS. Clear it first thing, so an exit that does
+    // not reach a reconcile (the fingerprint-equal "layout unchanged" path,
+    // which keeps the old result and returns) reports "nothing to do" rather
+    // than replaying last pass's opened/closed list. The continuity test
+    // caught exactly that: pass 3 was unchanged, and the backend would have
+    // re-created a popup that was already open.
+    layout_window.pending_transient_diff = azul_layout::transient::TransientDiff::default();
     // Engine observability: the whole produce side (callback + solve + DL)
     // reports as scope "layout"; the probe spans inside land per-phase.
     #[cfg(feature = "telemetry")]
@@ -558,6 +565,19 @@ phases.mark("after_callback");
         );
         phases.mark("end_precascade_relayout");
         phases.report();
+        // The warm path returns BEFORE the tail of this function, so the
+        // popup reconcile must run here too — or a rebuild that happens to be
+        // structurally identical (every RefreshDom from a click handler that
+        // only flips a bool) silently skips it. That is exactly how the
+        // continuity test first failed: passes 3 and 4 took this exit, the
+        // manager was never told the popup was still open / now closed, and
+        // the diff the backend reads went stale.
+        reconcile_transient_windows(
+            layout_window,
+            current_window_state,
+            renderer_resources,
+            debug_messages,
+        );
         return Ok(LayoutRegenerateResult::LayoutChanged);
     }
     let prev_dom_fingerprints = layout_window.last_dom_fingerprints.take();
@@ -1332,6 +1352,21 @@ phases.mark("end");
         layout_window.finalize_pending_focus_changes();
     }
 
+    // <transient-window>: now that the parent is laid out, find every node
+    // that says `open=true`, lay each one's subtree out as its own dom, and
+    // bring the set of open popups in line. The manager matches windows to
+    // their source node across rebuilds, so a popup that is still open after
+    // this pass is MOVED (if its anchor shifted) rather than closed and
+    // re-opened — the flicker class the screenshare fix chased out of image
+    // nodes, and far worse on a window. The backend reads the diff after
+    // this returns and creates/moves/destroys surfaces accordingly.
+    reconcile_transient_windows(
+        layout_window,
+        current_window_state,
+        renderer_resources,
+        debug_messages,
+    );
+
     Ok(LayoutRegenerateResult::LayoutChanged)
 }
 
@@ -1793,4 +1828,78 @@ fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> azul_core::g
         origin: azul_core::geom::LogicalPosition::new(r.origin.x as f32, r.origin.y as f32),
         size: azul_core::geom::LogicalSize::new(r.size.width as f32, r.size.height as f32),
     }
+}
+
+
+/// Find the open `<transient-window>`s in the root dom, lay their content out,
+/// and reconcile the manager. Stores the resulting diff on the window so the
+/// backend can act on it after layout.
+///
+/// Split out of `regenerate_layout` because it needs `&mut layout_window`
+/// twice in ways the borrow checker will not allow inline: once to read the
+/// root layout (for anchor rects) and once to lay out each popup's content.
+fn reconcile_transient_windows(
+    layout_window: &mut LayoutWindow,
+    current_window_state: &FullWindowState,
+    renderer_resources: &RendererResources,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) {
+    use azul_core::dom::DomId;
+    use azul_layout::transient::collect_open_transient_windows;
+
+    // 1. What does the parent layout say is open, and where is each anchor?
+    let wanted = {
+        let Some(root) = layout_window.layout_results.get(&DomId::ROOT_ID) else {
+            return;
+        };
+        let styled = &root.styled_dom;
+        // Anchor rects come from the ROOT dom's layout. Borrow the result
+        // immutably for the whole collection, then drop it before laying out.
+        let rects: Vec<_> = collect_open_transient_windows(styled, |node| {
+            layout_window.get_node_layout_rect(azul_core::dom::DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
+            })
+        });
+        rects
+    };
+
+    // 2. Reconcile, laying out each popup's content on demand.
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let diff = {
+        // `reconcile` wants a closure that borrows layout_window mutably while
+        // the manager is ALSO borrowed mutably — split the borrow by taking the
+        // manager out, reconciling, and putting it back.
+        let mut manager = core::mem::take(&mut layout_window.transient_windows);
+        let diff = manager.reconcile(&wanted, |content_dom, placement| {
+            layout_window.layout_transient_content(
+                placement.node,
+                content_dom,
+                placement.size,
+                current_window_state,
+                renderer_resources,
+                &system_callbacks,
+                debug_messages,
+            )
+        });
+        layout_window.transient_windows = manager;
+        diff
+    };
+
+    // 3. Drop the layout results of anything that closed — keeping them
+    // would leak a dom per closed popup for the life of the window.
+    for closed in &diff.closed {
+        layout_window.layout_results.remove(closed);
+    }
+
+    if !diff.opened.is_empty() || !diff.closed.is_empty() || !diff.moved.is_empty() {
+        log_debug!(
+            LogCategory::Layout,
+            "[transient] opened={} moved={} closed={}",
+            diff.opened.len(),
+            diff.moved.len(),
+            diff.closed.len()
+        );
+    }
+    layout_window.pending_transient_diff = diff;
 }
