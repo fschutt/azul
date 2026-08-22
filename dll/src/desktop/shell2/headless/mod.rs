@@ -5831,8 +5831,14 @@ mod tests {
                 continue;
             };
             let mut ds: RefAny = RefAny::clone(ds);
-            if let Some(s) = ds.downcast_ref::<CameraWidgetState>() {
-                return (s.preview, s.thread_id.is_some());
+            // Copy the two fields out so the `Ref` guard is dropped before
+            // `ds` goes out of scope (E0597 otherwise: the guard's destructor
+            // runs after the local it borrows).
+            let found = ds
+                .downcast_ref::<CameraWidgetState>()
+                .map(|s| (s.preview, s.thread_id.is_some()));
+            if let Some(found) = found {
+                return found;
             }
         }
         panic!("no CameraWidgetState in the DOM");
