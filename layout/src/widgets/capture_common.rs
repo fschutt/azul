@@ -303,7 +303,7 @@ pub struct CaptureVTable {
     /// Close + free the source.
     pub close: fn(handle: u64),
     /// Change the delivered size / fps of a RUNNING source without a
-    /// close + open (macOS: a live session-preset switch, an SCStream
+    /// close + open (macOS: a live session-preset switch, an `SCStream`
     /// `updateConfiguration`). `None`, or a `false` return, makes the worker
     /// reopen instead — the universal fallback, so a backend without it is
     /// merely slower to follow a resize, never wrong.
@@ -617,19 +617,25 @@ pub struct CaptureSession {
     pub writeback: WriteBackCallbackType,
     /// The scaler for the fan-out ([`frame_resampler`]).
     pub resample: ResampleFn,
-    /// Minimum time between two reopens ([`REOPEN_COOLDOWN`] for the
-    /// widgets; tests set zero).
-    pub reopen_cooldown: std::time::Duration,
+    /// Minimum milliseconds between two reopens ([`REOPEN_COOLDOWN_MS`] for
+    /// the widgets; tests set zero).
+    pub reopen_cooldown_ms: u64,
 }
 
-/// How long the worker waits for layout to report a preview size before it
-/// opens the device at the fallback size. Layout runs right after mount, so
-/// this is normally a few ms; it bounds the wait when a tile is never laid
-/// out (display: none).
-const PREVIEW_SIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
-/// Minimum time between two reopens, so a window-edge drag (hundreds of
-/// `NodeResized`s) costs at most one device restart per second.
-pub const REOPEN_COOLDOWN: std::time::Duration = std::time::Duration::from_millis(1000);
+/// How long (ms) the worker waits for layout to report a preview size before
+/// it opens the device at the fallback size. Layout runs right after mount,
+/// so this is normally a few ms; it bounds the wait when a tile is never
+/// laid out (display: none).
+const PREVIEW_SIZE_GRACE_MS: u64 = 150;
+/// Minimum milliseconds between two reopens, so a window-edge drag (hundreds
+/// of `NodeResized`s) costs at most one device restart per second.
+pub const REOPEN_COOLDOWN_MS: u64 = 1000;
+
+/// Milliseconds since `since` on the engine clock (`azul_core::task::Instant`
+/// — never `std::time::Instant`, which panics on wasm).
+fn millis_since(since: &azul_core::task::Instant) -> u64 {
+    azul_core::task::Instant::now().duration_since(since).as_millis_u64()
+}
 
 /// THE capture worker: one loop for the camera and the screen widgets.
 ///
@@ -653,8 +659,8 @@ pub fn run_capture_loop(
 ) {
     // 1. Wait (briefly) for the preview size if we do not have one.
     if targets.preview.is_none() {
-        let deadline = std::time::Instant::now() + PREVIEW_SIZE_GRACE;
-        while targets.preview.is_none() && std::time::Instant::now() < deadline {
+        let started = azul_core::task::Instant::now();
+        while targets.preview.is_none() && millis_since(&started) < PREVIEW_SIZE_GRACE_MS {
             if poll_capture_control(recv, &mut targets) {
                 return;
             }
@@ -671,7 +677,7 @@ pub fn run_capture_loop(
     }
     let mut requested = required;
     let mut delivered: Option<(u32, u32)> = None;
-    let mut last_open = std::time::Instant::now();
+    let mut last_open = azul_core::task::Instant::now();
     let in_flight = Arc::new(AtomicBool::new(false));
     let mut buf: Vec<u8> = Vec::new();
 
@@ -682,7 +688,7 @@ pub fn run_capture_loop(
         }
         required = required_capture_size(session.floor, &targets, session.fallback);
         if needs_reopen(requested, delivered.unwrap_or(requested), required)
-            && last_open.elapsed() >= session.reopen_cooldown
+            && millis_since(&last_open) >= session.reopen_cooldown_ms
         {
             request = request.with_size(required.0, required.1);
             let reconfigured = backend
@@ -699,7 +705,7 @@ pub fn run_capture_loop(
             }
             requested = required;
             delivered = None;
-            last_open = std::time::Instant::now();
+            last_open = azul_core::task::Instant::now();
         }
 
         let (fw, fh) = match (backend.read)(handle, &mut buf) {
@@ -1947,15 +1953,18 @@ mod autotest_generated {
     extern "C" fn sender_noop_drop(_: *mut ThreadSenderInner) {}
     extern "C" fn receiver_noop_drop(_: *mut ThreadReceiverInner) {}
 
+    /// One queued writeback, summarised: `(preview size, source size,
+    /// consumer cuts as (id, w, h))`.
+    type QueuedSummary = (Option<(u32, u32)>, Option<(u32, u32)>, Vec<(u32, u32, u32)>);
+
     /// Run the shared loop over the fake backend. Returns every payload the
-    /// worker queued (as `(preview, source, consumer cuts)` summaries) plus
-    /// the backend diary.
+    /// worker queued plus the backend diary `(opens, closes)`.
     fn run_fake_loop(
         initial: CaptureTargets,
         frames: u32,
         inject_on_read: Option<(u32, CaptureTargets)>,
         floor: Option<(u32, u32)>,
-    ) -> (Vec<(Option<(u32, u32)>, Option<(u32, u32)>, Vec<(u32, u32, u32)>)>, Vec<(u32, u32)>, u32) {
+    ) -> (Vec<QueuedSummary>, Vec<(u32, u32)>, u32) {
         let _gate = LOOP_GATE.lock().unwrap_or_else(PoisonError::into_inner);
         let (wb_tx, wb_rx) = channel::<ThreadReceiveMsg>();
         let (ctl_tx, ctl_rx) = channel::<ThreadSendMsg>();
@@ -1985,7 +1994,7 @@ mod autotest_generated {
             fallback: (640, 480),
             writeback: loop_writeback,
             resample: image_scale::resample_rgba,
-            reopen_cooldown: std::time::Duration::ZERO,
+            reopen_cooldown_ms: 0,
         };
         run_capture_loop(session, initial, &mut sender, &mut receiver);
 

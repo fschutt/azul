@@ -32,7 +32,7 @@ use super::capture_common::{
     frame_resampler, present_captured, preview_size_for_node, run_capture_loop, screen_backend,
     send_capture_targets, test_pattern_vtable, CaptureRequest, CaptureSession, CaptureTargets,
     CapturedFrames, OnConsumerFrame, OnConsumerFrameCallback, OnVideoFrame, OnVideoFrameCallback,
-    OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern, REOPEN_COOLDOWN,
+    OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern, REOPEN_COOLDOWN_MS,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{Thread, ThreadCallback, ThreadSender};
@@ -320,7 +320,7 @@ extern "C" fn screencap_worker(
         fallback: (DEFAULT_W, DEFAULT_H),
         writeback: screencap_writeback,
         resample: frame_resampler(),
-        reopen_cooldown: REOPEN_COOLDOWN,
+        reopen_cooldown_ms: REOPEN_COOLDOWN_MS,
     };
     run_capture_loop(session, targets, &mut sender, &mut recv);
 }
@@ -1184,9 +1184,11 @@ mod autotest_generated {
         // `config.source` and `config.fps` used to be ignored: the worker
         // opened display 0 at a hard-coded size and the backend ran at a
         // hard-coded 30 fps.
-        let mut cfg = ScreenCaptureConfig::default();
-        cfg.fps = 15;
-        cfg.source = ScreenCaptureSource::Display(2);
+        let mut cfg = ScreenCaptureConfig {
+            fps: 15,
+            source: ScreenCaptureSource::Display(2),
+            ..ScreenCaptureConfig::default()
+        };
         let r = capture_request(&cfg);
         assert_eq!((r.index, r.window, r.fps), (2, 0, 15));
         assert!(r.exclude_self, "a share never shows the sharing app to itself");

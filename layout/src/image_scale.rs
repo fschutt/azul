@@ -215,7 +215,7 @@ pub type ResampleFn = fn(&SrcImage<'_>, u32, u32) -> Vec<u8>;
 /// maximum. Zero-sized entries are ignored; `None` when nothing is left.
 ///
 /// "Client Bob wants 500x200, the local preview is 100x200" -> capture at
-/// 500x200: every consumer is then a DOWNscale of the captured frame (never
+/// 500x200: every consumer is then a downscale of the captured frame (never
 /// an upscale, which would only invent pixels) and the device is never asked
 /// for more than the largest consumer can use.
 #[must_use]
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn a_cut_never_upscales_past_what_was_asked_and_rejects_bad_input() {
-        let bytes = [9u8; 4 * 1 * 1];
+        let bytes = [9u8; 4];
         let src = rgba(&bytes, 1, 1);
         assert_eq!(cut(&src, 3, 2, resample_rgba).len(), 3 * 2 * 4);
         assert!(cut(&src, 0, 2, resample_rgba).is_empty());

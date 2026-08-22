@@ -3374,7 +3374,7 @@ where
         // empty editable: the caret session sits on the value's empty text
         // node, and the strut line box lives on its `<p>`.
         let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
-        let mut current = hierarchy.get(dom_id).and_then(|h| h.parent_id());
+        let mut current = hierarchy.get(dom_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         while let Some(parent) = current {
             if let Some(indices) = tree.dom_to_layout.get(&parent) {
                 return indices.iter().any(|&idx| {
@@ -3382,7 +3382,7 @@ where
                         || tree.get_ifc_root_layout_index(idx.index()) == node_index
                 });
             }
-            current = hierarchy.get(parent).and_then(|h| h.parent_id());
+            current = hierarchy.get(parent).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         false
     }

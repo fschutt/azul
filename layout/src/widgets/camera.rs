@@ -38,7 +38,7 @@ use super::capture_common::{
     run_capture_loop, send_capture_targets, test_pattern_vtable, CaptureRequest,
     CaptureSession, CaptureTargets, CapturedFrames, OnConsumerFrame, OnConsumerFrameCallback,
     OnVideoFrame, OnVideoFrameCallback, OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern,
-    REOPEN_COOLDOWN,
+    REOPEN_COOLDOWN_MS,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{Thread, ThreadCallback, ThreadSender};
@@ -334,7 +334,7 @@ extern "C" fn camera_on_resize(mut data: RefAny, info: CallbackInfo) -> Update {
 }
 
 /// Background worker: the shared capture loop over the registered camera
-/// backend (v4l2 / AVFoundation / Media Foundation / Camera2), else the
+/// backend (v4l2 / `AVFoundation` / Media Foundation / Camera2), else the
 /// colour-cycle test pattern — see `capture_common::run_capture_loop`.
 extern "C" fn camera_worker(
     mut init: RefAny,
@@ -365,7 +365,7 @@ fn camera_session(index: u32, fps: u32, fallback: (u32, u32), floor: Option<(u32
         fallback,
         writeback: camera_writeback,
         resample: frame_resampler(),
-        reopen_cooldown: REOPEN_COOLDOWN,
+        reopen_cooldown_ms: REOPEN_COOLDOWN_MS,
     }
 }
 
