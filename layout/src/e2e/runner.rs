@@ -2543,6 +2543,31 @@ impl Runner {
             CallbackChange::OpenMenu { .. } => {
                 self.unsupported("OpenMenu", "no native menu host")
             }
+            // Pointer capture is pure engine state: mirror the DLL arm.
+            CallbackChange::CapturePointer { node } => {
+                self.layout_window.pointer_capture = Some(*node);
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::ReleasePointerCapture => {
+                self.layout_window.pointer_capture = None;
+                ProcessEventResult::DoNothing
+            }
+            // The hold is engine state too; the popup window it leads to is a
+            // second platform window the headless runner does not create, but
+            // the manager's bookkeeping (and a scenario asserting on it) works.
+            CallbackChange::SetTransientWindowOpen { node, open } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != DomId::ROOT_ID {
+                    return ProcessEventResult::DoNothing;
+                }
+                if self.layout_window.transient_windows.set_forced_open(node_id, *open) {
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
             CallbackChange::ShowTooltip { .. } => {
                 self.unsupported("ShowTooltip", "tooltips are a second platform window")
             }

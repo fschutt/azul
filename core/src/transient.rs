@@ -2,13 +2,13 @@
 //! of the one DOM.
 //!
 //! A colour picker that opens below its swatch, a tooltip with a pointer
-//! arrow, a tear-off tool palette — each wants its own window surface (so it
+//! arrow, a tear-off tool palette - each wants its own window surface (so it
 //! can escape the parent's bounds, carry a shadow, sit above everything) but
 //! NOT its own application: it needs the parent's state, callbacks and
 //! styling, and it must open and close by flipping one attribute.
 //!
 //! That is what this node type provides. While `open == false` the element
-//! contributes nothing to layout — its subtree is not laid out at all. When
+//! contributes nothing to layout - its subtree is not laid out at all. When
 //! `open == true` the engine materialises the subtree as a transient window
 //! anchored to the node's PARENT, routes input on that surface back into the
 //! same `LayoutWindow`, and tears it down when `open` flips back.
@@ -33,14 +33,14 @@ use crate::geom::{LogicalSize, OptionLogicalSize};
 /// Which edge of the anchor node a transient window opens from.
 ///
 /// Expressed as an EDGE, never as coordinates. Wayland clients cannot address
-/// screen positions — the compositor hides them — so the only placement that
+/// screen positions - the compositor hides them - so the only placement that
 /// works everywhere is "this edge of that rect, with this gravity", which
 /// `xdg_positioner` takes natively and the other backends can compute from.
 /// A design that stored `(x, y)` would work on X11 and be wrong on Wayland.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum TransientAnchor {
-    /// Below the anchor, left edges aligned — what a dropdown or a colour
+    /// Below the anchor, left edges aligned - what a dropdown or a colour
     /// picker does. The default, because it is what `<select>` does.
     #[default]
     Bottom,
@@ -48,9 +48,9 @@ pub enum TransientAnchor {
     Top,
     /// To the left of the anchor, top edges aligned.
     Left,
-    /// To the right of the anchor, top edges aligned — what a submenu does.
+    /// To the right of the anchor, top edges aligned - what a submenu does.
     Right,
-    /// At the pointer position rather than the anchor rect — what a context
+    /// At the pointer position rather than the anchor rect - what a context
     /// menu does.
     Cursor,
 }
@@ -64,7 +64,7 @@ pub enum TransientDismiss {
     #[default]
     Outside,
     /// Only Escape closes it. For a popup the user interacts with by clicking
-    /// around it — a floating toolbar.
+    /// around it - a floating toolbar.
     Escape,
     /// Nothing closes it but the app. For palettes that stay up.
     None,
@@ -78,23 +78,23 @@ pub enum TransientDismiss {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct TransientWindowConfig {
-    /// The ONLY thing an application toggles. `true` materialises the subtree
-    /// as a window; `false` tears it down and drops it from layout entirely.
-    pub open: bool,
-    /// Which edge of the anchor (the node's parent) it opens from.
-    pub anchor: TransientAnchor,
-    /// What closes it.
-    pub dismiss: TransientDismiss,
-    /// Explicit size, or `None` to size the window to its content — the
+    /// Explicit size, or `None` to size the window to its content - the
     /// common case, and the reason a colour picker never has to guess how tall
     /// its own panel is.
     ///
     /// `OptionLogicalSize`, the `#[repr(C, u8)]` option, NOT `Option<_>`: this
     /// struct rides inside `NodeType`, which rides inside every `Dom` the C ABI
-    /// passes by value, and a Rust `Option` has no stable layout — clippy's
+    /// passes by value, and a Rust `Option` has no stable layout - clippy's
     /// `improper_ctypes_definitions` flagged every `extern "C" fn -> Dom` in
     /// the tree the moment a plain `Option` went in here.
     pub size: OptionLogicalSize,
+    /// Which edge of the anchor (the node's parent) it opens from.
+    pub anchor: TransientAnchor,
+    /// What closes it.
+    pub dismiss: TransientDismiss,
+    /// The ONLY thing an application toggles. `true` materialises the subtree
+    /// as a window; `false` tears it down and drops it from layout entirely.
+    pub open: bool,
     /// `true` lets the user drag the window OUT of its anchor, at which point
     /// it becomes a free toplevel that is still the same DOM subtree. Phase 6
     /// of the plan; parsed and carried now so the attribute is stable.
@@ -162,9 +162,9 @@ impl TransientWindowConfig {
     /// Apply one XML/HTML attribute. Returns `true` if the key was one of ours.
     ///
     /// `size="WxH"` in logical px; anything else for a known key degrades to
-    /// the default rather than erroring — a typo must not make a popup refuse
+    /// the default rather than erroring - a typo must not make a popup refuse
     /// to open. Unknown keys return `false` so the caller can treat them as
-    /// ordinary attributes (id, class, …).
+    /// ordinary attributes (id, class, ...).
     pub fn apply_attr(&mut self, key: &str, value: &str) -> bool {
         match key {
             "open" => {
@@ -293,7 +293,7 @@ mod tests {
         assert!(c.apply_attr("dismiss", "escape"));
         assert!(c.apply_attr("size", "320x240"));
         assert!(c.apply_attr("tearoff", "true"));
-        assert!(!c.apply_attr("class", "x"), "not ours — the caller keeps it");
+        assert!(!c.apply_attr("class", "x"), "not ours - the caller keeps it");
 
         assert!(c.open);
         assert_eq!(c.anchor, TransientAnchor::Right);
@@ -312,7 +312,7 @@ mod tests {
     ///
     /// `NodeType` is 48 bytes today (measured 2026-08-22); the largest payload
     /// sets that. This config rides inline, so it must fit under the existing
-    /// largest variant rather than under some round number — a first version
+    /// largest variant rather than under some round number - a first version
     /// of this test said `<= 16` and failed at 28 bytes, which would have been
     /// a false alarm about a struct that fits comfortably.
     #[test]
@@ -331,7 +331,7 @@ mod tests {
 /// laying out as the root of a transient window.
 ///
 /// This is how a popup stays part of the ONE tree while owning its own
-/// surface. The node data is cloned — and `NodeData::clone` shares every
+/// surface. The node data is cloned - and `NodeData::clone` shares every
 /// `RefAny` by refcount, so a callback on the copy fires against the very same
 /// application state as the original. Nothing is re-parented, nothing is
 /// re-registered: the copy is a VIEW of the subtree that a second layout can
@@ -339,7 +339,7 @@ mod tests {
 ///
 /// `root` is the `<transient-window>` node itself. Its children become the
 /// popup's content; the transient node's own type is rewritten to a plain
-/// `Div` in the copy, because inside its own window it is just the container —
+/// `Div` in the copy, because inside its own window it is just the container -
 /// leaving it as `TransientWindow` would make the popup's layout cut it out
 /// again (see `layout_tree::get_display_type`) and render nothing.
 ///
@@ -400,13 +400,13 @@ fn build_subtree(
 /// A `Dom::with_css(..)` sheet is *scoped*: it lives on the `Dom` subtree it
 /// was attached to and is selector-matched into the property cache when the
 /// `StyledDom` is built, after which the sheet itself is gone. Cloning
-/// `NodeData` alone therefore loses every author rule — the popup would come
+/// `NodeData` alone therefore loses every author rule - the popup would come
 /// up unstyled, block-stretched, in the UA defaults. The resolved result is
 /// still in the cache, per node and per pseudo-state, so that is what travels:
 ///
 /// - every node gets its matched author properties (`css_props`), keeping the
 ///   `:hover`/`:active`/`:focus` variants as conditional inline rules;
-/// - the ROOT additionally gets every inheritable property it computed — its
+/// - the ROOT additionally gets every inheritable property it computed - its
 ///   ancestors stay behind in the parent tree, so `body { font-family }` or a
 ///   panel's `color` would otherwise be cut off at the popup's edge. Inside the
 ///   subtree, inheritance is re-derived from the root by the normal cascade.
@@ -437,7 +437,7 @@ fn bake_resolved_style(
     // holds the resolved Normal-state value of every property the node ends
     // up with; the INHERITABLE ones are exactly "what the ancestors gave it"
     // (font-size already resolved to px, so an `em` chain stays intact). The
-    // origin tag is not usable here — the UA sheet resolves `inherit` and
+    // origin tag is not usable here - the UA sheet resolves `inherit` and
     // re-stamps the result as the node's own. Non-inheritable entries must
     // not travel: the transient node's own UA `position: absolute; top: 100%`
     // would otherwise displace the popup's content inside its own window.
@@ -505,7 +505,7 @@ mod extract_tests {
         assert_eq!(texts, vec!["inside".to_string()]);
     }
 
-    /// Only a TransientWindow can be extracted — asking for a div is a caller
+    /// Only a TransientWindow can be extracted - asking for a div is a caller
     /// bug and must not quietly open a window onto arbitrary content.
     #[test]
     fn refuses_a_non_transient_root() {
@@ -513,8 +513,8 @@ mod extract_tests {
         assert!(extract_subtree_as_dom(&styled, crate::id::NodeId::new(1)).is_none());
     }
 
-    /// Author CSS attached with `Dom::with_css` is SCOPED — it is consumed
-    /// into the property cache when the tree is styled — so cloning node data
+    /// Author CSS attached with `Dom::with_css` is SCOPED - it is consumed
+    /// into the property cache when the tree is styled - so cloning node data
     /// alone would drop it. The extracted copy must carry the resolved style,
     /// including what the root inherited from ancestors it leaves behind.
     #[test]

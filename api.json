@@ -4023,6 +4023,7 @@
                                 "MonitorChanged": {},
                                 "PermissionChanged": {},
                                 "BiometricResult": {},
+                                "ScreenColorPicked": {},
                                 "KeyringResult": {}
                             }
                         ],
@@ -6225,6 +6226,175 @@
                                     "type": "String"
                                 },
                                 "fn_body": "object.credit()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TransientWindowConfig": {
+                        "external": "azul_core::transient::TransientWindowConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "size": {
+                                    "type": "OptionLogicalSize"
+                                },
+                                "anchor": {
+                                    "type": "TransientAnchor"
+                                },
+                                "dismiss": {
+                                    "type": "TransientDismiss"
+                                },
+                                "tearoff": {
+                                    "type": "TransientTearoff"
+                                },
+                                "material": {
+                                    "type": "WindowBackgroundMaterial"
+                                },
+                                "open": {
+                                    "type": "bool"
+                                },
+                                "torn": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "closed": {
+                                "doc": [
+                                    "Closed, with every other field at its default."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::transient::TransientWindowConfig::closed()"
+                            },
+                            "opened": {
+                                "doc": [
+                                    "Open, with every other field at its default."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::transient::TransientWindowConfig::opened()"
+                            }
+                        },
+                        "functions": {
+                            "with_anchor": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "anchor": "TransientAnchor"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TransientWindowConfig"
+                                },
+                                "fn_body": "object.with_anchor(anchor)"
+                            },
+                            "with_dismiss": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "dismiss": "TransientDismiss"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TransientWindowConfig"
+                                },
+                                "fn_body": "object.with_dismiss(dismiss)"
+                            },
+                            "with_size": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "size": "LogicalSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TransientWindowConfig"
+                                },
+                                "fn_body": "object.with_size(size)"
+                            },
+                            "with_tearoff": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "tearoff": "TransientTearoff"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TransientWindowConfig"
+                                },
+                                "fn_body": "object.with_tearoff(tearoff)"
+                            },
+                            "with_torn": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "torn": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TransientWindowConfig"
+                                },
+                                "fn_body": "object.with_torn(torn)"
+                            },
+                            "with_material": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "material": "WindowBackgroundMaterial"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TransientWindowConfig"
+                                },
+                                "fn_body": "object.with_material(material)"
+                            },
+                            "apply_attr": {
+                                "doc": [
+                                    "Apply one XML/HTML attribute. Returns `true` if the key was one of ours.",
+                                    "",
+                                    "`size=\"WxH\"` in logical px; anything else for a known key degrades to",
+                                    "the default rather than erroring - a typo must not make a popup refuse",
+                                    "to open. Unknown keys return `false` so the caller can treat them as",
+                                    "ordinary attributes (id, class, ...)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.apply_attr(key.as_str(), value.as_str())"
                             }
                         },
                         "repr": "C"
@@ -13165,6 +13335,123 @@
                                     }
                                 ],
                                 "fn_body": "object.log(message)"
+                            },
+                            "set_transient_window_open": {
+                                "doc": [
+                                    "Open (or close) the `<transient-window>` at `node` regardless of its `open` attribute.",
+                                    "The popup appears after this callback's layout pass and stays open across rebuilds",
+                                    "until closed here, by the attribute going false, or by a user dismissal (which also",
+                                    "fires `ComponentEventFilter::Dismissed` on the node). `node` must be in this window's dom."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "open": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_transient_window_open(node, open)"
+                            },
+                            "set_transient_window_torn": {
+                                "doc": [
+                                    "Tear the open `<transient-window>` at `node` off into a free toplevel (`torn = true`)",
+                                    "or dock it back onto its anchor (`false`). Needs `tearoff` on the node. The same thing the",
+                                    "user's drag of the window's `-azul-app-region: drag` strip does; fires",
+                                    "`ComponentEventFilter::TornOff` / `Docked` on the node."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "torn": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_transient_window_torn(node, torn)"
+                            },
+                            "get_transient_window_zone": {
+                                "doc": [
+                                    "The drop zone the `tearoff=\"zone:...\"` window at `node` is docked onto, if any: the node",
+                                    "matching the zone selector the user last dropped it on. `None` while it hangs off its own",
+                                    "parent (or is torn off / not open). Read it in a `Docked` handler to move the panel's content",
+                                    "into that zone on the next layout - the app-side way to recombine torn-off panels."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDomNodeId"
+                                },
+                                "fn_body": "object.get_transient_window_zone(node)"
+                            },
+                            "pick_screen_color": {
+                                "doc": [
+                                    "Let the user pick a colour from the screen with the platform eyedropper: macOS's system",
+                                    "sampler; elsewhere a screenshot shown in a fullscreen loupe window (Wayland asks the user's",
+                                    "permission through the desktop portal first). Asynchronous: when the user picks or cancels,",
+                                    "every callback in THIS window registered for `WindowEventFilter::ScreenColorPicked` runs and",
+                                    "reads the answer with `get_picked_screen_color`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.pick_screen_color()"
+                            },
+                            "get_picked_screen_color": {
+                                "doc": [
+                                    "The outcome of the most recent `pick_screen_color` in this window: the colour under the",
+                                    "pointer when the user clicked, or `None` if they cancelled (or no pick has completed yet)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionColorU"
+                                },
+                                "fn_body": "object.get_picked_screen_color()"
+                            },
+                            "capture_pointer": {
+                                "doc": [
+                                    "Capture the pointer for `node`: until the mouse button is released, every mouse move",
+                                    "and the release are delivered to `node` even when the pointer has left it (W3C",
+                                    "`setPointerCapture`). Released automatically on mouse-up."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "fn_body": "object.capture_pointer(node)"
+                            },
+                            "release_pointer_capture": {
+                                "doc": [
+                                    "Release a pointer capture taken with `capture_pointer` before the button goes up."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.release_pointer_capture()"
                             }
                         },
                         "repr": "C"
@@ -19853,6 +20140,9 @@
                                     "type": "BoxOrStaticImageRef"
                                 },
                                 "VirtualView": {},
+                                "TransientWindow": {
+                                    "type": "TransientWindowConfig"
+                                },
                                 "Icon": {
                                     "type": "BoxOrStaticString"
                                 },
@@ -21656,6 +21946,7 @@
                                 "Text": {},
                                 "Img": {},
                                 "VirtualView": {},
+                                "TransientWindow": {},
                                 "Icon": {},
                                 "GeolocationProbe": {},
                                 "Before": {},
@@ -37468,6 +37759,7 @@
                                 "SystemTextTripleClick": {},
                                 "PermissionChanged": {},
                                 "BiometricResult": {},
+                                "ScreenColorPicked": {},
                                 "KeyringResult": {}
                             }
                         ],
@@ -46323,7 +46615,8 @@
                             "generic_args": [
                                 "StyleAppRegion"
                             ]
-                        }
+                        },
+                        "repr": "C"
                     },
                     "StyleAppRegion": {
                         "external": "azul_css::props::style::transform::StyleAppRegion",
@@ -101042,7 +101335,9 @@
                             "Copy",
                             "PartialOrd",
                             "PartialEq",
-                            "Eq"
+                            "Eq",
+                            "Hash",
+                            "Ord"
                         ],
                         "enum_fields": [
                             {
@@ -109725,7 +110020,10 @@
                                 "NodeResized": {},
                                 "DefaultAction": {},
                                 "Selected": {},
-                                "Updated": {}
+                                "Updated": {},
+                                "Dismissed": {},
+                                "TornOff": {},
+                                "Docked": {}
                             }
                         ],
                         "repr": "C"
@@ -113245,6 +113543,74 @@
                                         "Headers the download needs when the artifact is not on open HTTP - an OCI registry blob wants the same bearer token the manifest request used. Empty for ordinary downloads."
                                     ]
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TransientAnchor": {
+                        "external": "azul_core::transient::TransientAnchor",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Bottom": {},
+                                "Top": {},
+                                "Left": {},
+                                "Right": {},
+                                "Cursor": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TransientDismiss": {
+                        "external": "azul_core::transient::TransientDismiss",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Outside": {},
+                                "Escape": {},
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TransientTearoff": {
+                        "external": "azul_core::transient::TransientTearoff",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Free": {},
+                                "Zone": {}
                             }
                         ],
                         "repr": "C"
