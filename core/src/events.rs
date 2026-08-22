@@ -769,6 +769,15 @@ pub struct SyntheticEvent {
 
     /// Whether default action has been prevented
     pub prevented_default: bool,
+
+    /// Deliver at the target ONLY — no capture, no bubble.
+    ///
+    /// Set on the release synthesised for the node that was PRESSED when the
+    /// pointer releases somewhere else (press-target capture, see
+    /// `HoverManager::apply_press_target_capture`): that node owes a
+    /// `MouseUp`, but its ancestors already see the real release through the
+    /// hovered node's propagation path and must not see it twice.
+    pub at_target_only: bool,
 }
 
 impl SyntheticEvent {
@@ -794,7 +803,15 @@ impl SyntheticEvent {
             stopped: false,
             stopped_immediate: false,
             prevented_default: false,
+            at_target_only: false,
         }
+    }
+
+    /// This event, delivered at its target only (see [`Self::at_target_only`]).
+    #[must_use]
+    pub const fn at_target_only(mut self) -> Self {
+        self.at_target_only = true;
+        self
     }
 
     /// Stop event propagation after the current phase completes.
@@ -913,6 +930,15 @@ pub fn propagate_event(
     let target_node_id = *path.last().unwrap();
 
     let mut result = PropagationResult::default();
+
+    // A captured release (see `SyntheticEvent::at_target_only`) reaches its
+    // target and nothing else: the ancestors get the real release through
+    // the hovered node's path.
+    if event.at_target_only {
+        propagate_target_phase(event, target_node_id, callbacks, &mut result);
+        result.default_prevented = event.prevented_default;
+        return result;
+    }
 
     // Phase 1: Capture (root → target)
     propagate_phase(
@@ -1535,6 +1561,7 @@ fn create_lifecycle_event(
         stopped: false,
         stopped_immediate: false,
         prevented_default: false,
+        at_target_only: false,
     }
 }
 
@@ -6012,6 +6039,27 @@ mod autotest_generated {
         // The rule is narrow: a move still bubbles to every ancestor.
         assert!(EventType::MouseOver.bubbles());
         assert!(EventType::DragLeave.bubbles(), "W3C dragleave bubbles");
+    }
+
+    #[test]
+    fn an_at_target_only_event_reaches_its_target_and_no_ancestor() {
+        // The captured release for a pressed node: its ancestors already saw
+        // the real release through the hovered node's path.
+        let hier = hierarchy_chain(3); // 0 <- 1 <- 2
+        let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        for i in 0..3 {
+            callbacks.insert(NodeId::new(i), vec![EventFilter::Hover(HoverEventFilter::MouseUp)]);
+        }
+        let mut ev = SyntheticEvent::new(EventType::MouseUp, EventSource::User, dnid(0, 2), tick(0), EventData::None)
+            .at_target_only();
+        let result = propagate_event(&mut ev, &hier, &callbacks);
+        let nodes: Vec<NodeId> = result.callbacks_to_invoke.iter().map(|(n, _)| *n).collect();
+        assert_eq!(nodes, vec![NodeId::new(2)], "at-target-only must skip capture and bubble");
+
+        // The plain event still walks the whole path.
+        let mut ev = SyntheticEvent::new(EventType::MouseUp, EventSource::User, dnid(0, 2), tick(0), EventData::None);
+        let result = propagate_event(&mut ev, &hier, &callbacks);
+        assert_eq!(result.callbacks_to_invoke.len(), 5, "capture 0,1 + target 2 + bubble 1,0");
     }
 
     #[test]

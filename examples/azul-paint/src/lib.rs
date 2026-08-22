@@ -835,8 +835,11 @@ extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny 
 // Display::Block), so a div with only `flex-direction: row` lays its children
 // out as block boxes (full-width, stacked vertically). The header used to omit
 // `display: flex`, which is why the toolbar buttons stacked on top of each other.
+// `user-select: none`: the title bar is chrome. A click on it used to open a
+// text-selection session that every later canvas stroke extended.
 const HEADER: &str = "display: flex; background: #2b2b2b; color: white; padding: 12px 20px; \
-    flex-direction: row; align-items: center; font-family: sans-serif; font-size: 16px;";
+    flex-direction: row; align-items: center; font-family: sans-serif; font-size: 16px; \
+    user-select: none;";
 const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 

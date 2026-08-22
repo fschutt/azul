@@ -765,6 +765,7 @@ fn create_lifecycle_event(
         stopped: false,
         stopped_immediate: false,
         prevented_default: false,
+        at_target_only: false,
     }
 }
 

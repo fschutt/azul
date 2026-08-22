@@ -7192,7 +7192,7 @@ pub trait PlatformWindow {
             .and_then(|w| w.scroll_manager.pending_wheel_event);
 
         // Determine all events (returns Vec<SyntheticEvent>)
-        let synthetic_events = if let (Some(fm), Some(fdm), Some(hm)) =
+        let mut synthetic_events = if let (Some(fm), Some(fdm), Some(hm)) =
             (focus_manager, file_drop_manager, hover_manager)
         {
             determine_all_events(
@@ -7210,6 +7210,44 @@ pub trait PlatformWindow {
             // Fallback: no events if managers not available
             Vec::new()
         };
+
+        // PRESS-TARGET CAPTURE: the node a button was pressed on gets that
+        // button's release even when the pointer released elsewhere (or the
+        // window lost focus and the OS handler cleared the button). See
+        // `HoverManager::apply_press_target_capture` — this is THE fix for the
+        // "stuck input" family; widgets no longer need "leave = release".
+        if let Some(lw) = self.get_layout_window_mut() {
+            let layout_results = &lw.layout_results;
+            let in_release_path = |press: azul_core::dom::DomNodeId,
+                                   release: azul_core::dom::DomNodeId|
+             -> bool {
+                // Is `press` the release target or one of its DOM ancestors
+                // (i.e. already on the release's propagation path)?
+                if press.dom != release.dom {
+                    return false;
+                }
+                let (Some(press_node), Some(mut current)) =
+                    (press.node.into_crate_internal(), release.node.into_crate_internal())
+                else {
+                    return false;
+                };
+                let Some(lr) = layout_results.get(&release.dom) else {
+                    return false;
+                };
+                let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+                loop {
+                    if current == press_node {
+                        return true;
+                    }
+                    match hierarchy.get(current).and_then(|n| n.parent_id()) {
+                        Some(parent) => current = parent,
+                        None => return false,
+                    }
+                }
+            };
+            lw.hover_manager
+                .apply_press_target_capture(&mut synthetic_events, &in_release_path);
+        }
 
         // Clear the sensor/gamepad pending-event flags now that this pass has
         // collected their events (the immutable event_providers borrow ended

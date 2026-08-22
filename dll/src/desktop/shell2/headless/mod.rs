@@ -5936,6 +5936,118 @@ mod tests {
         }
     }
 
+    // --- The pressed node gets its release ------------------------------------
+    //
+    // REPORTED (demo test 2026-08-21, the whole "stuck input" family): a
+    // slider drag that died off the thumb, a map pan cut at a tile edge, a
+    // paint stroke that kept painting on plain moves. Events are derived
+    // from window-state diffs and targeted at whatever is under the pointer
+    // NOW, so a widget that latched on MouseDown only saw its MouseUp if the
+    // pointer was still over it. Press-target capture: the pressed node gets
+    // the release wherever the pointer is — and its ancestors do not see it
+    // twice.
+
+    #[derive(Debug, Clone)]
+    struct PressLog {
+        a_down: Arc<core::sync::atomic::AtomicUsize>,
+        a_up: Arc<core::sync::atomic::AtomicUsize>,
+        b_up: Arc<core::sync::atomic::AtomicUsize>,
+        body_up: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn press_log_bump(
+        mut refany: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        if let Some(counter) = refany.downcast_ref::<Arc<core::sync::atomic::AtomicUsize>>() {
+            counter.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    fn counting_callback(
+        filter: azul_core::events::HoverEventFilter,
+        counter: &Arc<core::sync::atomic::AtomicUsize>,
+    ) -> azul_core::callbacks::CoreCallbackData {
+        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
+        CoreCallbackData {
+            event: azul_core::events::EventFilter::Hover(filter),
+            callback: CoreCallback {
+                cb: press_log_bump as usize,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+            refany: RefAny::new(counter.clone()),
+        }
+    }
+
+    extern "C" fn press_capture_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::HoverEventFilter;
+        let log = data.downcast_ref::<PressLog>().map(|l| l.clone()).expect("press log");
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: row; width: 100%; height: 100%;")
+            .with_callbacks(vec![counting_callback(HoverEventFilter::MouseUp, &log.body_up)].into())
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("a".into())].into())
+                    .with_css("width: 100px; height: 100px;")
+                    .with_callbacks(
+                        vec![
+                            counting_callback(HoverEventFilter::MouseDown, &log.a_down),
+                            counting_callback(HoverEventFilter::MouseUp, &log.a_up),
+                        ]
+                        .into(),
+                    ),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("b".into())].into())
+                    .with_css("width: 100px; height: 100px;")
+                    .with_callbacks(vec![counting_callback(HoverEventFilter::MouseUp, &log.b_up)].into()),
+            )
+    }
+
+    #[test]
+    fn the_pressed_node_gets_its_release_wherever_the_pointer_let_go() {
+        use azul_core::events::MouseButton;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let log = PressLog {
+            a_down: Arc::new(AtomicUsize::new(0)),
+            a_up: Arc::new(AtomicUsize::new(0)),
+            b_up: Arc::new(AtomicUsize::new(0)),
+            body_up: Arc::new(AtomicUsize::new(0)),
+        };
+        let state = Arc::new(RefCell::new(RefAny::new(log.clone())));
+        let mut window = make_window_sized(&state, press_capture_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+
+        // Press on A, drag onto B, release there.
+        step(&mut window, HeadlessEvent::MouseMove { x: 50.0, y: 50.0 });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        assert_eq!(log.a_down.load(Ordering::SeqCst), 1);
+        step(&mut window, HeadlessEvent::MouseMove { x: 150.0, y: 50.0 });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+
+        assert_eq!(
+            log.a_up.load(Ordering::SeqCst),
+            1,
+            "the node that was PRESSED must get the release although the pointer let go over B"
+        );
+        assert_eq!(log.b_up.load(Ordering::SeqCst), 1, "the hovered node's release is unchanged");
+        assert_eq!(
+            log.body_up.load(Ordering::SeqCst),
+            1,
+            "the shared ancestor sees the release ONCE — the captured release is at-target-only"
+        );
+
+        // Press and release on the same node: exactly one release, as before.
+        step(&mut window, HeadlessEvent::MouseMove { x: 50.0, y: 50.0 });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(log.a_up.load(Ordering::SeqCst), 2);
+        assert_eq!(log.body_up.load(Ordering::SeqCst), 2);
+    }
+
     // --- Indicator marks are centred ------------------------------------
     //
     // REPORTED (demo test 2026-08-21): "CheckBox not centered" — the 8 px mark

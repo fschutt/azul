@@ -13493,7 +13493,36 @@ impl LayoutWindow {
             }
         }
 
-        let (dom_id, ifc_root_node_id, initial_range, _local_pos) = found_selection?;
+        // A press that hits NO selectable text ENDS the selection session —
+        // browser mousedown semantics — unless it landed inside a
+        // contenteditable host (an empty TextInput has no text to hit, and
+        // focus has just given it its caret). The session a click on any text
+        // opened used to live for the rest of the window: in AzPaint one click
+        // on the title, then every stroke on the canvas dragged a selection
+        // through the title (`TextSelectionDrag` is armed whenever
+        // `left_down && has_active_editing()`).
+        let Some((dom_id, ifc_root_node_id, initial_range, _local_pos)) = found_selection else {
+            let pressed_an_editable = self
+                .hover_manager
+                .get_current(&InputPointId::Mouse)
+                .is_some_and(|hit_test| {
+                    hit_test.hovered_nodes.iter().any(|(dom_id, hit)| {
+                        self.layout_results.get(dom_id).is_some_and(|lr| {
+                            hit.regular_hit_test_nodes.keys().any(|node_id| {
+                                crate::solver3::getters::is_node_contenteditable_inherited(
+                                    &lr.styled_dom,
+                                    *node_id,
+                                )
+                            })
+                        })
+                    })
+                });
+            if !pressed_an_editable && self.text_edit_manager.has_active_editing() {
+                self.text_edit_manager.clear_editing();
+                self.text_edit_manager.clear_cross_block_selection();
+            }
+            return None;
+        };
 
         // Create DomNodeId for click state tracking - use IFC root's NodeId
         // Selection state is keyed by IFC root because that's where inline_layout_result lives
