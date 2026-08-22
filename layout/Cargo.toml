@@ -501,6 +501,13 @@ name = "e2e_json"
 path = "tests/e2e_json.rs"
 required-features = ["e2e-server"]
 
+# Renderer and hit test derive a VirtualView's child placement independently,
+# in different modules; nothing else ties them together. Source-level, so it
+# needs no features.
+[[test]]
+name = "virtualview_hit_matches_render"
+path = "tests/virtualview_hit_matches_render.rs"
+
 # Dev-only: JSON fixture deserialization for the e2e_json harness. Dev-deps are
 # never shipped and never affect the published dependency graph, so this does
 # NOT rely on the optional `json` crate feature.

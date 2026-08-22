@@ -77,7 +77,7 @@ use azul_css::{
             StyleBackgroundContentValue, ScrollbarFadeDelayValue, ScrollbarFadeDurationValue,
             ScrollbarVisibilityModeValue, SelectionBackgroundColorValue, SelectionColorValue,
             SelectionRadiusValue, ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue,
-            ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue,
+            ShapeOutsideValue, StringSetValue, StyleAppRegionValue, StyleBackfaceVisibilityValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
             StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue,
             StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue,
@@ -2855,6 +2855,7 @@ impl CssPropertyCache {
     impl_get_prop!(get_transform_origin, StyleTransformOriginValue, TransformOrigin, as_transform_origin);
     impl_get_prop!(get_perspective_origin, StylePerspectiveOriginValue, PerspectiveOrigin, as_perspective_origin);
     impl_get_prop!(get_backface_visibility, StyleBackfaceVisibilityValue, BackfaceVisibility, as_backface_visibility);
+    impl_get_prop!(get_app_region, StyleAppRegionValue, AppRegion, as_app_region);
     impl_get_prop!(get_display, LayoutDisplayValue, Display, as_display);
     impl_get_prop!(get_float, LayoutFloatValue, Float, as_float);
     impl_get_prop!(get_box_sizing, LayoutBoxSizingValue, BoxSizing, as_box_sizing);

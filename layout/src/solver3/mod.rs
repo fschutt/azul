@@ -899,8 +899,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         };
 
         if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
-            cache.last_build_was_patched = false;
-            cache.last_patch_damage = None;
+            cache.record_full_emission();
             return Ok(std::sync::Arc::new(DisplayList::default()));
         }
         let dl = generate_display_list(
@@ -934,9 +933,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .as_deref()
             .cloned();
         // Full re-emit, not a splice — clear the patched-build flags so the
-        // renderers' damage override cannot replay stale patch rects.
-        cache.last_build_was_patched = false;
-        cache.last_patch_damage = None;
+        // renderers' damage override cannot replay stale patch rects, and
+        // retire the patch log: the renderers' item diff against the list
+        // they last presented covers everything from here.
+        cache.record_full_emission();
         return Ok(dl);
     }
 
@@ -1374,8 +1374,21 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         } else {
             None
         };
-        cache.last_build_was_patched = patch.is_some();
-        cache.last_patch_damage = None;
+        // Field writes, not `cache.record_*()`: `patch` borrows
+        // `cache.cached_display_list` for the rest of this build, and a
+        // `&mut self` method call would conflict with it where disjoint
+        // field writes do not. Same bookkeeping as `record_full_emission`.
+        if patch.is_some() {
+            // The damage is recorded below, once the final list exists.
+            cache.last_build_was_patched = true;
+            cache.last_patch_damage = None;
+        } else {
+            cache.build_seq = cache.build_seq.wrapping_add(1);
+            cache.last_full_build_seq = cache.build_seq;
+            cache.last_build_was_patched = false;
+            cache.last_patch_damage = None;
+            cache.patch_damage_log.clear();
+        }
         if patch.is_some() {
             // The patch's own damage, phase 1 of 2: the CHANGED-node set
             // (re-emitted OR moved/resized) plus old ∪ new NODE bounds as the
@@ -1526,6 +1539,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
             eprintln!("[PATCHDMG] rects={rects:?}");
+        }
+        // Onto the LOG, not just the slot: a second patched build before the
+        // next present (a callback's css patch followed by the RefreshDom it
+        // returns) must not erase this one's vacated rects. Field writes for
+        // the same borrow reason as above; same bookkeeping as
+        // `record_patch_damage`.
+        cache.build_seq = cache.build_seq.wrapping_add(1);
+        cache.patch_damage_log.push((cache.build_seq, rects.clone()));
+        if cache.patch_damage_log.len() > cache::PATCH_DAMAGE_LOG_CAP {
+            let excess = cache.patch_damage_log.len() - cache::PATCH_DAMAGE_LOG_CAP;
+            cache.patch_damage_log.drain(..excess);
         }
         cache.last_patch_damage = Some(rects);
     }

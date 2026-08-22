@@ -840,6 +840,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         routes: _,
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
+        // One rect per NodeResized subscriber (a handful of widgets), not
+        // the document.
+        resize_watch: _,
         #[cfg(feature = "icu")]
         icu_localizer: _,
     } = w;
@@ -1261,6 +1264,14 @@ pub struct LayoutWindow {
     /// Drain-and-clear is the caller's responsibility; nothing inside
     /// `LayoutWindow` ages or discards these on its own.
     pub pending_lifecycle_events: Vec<azul_core::events::SyntheticEvent>,
+    /// Layout box of every node subscribed to `NodeResized`, as of the last
+    /// layout pass — the "previous" side of the next pass's `Resize` events
+    /// (see [`Self::queue_resize_events_after_layout`]).
+    ///
+    /// Node-keyed: remapped
+    /// with the managers on a rebuild, so a subscriber that keeps its identity
+    /// across a DOM regeneration keeps its baseline too.
+    pub resize_watch: BTreeMap<(DomId, NodeId), LogicalRect>,
     /// Resolved `BeforeUnmount` invocations queued for dispatch.
     ///
     /// Unmount events target OLD `NodeIds` that disappear once the new layout
@@ -1575,6 +1586,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -1645,6 +1659,7 @@ impl LayoutWindow {
             },
             pending_virtual_view_updates: BTreeMap::new(),
             pending_lifecycle_events: Vec::new(),
+            resize_watch: BTreeMap::new(),
             pending_unmount_invocations: Vec::new(),
             system_style: None,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
@@ -1871,6 +1886,13 @@ impl LayoutWindow {
             self.scroll_focused_cursor_into_view();
         }
 
+        // Every layout pass ends here — full rebuild, pre-cascade relayout,
+        // window-resize fast path — so this is the one place `NodeResized`
+        // can be derived from what the solve actually produced.
+        if result.is_ok() {
+            self.queue_resize_events_after_layout(system_callbacks);
+        }
+
         // Developer warning pass: raw text nodes used without a containing
         // block (azul does not auto-wrap them in anonymous blocks the way
         // browsers do — state on a text node is inert). One warning per
@@ -1878,6 +1900,9 @@ impl LayoutWindow {
         if result.is_ok() {
             for lr in self.layout_results.values() {
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
+                crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
+                crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
+                crate::dom_lint::warn_a11y_shape(&lr.styled_dom);
             }
         }
 
@@ -3311,6 +3336,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -3806,6 +3834,14 @@ impl LayoutWindow {
         let cursor_is_visible = self.text_edit_manager.should_draw_cursor()
             || self.text_edit_manager.tween.is_active();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
+        // The live selection goes through the LAYOUT path too. Only the
+        // display-list-only path (`regenerate_display_list_for_dom`) painted
+        // `SelectionRect`s; this one handed `layout_document` an empty map,
+        // so every relayout — a resize, a restyle, an app's RefreshDom, a
+        // set_css_property patch — erased the highlight until the next drag
+        // move repainted it (the "selection flickers and is gone on release"
+        // report, 2026-08-21).
+        let text_selections_map = self.text_edit_manager.build_text_selections_map();
 
         // Consume the CSS diff staged by `begin_reconciliation` — exactly one
         // pass eats it, and only for the DOM it was computed against.
@@ -3826,7 +3862,7 @@ impl LayoutWindow {
                 viewport,
                 &self.font_manager,
                 &scroll_offsets,
-                &BTreeMap::new(),
+                &text_selections_map,
                 debug_messages,
                 Some(&gpu_cache),
                 &self.renderer_resources,
@@ -5074,6 +5110,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -12501,8 +12540,7 @@ impl LayoutWindow {
         // typed glyphs were never painted where they actually are. Stale
         // `last_patch_damage` is the milder half of the same defect
         // (over-damage from rects that describe a different list).
-        self.layout_cache.last_build_was_patched = false;
-        self.layout_cache.last_patch_damage = None;
+        self.layout_cache.record_full_emission();
         self.layout_cache.last_patch_move = None;
 
         // Get all the data we need from the layout result
@@ -13457,7 +13495,36 @@ impl LayoutWindow {
             }
         }
 
-        let (dom_id, ifc_root_node_id, initial_range, _local_pos) = found_selection?;
+        // A press that hits NO selectable text ENDS the selection session —
+        // browser mousedown semantics — unless it landed inside a
+        // contenteditable host (an empty TextInput has no text to hit, and
+        // focus has just given it its caret). The session a click on any text
+        // opened used to live for the rest of the window: in AzPaint one click
+        // on the title, then every stroke on the canvas dragged a selection
+        // through the title (`TextSelectionDrag` is armed whenever
+        // `left_down && has_active_editing()`).
+        let Some((dom_id, ifc_root_node_id, initial_range, _local_pos)) = found_selection else {
+            let pressed_an_editable = self
+                .hover_manager
+                .get_current(&InputPointId::Mouse)
+                .is_some_and(|hit_test| {
+                    hit_test.hovered_nodes.iter().any(|(dom_id, hit)| {
+                        self.layout_results.get(dom_id).is_some_and(|lr| {
+                            hit.regular_hit_test_nodes.keys().any(|node_id| {
+                                solver3::getters::is_node_contenteditable_inherited(
+                                    &lr.styled_dom,
+                                    *node_id,
+                                )
+                            })
+                        })
+                    })
+                });
+            if !pressed_an_editable && self.text_edit_manager.has_active_editing() {
+                self.text_edit_manager.clear_editing();
+                self.text_edit_manager.clear_cross_block_selection();
+            }
+            return None;
+        };
 
         // Create DomNodeId for click state tracking - use IFC root's NodeId
         // Selection state is keyed by IFC root because that's where inline_layout_result lives
@@ -14143,6 +14210,78 @@ impl LayoutWindow {
         updated_vviews
     }
 
+    /// Queue a `Resize` lifecycle event (`ComponentEventFilter::NodeResized`)
+    /// for every subscribed node whose layout box changed size since the last
+    /// pass, and remember the current boxes as the next pass's baseline.
+    ///
+    /// Called at the tail of [`Self::layout_and_generate_display_list`], i.e.
+    /// after EVERY solve. `NodeResized` is public API (the video widget
+    /// resizes its decoder target on it) but had never fired in a running
+    /// app: its only emitter lived in `reconcile_dom`, which compared layout
+    /// maps that production passed EMPTY, ran BEFORE the new tree was solved,
+    /// and was not even reached by a window resize (the fast path re-solves
+    /// the existing `StyledDom` without reconciling). Deriving the event from
+    /// the solved boxes covers all three paths with one rule.
+    ///
+    /// The first pass a node is seen records its box and emits nothing (a
+    /// mount is not a resize). The shell drains `pending_lifecycle_events`
+    /// after the pass (`dispatch_pending_lifecycle_events`).
+    pub fn queue_resize_events_after_layout(
+        &mut self,
+        system_callbacks: &ExternalSystemCallbacks,
+    ) {
+        use azul_core::dom::{ComponentEventFilter, EventFilter};
+
+        let mut current: BTreeMap<(DomId, NodeId), LogicalRect> = BTreeMap::new();
+        for (dom_id, lr) in &self.layout_results {
+            let node_data = lr.styled_dom.node_data.as_container();
+            for (idx, nd) in node_data.internal.iter().enumerate() {
+                let subscribed = nd.callbacks.as_ref().iter().any(|cb| {
+                    matches!(
+                        cb.event,
+                        EventFilter::Component(ComponentEventFilter::NodeResized)
+                    )
+                });
+                if !subscribed {
+                    continue;
+                }
+                let node_id = NodeId::new(idx);
+                let Some(layout_idx) = lr
+                    .layout_tree
+                    .dom_to_layout
+                    .get(&node_id)
+                    .and_then(|v| v.first().copied())
+                else {
+                    continue;
+                };
+                let Some(size) = lr.layout_tree.get(layout_idx).and_then(|n| n.used_size) else {
+                    continue;
+                };
+                let Some(position) = lr.calculated_positions.get(layout_idx.index()) else {
+                    continue;
+                };
+                current.insert(
+                    (*dom_id, node_id),
+                    LogicalRect::new(LogicalPosition::new(position.x, position.y), size),
+                );
+            }
+        }
+
+        if !current.is_empty() || !self.resize_watch.is_empty() {
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            for ((dom_id, node_id), new_rect) in &current {
+                if let Some(old_rect) = self.resize_watch.get(&(*dom_id, *node_id)) {
+                    if let Some(ev) = azul_core::events::resize_event_for_bounds(
+                        *dom_id, *node_id, *old_rect, *new_rect, &now,
+                    ) {
+                        self.pending_lifecycle_events.push(ev);
+                    }
+                }
+            }
+        }
+        self.resize_watch = current;
+    }
+
     /// Queue `VirtualView` updates to be processed in the next frame
     ///
     /// This is called after callbacks to store the `vviews_to_update` from callback changes
@@ -14319,6 +14458,7 @@ impl LayoutWindow {
 
             // --- NODE-KEYED: plain caches owned directly by the window -------
             text_constraints_cache,
+            resize_watch,
             pending_virtual_view_updates,
             gl_texture_cache,
             currently_dragging_thumb,
@@ -14484,6 +14624,7 @@ impl LayoutWindow {
 
         // Window-owned caches (same contract: absent from `map` == unmounted).
         crate::managers::remap_dom_keys(&mut text_constraints_cache.constraints, dom, map);
+        crate::managers::remap_dom_keys(resize_watch, dom, map);
         // Overlay (images + text) remaps with the managers; the CONVERGENCE GC
         // for text (drop entries the new DOM committed) runs at the tail of
         // `layout_and_generate_display_list`, where the new generation is

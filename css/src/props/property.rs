@@ -80,7 +80,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 190] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 192] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -260,6 +260,10 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 190] = [
     (CssPropertyType::PerspectiveOrigin, "perspective-origin"),
     (CssPropertyType::TransformOrigin, "transform-origin"),
     (CssPropertyType::BackfaceVisibility, "backface-visibility"),
+    (CssPropertyType::AppRegion, "-azul-app-region"),
+    // Electron spells it `-webkit-app-region`; accept that too so existing
+    // CSS ports over without a rewrite.
+    (CssPropertyType::AppRegion, "-webkit-app-region"),
     (CssPropertyType::Animation, "animation"),
     (CssPropertyType::AnimationIn, "-azul-animation-in"),
     (CssPropertyType::AnimationOut, "-azul-animation-out"),
@@ -380,6 +384,7 @@ pub type StyleTransformVecValue = CssPropertyValue<StyleTransformVec>;
 pub type StyleTransformOriginValue = CssPropertyValue<StyleTransformOrigin>;
 pub type StylePerspectiveOriginValue = CssPropertyValue<StylePerspectiveOrigin>;
 pub type StyleBackfaceVisibilityValue = CssPropertyValue<StyleBackfaceVisibility>;
+pub type StyleAppRegionValue = CssPropertyValue<StyleAppRegion>;
 pub type StyleMixBlendModeValue = CssPropertyValue<StyleMixBlendMode>;
 pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
 pub type StyleBackgroundContentValue = CssPropertyValue<StyleBackgroundContent>;
@@ -760,6 +765,7 @@ pub enum CssProperty {
     TransformOrigin(StyleTransformOriginValue),
     PerspectiveOrigin(StylePerspectiveOriginValue),
     BackfaceVisibility(StyleBackfaceVisibilityValue),
+    AppRegion(StyleAppRegionValue),
     MixBlendMode(StyleMixBlendModeValue),
     Filter(StyleFilterVecValue),
     BackdropFilter(StyleFilterVecValue),
@@ -1018,6 +1024,7 @@ pub enum CssPropertyType {
     TransformOrigin,
     PerspectiveOrigin,
     BackfaceVisibility,
+    AppRegion,
     MixBlendMode,
     Filter,
     BackdropFilter,
@@ -1212,6 +1219,7 @@ impl CssPropertyType {
         Self::TransformOrigin,
         Self::PerspectiveOrigin,
         Self::BackfaceVisibility,
+        Self::AppRegion,
         Self::MixBlendMode,
         Self::Filter,
         Self::BackdropFilter,
@@ -1430,6 +1438,7 @@ impl CssPropertyType {
             Self::TransformOrigin => "transform-origin",
             Self::PerspectiveOrigin => "perspective-origin",
             Self::BackfaceVisibility => "backface-visibility",
+            Self::AppRegion => "-azul-app-region",
             Self::MixBlendMode => "mix-blend-mode",
             Self::Filter => "filter",
             Self::BackdropFilter => "backdrop-filter",
@@ -1575,7 +1584,7 @@ impl CssPropertyType {
     /// Returns whether this property can trigger a re-layout (important for incremental layout and
     /// caching layouted DOMs).
     #[must_use] pub const fn can_trigger_relayout(&self) -> bool {
-        use self::CssPropertyType::{Animation, AnimationIn, AnimationOut, TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, Clip};
+        use self::CssPropertyType::{Animation, AnimationIn, AnimationOut, TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, AppRegion, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, Clip};
 
         // Since the border can be larger than the content,
         // in which case the content needs to be re-layouted, assume true for Border
@@ -1657,7 +1666,7 @@ impl CssPropertyType {
     /// (has inline formatting context membership). When true, font/text
     /// property changes trigger IFC-only relayout instead of being ignored.
     #[must_use] pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
-        use CssPropertyType::{Animation, AnimationIn, AnimationOut, TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, TextOverflow, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
+        use CssPropertyType::{Animation, AnimationIn, AnimationOut, TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, AppRegion, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, TextOverflow, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
         match self {
             // Pure paint — never triggers relayout
             TextColor
@@ -1896,6 +1905,7 @@ pub enum CssParsingError<'a> {
 
     // Effects
     BackfaceVisibility(CssBackfaceVisibilityParseError<'a>),
+    AppRegion(CssAppRegionParseError<'a>),
     MixBlendMode(MixBlendModeParseError<'a>),
 
     // Fragmentation
@@ -2070,6 +2080,7 @@ pub enum CssParsingErrorOwned {
 
     // Effects
     BackfaceVisibility(CssBackfaceVisibilityParseErrorOwned),
+    AppRegion(CssAppRegionParseErrorOwned),
     MixBlendMode(MixBlendModeParseErrorOwned),
 
     // Fragmentation
@@ -2170,6 +2181,7 @@ impl_display! { CssParsingError<'a>, {
     BorderBottomRightRadius(e) => format!("Invalid border-bottom-right-radius: {}", e),
     BorderStyle(e) => format!("Invalid border style: {}", e),
     BackfaceVisibility(e) => format!("Invalid backface-visibility: {}", e),
+    AppRegion(e) => format!("Invalid app-region: {}", e),
     MixBlendMode(e) => format!("Invalid mix-blend-mode: {}", e),
     TextColor(e) => format!("Invalid text color: {}", e),
     FontSize(e) => format!("Invalid font-size: {}", e),
@@ -2465,6 +2477,7 @@ impl_from!(
     CssBackfaceVisibilityParseError<'a>,
     CssParsingError::BackfaceVisibility
 );
+impl_from!(CssAppRegionParseError<'a>, CssParsingError::AppRegion);
 impl_from!(MixBlendModeParseError<'a>, CssParsingError::MixBlendMode);
 
 // Text/Style properties
@@ -2715,6 +2728,9 @@ impl CssParsingError<'_> {
                 CssParsingErrorOwned::BorderBottomRightRadius(e.to_contained())
             }
             CssParsingError::BorderStyle(e) => CssParsingErrorOwned::BorderStyle(e.to_contained()),
+            CssParsingError::AppRegion(e) => {
+                CssParsingErrorOwned::AppRegion(e.to_contained())
+            }
             CssParsingError::BackfaceVisibility(e) => {
                 CssParsingErrorOwned::BackfaceVisibility(e.to_contained())
             }
@@ -2975,6 +2991,7 @@ impl CssParsingErrorOwned {
                 CssParsingError::BorderBottomRightRadius(e.to_shared())
             }
             Self::BorderStyle(e) => CssParsingError::BorderStyle(e.to_shared()),
+            Self::AppRegion(e) => CssParsingError::AppRegion(e.to_shared()),
             Self::BackfaceVisibility(e) => {
                 CssParsingError::BackfaceVisibility(e.to_shared())
             }
@@ -3395,6 +3412,7 @@ pub fn parse_css_property(
             CssPropertyType::TransformOrigin => parse_style_transform_origin(value)?.into(),
             CssPropertyType::PerspectiveOrigin => parse_style_perspective_origin(value)?.into(),
             CssPropertyType::BackfaceVisibility => parse_style_backface_visibility(value)?.into(),
+            CssPropertyType::AppRegion => parse_style_app_region(value)?.into(),
 
             CssPropertyType::MixBlendMode => parse_style_mix_blend_mode(value)?.into(),
             CssPropertyType::Filter => CssProperty::Filter(parse_style_filter_vec(value)?.into()),
@@ -4477,6 +4495,7 @@ impl_from_css_prop!(StyleTransformVec, CssProperty::Transform);
 impl_from_css_prop!(StyleTransformOrigin, CssProperty::TransformOrigin);
 impl_from_css_prop!(StylePerspectiveOrigin, CssProperty::PerspectiveOrigin);
 impl_from_css_prop!(StyleBackfaceVisibility, CssProperty::BackfaceVisibility);
+impl_from_css_prop!(StyleAppRegion, CssProperty::AppRegion);
 impl_from_css_prop!(StyleMixBlendMode, CssProperty::MixBlendMode);
 impl_from_css_prop!(StyleHyphens, CssProperty::Hyphens);
 impl_from_css_prop!(StyleWordBreak, CssProperty::WordBreak);
@@ -4667,6 +4686,7 @@ impl CssProperty {
             Self::TransformOrigin(v) => v.get_css_value_fmt(),
             Self::PerspectiveOrigin(v) => v.get_css_value_fmt(),
             Self::BackfaceVisibility(v) => v.get_css_value_fmt(),
+            Self::AppRegion(v) => v.get_css_value_fmt(),
             Self::MixBlendMode(v) => v.get_css_value_fmt(),
             Self::Filter(v) => v.get_css_value_fmt(),
             Self::BackdropFilter(v) => v.get_css_value_fmt(),
@@ -5149,6 +5169,7 @@ impl CssProperty {
             Self::PerspectiveOrigin(_) => CssPropertyType::PerspectiveOrigin,
             Self::TransformOrigin(_) => CssPropertyType::TransformOrigin,
             Self::BackfaceVisibility(_) => CssPropertyType::BackfaceVisibility,
+            Self::AppRegion(_) => CssPropertyType::AppRegion,
             Self::MixBlendMode(_) => CssPropertyType::MixBlendMode,
             Self::Filter(_) => CssPropertyType::Filter,
             Self::BackdropFilter(_) => CssPropertyType::BackdropFilter,
@@ -6135,6 +6156,13 @@ impl CssProperty {
             _ => None,
         }
     }
+
+    #[must_use] pub const fn as_app_region(&self) -> Option<&StyleAppRegionValue> {
+        match self {
+            Self::AppRegion(f) => Some(f),
+            _ => None,
+        }
+    }
     #[must_use] pub const fn as_mix_blend_mode(&self) -> Option<&StyleMixBlendModeValue> {
         match self {
             Self::MixBlendMode(f) => Some(f),
@@ -6700,7 +6728,7 @@ impl CssProperty {
     #[allow(clippy::match_same_arms)]
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn is_initial(&self) -> bool {
-        use self::CssProperty::{Animation, AnimationIn, AnimationOut, CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
+        use self::CssProperty::{Animation, AnimationIn, AnimationOut, CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, AppRegion, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
         match self {
             CaretColor(c) => c.is_initial(),
             CaretWidth(c) => c.is_initial(),
@@ -6834,6 +6862,7 @@ impl CssProperty {
             Transform(c) => c.is_initial(),
             TransformOrigin(c) => c.is_initial(),
             PerspectiveOrigin(c) => c.is_initial(),
+            AppRegion(c) => c.is_initial(),
             BackfaceVisibility(c) => c.is_initial(),
             MixBlendMode(c) => c.is_initial(),
             Filter(c) => c.is_initial(),
@@ -7683,6 +7712,10 @@ impl CssProperty {
         CssProperty::BackfaceVisibility(p) => format!(
             "CssProperty::BackfaceVisibility({})",
             print_css_property_value(p, tabs, "StyleBackfaceVisibility")
+        ),
+        CssProperty::AppRegion(p) => format!(
+            "CssProperty::AppRegion({})",
+            print_css_property_value(p, tabs, "StyleAppRegion")
         ),
         CssProperty::MixBlendMode(p) => format!(
             "CssProperty::MixBlendMode({})",

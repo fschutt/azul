@@ -511,34 +511,14 @@ impl MapTileCache {
     /// space), and the farthest are dropped first. IN-FLIGHT tiles
     /// (`Pending`/`Fetching`) are never evicted (their worker would write into a
     /// gone entry), and on-screen tiles score near-zero so they survive.
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     pub fn prune_distant_tiles(&mut self) {
         const MAX_CACHED_TILES: usize = 192;
         if self.tiles.len() <= MAX_CACHED_TILES {
             return;
         }
 
-        let z = (self.viewport.zoom.floor() as i32)
-            .clamp(i32::from(self.layer.min_zoom), i32::from(self.layer.max_zoom))
-            as u8;
-        let tile_count = 1u32 << u32::from(z);
-        let cx = lon_to_tile_x(self.viewport.centre_lon_deg, f64::from(tile_count));
-        let cy = lat_to_tile_y(self.viewport.centre_lat_deg, f64::from(tile_count));
-
-        // Higher score = evict sooner.
-        let score = |id: &MapTileId| -> f64 {
-            let zt_count = 1u32 << u32::from(id.z);
-            // Project the tile's centre into the CURRENT zoom's tile space so
-            // distances across zoom levels are comparable.
-            let scale = f64::from(tile_count) / f64::from(zt_count);
-            let tx = (f64::from(id.x) + 0.5) * scale;
-            let ty = (f64::from(id.y) + 0.5) * scale;
-            let dz = f64::from((i32::from(id.z) - i32::from(z)).abs());
-            let dx = tx - cx;
-            let dy = ty - cy;
-            dz * 10_000.0 + dx * dx + dy * dy
-        };
+        // Higher score = farther from what the user sees = evict sooner.
+        let score = |id: &MapTileId| tile_viewport_score(&self.viewport, &self.layer, *id);
 
         let mut evictable: Vec<(f64, MapTileId)> = self
             .tiles
@@ -558,6 +538,61 @@ impl MapTileCache {
             to_remove -= 1;
         }
     }
+
+    /// Every `Pending` tile, NEAREST TO THE VIEWPORT CENTRE FIRST — the
+    /// order fetches are spawned in (`spawn_pending_tile_fetches` takes the
+    /// head of this list each sweep).
+    ///
+    /// The sweep used to walk the `BTreeMap` in key order, `(z, x, y)`
+    /// ascending: the first column spawned was the INVISIBLE west margin,
+    /// and a lower-zoom leftover was fetched before anything at the current
+    /// zoom — tiles visibly loaded from the left edge inwards. Ordering by
+    /// [`tile_viewport_score`] puts the tile under the user's eyes first and
+    /// the margin and stale zooms last, with nothing cancelled or lost.
+    #[must_use]
+    pub fn pending_tiles_nearest_first(&self) -> Vec<MapTileId> {
+        let mut pending: Vec<(f64, MapTileId)> = self
+            .tiles
+            .iter()
+            .filter(|(_, e)| matches!(e, TileEntry::Pending))
+            .map(|(id, _)| (tile_viewport_score(&self.viewport, &self.layer, *id), *id))
+            .collect();
+        // Nearest first; the `(z, x, y)` key order breaks exact ties so the
+        // result is deterministic.
+        pending.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(core::cmp::Ordering::Equal)
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        pending.into_iter().map(|(_, id)| id).collect()
+    }
+}
+
+/// How far a tile is from what the viewport shows (lower = nearer).
+///
+/// Zoom mismatch first (10 000 per level), then the squared distance of the
+/// tile's centre from the viewport centre, both measured in the CURRENT
+/// zoom's tile space so tiles of different zooms compare. One function for
+/// both the fetch order (nearest first) and the cache eviction (farthest
+/// first), so the two can never disagree about what "near the user" means.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+fn tile_viewport_score(viewport: &MapViewport, layer: &MapTileLayer, id: MapTileId) -> f64 {
+    let z = (viewport.zoom.floor() as i32)
+        .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
+    let tile_count = 1u32 << u32::from(z);
+    let cx = lon_to_tile_x(viewport.centre_lon_deg, f64::from(tile_count));
+    let cy = lat_to_tile_y(viewport.centre_lat_deg, f64::from(tile_count));
+    let zt_count = 1u32 << u32::from(id.z);
+    // Project the tile's centre into the CURRENT zoom's tile space so
+    // distances across zoom levels are comparable.
+    let scale = f64::from(tile_count) / f64::from(zt_count);
+    let tx = (f64::from(id.x) + 0.5) * scale;
+    let ty = (f64::from(id.y) + 0.5) * scale;
+    let dz = f64::from((i32::from(id.z) - i32::from(z)).abs());
+    let dx = tx - cx;
+    let dy = ty - cy;
+    dz * 10_000.0 + dx * dx + dy * dy
 }
 
 #[derive(Debug, Clone)]
@@ -685,6 +720,13 @@ azul_core::impl_managed_callback! {
 
 /// Invoke a map widget's optional `on_viewport_changed` hook with the new
 /// viewport, returning the user's `Update` (`DoNothing` if no hook is set).
+///
+/// `#[must_use]`: the crate denies `unused_must_use`, so a handler that
+/// calls the hook and throws its answer away no longer compiles. Every
+/// pointer / wheel handler used to do exactly that and return `DoNothing`
+/// itself, so an app's `RefreshDom` from the hook never happened — the
+/// demo's zoom/centre readout froze during drags and wheel zooms.
+#[must_use]
 fn invoke_viewport_changed(
     hook: &OptionMapViewportChanged,
     info: &CallbackInfo,
@@ -727,11 +769,34 @@ azul_core::impl_managed_callback! {
 }
 
 /// Invoke a map widget's optional `on_pin_tap` hook with the tapped coordinate.
+/// `#[must_use]` for the same reason as [`invoke_viewport_changed`].
+#[must_use]
 fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon) -> Update {
     match hook {
         OptionMapPinTap::Some(h) => (h.callback.cb)(h.refany.clone(), *info, coord),
         OptionMapPinTap::None => Update::DoNothing,
     }
+}
+
+/// The tail every viewport-changing handler shares: fire the user's
+/// `on_viewport_changed` hook and RETURN ITS `Update`.
+///
+/// A hook that asks for `RefreshDom` gets it — the merge callback keeps the
+/// tile cache across the rebuild and the full layout path re-invokes the
+/// `VirtualView`. A hook that answers `DoNothing` (or no hook at all) gets
+/// the cheap in-place re-render instead, so the new viewport's tiles compute
+/// without a DOM rebuild (see `map_tile_writeback` for why that path avoids
+/// `RefreshDom`). Doing both on a `RefreshDom` would render the view twice.
+fn finish_viewport_change(
+    hook: &OptionMapViewportChanged,
+    info: &mut CallbackInfo,
+    viewport: MapViewport,
+) -> Update {
+    let user = invoke_viewport_changed(hook, info, viewport);
+    if user == Update::DoNothing {
+        info.trigger_all_virtual_view_rerender();
+    }
+    user
 }
 
 /// Pointer down → record the drag anchor. The widget knows nothing
@@ -791,12 +856,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let hook = cache.on_viewport_changed.clone();
         let vp = cache.viewport;
         drop(cache);
-        invoke_viewport_changed(&hook, &info, vp);
-        // Re-render the VirtualView in place so the new zoom's tiles compute
-        // immediately, without a DOM rebuild. (See map_tile_writeback for why
-        // RefreshDom is avoided.)
-        info.trigger_all_virtual_view_rerender();
-        return Update::DoNothing;
+        return finish_viewport_change(&hook, &mut info, vp);
     }
 
     let pos = match info.get_cursor_relative_to_node().into_option() {
@@ -830,11 +890,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let hook = cache_guard.on_viewport_changed.clone();
     let vp = cache_guard.viewport;
     drop(cache_guard);
-    invoke_viewport_changed(&hook, &info, vp);
-    // Pan moved the viewport — re-render the VirtualView in place so the newly
-    // visible tiles are computed (and marked Pending) right away. No RefreshDom.
-    info.trigger_all_virtual_view_rerender();
-    Update::DoNothing
+    finish_viewport_change(&hook, &mut info, vp)
 }
 
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
@@ -858,22 +914,28 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
             out
         });
     // A press + release at ~the same point (no pan/pinch) is a tap: project it
-    // to lat/lon and fire the user's on_pin_tap hook.
+    // to lat/lon and fire the user's on_pin_tap hook — and carry its answer
+    // out, so a hook that drops a pin with `RefreshDom` sees the pin now, not
+    // after the next unrelated rebuild.
+    let mut user = Update::DoNothing;
     if let (Some(origin), Some(up)) = (press, up_pos) {
         let dx = f64::from(up.x - origin.x);
         let dy = f64::from(up.y - origin.y);
         if dx * dx + dy * dy < 36.0 {
             let coord = MapWidget::latlon_at_px(viewport, up, container);
-            invoke_pin_tap(&hook, &info, coord);
+            user = invoke_pin_tap(&hook, &info, coord);
         }
     }
     // After a pan / pinch settles, kick off fetches for any tiles the new
     // viewport needs. (Only a `CallbackInfo`-bearing callback can spawn them.)
     spawn_pending_tile_fetches(&mut data, &mut info);
     // Re-render in place so Fetching/Ready states show as tiles arrive. The
-    // worker writebacks will trigger further re-renders themselves. No RefreshDom.
-    info.trigger_all_virtual_view_rerender();
-    Update::DoNothing
+    // worker writebacks will trigger further re-renders themselves. A hook
+    // that asked for a rebuild gets the re-render from the full path instead.
+    if user == Update::DoNothing {
+        info.trigger_all_virtual_view_rerender();
+    }
+    user
 }
 
 /// Mouse-wheel / trackpad scroll over the map = ZOOM (Leaflet / Google-Maps
@@ -907,9 +969,10 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         };
         let min = f32::from(cache.layer.min_zoom);
         let max = f32::from(cache.layer.max_zoom);
-        // ~0.5 zoom levels per wheel notch. X11 delivers wheel-up as dy > 0;
-        // wheel-up zooms IN, wheel-down zooms OUT (Leaflet / Google-Maps).
-        let dz = dy.signum() * 0.5;
+        // Wheel-up (dy > 0) zooms IN, wheel-down zooms OUT (Leaflet /
+        // Google-Maps). Proportional to the delta and bounded per event —
+        // see `wheel_zoom_step` for why `signum() * 0.5` was a runaway.
+        let dz = wheel_zoom_step(dy);
         cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
         let vp = cache.viewport;
         let layer = cache.layer.clone();
@@ -918,10 +981,31 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         (vp, cache.on_viewport_changed.clone())
     };
-    invoke_viewport_changed(&hook, &info, vp);
     spawn_pending_tile_fetches(&mut data, &mut info);
-    info.trigger_all_virtual_view_rerender();
-    Update::DoNothing
+    finish_viewport_change(&hook, &mut info, vp)
+}
+
+/// Wheel pixels per zoom level: one mouse notch (3 lines × 20 px on every
+/// desktop backend) is half a level, the feel the map always had.
+const WHEEL_PX_PER_ZOOM_LEVEL: f32 = 120.0;
+/// No single wheel event moves more than this, whatever its delta.
+const MAX_ZOOM_STEP_PER_WHEEL_EVENT: f32 = 0.5;
+
+/// Wheel / trackpad delta (px, sign = direction) → zoom-level step.
+///
+/// A trackpad reports one two-finger flick as dozens of small precise
+/// deltas plus a momentum tail — 20-40 events. The old `dy.signum() * 0.5`
+/// charged every one of them a full half-level, so one flick ran from zoom
+/// 2 to the layer's cap (where "+" then did nothing: the first symptom the
+/// user reported). Proportional to the delta and bounded per event, a 60 px
+/// notch is still 0.5, a 300 px flick is 2.5 levels, and a momentum tail of
+/// 2-px events barely moves.
+fn wheel_zoom_step(dy_px: f32) -> f32 {
+    if !dy_px.is_finite() {
+        return 0.0;
+    }
+    (dy_px / WHEEL_PX_PER_ZOOM_LEVEL)
+        .clamp(-MAX_ZOOM_STEP_PER_WHEEL_EVENT, MAX_ZOOM_STEP_PER_WHEEL_EVENT)
 }
 
 fn wrap_lon(lon: f64) -> f64 {
@@ -1125,11 +1209,11 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         }
         let template = cache.layer.url_template.as_str().to_string();
         let style_css = cache.layer.style_css.clone();
+        // Centre-out: the tiles under the user's eyes first, the off-screen
+        // margin and other-zoom leftovers last (see `pending_tiles_nearest_first`).
         let pending: Vec<MapTileId> = cache
-            .tiles
-            .iter()
-            .filter(|(_, e)| matches!(e, TileEntry::Pending))
-            .map(|(id, _)| *id)
+            .pending_tiles_nearest_first()
+            .into_iter()
             .take(MAX_SPAWN_PER_CALL)
             .collect();
         for tile in pending {
@@ -1504,6 +1588,40 @@ extern "C" fn map_widget_render(
                 EventFilter::Hover(HoverEventFilter::Scroll),
                 data.clone(),
                 Callback::from_ptr(map_on_scroll),
+            )
+            // Touch + pinch were registered on the OUTER div only, which the
+            // same shadowing above made unreachable: a trackpad pinch
+            // (PinchIn/PinchOut target the hovered node = a tile in THIS dom)
+            // could never reach a handler. Same handlers, same data.
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchStart),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_down),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchMove),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_move),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchEnd),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_up),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchCancel),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_up),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::PinchIn),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_move),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::PinchOut),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_move),
             );
     }
 
@@ -1573,7 +1691,7 @@ extern "C" fn map_widget_render(
                     }
                     None => {
                         tile_div = tile_div.with_child(
-                            Dom::create_p_with_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
+                            crate::widgets::widget_p_with_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
                                 .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                         );
                     }
@@ -1584,7 +1702,7 @@ extern "C" fn map_widget_render(
                         _ => "",
                     };
                     tile_div = tile_div.with_child(
-                        Dom::create_p_with_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
+                        crate::widgets::widget_p_with_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
                             .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                     );
                 }
@@ -1681,6 +1799,82 @@ mod tests {
                 approx(tile_y_to_lat(y, tc), lat, 1e-6);
             }
         }
+    }
+
+    #[test]
+    fn pan_up_reveals_north_in_both_hemispheres() {
+        // The drag convention the demo's arrow buttons must follow: dragging
+        // the CONTENT down (+dy) recentres on a HIGHER latitude (reveals the
+        // north); dragging it up reveals the south — in both hemispheres.
+        // The demo's "↑" once added a tile-space dy (y grows south) straight
+        // to latitude and panned south.
+        for lat in [37.7749, -33.8688, 0.0] {
+            let (_, down) = pan_viewport(lat, 0.0, 4.0, 0.0, 128.0);
+            let (_, up) = pan_viewport(lat, 0.0, 4.0, 0.0, -128.0);
+            assert!(down > lat, "content dragged down must reveal the north: {lat} → {down}");
+            assert!(up < lat, "content dragged up must reveal the south: {lat} → {up}");
+        }
+    }
+
+    #[test]
+    fn wheel_zoom_step_is_proportional_and_bounded() {
+        // A mouse notch (3 lines × 20 px) keeps the half-level it always had.
+        approx(f64::from(wheel_zoom_step(60.0)), 0.5, 1e-6);
+        approx(f64::from(wheel_zoom_step(-60.0)), -0.5, 1e-6);
+        // A precise trackpad delta is charged for what it is.
+        approx(f64::from(wheel_zoom_step(6.0)), 0.05, 1e-6);
+        // No event moves more than half a level, however violent.
+        approx(f64::from(wheel_zoom_step(10_000.0)), 0.5, 1e-6);
+        approx(f64::from(wheel_zoom_step(-10_000.0)), -0.5, 1e-6);
+        // Nothing in, nothing out.
+        assert_eq!(wheel_zoom_step(0.0), 0.0);
+        assert_eq!(wheel_zoom_step(f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn a_trackpad_flick_no_longer_runs_to_the_zoom_cap() {
+        // One two-finger flick: ~40 events of a few px each plus momentum.
+        let events: Vec<f32> = (0..40).map(|i| if i < 20 { 8.0 } else { 2.0 }).collect();
+        let total: f32 = events.iter().map(|d| wheel_zoom_step(*d)).sum();
+        // The old signum() * 0.5 charged 40 × 0.5 = 20 levels — past any cap.
+        assert!(total < 3.0, "a flick must stay within a couple of levels, got {total}");
+        assert!(total > 0.5, "a flick must still zoom noticeably, got {total}");
+    }
+
+    #[test]
+    fn pending_tiles_are_fetched_centre_out() {
+        // Viewport centred on the middle of tile (2, 2) at zoom 2 (4×4 world):
+        // x = 2.5 → lon 45°, y = 2.5 → its latitude via the inverse projection.
+        let layer = MapTileLayer::default();
+        let viewport = MapViewport {
+            centre_lat_deg: tile_y_to_lat(2.5, 4.0),
+            centre_lon_deg: tile_x_to_lon(2.5, 4.0),
+            zoom: 2.0,
+            ..MapViewport::default()
+        };
+        let mut cache = MapTileCache::new(layer, viewport);
+        for x in 0..4 {
+            for y in 0..4 {
+                cache.tiles.insert(MapTileId { z: 2, x, y }, TileEntry::Pending);
+            }
+        }
+        // A leftover from the previous zoom, which the (z, x, y) key order
+        // used to fetch FIRST.
+        cache.tiles.insert(MapTileId { z: 1, x: 0, y: 0 }, TileEntry::Pending);
+        // Tiles already in flight / ready are not re-queued.
+        cache.tiles.insert(MapTileId { z: 2, x: 9, y: 9 }, TileEntry::Fetching);
+
+        let order = cache.pending_tiles_nearest_first();
+        assert_eq!(order.len(), 17, "{order:?}");
+        assert_eq!(order[0], MapTileId { z: 2, x: 2, y: 2 }, "the tile under the centre first");
+        let ring: std::collections::BTreeSet<MapTileId> = order[..9].iter().copied().collect();
+        for x in 1..=3 {
+            for y in 1..=3 {
+                assert!(ring.contains(&MapTileId { z: 2, x, y }), "3×3 ring before the edge: {order:?}");
+            }
+        }
+        assert_eq!(*order.last().unwrap(), MapTileId { z: 1, x: 0, y: 0 }, "another zoom's leftover last");
+        assert!(!order.contains(&MapTileId { z: 2, x: 9, y: 9 }), "in-flight tiles are not pending");
     }
 
     #[test]
@@ -3446,6 +3640,59 @@ mod autotest_generated {
         let viewport = view(f64::NAN, f64::INFINITY, f32::NAN);
         let (update, _) = with_callback_info(|info| invoke_viewport_changed(&hook, &info, viewport));
         assert_eq!(update, Update::DoNothing);
+        assert_eq!(hook_log(&mut log), (1, 0));
+    }
+
+    extern "C" fn record_viewport_and_refresh(
+        mut data: RefAny,
+        _: CallbackInfo,
+        viewport: MapViewport,
+    ) -> Update {
+        if let Some(mut log) = data.downcast_mut::<HookLog>() {
+            log.viewports.push(viewport);
+        }
+        Update::RefreshDom
+    }
+
+    #[test]
+    fn finish_viewport_change_returns_the_hooks_update_and_rerenders_only_without_a_rebuild() {
+        // No hook: the handler owes the in-place VirtualView re-render itself.
+        let (update, changes) = with_callback_info(|mut info| {
+            finish_viewport_change(&OptionMapViewportChanged::None, &mut info, view(1.0, 2.0, 3.0))
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(
+            changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)),
+            "without a rebuild the view must be re-rendered in place: {changes:?}"
+        );
+
+        // A hook that answers DoNothing: same, plus the hook saw the viewport.
+        let mut log = RefAny::new(HookLog::default());
+        let hook = OptionMapViewportChanged::Some(MapViewportChanged {
+            refany: log.clone(),
+            callback: (record_viewport as MapViewportChangedCallbackType).into(),
+        });
+        let (update, changes) =
+            with_callback_info(|mut info| finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0)));
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)));
+        assert_eq!(hook_log(&mut log), (1, 0));
+
+        // A hook that asks for RefreshDom: the handler RETURNS it (the bug:
+        // every handler returned DoNothing and the app's readout froze), and
+        // does not also queue the in-place re-render — the full path renders.
+        let mut log = RefAny::new(HookLog::default());
+        let hook = OptionMapViewportChanged::Some(MapViewportChanged {
+            refany: log.clone(),
+            callback: (record_viewport_and_refresh as MapViewportChangedCallbackType).into(),
+        });
+        let (update, changes) =
+            with_callback_info(|mut info| finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0)));
+        assert_eq!(update, Update::RefreshDom, "the user's Update must come out of the handler");
+        assert!(
+            !changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)),
+            "a rebuild already re-invokes the view; rendering it twice is waste: {changes:?}"
+        );
         assert_eq!(hook_log(&mut log), (1, 0));
     }
 

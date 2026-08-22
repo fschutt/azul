@@ -1696,7 +1696,7 @@ impl ListView {
                                     .with_css_props(CSS_MATCH_12498280255863106397)
                                     .with_ids_and_classes(COLUMN_NAME_CLASS)
                                     .with_child({
-                                        Dom::create_p_with_text(col.clone())
+                                        crate::widgets::widget_p_with_text(col.clone())
                                             .with_css_props(CSS_MATCH_15673486787900743642)
                                     });
                                 // Wire the click only when the app set a handler.
@@ -1735,6 +1735,13 @@ impl ListView {
                                     .with_css_props(CSS_MATCH_7894335449545988724)
                                     .with_ids_and_classes(ROW_CLASS)
                                     .with_tab_index(TabIndex::Auto)
+            // Role so the accessibility tree knows what this IS:
+            // a list, so a reader can say "3 of 12". The NAME comes from the widget's own text,
+            // which azul derives when a readable label is present.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::List,
+                ..Default::default()
+            })
                                     .with_children(
                                         row.cells
                                             .as_ref()

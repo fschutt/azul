@@ -2962,17 +2962,12 @@ impl X11Window {
                     // Re-run layout on the existing StyledDom (restyle / runtime
                     // edit) instead of a full regenerate_layout(). Mirrors the
                     // macOS backend's ShouldIncrementalRelayout arm.
-                    let borrows = self.common.layout_borrows();
-                    if let Some(layout_window) = borrows.layout_window {
-                        let mut debug_messages = None;
-                        if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                            layout_window,
-                            borrows.current_window_state,
-                            borrows.renderer_resources,
-                            &mut debug_messages,
-                        ) {
-                            log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                        }
+                    let mut debug_messages = None;
+                    if let Err(e) = self.incremental_relayout_dispatching(
+                        crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                        &mut debug_messages,
+                    ) {
+                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                     }
                     // Same call as the main handle_event arm. It raises the
                     // relayout-only request AND the ordinary one: without the
@@ -3479,7 +3474,28 @@ impl X11Window {
                     ProcessEventResult::DoNothing
                 } else {
                     self.snapshot_window_state_baseline("x11.handle_event.focus_out");
-                    self.common.update_unsynced_state(|ws| ws.window_focused = false);
+                    self.common.update_unsynced_state(|ws| {
+                        ws.window_focused = false;
+                        // Release the mouse buttons: focus left while a button was down, so the
+                        // OS delivers the mouse-UP elsewhere and `left_down` would stay true
+                        // forever — every later move reads as a DRAG (text selects, buttons stop
+                        // clicking). Clearing the flags lets the normal state diff emit the
+                        // MouseUp that unwinds it. See macos::window_did_resign_key.
+                        ws.mouse_state.left_down = false;
+                        ws.mouse_state.right_down = false;
+                        ws.mouse_state.middle_down = false;
+                        // Drop every held KEY for the same reason as the buttons above: the
+                        // key-UP of whatever caused the focus change goes to the app that
+                        // took focus. On macOS that is Cmd of Cmd-Tab, which then stays
+                        // latched and turns every later keystroke into a shortcut. Windows
+                        // has done this since it was written; the other three never did.
+                        ws.keyboard_state.current_virtual_keycode =
+                        azul_core::window::OptionVirtualKeyCode::None;
+                        ws.keyboard_state.pressed_virtual_keycodes =
+                        azul_core::window::VirtualKeyCodeVec::from_vec(Vec::new());
+                        ws.keyboard_state.pressed_scancodes =
+                        azul_core::window::ScanCodeVec::from_vec(Vec::new());
+                    });
                     self.dynamic_selector_context.window_focused = false;
                     // Releases that happen while another window has focus are
                     // never delivered here, so anything still held would stay
@@ -3938,17 +3954,12 @@ impl X11Window {
         // the relayout-only fast path (skip regenerate_layout, rebuild + send the
         // transaction). The redraw is posted by the != DoNothing block below.
         if result == ProcessEventResult::ShouldIncrementalRelayout {
-            let borrows = self.common.layout_borrows();
-            if let Some(layout_window) = borrows.layout_window {
-                let mut debug_messages = None;
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                    layout_window,
-                    borrows.current_window_state,
-                    borrows.renderer_resources,
-                    &mut debug_messages,
-                ) {
-                    log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                }
+            let mut debug_messages = None;
+            if let Err(e) = self.incremental_relayout_dispatching(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                &mut debug_messages,
+            ) {
+                log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
             }
             self.common.request_relayout_only();
         }
@@ -4530,12 +4541,7 @@ impl X11Window {
         // drag-select / wheel-scroll / focus (#46). GPU mode has
         // cpu_hit_tester == None and uses the WebRender tester instead, so the
         // is_some() guard naturally restricts this to the CPU path.
-        if let (Some(cpu_ht), Some(lw)) = (
-            self.common.cpu_hit_tester.as_mut(),
-            self.common.layout_window.as_ref(),
-        ) {
-            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-        }
+        self.common.rebuild_cpu_hit_tester();
 
         // Drain lifecycle events (Mount / AfterMount / Unmount / Resize) produced
         // by this layout's DOM reconciliation and dispatch them through the normal
@@ -4618,21 +4624,16 @@ impl X11Window {
         // the new size anyway), so the latch is consumed and dropped.
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
-            let borrows = self.common.layout_borrows();
-            if let Some(layout_window) = borrows.layout_window {
-                let mut debug_messages = None;
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
-                    layout_window,
-                    borrows.current_window_state,
-                    borrows.renderer_resources,
-                    &mut debug_messages,
-                ) {
-                    log_warn!(
-                        LogCategory::Layout,
-                        "[X11] resize fast-path relayout failed: {e} — falling back to a full                          regeneration"
-                    );
-                    resize_relayout_failed = true;
-                }
+            let mut debug_messages = None;
+            if let Err(e) = self.incremental_relayout_dispatching(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
+                &mut debug_messages,
+            ) {
+                log_warn!(
+                    LogCategory::Layout,
+                    "[X11] resize fast-path relayout failed: {e} — falling back to a full                          regeneration"
+                );
+                resize_relayout_failed = true;
             }
             if resize_relayout_failed {
                 self.common
@@ -4752,35 +4753,9 @@ impl X11Window {
                     // never drained and async-loaded VirtualView content never
                     // appears on the CPU backend. Must run BEFORE render_frame
                     // reads layout_results.
-                    let mut vviews_rebuilt = false;
-                    if let Some(lw) = self.common.layout_window.as_mut() {
-                        if !lw.pending_virtual_view_updates.is_empty() {
-                            let system_callbacks =
-                                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-                            let current_window_state = lw.current_window_state.clone();
-                            let renderer_resources =
-                                std::mem::take(&mut lw.renderer_resources);
-                            let updated = lw.process_pending_virtual_view_updates(
-                                &current_window_state,
-                                &renderer_resources,
-                                &system_callbacks,
-                            );
-                            lw.renderer_resources = renderer_resources;
-                            vviews_rebuilt = !updated.is_empty();
-                        }
-                    }
-                    // The drain REBUILT VirtualView child DOMs (fresh NodeIds).
-                    // The CPU hit-tester still indexes the previous generation's
-                    // rects — rebuild it now, or the next pointer move hit-tests
-                    // stale NodeIds (cursor panic / events on the wrong node).
-                    if vviews_rebuilt {
-                        if let (Some(cpu_ht), Some(lw)) = (
-                            self.common.cpu_hit_tester.as_mut(),
-                            self.common.layout_window.as_ref(),
-                        ) {
-                            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                        }
-                    }
+                    // One drain for every backend: it re-invokes in place AND rebuilds
+                    // the CPU hit-tester (the rebuilt child DOMs carry fresh NodeIds).
+                    self.common.drain_virtual_view_updates();
 
                     // Shared per-frame content preparation (journal clock, image
                     // callbacks through the content chokepoint, scrollbar cache).
@@ -5359,6 +5334,90 @@ impl X11Window {
     }
 
     /// Synchronize X11 window properties with current_window_state
+    /// Hand the drag to the WINDOW MANAGER via `_NET_WM_MOVERESIZE`, direction
+    /// 8 (`_NET_WM_MOVERESIZE_MOVE`).
+    ///
+    /// The manual alternative — reading the pointer every motion event and
+    /// writing a new window position — cannot keep up: the window trails the
+    /// cursor, and once the cursor leaves the dragged element the events stop
+    /// arriving at it at all, so the drag dies mid-gesture. A WM-managed move
+    /// has none of that: the WM owns the pointer grab until the button is
+    /// released, and it gets snapping and multi-monitor behaviour right for
+    /// free.
+    ///
+    /// Wayland (xdg_toplevel.move) and macOS (performWindowDragWithEvent:)
+    /// already took the native path; X11 fell through to the default no-op in
+    /// `common::event`, which is why dragging felt worse here.
+    ///
+    /// The pointer position comes from the CURRENT state: the gesture
+    /// threshold turns the press into a `DragStart` on a later MotionNotify,
+    /// so this is the pointer as of that motion. WMs treat the value as the
+    /// drag anchor, so that is the right one to send.
+    /// The window's top-left in ROOT coordinates (physical px), for a
+    /// `_NET_WM_MOVERESIZE` request: what the last ConfigureNotify resolved,
+    /// else the state's absolute position, else one `XTranslateCoordinates`
+    /// round trip — a popup's `RelativeToParentWindow` offset says nothing
+    /// about the root on its own, and a window dragged before its first
+    /// configure has no position at all yet.
+    fn root_origin_physical(&self) -> (f32, f32) {
+        if let Some((x, y)) = self.last_absolute_origin {
+            return (x as f32, y as f32);
+        }
+        match self.common.current_window_state().position {
+            azul_core::window::WindowPosition::Initialized(pos) => (pos.x as f32, pos.y as f32),
+            azul_core::window::WindowPosition::Uninitialized
+            | azul_core::window::WindowPosition::RelativeToParentWindow(_) => {
+                match self.xlib.XTranslateCoordinates {
+                    Some(translate) => unsafe {
+                        let screen = (self.xlib.XDefaultScreen)(self.display);
+                        let root = (self.xlib.XRootWindow)(self.display, screen);
+                        let (mut rx, mut ry) = (0i32, 0i32);
+                        let mut child: Window = 0;
+                        (translate)(self.display, self.window, root, 0, 0, &mut rx, &mut ry, &mut child);
+                        (rx as f32, ry as f32)
+                    },
+                    None => (0.0, 0.0),
+                }
+            }
+        }
+    }
+
+    fn handle_begin_interactive_move(&mut self) {
+        let (x, y) = {
+            let ws = self.common.current_window_state();
+            match ws.mouse_state.cursor_position.get_position() {
+                Some(p) => (p.x, p.y),
+                None => return, // no cursor, nothing to drag from
+            }
+        };
+        // Window-relative -> root: the WM needs screen coordinates, and it
+        // needs them in PHYSICAL pixels. `cursor_position` is LOGICAL (every
+        // pointer event goes through `to_logical_pos`); the window origin
+        // from ConfigureNotify is physical. Adding them raw was right only at
+        // scale 1.0 — at Xft.dpi 192 the anchor landed `cursor` px off and
+        // KWin/xfwm4 jumped the window by that much on the first motion.
+        let s = self.hidpi();
+        let (ox, oy) = self.root_origin_physical();
+        self.begin_net_wm_moveresize(
+            (x * s + ox) as std::os::raw::c_long,
+            (y * s + oy) as std::os::raw::c_long,
+            8, // _NET_WM_MOVERESIZE_MOVE
+        );
+        // The WM takes its own pointer grab now (owner_events = False in
+        // mutter, KWin and xfwm4), so the ButtonRelease that ends the drag
+        // goes to the WM and never arrives here — and the EnterNotify /
+        // FocusOut with mode NotifyUngrab that do arrive are filtered as
+        // grab noise. Nothing else clears `left_down`, so after every native
+        // drag the next press diffed `true → true` (no MouseDown) and every
+        // motion read as a drag. Release the buttons at the hand-off: the
+        // pointer is the WM's from here until it comes up.
+        self.common.update_unsynced_state(|ws| {
+            ws.mouse_state.left_down = false;
+            ws.mouse_state.right_down = false;
+            ws.mouse_state.middle_down = false;
+        });
+    }
+
     fn sync_window_state(&mut self) {
         use std::ffi::CString;
 

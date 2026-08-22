@@ -177,6 +177,19 @@ mod view_handlers {
             "[mouseDown] LEFT at ({:.1}, {:.1})", loc.x, loc.y
         );
         if let Some(window_ptr) = window_ptr {
+            // Control+click is the macOS secondary click: AppKit hands it to a
+            // view without a `menuForEvent:` menu as a LEFT mouseDown with the
+            // Control flag. Route it to the right-button handlers (a context
+            // menu, not a paint stroke) and latch so the release follows,
+            // whether or not Control is still held by then.
+            let ctrl_click = unsafe { event.modifierFlags() }
+                .contains(objc2_app_kit::NSEventModifierFlags::Control);
+            if ctrl_click {
+                unsafe {
+                    (*(window_ptr as *mut MacOSWindow)).ctrl_click_as_right = true;
+                }
+                return right_mouse_down(Some(window_ptr), event);
+            }
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
@@ -216,6 +229,15 @@ mod view_handlers {
             "[mouseUp] LEFT at ({:.1}, {:.1})", loc.x, loc.y
         );
         if let Some(window_ptr) = window_ptr {
+            // The release of a Control+click (see `mouse_down`): finish it as
+            // the right-button release, which presents the context menu the
+            // press resolved.
+            let latched = unsafe {
+                core::mem::take(&mut (*(window_ptr as *mut MacOSWindow)).ctrl_click_as_right)
+            };
+            if latched {
+                return right_mouse_up(Some(window_ptr), event);
+            }
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
@@ -2758,7 +2780,40 @@ define_class!(
                     // kept blinking and selections stayed highlighted while
                     // the window was in the background.
                     macos_window.snapshot_window_state_baseline("macos.window_did_resign_key");
-                    macos_window.common.update_unsynced_state(|ws| ws.window_focused = false);
+                    macos_window.common.update_unsynced_state(|ws| {
+                        ws.window_focused = false;
+                        // RELEASE the mouse buttons. When focus leaves while a
+                        // button is down, the OS delivers the mouse-UP to
+                        // whoever took focus — we never see it, so `left_down`
+                        // stays true forever. Every later mouse-move then reads
+                        // as a DRAG: text selects instead of buttons clicking,
+                        // and nothing recovers because the release that would
+                        // clear it already went somewhere else.
+                        //
+                        // AzMeet hits this constantly because the camera and
+                        // screen-recording permission sheets take focus in the
+                        // middle of the click that requested them.
+                        //
+                        // Clearing the flags here (rather than forcing a
+                        // synthetic event) lets the normal state DIFF do the
+                        // work: previous=down, current=up produces the MouseUp
+                        // that unwinds the selection drag through the usual
+                        // path.
+                        ws.mouse_state.left_down = false;
+                        ws.mouse_state.right_down = false;
+                        ws.mouse_state.middle_down = false;
+                        // Drop every held KEY for the same reason as the buttons above: the
+                        // key-UP of whatever caused the focus change goes to the app that
+                        // took focus. On macOS that is Cmd of Cmd-Tab, which then stays
+                        // latched and turns every later keystroke into a shortcut. Windows
+                        // has done this since it was written; the other three never did.
+                        ws.keyboard_state.current_virtual_keycode =
+                        azul_core::window::OptionVirtualKeyCode::None;
+                        ws.keyboard_state.pressed_virtual_keycodes =
+                        azul_core::window::VirtualKeyCodeVec::from_vec(Vec::new());
+                        ws.keyboard_state.pressed_scancodes =
+                        azul_core::window::ScanCodeVec::from_vec(Vec::new());
+                    });
                     macos_window.dynamic_selector_context.window_focused = false;
 
                     // Notify accessibility adapter that the view lost focus
@@ -3085,6 +3140,14 @@ pub struct MacOSWindow {
     /// presentation outside the `&mut MacOSWindow` borrow (see
     /// [`PendingContextMenu`]).
     pending_context_menu: Option<PendingContextMenu>,
+    /// A Control+click is the macOS secondary click. AppKit delivers it to a
+    /// view without a `menuForEvent:` menu as `mouseDown:` with the Control
+    /// flag — NOT as `rightMouseDown:` — so `view_handlers::mouse_down` routes
+    /// it to the right-button handlers and latches this; the matching
+    /// `mouseUp:` consumes the latch and runs the right-button release
+    /// (which presents the context menu). Latched, not re-derived, because
+    /// the Control key may be released before the button.
+    ctrl_click_as_right: bool,
 
     // Tooltip
     /// Tooltip panel (for programmatic tooltip display)
@@ -4477,6 +4540,7 @@ impl MacOSWindow {
             accessibility_adapter: None, // Will be initialized after first layout
             pending_window_creates: Vec::new(),
             pending_context_menu: None,
+            ctrl_click_as_right: false,
             tooltip: None,         // Created lazily when first needed
             gpu_damage_rects: Vec::new(),
             pm_assertion_id: None, // No sleep prevention by default
@@ -4759,11 +4823,7 @@ impl MacOSWindow {
 
         // Rebuild CPU hit tester from new layout results (CPU mode only)
         if self.backend == RenderBackend::CPU {
-            if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
-                if let Some(lw) = self.common.layout_window.as_ref() {
-                    cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                }
-            }
+            self.common.rebuild_cpu_hit_tester();
         }
 
         // Mark accessibility tree for update after layout
@@ -5279,17 +5339,12 @@ impl MacOSWindow {
                 }
             }
             azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
-                let borrows = self.common.layout_borrows();
-                if let Some(layout_window) = borrows.layout_window {
-                    let mut debug_messages = None;
-                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                        layout_window,
-                        borrows.current_window_state,
-                        borrows.renderer_resources,
-                        &mut debug_messages,
-                    ) {
-                        log_warn!(LogCategory::Layout, "[process_close_event] Incremental relayout failed: {}", e);
-                    }
+                let mut debug_messages = None;
+                if let Err(e) = self.incremental_relayout_dispatching(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(LogCategory::Layout, "[process_close_event] Incremental relayout failed: {}", e);
                 }
                 self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             }
@@ -5324,17 +5379,12 @@ impl MacOSWindow {
     /// from the layout `incremental_relayout()` already updated.
     /// `request_redraw()` schedules the drawRect.
     pub(crate) fn apply_incremental_relayout_result(&mut self) {
-        let borrows = self.common.layout_borrows();
-        if let Some(layout_window) = borrows.layout_window {
-            let mut debug_messages = None;
-            if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                layout_window,
-                borrows.current_window_state,
-                borrows.renderer_resources,
-                &mut debug_messages,
-            ) {
-                log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-            }
+        let mut debug_messages = None;
+        if let Err(e) = self.incremental_relayout_dispatching(
+            crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+            &mut debug_messages,
+        ) {
+            log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
         }
         self.common.request_relayout_only();
         self.request_redraw();
@@ -5920,15 +5970,26 @@ impl MacOSWindow {
     /// Updates the macOS menu bar with the provided menu structure.
     /// Uses hash-based diffing to avoid unnecessary menu recreation.
     pub fn set_application_menu(&mut self, menu: &azul_core::menu::Menu) {
-        if self.menu_state.update_menubar_if_changed(menu, self.mtm) {
+        let rebuilt = self.menu_state.update_menubar_if_changed(menu, self.mtm);
+        let Some(ns_menu) = self.menu_state.get_nsmenu() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(self.mtm);
+        // IDENTITY, not only the hash. The hash answers "does OUR NSMenu need
+        // rebuilding"; whether it is the bar AppKit is showing is a separate
+        // question — the launch-time stub or another window's bar may have
+        // replaced it since. AzPaint's File / View bar was built, installed,
+        // and then overwritten by the stub; every later call here saw an
+        // unchanged hash and left the stub in place for the whole session.
+        let installed = app
+            .mainMenu()
+            .is_some_and(|current| core::ptr::eq(&*current, &**ns_menu));
+        if rebuilt || !installed {
             log_debug!(
                 LogCategory::Platform,
-                "[MacOSWindow] Application menu updated"
+                "[MacOSWindow] Application menu installed (rebuilt: {rebuilt})"
             );
-            if let Some(ns_menu) = self.menu_state.get_nsmenu() {
-                let app = NSApplication::sharedApplication(self.mtm);
-                app.setMainMenu(Some(ns_menu));
-            }
+            app.setMainMenu(Some(ns_menu));
         }
     }
 
@@ -6513,22 +6574,17 @@ impl MacOSWindow {
         // supersedes it (it lays out at the new size anyway).
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
-            let borrows = self.common.layout_borrows();
-            if let Some(layout_window) = borrows.layout_window {
-                let mut debug_messages = None;
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
-                    layout_window,
-                    borrows.current_window_state,
-                    borrows.renderer_resources,
-                    &mut debug_messages,
-                ) {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[macOS] resize fast-path relayout failed: {e} — falling back to a \
-                         full regeneration"
-                    );
-                    resize_relayout_failed = true;
-                }
+            let mut debug_messages = None;
+            if let Err(e) = self.incremental_relayout_dispatching(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
+                &mut debug_messages,
+            ) {
+                log_error!(
+                    LogCategory::Layout,
+                    "[macOS] resize fast-path relayout failed: {e} — falling back to a \
+                     full regeneration"
+                );
+                resize_relayout_failed = true;
             }
             if resize_relayout_failed {
                 self.common
@@ -6724,16 +6780,14 @@ impl MacOSWindow {
                 "[build_atomic_txn] Processing {} pending VirtualView update(s)",
                 layout_window.pending_virtual_view_updates.len()
             );
-            let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-            let current_window_state = layout_window.current_window_state.clone();
-            let renderer_resources_ptr = &layout_window.renderer_resources as *const _;
-            layout_window.process_pending_virtual_view_updates(
-                &current_window_state,
-                // SAFETY: process_pending_virtual_view_updates does not modify renderer_resources.
-                // The pointer cast works around the borrow checker since &mut self is
-                // already held by layout_window.
-                unsafe { &*renderer_resources_ptr },
-                &system_callbacks,
+            // One drain for every backend: it re-invokes in place AND rebuilds
+            // the CPU hit-tester (the rebuilt child DOMs carry fresh NodeIds) —
+            // X11/Wayland/Windows did that rebuild by hand, this path never did.
+            // `layout_window` borrows `self.common.layout_window`; the tester is
+            // a different field, so the two borrows are disjoint.
+            crate::desktop::shell2::common::layout::drain_virtual_view_updates(
+                layout_window,
+                self.common.cpu_hit_tester.as_mut(),
             );
         }
 

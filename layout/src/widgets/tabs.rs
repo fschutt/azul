@@ -1342,7 +1342,7 @@ impl TabHeader {
                     let dataset = RefAny::new(dataset);
 
                     tab_items.push(
-                        Dom::create_p_with_text(tab.clone())
+                        crate::widgets::widget_p_with_text(tab.clone())
                             .with_callbacks(if on_click_is_some {
                                 vec![CoreCallbackData {
                                     event: EventFilter::Hover(HoverEventFilter::MouseUp),

@@ -7,7 +7,7 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::*,
         layout::*,
@@ -25,6 +25,11 @@ use crate::callbacks::{Callback, CallbackInfo};
 pub struct ColorInput {
     pub color_input_state: ColorInputStateWrapper,
     pub style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 /// Callback function type invoked when the color input value changes.
@@ -98,6 +103,13 @@ static DEFAULT_COLOR_INPUT_STYLE: &[CssPropertyWithConditions] = &[
 ];
 
 impl ColorInput {
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     /// Creates a new `ColorInput` displaying the given color.
     #[inline]
     #[must_use]
@@ -108,6 +120,7 @@ impl ColorInput {
                 ..Default::default()
             },
             style: CssPropertyWithConditionsVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE),
+            accessibility_name: OptionString::None,
         }
     }
 

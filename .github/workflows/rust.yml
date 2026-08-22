@@ -999,13 +999,49 @@ jobs:
       # are named precisely: azul-paint's tests are in its LIB (its bin's
       # main.rs harness is legitimately empty), AzWriter now has a lib (the Android cdylib split)
       # (`azwriter`) so `--lib` would match nothing at all.
+      # The example lib-tests below depend on azul-dll with `link-dynamic`
+      # (extern C declarations, resolved from an external libazul.so at link
+      # time). Under `resolver = "2"` a `cargo test -p <example>` build does
+      # NOT unify `cabi_export` into azul-dll, so those `#[no_mangle]` symbols
+      # (AzU8Vec_delete, …) are not compiled in-binary and MUST come from a
+      # real libazul.so — otherwise the test binary fails to link with
+      # "undefined reference to AzU8Vec_delete". Build that C-ABI libazul.so
+      # once (default features = link-static ⇒ cabi_export) and hand it to the
+      # example builds via AZ_LINK_PATH (build.rs search order #1). Copied to a
+      # stable dir because each `cargo test -p <example>` rebuilds azul-dll as
+      # link-dynamic and overwrites target/debug/libazul.so with a symbol-less
+      # one — AZ_LINK_PATH must not point at that.
+      - name: Build the C-ABI libazul.so for the link-dynamic example lib-tests
+        run: |
+          set -o pipefail
+          cargo build -p azul-dll 2>&1 | tee azul-dll-cabi-build.txt
+          mkdir -p "$RUNNER_TEMP/azul-cabi"
+          cp target/debug/libazul.so "$RUNNER_TEMP/azul-cabi/"
+          nm -D "$RUNNER_TEMP/azul-cabi/libazul.so" | grep -q ' T AzU8Vec_delete' \
+            || { echo "FATAL: the built libazul.so does not export the C ABI"; exit 1; }
+
       - name: Run AzPaint tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
           set -o pipefail
           cargo test -p AzPaint --lib --no-fail-fast 2>&1 | tee azul-paint-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-paint-tests.txt
 
+      # AzMaps grew unit tests on 2026-08-22 (the demo's arrow-button pan math
+      # had a sign bug — "UP pans south" — and `pan_tests` pins the projection).
+      # Same crate shape as AzPaint: tests in the LIB, a trivially empty bin.
+      - name: Run AzMaps tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzMaps --lib --no-fail-fast 2>&1 | tee azul-maps-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-maps-tests.txt
+
       - name: Run AzWriter tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
         run: |
           set -o pipefail
           cargo test -p AzWriter --lib --no-fail-fast 2>&1 | tee azul-writer-tests.txt

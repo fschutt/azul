@@ -4091,6 +4091,9 @@ pub fn render_component_preview(
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -7775,6 +7778,99 @@ mod layer_path_text_tests {
         comp.composite_frame(&mut layered, 1.0);
         let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();
         assert_eq!(ldiff, 0, "render_layers+composite diverges on {ldiff} bytes");
+    }
+
+    /// THE INK-GAMUT LAW: a solid-colour text run blended onto a solid
+    /// backdrop cannot produce a channel value outside `[fg, bg]` (±1 for
+    /// rounding), whatever the anti-aliasing — every correct LCD or
+    /// grayscale blend is a per-channel mix of the two. The first-draw
+    /// screenshot violated it (stem edges darker than the text colour).
+    fn assert_ink_gamut(pix: &AzulPixmap, fg: ColorU, bg: ColorU, what: &str) {
+        let lo = [fg.r.min(bg.r), fg.g.min(bg.g), fg.b.min(bg.b)];
+        let hi = [fg.r.max(bg.r), fg.g.max(bg.g), fg.b.max(bg.b)];
+        for (i, px) in pix.data().chunks_exact(4).enumerate() {
+            for c in 0..3 {
+                assert!(
+                    px[c] >= lo[c].saturating_sub(1) && px[c] <= hi[c].saturating_add(1),
+                    "{what}: pixel {i} channel {c} = {} is outside the ink gamut [{}, {}] — \
+                     text blended against something that is not the backdrop (transparent \
+                     layer?)",
+                    px[c],
+                    lo[c],
+                    hi[c]
+                );
+            }
+        }
+    }
+
+    /// REPORTED (AzWidgets first draw, 2026-08-21): the 13 px subtitle looked
+    /// doubled / smeared on the first frame only. Pixel forensics: RGB-LCD
+    /// fringes blended against BLACK. The showcase column is a scroll frame;
+    /// the layered full-render path gives every scroll frame its own pixbuf,
+    /// cleared to transparent black, and the LCD sweep blends per stripe
+    /// against whatever is in the destination — while the page background
+    /// lives in the ROOT layer. Every later repaint is flat and silently
+    /// fixed it. A plain scroll-frame layer is now seeded with its parent's
+    /// pixels under its bounds, so full == flat, for text in a scroll frame
+    /// without a local background. No uniform-bg proof is attached, so EVERY
+    /// glyph takes the sweep — the worst case.
+    #[test]
+    fn lcd_text_inside_a_scroll_frame_layer_equals_the_flat_render() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            return;
+        };
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = lcd_pretile_tests::shape_pub(&font, "Every built-in widget", 13.0, 8.0, 26.0);
+        let page: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 200.0, height: 40.0 },
+        }
+        .into();
+        let fg = ColorU { r: 0x66, g: 0x70, b: 0x85, a: 255 };
+        let bg = ColorU { r: 0xf2, g: 0xf4, b: 0xf7, a: 255 };
+        let items = vec![
+            DisplayListItem::Rect { bounds: page, color: bg, border_radius: BorderRadius::default() },
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: page,
+                content_size: LogicalSize { width: 200.0, height: 400.0 },
+                scroll_id: 7,
+            },
+            DisplayListItem::Text {
+                glyphs,
+                font_hash,
+                font_size_px: 13.0,
+                color: fg,
+                clip_rect: page,
+                source_node_index: None,
+            },
+            DisplayListItem::PopScrollFrame,
+        ];
+        let n = items.len();
+        let dl = DisplayList { items, node_mapping: vec![None; n], ..Default::default() };
+
+        let mut plain = AzulPixmap::new(200, 40).unwrap();
+        plain.fill(255, 255, 255, 255);
+        let mut gc1 = GlyphCache::new();
+        render_display_list(&dl, &mut plain, 1.0, &rr, &fm, &mut gc1).unwrap();
+        assert_ink_gamut(&plain, fg, bg, "flat render");
+
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut layered = AzulPixmap::new(200, 40).unwrap();
+        layered.fill(255, 255, 255, 255);
+        let mut gc2 = GlyphCache::new();
+        let mut comp = CompositorState::new(200, 40);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
+        assert_eq!(comp.layers.len(), 2, "the scroll frame must have been promoted to a layer");
+        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc2, &state).unwrap();
+        comp.composite_frame(&mut layered, 1.0);
+
+        assert_ink_gamut(&layered, fg, bg, "layered render");
+        let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();
+        assert_eq!(
+            ldiff, 0,
+            "text inside a scroll-frame layer diverges from the flat render on {ldiff} bytes: \
+             the layer was swept against a transparent backdrop instead of the page"
+        );
     }
 }
 

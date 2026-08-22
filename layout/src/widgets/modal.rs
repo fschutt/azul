@@ -410,10 +410,22 @@ impl Modal {
         let mut panel_children = Vec::new();
 
         if self.show_close_button {
-            let close = Dom::create_p_with_text(AzString::from_const_str("\u{00D7}"))
+            let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_CLOSE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_CLOSE_STYLE))
                 .with_tab_index(TabIndex::Auto)
+            // Role so the accessibility tree knows what this IS:
+            // a dialog traps focus and is announced as one. The NAME comes from the widget's own text,
+            // which azul derives when a readable label is present.
+            // This is the CLOSE BUTTON, not the container — the tab stop is on
+            // the dismiss affordance. Its label is a multiplication sign: a
+            // picture of an X, not a name. Hence an explicit name, and
+            // PushButton rather than the container's role.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::PushButton,
+                accessibility_name: Some(AzString::from_const_str("Close")).into(),
+                ..Default::default()
+            })
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
                         event: azul_core::dom::EventFilter::Hover(
@@ -431,7 +443,7 @@ impl Modal {
         }
 
         if !self.title.as_str().is_empty() {
-            let title = Dom::create_p_with_text(self.title)
+            let title = crate::widgets::widget_p_with_text(self.title)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_TITLE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_TITLE_STYLE));
             panel_children.push(title);

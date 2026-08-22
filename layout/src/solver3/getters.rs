@@ -889,6 +889,15 @@ where
 
 // Implement extraction for all layout types
 
+impl ExtractPropertyValue<azul_css::props::style::transform::StyleAppRegion> for CssProperty {
+    fn extract(&self) -> Option<azul_css::props::style::transform::StyleAppRegion> {
+        match self {
+            Self::AppRegion(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 impl ExtractPropertyValue<LayoutWidth> for CssProperty {
     fn extract(&self) -> Option<LayoutWidth> {
         match self {
@@ -6065,6 +6074,15 @@ get_css_property!(
     get_cursor,
     StyleCursor,
     CssPropertyType::Cursor
+);
+
+// `-azul-app-region: drag` — read by the event dispatcher to decide whether a
+// drag on this node moves the WINDOW. See `node_is_window_drag_region`.
+get_css_property!(
+    get_app_region,
+    get_app_region,
+    azul_css::props::style::transform::StyleAppRegion,
+    CssPropertyType::AppRegion
 );
 
 // =============================================================================

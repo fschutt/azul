@@ -297,6 +297,7 @@ pub mod camera;
 /// Converts `CssPropertyCache` into compact three-tier numeric cache.
 pub mod compact;
 /// Linear-time DOM diffing for incremental updates.
+pub mod diagnostics;
 pub mod diff;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;

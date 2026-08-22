@@ -29,7 +29,7 @@ use azul_core::{
     task::OptionTimerId,
 };
 #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{
+use azul_css::{OptionString, 
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::*,
@@ -88,11 +88,21 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec =
 
 // -- container style
 
+/// Minimum height of the field (border box), every platform: one line of the
+/// 11 px UI font plus the chrome. With no text the value `<p>` has no line box
+/// and the placeholder is positioned out of flow, so without this an EMPTY
+/// field collapsed to its padding + border (4 px) — it used to be propped up
+/// by the UA `<p>` margin that `widget_p` now resets.
+const TEXT_INPUT_MIN_HEIGHT_PX: isize = 22;
+
 #[cfg(target_os = "windows")]
 static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        TEXT_INPUT_MIN_HEIGHT_PX,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -207,6 +217,9 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        TEXT_INPUT_MIN_HEIGHT_PX,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
@@ -326,6 +339,9 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        TEXT_INPUT_MIN_HEIGHT_PX,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -561,6 +577,11 @@ pub struct TextInput {
     pub placeholder_style: CssPropertyWithConditionsVec,
     pub container_style: CssPropertyWithConditionsVec,
     pub label_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 /// Editable state of a text input (text buffer, cursor position, selection).
@@ -704,6 +725,7 @@ impl Default for TextInput {
                 TEXT_INPUT_CONTAINER_PROPS,
             ),
             label_style: CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_LABEL_PROPS),
+            accessibility_name: OptionString::None,
         }
     }
 }
@@ -744,6 +766,13 @@ impl Default for TextInputStateWrapper {
 }
 
 impl TextInput {
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create() -> Self {
         Self::default()
     }
@@ -882,6 +911,18 @@ impl TextInput {
     /// in particular no caret node (the engine paints the caret and the
     /// selection from its display list).
     #[must_use] pub fn dom(mut self) -> Dom {
+        // Read before the state is moved into the DOM/callbacks below.
+        let a11y_name: Option<AzString> =
+            self.text_input_state.inner.placeholder.as_ref().cloned();
+        let a11y_value: String = self
+            .text_input_state
+            .inner
+            .text
+            .as_ref()
+            .iter()
+            .filter_map(|c| char::from_u32(*c))
+            .collect();
+
         use azul_core::{
             callbacks::CoreCallbackData,
             dom::{
@@ -919,6 +960,18 @@ impl TextInput {
             .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
             .with_css_props(self.container_style)
             .with_tab_index(TabIndex::Auto)
+            // A text field with no name is the classic unusable form control: a
+            // reader announces "edit" and the user has no idea what to type.
+            // The PLACEHOLDER is the best name available here — it is what a
+            // sighted user reads for the same purpose — but a caller with a
+            // real label should point `labelled_by` at it instead, which keeps
+            // the two from drifting apart.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Text,
+                accessibility_name: a11y_name.into(),
+                accessibility_value: Some(AzString::from(a11y_value)).into(),
+                ..Default::default()
+            })
             .with_contenteditable(true)
             .with_dataset(Some(state_ref.clone()).into())
             .with_callbacks(
@@ -968,7 +1021,7 @@ impl TextInput {
             )
             .with_children(
                 vec![
-                    Dom::create_p()
+                    crate::widgets::widget_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-placeholder".into())].into(),
                         )
@@ -977,7 +1030,7 @@ impl TextInput {
                         // whole vector, classes included
                         .with_attribute(AttributeType::ContentEditable(false))
                         .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(placeholder)])),
-                    Dom::create_p()
+                    crate::widgets::widget_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-label".into())].into(),
                         )
@@ -1099,17 +1152,21 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
 
     let text_input = &mut *text_input;
 
-    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+    // A text input always has its placeholder as the first child; a hit node
+    // without one is not a text input.
+    let Some(_placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
         return Update::DoNothing;
     };
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_input.inner, &info, container);
 
-    // hide the placeholder text
-    if text_input.inner.text.is_empty() {
-        set_placeholder_visible(&mut info, placeholder_text_node_id, false);
-    }
+    // The placeholder STAYS while the field is focused and empty — browser
+    // behaviour. The insert path hides it on the first accepted character and
+    // delete-to-empty shows it again. Hiding it on focus left a focused empty
+    // field completely blank (no placeholder, and before the empty-editable
+    // caret no caret either), which is what "the TextInput is not working"
+    // looked like.
 
     // The engine seeds the caret at the end of the value when focus lands on a
     // contenteditable host; the mirror follows it.
@@ -2687,16 +2744,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn focus_received_hides_the_placeholder_only_while_the_buffer_is_empty() {
+    fn focus_received_keeps_the_placeholder_while_the_buffer_is_empty() {
+        // Browser behaviour: the placeholder stays until the first character
+        // lands (`text_input_mirrors_the_insertion_and_hides_the_placeholder`).
+        // Hiding it on focus left a focused empty field blank.
         let (styled_dom, state) = rendered(TextInput::create());
-        let (update, changes, nodes) = run(Env::new(styled_dom), |info| {
+        let (update, changes, _) = run(Env::new(styled_dom), |info| {
             default_on_focus_received(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            pushed_opacities(&changes),
-            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 0.0)],
-            "focusing an empty input did not hide its placeholder",
+        assert!(
+            pushed_opacities(&changes).is_empty(),
+            "focusing an empty input must leave its placeholder visible: {changes:?}",
         );
 
         let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));

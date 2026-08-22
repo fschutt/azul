@@ -371,7 +371,7 @@ impl Titlebar {
         let title_node = Dom::create_div()
             .with_ids_and_classes(title_classes)
             .with_css_props(title_style)
-            .with_child(Dom::create_p_with_text(self.title)) // moves self.title
+            .with_child(crate::widgets::widget_p_with_text(self.title)) // moves self.title
             .with_callbacks(vec![
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::DragStart),
@@ -522,14 +522,15 @@ impl Default for Titlebar {
 ///
 /// Every callback is a plain `extern "C"` function that uses
 /// `CallbackInfo::modify_window_state()`.  No special hooks needed.
-pub(crate) mod callbacks {
+pub mod callbacks {
     use azul_core::callbacks::Update;
     use azul_core::refany::RefAny;
     use crate::callbacks::CallbackInfo;
 
     /// `DragStart` - on Wayland, initiate compositor-managed move immediately.
     /// On other platforms, just acknowledge (movement happens in `titlebar_drag`).
-    pub(super) extern "C" fn titlebar_drag_start(
+    #[must_use]
+    pub extern "C" fn titlebar_drag_start(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         // On Wayland, window position is Uninitialized (compositor hides it).
@@ -582,7 +583,8 @@ pub(crate) mod callbacks {
     /// On Wayland: this is a no-op because the compositor manages the move
     /// (initiated by `begin_interactive_move()` in `titlebar_drag_start`).
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    pub(super) extern "C" fn titlebar_drag(
+    #[must_use]
+    pub extern "C" fn titlebar_drag(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowPosition;
@@ -616,7 +618,8 @@ pub(crate) mod callbacks {
     }
 
     /// `DoubleClick` - toggle Maximized ↔ Normal.
-    pub(super) extern "C" fn titlebar_double_click(
+    #[must_use]
+    pub extern "C" fn titlebar_double_click(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowFrame;
@@ -2375,3 +2378,166 @@ mod autotest_generated {
     }
 }
 
+
+/// Make any `Dom` behave as a window-drag region — azul's answer to Electron's
+/// `-webkit-app-region: drag`.
+///
+/// Dragging anywhere inside the returned node moves the WINDOW, and
+/// double-clicking it toggles maximize/restore, exactly as a native title bar
+/// does. That is what lets an application turn decorations off and draw its own
+/// title bar without losing either behaviour:
+///
+/// ```ignore
+/// window.window_state.flags.decorations = WindowDecorations::None;
+/// // ...then, in layout():
+/// let bar = Dom::create_div()
+///     .with_css("height: 38px; background: #1f1f28;")
+///     .with_child(Dom::create_span_with_text("My Document"));
+/// window_drag_region(bar)
+/// ```
+///
+/// It reuses the three callbacks the built-in `Titlebar` already uses, rather
+/// than a parallel implementation: `DragStart` begins a native interactive move
+/// where the platform offers one (Wayland has no other way — the compositor
+/// hides the window position), `Drag` carries the fallback path for X11 and
+/// Windows, and `DoubleClick` toggles the frame.
+///
+/// INTERACTIVE CHILDREN STILL WORK. A button inside the region keeps its own
+/// callbacks; this attaches to the node you pass, and a child that handles the
+/// event first is unaffected — the same way a title bar's close button is not
+/// swallowed by the bar behind it.
+#[must_use]
+pub fn window_drag_region(dom: Dom) -> Dom {
+    use azul_core::{
+        callbacks::CoreCallbackData,
+        dom::{EventFilter, HoverEventFilter},
+        refany::{OptionRefAny, RefAny},
+    };
+
+    dom.with_callbacks(
+        alloc::vec![
+            CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::DragStart),
+                callback: azul_core::callbacks::CoreCallback {
+                    cb: callbacks::titlebar_drag_start as usize,
+                    ctx: OptionRefAny::None,
+                },
+                refany: RefAny::new(()),
+            },
+            CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::Drag),
+                callback: azul_core::callbacks::CoreCallback {
+                    cb: callbacks::titlebar_drag as usize,
+                    ctx: OptionRefAny::None,
+                },
+                refany: RefAny::new(()),
+            },
+            CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::DoubleClick),
+                callback: azul_core::callbacks::CoreCallback {
+                    cb: callbacks::titlebar_double_click as usize,
+                    ctx: OptionRefAny::None,
+                },
+                refany: RefAny::new(()),
+            },
+        ]
+        .into(),
+    )
+}
+
+/// F11 toggles fullscreen; Escape leaves it. Call from a key-up callback.
+///
+/// Returns `true` when it consumed the key, so a caller can fall through to its
+/// own handling otherwise:
+///
+/// ```ignore
+/// extern "C" fn on_key(_: RefAny, mut info: CallbackInfo) -> Update {
+///     if handle_fullscreen_keys(&mut info) { return Update::DoNothing; }
+///     // ... the app's own shortcuts
+/// }
+/// ```
+///
+/// Why this exists next to `window_drag_region`: an application that turns
+/// decorations off to draw its own title bar also loses the window manager's
+/// fullscreen affordance, and F11 is what users reach for. Escape only leaves
+/// fullscreen — it never minimizes or closes, because a stray Escape in a text
+/// field must not throw the window away.
+#[must_use]
+pub fn handle_fullscreen_keys(info: &mut crate::callbacks::CallbackInfo) -> bool {
+    use azul_core::window::{VirtualKeyCode, WindowFrame};
+
+    let ws = info.get_current_window_state();
+    let Some(key) = ws.keyboard_state.current_virtual_keycode.into_option() else {
+        return false;
+    };
+
+    let is_fullscreen = ws.flags.frame == WindowFrame::Fullscreen;
+    let next = match key {
+        VirtualKeyCode::F11 => {
+            if is_fullscreen {
+                // Restore to MAXIMIZED rather than Normal: a window that was
+                // maximized before going fullscreen should come back maximized,
+                // and one that was not is only a click away from either.
+                WindowFrame::Maximized
+            } else {
+                WindowFrame::Fullscreen
+            }
+        }
+        VirtualKeyCode::Escape if is_fullscreen => WindowFrame::Maximized,
+        _ => return false,
+    };
+
+    let mut s = ws.clone();
+    s.flags.frame = next;
+    info.modify_window_state(s);
+    true
+}
+
+#[cfg(test)]
+mod drag_region_tests {
+    use super::*;
+    use azul_core::dom::{Dom, EventFilter, HoverEventFilter};
+
+    /// The region must carry all THREE behaviours a native title bar has.
+    /// Missing any one is a bar that looks right and behaves wrong: no drag, a
+    /// drag that starts and never moves, or no double-click-to-maximize.
+    #[test]
+    fn a_drag_region_carries_drag_start_drag_and_double_click() {
+        let dom = window_drag_region(Dom::create_div());
+        let events: Vec<EventFilter> =
+            dom.root.callbacks.as_ref().iter().map(|c| c.event).collect();
+
+        for want in [
+            HoverEventFilter::DragStart,
+            HoverEventFilter::Drag,
+            HoverEventFilter::DoubleClick,
+        ] {
+            assert!(
+                events.contains(&EventFilter::Hover(want)),
+                "a window-drag region must handle {want:?}; it has {events:?}"
+            );
+        }
+    }
+
+    /// It must not disturb what the caller already put on the node — an app
+    /// bar has its own buttons and its own styling.
+    #[test]
+    fn a_drag_region_keeps_the_callers_children_and_classes() {
+        let inner = Dom::create_span_with_text("My Document");
+        let dom = window_drag_region(
+            Dom::create_div()
+                .with_ids_and_classes(
+                    vec![azul_core::dom::IdOrClass::Class("app-bar".into())].into(),
+                )
+                .with_child(inner),
+        );
+        assert_eq!(dom.children.as_ref().len(), 1, "the child must survive");
+        assert!(
+            dom.root
+                .get_ids_and_classes()
+                .iter()
+                .any(|c| matches!(c, azul_core::dom::IdOrClass::Class(s) if s.as_str() == "app-bar")),
+            "the caller's class must survive"
+        );
+    }
+}

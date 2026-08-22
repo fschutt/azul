@@ -184,7 +184,16 @@ fn create_font_icon_from_original(
     original: &StyledDom,
     system_style: &SystemStyle,
 ) -> StyledDom {
-    let mut dom = Dom::create_text_do_not_use_without_block_level_wrapper(font_icon.icon_char.clone());
+    // A SPAN, not a bare text node and not a <p>.
+    //
+    // The glyph carries css (font-family, colour, tint) and frequently sits as
+    // a direct item of a flex or inline-flex container — the engine warned about
+    // exactly that: "text node ... is one of 2 items in a InlineFlex container".
+    // A bare text run has no box, so the css is INERT and the glyph competes as
+    // a flex item with nothing to size. A <p> would give it a box and get the
+    // flow wrong: an icon belongs INLINE inside its label, not as a block
+    // paragraph beside it. `span` is the one that is both boxed and inline.
+    let mut dom = Dom::create_span_with_text(font_icon.icon_char.clone());
     
     // Add font family
     let font_prop = CssPropertyWithConditions::simple(
@@ -795,8 +804,20 @@ mod autotest_generated {
         });
         let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
 
-        assert_eq!(out.node_data.as_ref().len(), 1);
+        // TWO nodes: the <span> and its text leaf. It was one when the glyph
+        // was a BARE text node — which is what made its css inert and left it
+        // competing as a flex item with no box ("text node ... is one of 2
+        // items in a InlineFlex container"). The span is the box; the glyph
+        // still reads through it.
+        assert_eq!(out.node_data.as_ref().len(), 2);
         assert_eq!(text_of(&out).as_deref(), Some("\u{e88a}"));
+        assert!(
+            matches!(
+                out.node_data.as_ref()[0].get_node_type(),
+                azul_core::dom::NodeType::Span
+            ),
+            "the icon must be wrapped in a span — inline, and boxed"
+        );
 
         // The registered font must be the one that ends up in `font-family`.
         let has_font = all_props(&out).iter().any(|p| match &p.property {

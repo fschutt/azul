@@ -1932,6 +1932,21 @@ impl RegenerationState {
     }
 }
 
+/// Which incremental relayout a backend asks
+/// [`CommonWindowState::incremental_relayout`] for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncrementalRelayout {
+    /// A restyle / runtime edit / scroll-driven pass on the existing
+    /// StyledDom: solver3's reconcile diffs the node fingerprints, which is
+    /// what classifies paint-dirt for the partial present.
+    Restyle,
+    /// The coalesced window-resize pass: the StyledDom is by construction the
+    /// same object with zero DOM/style dirt, so solver3 may keep its retained
+    /// tree as-is (`resize_only_hint`) instead of re-walking every node to
+    /// rediscover full reuse. ONLY for the `take_resize_relayout()` branches.
+    Resize,
+}
+
 pub struct CommonWindowState {
     /// LayoutWindow integration (for UI callbacks and display list)
     pub layout_window: Option<LayoutWindow>,
@@ -2313,6 +2328,87 @@ impl CommonWindowState {
             fc_cache: &self.fc_cache,
             system_style: &self.system_style,
             app_data: &self.app_data,
+        }
+    }
+
+    /// Re-run layout on the EXISTING StyledDom — no DOM rebuild, the user's
+    /// layout callback is NOT invoked — and then run the finalize tail that
+    /// no relayout may skip.
+    ///
+    /// THE TAIL IS THE POINT. Layout results the hit-tester does not know
+    /// about are worse than no relayout: the window *looks* right, but every
+    /// click and wheel over a node that moved goes to whatever used to be
+    /// there. That was the "scroll area is dead after a resize until I click
+    /// a widget" and the AzMap "+" bug: the coalesced resize fast path on
+    /// macOS and X11 called the bare layout function and nothing rebuilt the
+    /// CPU hit-tester until the next FULL `regenerate_layout()`. Windows,
+    /// Wayland and headless happened to rebuild it themselves — so the bug
+    /// only existed on the platforms the tests do not run on.
+    ///
+    /// The bare functions (`common::layout::incremental_relayout` and
+    /// `_for_resize`) are now `pub(super)`: a backend cannot reach them, so
+    /// an incremental relayout without this tail does not compile.
+    ///
+    /// A window without a layout window (still initialising) is a no-op,
+    /// like the call sites this replaced.
+    ///
+    /// Private to `common`: backends call
+    /// [`PlatformWindow::incremental_relayout_dispatching`], which adds the
+    /// lifecycle-event delivery (`NodeResized`) on top.
+    pub(in crate::desktop::shell2::common) fn incremental_relayout(
+        &mut self,
+        kind: IncrementalRelayout,
+        debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
+    ) -> Result<(), String> {
+        {
+            let borrows = self.layout_borrows();
+            let Some(layout_window) = borrows.layout_window else {
+                return Ok(());
+            };
+            match kind {
+                IncrementalRelayout::Restyle => super::layout::incremental_relayout(
+                    layout_window,
+                    borrows.current_window_state,
+                    borrows.renderer_resources,
+                    debug_messages,
+                )?,
+                IncrementalRelayout::Resize => super::layout::incremental_relayout_for_resize(
+                    layout_window,
+                    borrows.current_window_state,
+                    borrows.renderer_resources,
+                    debug_messages,
+                )?,
+            }
+        }
+        self.rebuild_cpu_hit_tester();
+        Ok(())
+    }
+
+    /// Drain the queued `VirtualView` re-invocations (see
+    /// [`super::layout::drain_virtual_view_updates`]) — re-invoke each view in
+    /// place AND rebuild the CPU hit-tester when any child DOM was rebuilt.
+    /// Returns whether any view was rebuilt. Every CPU frame path calls this
+    /// before it paints; the GPU paths drain inside `generate_frame`.
+    pub fn drain_virtual_view_updates(&mut self) -> bool {
+        match self.layout_window.as_mut() {
+            Some(lw) => super::layout::drain_virtual_view_updates(lw, self.cpu_hit_tester.as_mut()),
+            None => false,
+        }
+    }
+
+    /// Rebuild the CPU hit-tester from the current layout results.
+    ///
+    /// CPU backend only: under WebRender the field is `None` and the
+    /// WebRender hit-tester is refreshed by the next display-list
+    /// transaction. Called by [`Self::incremental_relayout`] and by every
+    /// backend's full `regenerate_layout()` tail — the hit-tester is a CACHE
+    /// of `layout_results`, and a cache that outlives the layout it was
+    /// built from sends input to nodes that are no longer there.
+    pub fn rebuild_cpu_hit_tester(&mut self) {
+        if let (Some(cpu_ht), Some(lw)) =
+            (self.cpu_hit_tester.as_mut(), self.layout_window.as_ref())
+        {
+            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
     }
 
@@ -3781,6 +3877,68 @@ pub trait PlatformWindow {
 
             // === Content Modifications ===
 
+            CallbackChange::ChangeNodeAccessibilityState { node_id, states } => {
+                // Widgets publish role and state when they BUILD. That is only
+                // correct if every state change rebuilds, and many do not — the
+                // accordion toggles with set_css_property and Update::DoNothing,
+                // so a build-time `Expanded` would keep announcing "expanded"
+                // after the section closed, with no way for the user to notice.
+                let dom_id = node_id.dom;
+                let Some(nid) = node_id.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                let mut changed = false;
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(lr) = lw.layout_results.get_mut(&dom_id) {
+                        let mut nodes = lr.styled_dom.node_data.as_container_mut();
+                        if let Some(node) = nodes.get_mut(nid) {
+                            let mut info = node
+                                .accessibility
+                                .as_ref()
+                                .map_or_else(Default::default, |b| (**b).clone());
+                            if info.states != *states {
+                                info.states = states.clone();
+                                node.set_accessibility_info(info);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                if changed {
+                    // Tell the platform adapter to re-read: an update nobody is
+                    // notified of is the same as no update at all.
+                    self.get_common_mut().a11y_dirty = true;
+                }
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::ChangeNodeAccessibilityValue { node_id, value } => {
+                let dom_id = node_id.dom;
+                let Some(nid) = node_id.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                let mut changed = false;
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(lr) = lw.layout_results.get_mut(&dom_id) {
+                        let mut nodes = lr.styled_dom.node_data.as_container_mut();
+                        if let Some(node) = nodes.get_mut(nid) {
+                            let mut info = node
+                                .accessibility
+                                .as_ref()
+                                .map_or_else(Default::default, |b| (**b).clone());
+                            let new_val = azul_css::OptionString::Some(value.clone());
+                            if info.accessibility_value != new_val {
+                                info.accessibility_value = new_val;
+                                node.set_accessibility_info(info);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                if changed {
+                    self.get_common_mut().a11y_dirty = true;
+                }
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::ChangeNodeText { node_id, text } => {
                 let dom_id = node_id.dom;
                 let internal_node_id = match node_id.node.into_crate_internal() {
@@ -5934,6 +6092,55 @@ pub trait PlatformWindow {
     /// * `ProcessEventResult` - The maximum framework-determined processing level from applied changes
     /// * `Update` - The maximum update level requested by all invoked callbacks
     /// * `bool` - Whether any callback called preventDefault()
+    /// Does this node — or an ancestor — declare `-azul-app-region: drag`?
+    ///
+    /// The property does NOT cascade, deliberately: a drag region names the
+    /// element that is draggable, and inheriting it would make every label and
+    /// icon inside a title bar drag the window. But a press usually lands on a
+    /// CHILD of the bar (the title text), so the lookup walks up until it finds
+    /// a declaration. A child that declares `no-drag` — a close button — stops
+    /// the walk at itself and is never treated as draggable, which is exactly
+    /// the escape hatch Electron's `no-drag` provides.
+    fn node_is_window_drag_region(&self, target: azul_core::dom::DomNodeId) -> bool {
+        use azul_css::props::style::transform::StyleAppRegion;
+
+        let Some(lw) = self.get_layout_window() else {
+            return false;
+        };
+        let Some(lr) = lw.layout_results.get(&target.dom) else {
+            return false;
+        };
+        let Some(mut node) = target.node.into_crate_internal() else {
+            return false;
+        };
+
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let states = lr.styled_dom.styled_nodes.as_container();
+        for _ in 0..32 {
+            // Bounded: a title bar is never 32 levels deep, and an unbounded
+            // walk on a malformed tree would hang the event loop.
+            let Some(sn) = states.get(node) else { break };
+            match azul_layout::solver3::getters::get_app_region(
+                &lr.styled_dom,
+                node,
+                &sn.styled_node_state,
+            ) {
+                azul_layout::solver3::getters::MultiValue::Exact(StyleAppRegion::Drag) => {
+                    return true
+                }
+                azul_layout::solver3::getters::MultiValue::Exact(StyleAppRegion::NoDrag) => {
+                    return false
+                }
+                _ => {}
+            }
+            match hierarchy.get(node).and_then(|h| h.parent_id()) {
+                Some(parent) => node = parent,
+                None => break,
+            }
+        }
+        false
+    }
+
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
@@ -5945,6 +6152,46 @@ pub trait PlatformWindow {
             id::NodeId,
             styled_dom::NodeHierarchyItem,
         };
+
+        // `-azul-app-region: drag` — Electron's rule, enforced by the FRAMEWORK
+        // rather than by a callback the app has to remember to attach.
+        //
+        // A DragStart landing on a node that declares `drag` hands the gesture
+        // to the WINDOW MANAGER (X11 _NET_WM_MOVERESIZE, Wayland
+        // xdg_toplevel.move, Windows WM_NCLBUTTONDOWN/HTCAPTION, macOS
+        // performWindowDragWithEvent:) and a DoubleClick on one toggles
+        // maximize/restore, exactly as a native title bar does.
+        //
+        // Checked on the node the event TARGETS, walking up to its ancestors:
+        // the property does not cascade, but a press usually lands on a child
+        // of the bar — the text inside it — and the bar is what declared the
+        // region. Walking up is how a click on the title text still drags,
+        // while a button that sets `no-drag` stops the walk at itself.
+        for ev in events {
+            let is_drag_start =
+                matches!(ev.event_type, azul_core::events::EventType::DragStart);
+            let is_double = matches!(ev.event_type, azul_core::events::EventType::DoubleClick);
+            if !(is_drag_start || is_double) {
+                continue;
+            }
+            let target = ev.target;
+            if !self.node_is_window_drag_region(target) {
+                continue;
+            }
+            if is_drag_start {
+                self.handle_begin_interactive_move();
+            } else {
+                // Double-click on a drag region toggles the frame, the way
+                // double-clicking a native title bar does.
+                let cur = self.get_common_mut().current_window_state().flags.frame;
+                let next = if cur == azul_core::window::WindowFrame::Maximized {
+                    azul_core::window::WindowFrame::Normal
+                } else {
+                    azul_core::window::WindowFrame::Maximized
+                };
+                self.get_common_mut().update_unsynced_state(|ws| ws.flags.frame = next);
+            }
+        }
 
         // Internal struct to track a planned callback invocation
         #[derive(Clone)]
@@ -6600,6 +6847,34 @@ pub trait PlatformWindow {
         anything_changed
     }
 
+    /// Run an incremental relayout (see [`CommonWindowState::incremental_relayout`]:
+    /// layout on the existing StyledDom + the CPU hit-tester rebuild) AND
+    /// deliver the lifecycle events that pass produced — today that is
+    /// `Resize` (`NodeResized`) for every subscribed node whose box changed.
+    ///
+    /// The relayout-only paths (restyle, runtime edit, the coalesced window
+    /// resize) never reconciled, so nothing drained the lifecycle queue after
+    /// them; a `NodeResized` callback would have run at the NEXT full
+    /// rebuild, against stale geometry. A callback that asks for a rebuild
+    /// gets it right here, through the bounded lifecycle loop of
+    /// [`Self::regenerate_layout`]: a request merely latched for later would
+    /// be retired by the relayout-only frame branch that follows every one
+    /// of these call sites.
+    ///
+    /// `CommonWindowState::incremental_relayout` is private to `common` so a
+    /// backend cannot take the relayout without this delivery.
+    fn incremental_relayout_dispatching(
+        &mut self,
+        kind: IncrementalRelayout,
+        debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
+    ) -> Result<(), String> {
+        self.get_common_mut().incremental_relayout(kind, debug_messages)?;
+        if self.dispatch_pending_lifecycle_events() {
+            self.regenerate_layout()?;
+        }
+        Ok(())
+    }
+
     /// Drain `LayoutWindow.pending_lifecycle_events` and dispatch each event.
     ///
     /// Reconciliation (see `common::layout::regenerate_layout`) queues
@@ -6917,7 +7192,7 @@ pub trait PlatformWindow {
             .and_then(|w| w.scroll_manager.pending_wheel_event);
 
         // Determine all events (returns Vec<SyntheticEvent>)
-        let synthetic_events = if let (Some(fm), Some(fdm), Some(hm)) =
+        let mut synthetic_events = if let (Some(fm), Some(fdm), Some(hm)) =
             (focus_manager, file_drop_manager, hover_manager)
         {
             determine_all_events(
@@ -6935,6 +7210,44 @@ pub trait PlatformWindow {
             // Fallback: no events if managers not available
             Vec::new()
         };
+
+        // PRESS-TARGET CAPTURE: the node a button was pressed on gets that
+        // button's release even when the pointer released elsewhere (or the
+        // window lost focus and the OS handler cleared the button). See
+        // `HoverManager::apply_press_target_capture` — this is THE fix for the
+        // "stuck input" family; widgets no longer need "leave = release".
+        if let Some(lw) = self.get_layout_window_mut() {
+            let layout_results = &lw.layout_results;
+            let in_release_path = |press: azul_core::dom::DomNodeId,
+                                   release: azul_core::dom::DomNodeId|
+             -> bool {
+                // Is `press` the release target or one of its DOM ancestors
+                // (i.e. already on the release's propagation path)?
+                if press.dom != release.dom {
+                    return false;
+                }
+                let (Some(press_node), Some(mut current)) =
+                    (press.node.into_crate_internal(), release.node.into_crate_internal())
+                else {
+                    return false;
+                };
+                let Some(lr) = layout_results.get(&release.dom) else {
+                    return false;
+                };
+                let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+                loop {
+                    if current == press_node {
+                        return true;
+                    }
+                    match hierarchy.get(current).and_then(|n| n.parent_id()) {
+                        Some(parent) => current = parent,
+                        None => return false,
+                    }
+                }
+            };
+            lw.hover_manager
+                .apply_press_target_capture(&mut synthetic_events, &in_release_path);
+        }
 
         // Clear the sensor/gamepad pending-event flags now that this pass has
         // collected their events (the immutable event_providers borrow ended
@@ -6957,13 +7270,11 @@ pub trait PlatformWindow {
             w.biometric_manager.clear_pending_event();
             w.keyring_manager.clear_pending_event();
             w.gesture_drag_manager.clear_pen_event_pending();
-            // MWA-C-gesture: an injected native gesture (macOS magnify/rotate
-            // per MWA-B4, or debug-server injection) is consumed by exactly
-            // this pass's detectors — clear it so an ended pinch doesn't
-            // latch and re-fire PinchIn/RotateClockwise on every later pass.
-            // (iOS/Android clear per-frame in their own loops; gesture.rs
-            // documented this clear but no desktop path ever performed it.)
-            w.gesture_drag_manager.clear_native_gesture();
+            // The injected native gesture (macOS magnify/rotate, debug-server
+            // injection) is NOT cleared here: the PinchIn/PinchOut callbacks
+            // this pass is about to dispatch read it live through
+            // `CallbackInfo::get_pinch()`. It is cleared right after the
+            // dispatch below, next to the wheel delta — the same rule.
             // MWA-B12: a LongPress was just emitted for this hold — mark it
             // so it doesn't re-fire on every later pass of the same session.
             if synthetic_events
@@ -7324,12 +7635,26 @@ pub trait PlatformWindow {
             self.dispatch_events_propagated(&pre_filter.user_events);
         result = result.max(changes_result);
 
+        // THE RULE FOR PER-PASS INPUT THAT CALLBACKS READ LIVE: clear it AFTER
+        // dispatch, never during determination.
+        //
         // The wheel delta for this pass has now been delivered to any Scroll
         // callback (read via CallbackInfo::get_scroll_delta during dispatch).
         // Clear it so the recursion below — and any later pass — doesn't re-fire
         // a stale Scroll event (which would zoom the map on every mouse move).
+        //
+        // The injected native gesture (macOS magnify/rotate per MWA-B4, or a
+        // debug-server injection) is the same kind of thing: the detectors
+        // above turned it into this pass's PinchIn/PinchOut event, and the
+        // callback for that event reads the gesture itself through
+        // `CallbackInfo::get_pinch()`. It used to be cleared with the other
+        // manager flags BEFORE dispatch, so every pinch callback saw `None`
+        // and a trackpad pinch over the map did nothing. Clearing it here
+        // still stops an ended pinch from re-firing on every later pass
+        // (iOS/Android clear per-frame in their own loops).
         if let Some(w) = self.get_layout_window_mut() {
             w.scroll_manager.pending_wheel_event = None;
+            w.gesture_drag_manager.clear_native_gesture();
         }
 
         // MWA-C-clipboard: fire the W3C clipboard events for the deferred
@@ -9744,6 +10069,7 @@ mod tests {
     // core left to hoist.
 
     const MACOS_MOD_RS: &str = include_str!("../macos/mod.rs");
+    const RUN_RS: &str = include_str!("../run.rs");
     const WINDOWS_MOD_RS: &str = include_str!("../windows/mod.rs");
 
     /// The body of `source`'s first `fn name`, up to the next method in the
@@ -9771,6 +10097,32 @@ mod tests {
     /// holds a RETAINED menu and view and borrows nothing, and the presenter
     /// runs after the borrow has ended. Keeping the pop-up to ONE call site is
     /// what makes that reviewable.
+    /// The launch-time menu-bar stub (`setup_main_menu`) must be installed
+    /// BEFORE the first window is created: the window's first layout installs
+    /// the DOM's `menu_bar` as the main menu, and a stub installed afterwards
+    /// overwrites it — which is how AzPaint lost its File / View menus for a
+    /// whole session (`apply_menu_bar_from_dom` then saw an unchanged hash
+    /// forever). `set_application_menu` is identity-aware now as well, but
+    /// the order is the contract: the stub is the fallback, not the override.
+    #[test]
+    fn the_macos_menu_stub_is_installed_before_the_first_window() {
+        let stub = RUN_RS
+            .find("setup_main_menu(")
+            .expect("run.rs installs the launch-time menu stub");
+        let window = RUN_RS
+            .find("MacOSWindow::new_with_fc_cache(")
+            .expect("run.rs creates the root macOS window");
+        assert!(
+            stub < window,
+            "setup_main_menu() must run before MacOSWindow::new_with_fc_cache():              a stub installed after the window overwrites the DOM's menu bar"
+        );
+        assert_eq!(
+            RUN_RS.matches("setup_main_menu(").count(),
+            1,
+            "the stub is installed exactly once, before the window"
+        );
+    }
+
     #[test]
     fn the_macos_menu_runloop_is_entered_from_exactly_one_place() {
         let call_sites = MACOS_MOD_RS

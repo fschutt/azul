@@ -360,17 +360,28 @@ impl Alert {
             refany::OptionRefAny,
         };
 
-        let message = Dom::create_p_with_text(self.message)
+        let message = crate::widgets::widget_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_MESSAGE_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ALERT_MESSAGE_STYLE));
 
         let mut children = alloc::vec![message];
 
         if self.dismissible {
-            let close = Dom::create_p_with_text(AzString::from_const_str("\u{00D7}"))
+            let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_CLOSE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ALERT_CLOSE_STYLE))
                 .with_tab_index(TabIndex::Auto)
+                // This is the CLOSE BUTTON, not the alert — the tab stop is on
+                // the dismiss affordance. Its visible label is "\u{00D7}", a
+                // multiplication sign, which is a picture of an X and not a
+                // name: a screen reader reads it as "times" or skips it. So the
+                // name is explicit, and the role is PushButton rather than the
+                // Alert role that belongs to the container.
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::PushButton,
+                    accessibility_name: Some(AzString::from_const_str("Close")).into(),
+                    ..Default::default()
+                })
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseUp),

@@ -175,8 +175,9 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     );
 
     // AzDom_createTextDoNotUseWithoutBlockLevelWrapper would just create the raw inline text node
-    // ("p::text" in CSS) - but we have to wrap it in a <p> block here
-    AzDom label_dom = AzDom_createPWithText(label_text);
+    // ("span::text" in CSS) - but we have to wrap it in an element. A counter is a
+    // LABEL, so a <span>: a <p> is for prose and carries the UA paragraph margin.
+    AzDom label_dom = AzDom_createSpanWithText(label_text);
     AzDom_setCss(&label_dom, AZ_CONST_STR(
         "font-size: 50px;"
     ));

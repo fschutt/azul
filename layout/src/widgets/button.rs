@@ -466,6 +466,16 @@ impl Button {
         let has_image = self.image.is_some();
         let has_trailing_icon = !self.trailing_icon.as_str().is_empty();
 
+        // Snapshot the accessible name BEFORE `self.label` / `self.icon` are
+        // moved into the DOM below. An icon-only button falls back to the icon
+        // NAME — "arrow_drop_down" reads far better than U+E5C5, which is all a
+        // screen reader gets from the glyph itself.
+        let a11y_name_src: String = if self.label.as_str().is_empty() {
+            if has_icon { self.icon.as_str().to_string() } else { String::new() }
+        } else {
+            self.label.as_str().to_string()
+        };
+
         // Child order: leading icon, image, label, trailing icon. In a
         // row container that reads left-to-right; a column container (large
         // ribbon-style buttons) stacks icon over label over arrow.
@@ -491,7 +501,7 @@ impl Button {
             self.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
         if !skip_label {
             button = button.with_child(
-                Dom::create_p()
+                crate::widgets::widget_p()
                     .with_css_props(self.label_style)
                     .with_children(azul_core::dom::DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(self.label)])),
             );
@@ -503,11 +513,32 @@ impl Button {
             );
         }
 
+        // A button is focusable, so a keyboard user WILL land on it. Without
+        // accessibility info it is absent from the accessibility tree entirely
+        // — the tab stop exists and describes nothing. An icon-only button is
+        // the worst case: its label is a private-use glyph that reads as
+        // nothing at all.
+        //
+        // The name comes from the label when there is one; an icon-only button
+        // falls back to its icon NAME ("arrow_drop_down" reads far better than
+        // U+E5C5), which the caller can override with a real one.
+        // NOTE: computed from the strings captured before they were moved into
+        // the DOM above — `a11y_name_src` is taken at the top of this function.
+        let a11y_name = a11y_name_src;
+        let mut a11y = azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::PushButton,
+            ..azul_core::a11y::AccessibilityInfo::default()
+        };
+        if !a11y_name.is_empty() {
+            a11y.accessibility_name = Some(AzString::from(a11y_name)).into();
+        }
+
         button
             .with_css_props(self.container_style)
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)
+            .with_accessibility_info(a11y)
     }
 }
 

@@ -39,6 +39,9 @@ pub mod audio;
 /// the capture_common seam. See camera/mod.rs.
 pub mod camera;
 pub mod screencap;
+/// The latest-frame mailbox the macOS capture backends hand frames through
+/// (buffer reuse + condvar). Plain std, unit-tested on every host.
+pub mod capture_slot;
 /// WebTransport room transport (`WebTransport`) — typed media/chat/control to a
 /// coordination server; replaces the removed UDP transport for azul-meet.
 /// v1 = loopback stub engine;

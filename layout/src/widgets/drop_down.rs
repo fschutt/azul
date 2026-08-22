@@ -15,7 +15,7 @@ use azul_core::{
     window::ContextMenuMouseButton,
 };
 #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{
+use azul_css::{OptionString, 
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{
@@ -232,6 +232,11 @@ pub struct DropDown {
     pub label_style: CssPropertyWithConditionsVec,
     /// Style of the drop-down arrow icon.
     pub arrow_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 impl Default for DropDown {
@@ -245,12 +250,20 @@ impl Default for DropDown {
             arrow_style: CssPropertyWithConditionsVec::from_const_slice(
                 DROPDOWN_ARROW_ICON_STYLE,
             ),
+            accessibility_name: OptionString::None,
         }
     }
 }
 
 impl DropDown {
     /// Creates a new `DropDown` with the given choices and no callback.
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn new(choices: StringVec) -> Self {
         Self {
             choices,
@@ -283,6 +296,13 @@ impl DropDown {
 
     /// Builds the DOM tree for this drop-down widget.
     #[must_use] pub fn dom(self) -> Dom {
+        // Read the selected label before the options are moved into the DOM.
+        let selected_label: Option<AzString> = self
+            .choices
+            .as_ref()
+            .get(self.selected)
+            .map(|o| AzString::from(o.as_str().to_string()));
+
         const DROPDOWN_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-dropdown"))];
 
@@ -306,6 +326,13 @@ impl DropDown {
             .with_css_props(wrapper_style)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
             .with_tab_index(TabIndex::Auto)
+            // A drop-down announces which option is current; without a value a
+            // reader says "combo box" and never what is selected.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::ComboBox,
+                accessibility_value: selected_label.into(),
+                ..Default::default()
+            })
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Focus(FocusEventFilter::FocusReceived),
@@ -319,7 +346,7 @@ impl DropDown {
             )
             .with_children(DomVec::from_vec(vec![
                 // Selected text label wrapped in <p> for proper block formatting
-                Dom::create_p()
+                crate::widgets::widget_p()
                     .with_css_props(label_style)
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_text_do_not_use_without_block_level_wrapper(selected_text),

@@ -67,6 +67,18 @@ pub struct Slider {
     pub track_style: CssPropertyWithConditionsVec,
     /// Style for the draggable thumb.
     pub thumb_style: CssPropertyWithConditionsVec,
+    /// What this slider is CALLED, for assistive technology.
+    ///
+    /// The widget carries it rather than the caller patching the finished
+    /// `Dom`, so the slider knows at BUILD time whether it was named and can
+    /// say so if it was not. A `Dom`-level override cannot give that: by the
+    /// time it runs, the widget has already finished and a build-time warning
+    /// would have fired on every correctly-named slider.
+    ///
+    /// A slider has no text of its own — it is a track and a thumb — so
+    /// without this a screen reader announces "slider" and the position, and
+    /// never which slider.
+    pub accessibility_name: azul_css::OptionString,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -233,6 +245,22 @@ fn clamp_to_range(value: f32, min: f32, max: f32) -> f32 {
 
 impl Slider {
     /// Creates a slider with the given current value and `[min, max]` range.
+    /// Name this slider for assistive technology.
+    ///
+    /// ```ignore
+    /// Slider::create(vol, 0.0, 100.0).with_accessibility_name("Volume").dom()
+    /// ```
+    ///
+    /// Prefer this over patching the finished `Dom`: the widget forwards it
+    /// into the accessibility declaration it builds anyway, alongside the role
+    /// and the live value, and knowing the name at build time is what lets the
+    /// widget tell you when it is missing without crying wolf.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
@@ -242,6 +270,9 @@ impl Slider {
             },
             track_style: CssPropertyWithConditionsVec::from_const_slice(SLIDER_TRACK_STYLE),
             thumb_style: build_thumb_style(value_to_fraction(value, min, max)),
+            // Unnamed by default; the caller supplies it with
+            // `.with_accessibility_name(..)`, and the widget warns if nobody does.
+            accessibility_name: azul_css::OptionString::None,
         }
     }
 
@@ -294,6 +325,16 @@ impl Slider {
 
     #[inline]
     #[must_use] pub fn dom(self) -> Dom {
+        // Read the value BEFORE the fields are moved into the DOM below.
+        let value_now = self.slider_state.inner.value;
+
+        // The widget KNOWS here whether it was named, because the name is one
+        // of its own fields — so this warning cannot fire on a slider the
+        // caller did name. That is precisely why the field lives on Slider and
+        // not only as a Dom-level patch applied afterwards.
+        let a11y_name = self.accessibility_name.clone();
+        crate::widgets::warn_widget_needs_a_name("Slider", a11y_name.is_some());
+
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -327,7 +368,7 @@ impl Slider {
             ),
             mk(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
-                on_slider_pointer_up as usize,
+                on_slider_pointer_leave as usize,
             ),
             mk(
                 EventFilter::Hover(HoverEventFilter::TouchStart),
@@ -347,7 +388,32 @@ impl Slider {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SLIDER_TRACK_CLASS))
             .with_css_props(self.track_style)
             .with_callbacks(callbacks.into())
+            // The same RefAny as the callbacks' (one allocation), so the
+            // reconciler can carry the interaction state across a parent
+            // rebuild and re-point the fresh callbacks at the merged state —
+            // see `merge_slider_state` for what that saves.
+            .with_dataset(OptionRefAny::Some(state))
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+                merge_slider_state,
+            ))
             .with_tab_index(TabIndex::Auto)
+            // For a slider the VALUE is the content. Without it a screen reader
+            // announces "slider" and never where the thumb sits, which is the
+            // one thing the control exists to communicate. Published on every
+            // build so it tracks the thumb rather than freezing at construction.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::Slider,
+                accessibility_name: a11y_name,
+                // NOTE: no name here on purpose — a slider is a track and a
+                // thumb, with no text to derive one from. The warning below
+                // asks the caller for it.
+
+                accessibility_value: Some(AzString::from(
+                    alloc::format!("{value_now}"),
+                ))
+                .into(),
+                ..Default::default()
+            })
             .with_children(
                 vec![Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(SLIDER_THUMB_CLASS))
@@ -419,12 +485,75 @@ extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -
     apply_cursor_value(&mut slider, &mut info)
 }
 
-/// Pointer up / leave → end the drag.
+/// Pointer up → end the drag.
 extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() {
         slider.dragging = false;
     }
     Update::DoNothing
+}
+
+/// Pointer leave → end the drag, but only when the pointer left the TRACK.
+///
+/// Every event bubbles here (`W3C` `mouseleave` does not), so the thumb's own
+/// `MouseLeave` reaches this handler too — and the first real drag motion
+/// leaves the thumb, because the thumb is slid to the cursor only by the
+/// `MouseOver` handler that runs before the leave is delivered. Ending the
+/// drag on that made the slider follow the pointer for exactly one move.
+/// The callback sees its own node (the track), not the event's origin, so
+/// the cursor decides: still inside the track's rect means the pointer only
+/// left a child.
+extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+    let still_inside = match (
+        info.get_cursor_relative_to_node().into_option(),
+        info.get_hit_node_rect(),
+    ) {
+        (Some(pos), Some(rect)) => {
+            pos.x >= 0.0 && pos.y >= 0.0 && pos.x < rect.size.width && pos.y < rect.size.height
+        }
+        _ => false,
+    };
+    if still_inside {
+        return Update::DoNothing;
+    }
+    if let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() {
+        slider.dragging = false;
+    }
+    Update::DoNothing
+}
+
+/// Carry the interaction state across a parent rebuild.
+///
+/// A callback that returns `RefreshDom` — the `AzWidgets` demo does, on every
+/// `on_value_change` — rebuilds the slider from the app's state. Without this,
+/// the rebuilt slider started with `dragging = false` and the app's (possibly
+/// stale) value: the SECOND pointer move of every drag found no drag in
+/// flight and did nothing, so the slider could only be clicked, never
+/// dragged, in any app that refreshes on change — and the thumb snapped back
+/// to wherever the app last stored it between the two.
+///
+/// Rule: the pointer wins while it is down. `dragging` always carries over;
+/// the live value carries over only mid-drag (the app was told the new value
+/// through `on_value_change`; an app that stores it gets the same number, one
+/// that does not would otherwise yank the thumb from under the finger). Once
+/// the pointer is up the app's value is the truth again, as for any
+/// controlled widget. The `on_value_change` hook is taken from the FRESH
+/// build so a rebuilt closure/data is honoured.
+extern "C" fn merge_slider_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
+    {
+        let new_guard = new_data.downcast_mut::<SliderStateWrapper>();
+        let old_guard = old_data.downcast_ref::<SliderStateWrapper>();
+        if let (Some(mut new_g), Some(old_g)) = (new_guard, old_guard) {
+            new_g.dragging = old_g.dragging;
+            if old_g.dragging {
+                // Verbatim (no clamp: `f32::clamp` panics on NaN bounds, which
+                // an FFI caller can write). The next pointer move re-derives
+                // the value from the cursor against the fresh range anyway.
+                new_g.inner.value = old_g.inner.value;
+            }
+        }
+    }
+    new_data
 }
 
 impl From<Slider> for Dom {
@@ -1677,7 +1806,7 @@ mod autotest_generated {
             (EventFilter::Hover(HoverEventFilter::MouseDown), on_slider_pointer_down as usize),
             (EventFilter::Hover(HoverEventFilter::MouseOver), on_slider_pointer_move as usize),
             (EventFilter::Hover(HoverEventFilter::MouseUp), on_slider_pointer_up as usize),
-            (EventFilter::Hover(HoverEventFilter::MouseLeave), on_slider_pointer_up as usize),
+            (EventFilter::Hover(HoverEventFilter::MouseLeave), on_slider_pointer_leave as usize),
             (EventFilter::Hover(HoverEventFilter::TouchStart), on_slider_pointer_down as usize),
             (EventFilter::Hover(HoverEventFilter::TouchMove), on_slider_pointer_move as usize),
             (EventFilter::Hover(HoverEventFilter::TouchEnd), on_slider_pointer_up as usize),
@@ -1716,6 +1845,140 @@ mod autotest_generated {
                 .expect("the state changed type");
             assert!(guard.dragging, "handler {i} does not share the drag state");
         }
+    }
+
+    /// The dataset the reconciler merges across rebuilds IS the callbacks'
+    /// state (one allocation), and the merge keeps a drag alive: `dragging`
+    /// and, mid-drag, the live value carry over; after the pointer is up the
+    /// app's value from the fresh build wins.
+    #[test]
+    fn dom_registers_its_state_as_a_mergeable_dataset_that_keeps_a_drag_alive() {
+        let dom = Slider::create(40.0, 0.0, 100.0).dom();
+        let dataset = dom
+            .root
+            .get_dataset()
+            .expect("the track carries its state as a dataset, or no merge can happen");
+        let cb_state = &dom.root.callbacks.as_ref()[0].refany;
+        assert_eq!(
+            dataset.sharing_info.ptr as usize, cb_state.sharing_info.ptr as usize,
+            "dataset and callbacks must share ONE allocation, or the reconciler cannot \
+             re-point the fresh callbacks at the merged state"
+        );
+        assert!(dom.root.get_merge_callback().is_some(), "no merge callback registered");
+
+        // Old build: a drag in flight at 73. New build: the app re-rendered
+        // with its stored (stale) 40.
+        let old = RefAny::new(SliderStateWrapper {
+            inner: SliderState { value: 73.0, min: 0.0, max: 100.0 },
+            dragging: true,
+            ..Default::default()
+        });
+        let fresh = RefAny::new(SliderStateWrapper {
+            inner: SliderState { value: 40.0, min: 0.0, max: 100.0 },
+            dragging: false,
+            ..Default::default()
+        });
+        let mut merged = merge_slider_state(fresh, old);
+        let w = merged.downcast_ref::<SliderStateWrapper>().expect("type kept");
+        assert!(w.dragging, "the drag must survive the rebuild");
+        assert_eq!(w.inner.value, 73.0, "mid-drag the pointer's value wins over the app's");
+        drop(w);
+
+        // Pointer up: the app's value is the truth again.
+        let old_idle = RefAny::new(SliderStateWrapper {
+            inner: SliderState { value: 73.0, min: 0.0, max: 100.0 },
+            dragging: false,
+            ..Default::default()
+        });
+        let fresh2 = RefAny::new(SliderStateWrapper {
+            inner: SliderState { value: 40.0, min: 0.0, max: 100.0 },
+            dragging: false,
+            ..Default::default()
+        });
+        let mut merged2 = merge_slider_state(fresh2, old_idle);
+        let w2 = merged2.downcast_ref::<SliderStateWrapper>().expect("type kept");
+        assert!(!w2.dragging);
+        assert_eq!(w2.inner.value, 40.0, "idle: the fresh build's (app's) value is kept");
+    }
+
+    /// End-to-end through the reconciler: a slider mid-drag in the OLD DOM,
+    /// rebuilt by the app in the NEW DOM (the way a `RefreshDom` from
+    /// `on_value_change` does), must still be dragging afterwards — read
+    /// from the NEW DOM's callback state, which is what the next pointer
+    /// move will see.
+    #[test]
+    fn a_drag_survives_reconciliation_of_a_parent_rebuild() {
+        use azul_core::{
+            diff::{reconcile_dom, transfer_states},
+            dom::{DomId, NodeData},
+            styled_dom::{NodeHierarchyItem, StyledDom},
+            task::Instant,
+            OrderedMap,
+        };
+
+        fn app_dom(value: f32, caption: &str) -> StyledDom {
+            StyledDom::create_from_dom(
+                Dom::create_body()
+                    .with_child(Dom::create_div().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper(caption),
+                    ))
+                    .with_child(Slider::create(value, 0.0, 100.0).dom()),
+            )
+        }
+        fn track_state(data: &[NodeData]) -> SliderStateWrapper {
+            let track = data
+                .iter()
+                .find(|nd| nd.get_merge_callback().is_some())
+                .expect("a slider track with a merge callback");
+            let mut r = track.callbacks.as_ref()[0].refany.clone();
+            let w = r.downcast_ref::<SliderStateWrapper>().expect("slider state");
+            w.clone()
+        }
+
+        // Frame 1: the press set `dragging` and moved the value to 73.
+        let old = app_dom(40.0, "callbacks: 0");
+        {
+            let track = old
+                .node_data
+                .as_ref()
+                .iter()
+                .find(|nd| nd.get_merge_callback().is_some())
+                .expect("track");
+            let mut r = track.callbacks.as_ref()[0].refany.clone();
+            let mut w = r.downcast_mut::<SliderStateWrapper>().expect("slider state");
+            w.dragging = true;
+            w.inner.value = 73.0;
+        }
+        // Frame 2: the app refreshed with its stored (stale) value.
+        let new = app_dom(40.0, "callbacks: 1");
+
+        let mut old_data: Vec<NodeData> = old.node_data.as_ref().to_vec();
+        let mut new_data: Vec<NodeData> = new.node_data.as_ref().to_vec();
+        let old_h: Vec<NodeHierarchyItem> = old.node_hierarchy.as_ref().to_vec();
+        let new_h: Vec<NodeHierarchyItem> = new.node_hierarchy.as_ref().to_vec();
+        let diff = reconcile_dom(
+            &old_data,
+            &new_data,
+            &old_h,
+            &new_h,
+            &OrderedMap::default(),
+            &OrderedMap::default(),
+            DomId::ROOT_ID,
+            Instant::now(),
+        );
+        assert!(
+            diff.node_moves.iter().any(|m| {
+                old_data[m.old_node_id.index()].get_merge_callback().is_some()
+                    && new_data[m.new_node_id.index()].get_merge_callback().is_some()
+            }),
+            "the reconciler must match the old track to the new track: {:?}",
+            diff.node_moves
+        );
+        transfer_states(&mut old_data, &mut new_data, &diff.node_moves);
+
+        let after = track_state(&new_data);
+        assert!(after.dragging, "the drag must survive the rebuild");
+        assert_eq!(after.inner.value, 73.0, "mid-drag the pointer's value wins");
     }
 
     #[test]

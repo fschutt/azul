@@ -53,7 +53,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
         layout::{LayoutDisplay, LayoutPosition, LayoutFlexGrow, LayoutMinWidth, LayoutFlexDirection, LayoutAlignItems, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutTop, LayoutLeft},
@@ -157,6 +157,11 @@ pub struct ComboBox {
     /// open/close `display` toggle stays widget-managed; anything here wins
     /// over the built-in panel style (inline properties resolve last-wins).
     pub list_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -432,6 +437,13 @@ static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
 
 impl ComboBox {
     /// Creates a new combobox with the given options (no callback, nothing typed).
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn new(items: StringVec) -> Self {
         Self {
             combo_state: ComboBoxStateWrapper {
@@ -446,6 +458,7 @@ impl ComboBox {
             arrow_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_ARROW_STYLE),
             option_style: CssPropertyWithConditionsVec::from_const_slice(COMBOBOX_OPTION_STYLE),
             list_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            accessibility_name: OptionString::None,
         }
     }
 
@@ -543,7 +556,7 @@ impl ComboBox {
         // pattern), so open/selected/text stay in sync across interactions.
         let state_ref = RefAny::new(self.combo_state);
 
-        let text_node = Dom::create_p_with_text(field_text)
+        let text_node = crate::widgets::widget_p_with_text(field_text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_TEXT_CLASS))
             .with_css_props(self.text_style);
 
@@ -558,6 +571,11 @@ impl ComboBox {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_INPUT_CLASS))
             .with_css_props(self.field_style)
             .with_tab_index(TabIndex::Auto)
+            // The field itself: an editable value with a list of choices.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::ComboBox,
+                ..Default::default()
+            })
             .with_callbacks(
                 alloc::vec![
                     CoreCallbackData {
@@ -594,10 +612,15 @@ impl ComboBox {
         let mut option_doms: Vec<Dom> = Vec::with_capacity(items.as_ref().len());
         for option in items.as_ref() {
             option_doms.push(
-                Dom::create_p_with_text(option.clone())
+                crate::widgets::widget_p_with_text(option.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
                     .with_css_props(self.option_style.clone())
                     .with_tab_index(TabIndex::Auto)
+                    // Each option is an item within the popup list.
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::ListItem,
+                        ..Default::default()
+                    })
                     .with_callbacks(
                         alloc::vec![CoreCallbackData {
                             event: EventFilter::Hover(HoverEventFilter::MouseUp),

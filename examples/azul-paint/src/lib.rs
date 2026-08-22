@@ -53,6 +53,41 @@ struct Stroke {
 
 /// Base brush radius (px) at full pressure.
 const BASE_RADIUS: f32 = 6.0;
+
+// ───────── Metaball field — ONE kernel for the CPU raster and the GLSL shader ──
+//
+// The field used to be `1 / (q + 0.18)`: infinite support (decays like 1/d²,
+// never zero) summed only inside an axis-aligned box of half-width 2.2·r. At
+// the box edge it still contributed 10-20 % of the iso threshold, so every dab
+// injected a STEP into the summed field along its four box lines — exactly
+// where blobs merge that step pushed the contour across the threshold along a
+// pixel row or column: flat cuts, stair-steps, spurs ending at a box edge
+// (the "weird edges on metaball merge" screenshot). A slowly drawn stroke
+// also ballooned, because a line of 1/d² dabs only decays like 1/d.
+//
+// Wyvill's soft-object kernel `(1 − q/S²)³` is EXACTLY zero at q = S², so the
+// box clip is exact and the field is C² everywhere; strokes stay the brush's
+// width. `METABALL_FS_BODY` carries the same constants — a test pins them.
+
+/// Support radius of a dab's field, in units of its own radius: zero at and
+/// beyond `METABALL_SUPPORT × r`.
+const METABALL_SUPPORT: f32 = 2.0;
+/// Iso-surface threshold: an isolated dab shows a radius of
+/// `r · S · sqrt(1 − ISO^(1/3))` ≈ 0.908 r — the same visible size the old
+/// kernel's 1.0 threshold gave (0.905 r), so brushes did not change size.
+const METABALL_ISO: f32 = 0.5;
+/// Half-width of the anti-aliasing band around the threshold.
+const METABALL_AA: f32 = 0.05;
+
+/// Field contribution of one dab at squared ellipse-normalised distance `q`.
+fn metaball_kernel(q: f32) -> f32 {
+    let s2 = METABALL_SUPPORT * METABALL_SUPPORT;
+    if q.is_nan() || q >= s2 {
+        return 0.0; // outside the support (or NaN): exactly nothing
+    }
+    let t = 1.0 - q / s2;
+    t * t * t
+}
 /// Canvas background — also the eraser color.
 fn canvas_bg() -> ColorU {
     ColorU { r: 250, g: 250, b: 246, a: 255 }
@@ -398,7 +433,8 @@ fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: 
             let ax = r * (1.0 + ecc * 1.6);
             let ay = (r * (1.0 - ecc * 0.5)).max(r * 0.35);
             let (st, ct) = theta.sin_cos();
-            let reach = ax.max(ay) * 2.2;
+            // The kernel is exactly zero at this distance, so the box is exact.
+            let reach = ax.max(ay) * METABALL_SUPPORT;
             let x0 = (p.x - reach).floor().max(0.0) as usize;
             let y0 = (p.y - reach).floor().max(0.0) as usize;
             let x1 = ((p.x + reach).ceil().max(0.0) as usize).min(wu);
@@ -410,7 +446,10 @@ fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: 
                     let lx = dx * ct + dy * st; // into the ball's local frame
                     let ly = -dx * st + dy * ct;
                     let q = (lx / ax) * (lx / ax) + (ly / ay) * (ly / ay);
-                    let c = 1.0 / (q + 0.18);
+                    let c = metaball_kernel(q);
+                    if c <= 0.0 {
+                        continue; // the box corners lie outside the support
+                    }
                     let idx = y * wu + x;
                     field[idx] += c;
                     acc[idx][0] += c * cr;
@@ -426,8 +465,9 @@ fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: 
     composite_base(&mut buf, w, h, bg, background);
     for i in 0..n {
         let f = field[i];
-        let a = smoothstep(0.85, 1.15, f); // AA rim around the 1.0 isosurface
-        if a <= 0.0 || f <= 1.0e-4 {
+        // AA rim around the iso-surface.
+        let a = smoothstep(METABALL_ISO - METABALL_AA, METABALL_ISO + METABALL_AA, f);
+        if a <= 0.0 {
             continue; // keep the base layer
         }
         let (r, g, b) = (acc[i][0] / f, acc[i][1] / f, acc[i][2] / f);
@@ -486,11 +526,14 @@ void main() {
         float st = sin(uBalls[i].w);
         vec2 l = vec2(d.x * ct + d.y * st, -d.x * st + d.y * ct);
         float q = (l.x / ax) * (l.x / ax) + (l.y / ay) * (l.y / ay);
-        float c = 1.0 / (q + 0.18);
+        // Wyvill kernel: compact support, exactly zero at q = S^2.
+        // Same constants as metaball_kernel() / METABALL_* on the CPU path.
+        float t = max(0.0, 1.0 - q / 4.0);
+        float c = t * t * t;
         field += c;
         col += c * uBalls2[i].yzw;
     }
-    float a = clamp((field - 0.85) / 0.30, 0.0, 1.0);
+    float a = clamp((field - 0.45) / 0.10, 0.0, 1.0);
     a = a * a * (3.0 - 2.0 * a);
     vec3 blob = (field > 0.0001) ? (col / field) : uBg;
     oFragColor = vec4(mix(uBg, blob, a), 1.0);
@@ -712,7 +755,16 @@ fn render_canvas_inner(
     }
 
     // CPU path: metaballs, or the brush with an imported background / no GL.
-    if cache.rendered_rev != rev || cache.cpu_image.is_none() || export_path.is_some() {
+    // Re-rasterise when the canvas BOX changed too (a window resize): the
+    // cached bitmap at the old size was otherwise stretched into the new box
+    // by the rasteriser — blurry strokes, clicks landing off their pixels —
+    // until the next stroke bumped `rev`. The GPU branch above has always
+    // re-allocated on a size change; this is its CPU twin.
+    let cached = cache.cpu_image.as_ref().map(|img| {
+        let s = img.get_size();
+        (s.width as u32, s.height as u32)
+    });
+    if cpu_canvas_needs_raster(cache.rendered_rev, rev, cached, (w, h), export_path.is_some()) {
         let img = if metaball_mode {
             render_metaballs(&strokes, w, h, bg, bg_ref)
         } else {
@@ -728,6 +780,19 @@ fn render_canvas_inner(
         clear_export(cache);
     }
     cache.cpu_image.clone()
+}
+
+/// Does the CPU canvas need a fresh raster? When the strokes changed (`rev`),
+/// when there is no bitmap yet, when the cached bitmap is not the size of the
+/// canvas box (a window resize), or when an export is pending.
+fn cpu_canvas_needs_raster(
+    rendered_rev: u64,
+    rev: u64,
+    cached: Option<(u32, u32)>,
+    target: (u32, u32),
+    exporting: bool,
+) -> bool {
+    rendered_rev != rev || cached != Some(target) || exporting
 }
 
 /// Drain a pending Export request from the shared PaintState. Best-effort: if
@@ -770,8 +835,11 @@ extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny 
 // Display::Block), so a div with only `flex-direction: row` lays its children
 // out as block boxes (full-width, stacked vertically). The header used to omit
 // `display: flex`, which is why the toolbar buttons stacked on top of each other.
+// `user-select: none`: the title bar is chrome. A click on it used to open a
+// text-selection session that every later canvas stroke extended.
 const HEADER: &str = "display: flex; background: #2b2b2b; color: white; padding: 12px 20px; \
-    flex-direction: row; align-items: center; font-family: sans-serif; font-size: 16px;";
+    flex-direction: row; align-items: center; font-family: sans-serif; font-size: 16px; \
+    user-select: none;";
 const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
@@ -826,11 +894,24 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let action = |label: &str, cb: CallbackType| {
         MenuItem::string(StringMenuItem::create(label).with_callback(data.clone(), cb))
     };
+    // Keyboard accelerators. `[LWin, O]` is ⌘O on macOS: the native menu bar
+    // turns the chord into the item's key equivalent, so AppKit fires the
+    // item's callback on Cmd+O without the key ever reaching the view. The
+    // chord is display-only on Windows/Linux today (no shared accelerator
+    // dispatch in the engine yet).
+    let action_with_accel = |label: &str, cb: CallbackType, keys: &[azul::dom::VirtualKeyCode]| {
+        let mut item = StringMenuItem::create(label).with_callback(data.clone(), cb);
+        item.accelerator = azul::option::OptionVirtualKeyCodeCombo::Some(
+            azul::dom::VirtualKeyCodeCombo { keys: keys.to_vec().into() },
+        );
+        MenuItem::string(item)
+    };
+    use azul::dom::VirtualKeyCode as K;
     let menu = Menu::create(vec![
         MenuItem::string(StringMenuItem::create("File").with_children(vec![
-            action("Import image…", on_import),
-            action("Export PNG…", on_export),
-            action("Export SVG…", on_export_svg),
+            action_with_accel("Import image…", on_import, &[K::LWin, K::O]),
+            action_with_accel("Export PNG…", on_export, &[K::LWin, K::S]),
+            action_with_accel("Export SVG…", on_export_svg, &[K::LWin, K::LShift, K::S]),
         ])),
         MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
             action("Undo", on_undo),
@@ -1079,6 +1160,120 @@ mod tests {
 
     fn pt(x: f32, y: f32, pressure: f32) -> StrokePoint {
         StrokePoint { x, y, pressure, tilt_x: 0.0, tilt_y: 0.0, barrel_roll_rad: 0.0 }
+    }
+
+    /// Alpha (0..=255) of every pixel in row `y` of a rendered canvas.
+    fn row_coverage(img: &RawImage, y: usize, bg: ColorU) -> Vec<u8> {
+        let RawImageData::U8(ref px) = img.pixels else { panic!("U8 raster") };
+        let px = px.as_ref();
+        (0..img.width)
+            .map(|x| {
+                let o = (y * img.width + x) * 4;
+                // The blob is black on the background: coverage = how far the
+                // red channel moved from the background towards 0.
+                let r = px[o] as i32;
+                ((bg.r as i32 - r).max(0) * 255 / bg.r.max(1) as i32) as u8
+            })
+            .collect()
+    }
+
+    /// Number of rising edges (outside → inside) along a coverage profile.
+    fn rising_edges(profile: &[u8]) -> usize {
+        let inside = |c: u8| c >= 128;
+        profile
+            .windows(2)
+            .filter(|w| !inside(w[0]) && inside(w[1]))
+            .count()
+    }
+
+    fn black_dab(x: f32, y: f32) -> Stroke {
+        Stroke {
+            points: vec![pt(x, y, 0.5)],
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            is_eraser: false,
+        }
+    }
+
+    #[test]
+    fn metaball_merges_have_no_box_edges_and_dabs_keep_their_size() {
+        // REPORTED: "weird edges on metaball merge". Two dabs 30 px apart
+        // (the screenshot's spacing): with the old 1/(q+0.18) kernel clipped
+        // at 2.2 r, dab B's box edge cut through dab A's rim and left a notch
+        // on the row through the centres. A continuous field has exactly one
+        // rising edge per blob on every row, and a neighbour 30 px away must
+        // not change a dab's visible radius at all.
+        let bg = ColorU { r: 250, g: 250, b: 246, a: 255 };
+        let (w, h) = (100u32, 60u32);
+        let alone = render_metaballs(&[black_dab(30.0, 30.0)], w, h, bg, None);
+        let pair = render_metaballs(&[black_dab(30.0, 30.0), black_dab(60.0, 30.0)], w, h, bg, None);
+
+        let alone_row = row_coverage(&alone, 30, bg);
+        let pair_row = row_coverage(&pair, 30, bg);
+        assert_eq!(rising_edges(&alone_row), 1, "{alone_row:?}");
+        assert_eq!(
+            rising_edges(&pair_row),
+            2,
+            "two separate blobs must show exactly two rising edges on the row              through their centres — a notch or spur adds one: {pair_row:?}"
+        );
+        for y in 0..h as usize {
+            let row = row_coverage(&pair, y, bg);
+            assert!(
+                rising_edges(&row) <= 2,
+                "row {y} has a tear/notch (more than one edge per blob): {row:?}"
+            );
+        }
+
+        // The dab's left rim (x < 30) is the same with and without the
+        // neighbour: a neighbour's field must be ZERO there.
+        let left = |row: &[u8]| (0..30).map(|x| row[x]).collect::<Vec<_>>();
+        assert_eq!(left(&alone_row), left(&pair_row), "a neighbour 30 px away changed a dab's rim");
+
+        // Visible radius ≈ 0.9 r = 0.9 · BASE_RADIUS · (0.6 + 0.5 · 2) = 8.6 px.
+        let first_inside = alone_row.iter().position(|c| *c >= 128).expect("blob");
+        let radius = 30.0 - first_inside as f32;
+        assert!((7.5..=9.5).contains(&radius), "visible radius drifted: {radius}");
+    }
+
+    #[test]
+    fn the_cpu_canvas_re_rasterises_when_its_box_changes() {
+        // REPORTED: "canvas doesn't auto-resize" — same strokes, new box.
+        assert!(cpu_canvas_needs_raster(3, 3, Some((400, 300)), (500, 300), false));
+        assert!(cpu_canvas_needs_raster(3, 3, None, (500, 300), false), "no bitmap yet");
+        assert!(cpu_canvas_needs_raster(2, 3, Some((500, 300)), (500, 300), false), "strokes changed");
+        assert!(cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), true), "export pending");
+        assert!(!cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), false), "nothing changed");
+    }
+
+    #[test]
+    fn the_gpu_metaball_shader_uses_the_cpu_constants() {
+        // One kernel, two implementations: the GLSL body must carry the same
+        // support radius and AA band as the CPU constants, or
+        // AZ_BACKEND=gpu paints a different picture.
+        let support_sq = format!("1.0 - q / {:.1}", METABALL_SUPPORT * METABALL_SUPPORT);
+        assert!(METABALL_FS_BODY.contains(&support_sq), "shader support radius: {support_sq}");
+        let band = format!("(field - {:.2}) / {:.2}", METABALL_ISO - METABALL_AA, 2.0 * METABALL_AA);
+        assert!(METABALL_FS_BODY.contains(&band), "shader AA band: {band}");
+        assert!(METABALL_FS_BODY.contains("t * t * t"), "shader must use the cubic Wyvill kernel");
+        assert!(!METABALL_FS_BODY.contains("1.0 / (q + 0.18)"), "the infinite-support kernel is gone");
+    }
+
+    #[test]
+    fn metaball_kernel_is_compact_and_continuous() {
+        assert_eq!(metaball_kernel(0.0), 1.0);
+        let s2 = METABALL_SUPPORT * METABALL_SUPPORT;
+        assert_eq!(metaball_kernel(s2), 0.0, "exactly zero at the support edge");
+        assert_eq!(metaball_kernel(s2 * 4.0), 0.0, "and beyond it");
+        assert_eq!(metaball_kernel(f32::NAN), 0.0);
+        // Monotone decreasing and continuous up to the edge.
+        let mut prev = 1.0f32;
+        for i in 1..=400 {
+            let q = s2 * (i as f32 / 400.0);
+            let c = metaball_kernel(q);
+            assert!(c <= prev && c >= 0.0, "q={q}: {c} > {prev}");
+            assert!(prev - c < 0.02, "jump at q={q}: {prev} → {c}");
+            prev = c;
+        }
+        assert!(prev < 1e-6, "the last sample before the edge is ~0: {prev}");
     }
 
     #[test]

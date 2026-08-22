@@ -22,7 +22,7 @@
 
 use std::ffi::c_void;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use block2::RcBlock;
@@ -42,15 +42,7 @@ const PIXEL_FORMAT_32BGRA: u32 = 0x42475241;
 /// SCStreamOutputType.screen
 const SC_STREAM_OUTPUT_TYPE_SCREEN: isize = 0;
 
-/// Latest captured frame (RGBA + dims), filled by the delegate, drained by read.
-#[derive(Default)]
-struct FrameSlot {
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-    /// Bumped each frame; `read` returns the newest available.
-    seq: u64,
-}
+use crate::desktop::extra::capture_slot::CaptureSlot;
 
 // ---------------------------------------------------------------------------
 // Runtime framework loading
@@ -145,7 +137,7 @@ fn ensure_screen_access() -> bool {
 // ---------------------------------------------------------------------------
 
 struct OutputIvars {
-    slot: Arc<Mutex<FrameSlot>>,
+    slot: Arc<CaptureSlot>,
 }
 
 define_class!(
@@ -183,31 +175,13 @@ define_class!(
                 let h = CVPixelBufferGetHeight(pb) as usize;
                 let stride = CVPixelBufferGetBytesPerRow(pb);
                 let base = CVPixelBufferGetBaseAddress(pb) as *const u8;
-                if !base.is_null() && w > 0 && h > 0 && stride >= w * 4 {
-                    let mut rgba = vec![0u8; w * h * 4];
-                    for y in 0..h {
-                        let row = base.add(y * stride);
-                        for x in 0..w {
-                            let s = row.add(x * 4); // BGRA
-                            let o = (y * w + x) * 4;
-                            rgba[o] = *s.add(2); // R
-                            rgba[o + 1] = *s.add(1); // G
-                            rgba[o + 2] = *s; // B
-                            rgba[o + 3] = 255;
-                        }
-                    }
-                    if let Ok(mut slot) = self.ivars().slot.lock() {
-                        if slot.seq == 0 {
-                            crate::plog_info!(
-                                "[screencap] ScreenCaptureKit: first frame {}x{} stride={} BGRA→RGBA ok",
-                                w, h, stride
-                            );
-                        }
-                        slot.rgba = rgba;
-                        slot.width = w as u32;
-                        slot.height = h as u32;
-                        slot.seq = slot.seq.wrapping_add(1);
-                    }
+                // Swizzle into the slot's REUSED buffer and wake the reader;
+                // the slot validates the plane (see `CaptureSlot::publish_bgra`).
+                if self.ivars().slot.publish_bgra(base, w, h, stride) {
+                    crate::plog_info!(
+                        "[screencap] ScreenCaptureKit: first frame {}x{} stride={} BGRA→RGBA ok",
+                        w, h, stride
+                    );
                 }
                 CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(0));
             }
@@ -216,7 +190,7 @@ define_class!(
 );
 
 impl ScreenCapOutput {
-    fn new(slot: Arc<Mutex<FrameSlot>>) -> Retained<Self> {
+    fn new(slot: Arc<CaptureSlot>) -> Retained<Self> {
         let this = Self::alloc().set_ivars(OutputIvars { slot });
         unsafe { msg_send![super(this), init] }
     }
@@ -263,7 +237,7 @@ struct SckScreen {
     _output: Retained<ScreenCapOutput>,
     /// The sample-handler dispatch queue must outlive the stream.
     _queue: dispatch2::DispatchRetained<dispatch2::DispatchQueue>,
-    slot: Arc<Mutex<FrameSlot>>,
+    slot: Arc<CaptureSlot>,
     last_seq: u64,
 }
 
@@ -392,7 +366,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         };
 
         ScreenCapOutput::attach_protocol();
-        let slot = Arc::new(Mutex::new(FrameSlot::default()));
+        let slot = CaptureSlot::new();
         let output = ScreenCapOutput::new(slot.clone());
         let queue = dispatch2::DispatchQueue::new("azul.screencap", None);
         let queue_ptr: *mut AnyObject = &*queue as *const _ as *mut AnyObject;
@@ -469,30 +443,14 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
         Some(s) => s,
         None => return (0, 0),
     };
-    for _ in 0..120 {
-        {
-            let slot = match scr.slot.lock() {
-                Ok(s) => s,
-                Err(_) => return (0, 0),
-            };
-            if slot.seq != scr.last_seq && slot.width > 0 {
-                scr.last_seq = slot.seq;
-                out.clear();
-                out.extend_from_slice(&slot.rgba);
-                return (slot.width, slot.height);
-            }
-        }
-        std::thread::sleep(Duration::from_millis(8));
+    if let Some(dims) = scr
+        .slot
+        .read_newer(&mut scr.last_seq, out, Duration::from_millis(1000))
+    {
+        return dims;
     }
     // No new frame (idle screen) — re-serve the last one, if any.
-    if let Ok(slot) = scr.slot.lock() {
-        if slot.width > 0 {
-            out.clear();
-            out.extend_from_slice(&slot.rgba);
-            return (slot.width, slot.height);
-        }
-    }
-    (0, 0)
+    scr.slot.read_last(out).unwrap_or((0, 0))
 }
 
 /// Stop the stream + free the capture (drops the boxed `SckScreen`).

@@ -364,7 +364,7 @@ impl Chip {
         // RefAny so both handlers observe the same ChipState.
         let state_ref = RefAny::new(self.chip_state);
 
-        let mut label = Dom::create_p_with_text(self.label)
+        let mut label = crate::widgets::widget_p_with_text(self.label)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_LABEL_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHIP_LABEL_STYLE));
 
@@ -375,7 +375,14 @@ impl Chip {
         // wiring as list_view's row/column callbacks); clicks on the pill's
         // padding therefore do not trigger on_click.
         if has_on_click {
-            label = label.with_tab_index(TabIndex::Auto).with_callbacks(
+            // A clickable chip is a compact button.
+            label = label
+                .with_tab_index(TabIndex::Auto)
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::PushButton,
+                    ..Default::default()
+                })
+                .with_callbacks(
                 alloc::vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback: CoreCallback {
@@ -391,10 +398,15 @@ impl Chip {
         let mut children = alloc::vec![label];
 
         if self.removable {
-            let remove = Dom::create_p_with_text(AzString::from_const_str("\u{00D7}"))
+            let remove = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_REMOVE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHIP_REMOVE_STYLE))
                 .with_tab_index(TabIndex::Auto)
+                // The remove affordance is its own button, not part of the chip's label.
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::PushButton,
+                    ..Default::default()
+                })
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseUp),

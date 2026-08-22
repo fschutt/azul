@@ -9,7 +9,7 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, *},
         layout::*,
@@ -60,6 +60,14 @@ pub struct CheckBox {
     pub container_style: CssPropertyWithConditionsVec,
     /// Style for the checkbox content
     pub content_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET rather than patched onto the finished `Dom`: that
+    /// is what lets the widget know at build time whether it was named, so its
+    /// warning fires only when nobody supplied one. Forwarded into the
+    /// accessibility declaration the widget builds anyway, beside its role and
+    /// state.
+    pub accessibility_name: OptionString,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -103,7 +111,16 @@ static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    // A flex box that CENTRES the mark, like the RadioGroup's ring. As a
+    // `display: block` the 8 px mark sat in the top-left of the 14 px content
+    // box (demo test 2026-08-21: "CheckBox not centered").
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(14))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(14))),
     // padding: 2px
@@ -182,6 +199,13 @@ static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = 
 ];
 
 impl CheckBox {
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(checked: bool) -> Self {
         Self {
             check_box_state: CheckBoxStateWrapper {
@@ -200,6 +224,7 @@ impl CheckBox {
                     DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED,
                 )
             },
+            accessibility_name: OptionString::None,
         }
     }
 
@@ -233,6 +258,16 @@ impl CheckBox {
 
     #[inline]
     #[must_use] pub fn dom(self) -> Dom {
+        // Read before the widget's fields are moved into the DOM below.
+        let cb_name = self.accessibility_name.clone();
+        crate::widgets::warn_widget_needs_a_name(
+            "check_box",
+            cb_name.is_some(),
+        );
+
+        // Read the state BEFORE the wrapper is moved into the callback below.
+        let checked_now = self.check_box_state.inner.checked;
+
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{Dom, EventFilter, HoverEventFilter},
@@ -253,6 +288,21 @@ impl CheckBox {
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
+            // A checkbox that does not publish its checked state announces as
+            // unchecked forever, however it renders. The state must travel with
+            // every build, not be set once at construction.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::CheckButton,
+                accessibility_name: cb_name,
+                states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                    if checked_now {
+                        azul_core::a11y::AccessibilityState::CheckedTrue
+                    } else {
+                        azul_core::a11y::AccessibilityState::CheckedFalse
+                    },
+                ]),
+                ..Default::default()
+            })
             .with_children(
                 vec![Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
@@ -299,6 +349,20 @@ mod input {
                 None => Update::DoNothing,
             }
         };
+
+        // Keep the announced state in step with the rendered one: this handler
+        // changes opacity and returns Update::DoNothing, so nothing rebuilds and
+        // the build-time CheckedTrue/False would go stale on the first click.
+        info.set_accessibility_state(
+            info.get_hit_node(),
+            azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                if check_box.inner.checked {
+                    azul_core::a11y::AccessibilityState::CheckedTrue
+                } else {
+                    azul_core::a11y::AccessibilityState::CheckedFalse
+                },
+            ]),
+        );
 
         if check_box.inner.checked {
             info.set_css_property(

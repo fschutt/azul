@@ -7,6 +7,11 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use azul_core::{
+    dom::DomNodeId,
+    events::{EventData, EventSource, EventType, MouseButton, SyntheticEvent},
+};
+
 use crate::hit_test::FullHitTest;
 
 /// Maximum number of frames to keep in hover history
@@ -17,10 +22,10 @@ const MAX_HOVER_HISTORY: usize = 5;
 /// Iterates DOMs from highest `DomId` (most-nested child, composited on top)
 /// to lowest and returns the deepest node (last in `NodeId` order) of the first
 /// DOM that actually has a regular hit. See [`HoverManager::current_hover_node_full`].
-fn deepest_node_across_doms(ht: &FullHitTest) -> Option<azul_core::dom::DomNodeId> {
+fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
     for (dom_id, hit) in ht.hovered_nodes.iter().rev() {
         if let Some(node_id) = hit.regular_hit_test_nodes.keys().last().copied() {
-            return Some(azul_core::dom::DomNodeId {
+            return Some(DomNodeId {
                 dom: *dom_id,
                 node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
                     node_id,
@@ -54,6 +59,10 @@ pub struct HoverManager {
     /// Hit test history for each input point
     /// Each point has its own ring buffer of the last N frames
     hover_histories: BTreeMap<InputPointId, VecDeque<FullHitTest>>,
+    /// The node each mouse button was PRESSED on, kept until that button's
+    /// release has been delivered to it — see
+    /// [`Self::apply_press_target_capture`].
+    press_targets: Vec<(MouseButton, DomNodeId)>,
 }
 
 impl HoverManager {
@@ -61,7 +70,84 @@ impl HoverManager {
     #[must_use] pub const fn new() -> Self {
         Self {
             hover_histories: BTreeMap::new(),
+            press_targets: Vec::new(),
         }
+    }
+
+    /// The node `button` is currently pressed on, if its release is still owed.
+    #[must_use]
+    pub fn press_target(&self, button: MouseButton) -> Option<DomNodeId> {
+        self.press_targets.iter().find(|(b, _)| *b == button).map(|(_, t)| *t)
+    }
+
+    /// Forget every press target (the owed releases will never come — e.g.
+    /// the layout window is torn down).
+    pub fn clear_press_targets(&mut self) {
+        self.press_targets.clear();
+    }
+
+    /// PRESS-TARGET CAPTURE.
+    ///
+    /// Events are derived from window-state diffs and
+    /// targeted at whatever is under the pointer NOW, so a widget that
+    /// latched on `MouseDown` only saw its `MouseUp` if the pointer was still
+    /// over it when the button came up. Every "stuck input" of the demo test
+    /// was this: a slider, a map pan, a paint stroke, a split-pane drag —
+    /// each released off its node, each kept dragging on plain moves, each
+    /// had grown its own "leave = release" workaround. Browsers and toolkits
+    /// solve it the same way (implicit pointer capture / `SetCapture`): the
+    /// pressed node gets the release.
+    ///
+    /// Records the target of every `MouseDown` in `events` per button. For
+    /// every `MouseUp`, if the pressed node is neither the release target nor
+    /// in its propagation path (`in_release_path(press, release)`), a second
+    /// `MouseUp` for the pressed node — delivered AT THAT TARGET ONLY, its
+    /// ancestors see the real release — is appended. The release through the
+    /// hovered node is untouched (click semantics stay hover-based).
+    ///
+    /// Call once per pass, after `determine_all_events`, before dispatch. A
+    /// release derived from a blur (the OS handlers clear the buttons) goes
+    /// through the same door, so a press that ends with the pointer outside
+    /// the window is released too.
+    pub fn apply_press_target_capture(
+        &mut self,
+        events: &mut Vec<SyntheticEvent>,
+        in_release_path: &dyn Fn(DomNodeId, DomNodeId) -> bool,
+    ) {
+        let mut captured_releases: Vec<SyntheticEvent> = Vec::new();
+        for event in events.iter() {
+            let EventData::Mouse(mouse) = &event.data else {
+                continue;
+            };
+            match event.event_type {
+                EventType::MouseDown => {
+                    self.press_targets.retain(|(b, _)| *b != mouse.button);
+                    self.press_targets.push((mouse.button, event.target));
+                }
+                EventType::MouseUp => {
+                    let Some(pos) = self.press_targets.iter().position(|(b, _)| *b == mouse.button)
+                    else {
+                        continue;
+                    };
+                    let (_, press_target) = self.press_targets.remove(pos);
+                    if press_target == event.target || in_release_path(press_target, event.target) {
+                        continue;
+                    }
+                    captured_releases.push(
+                        SyntheticEvent::new(
+                            EventType::MouseUp,
+                            EventSource::Synthetic,
+                            press_target,
+                            event.timestamp.clone(),
+                            event.data.clone(),
+                        )
+                        .at_target_only(),
+                    );
+                }
+                _ => {}
+            }
+        }
+        events.extend(captured_releases);
     }
 
     /// (input points, total history entries across all points). Used by
@@ -155,6 +241,9 @@ impl HoverManager {
                 frame.hovered_nodes.remove(dom_id);
             }
         }
+        // A press on a node of a purged (rebuilt) dom can never be released
+        // to it: the ids are gone.
+        self.press_targets.retain(|(_, t)| t.dom != *dom_id);
     }
 
     /// Clear all hover history for all input points
@@ -223,12 +312,12 @@ impl HoverManager {
     ///
     /// For single-DOM apps only `DomId 0` is ever hit, so this is equivalent to
     /// [`current_hover_node`] wrapped in `DomId { inner: 0 }`.
-    #[must_use] pub fn current_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
+    #[must_use] pub fn current_hover_node_full(&self) -> Option<DomNodeId> {
         deepest_node_across_doms(self.get_current_mouse()?)
     }
 
     /// Multi-DOM aware counterpart of [`previous_hover_node`] (one frame ago).
-    #[must_use] pub fn previous_hover_node_full(&self) -> Option<azul_core::dom::DomNodeId> {
+    #[must_use] pub fn previous_hover_node_full(&self) -> Option<DomNodeId> {
         let history = self.hover_histories.get(&InputPointId::Mouse)?;
         deepest_node_across_doms(history.get(1)?)
     }
@@ -242,7 +331,7 @@ impl HoverManager {
     #[must_use] pub fn hover_node_full_for(
         &self,
         input_id: &InputPointId,
-    ) -> Option<azul_core::dom::DomNodeId> {
+    ) -> Option<DomNodeId> {
         deepest_node_across_doms(self.get_current(input_id)?)
     }
 }
@@ -254,6 +343,12 @@ impl crate::managers::NodeIdRemap for HoverManager {
     /// keeping them would make the hover history describe a node that no longer
     /// exists at that index.
     fn remap_node_ids(&mut self, dom_id: azul_core::dom::DomId, map: &crate::managers::NodeIdMap) {
+        // A pressed node follows the rebuild like a hovered one; an unmounted
+        // press target is dropped (its release can never be delivered).
+        self.press_targets = core::mem::take(&mut self.press_targets)
+            .into_iter()
+            .filter_map(|(b, t)| map.resolve_dom_node_id(dom_id, t).map(|t| (b, t)))
+            .collect();
         let node_id_map = map.as_btree_map();
         for history in self.hover_histories.values_mut() {
             for hit_test in history.iter_mut() {
@@ -332,6 +427,103 @@ mod autotest_generated {
     use crate::managers::{NodeIdMap, NodeIdRemap};
 
     // ---------------------------------------------------------------- fixtures
+
+    fn press_dnid(node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: 0 },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    fn mouse_event(ty: EventType, button: MouseButton, target: DomNodeId) -> SyntheticEvent {
+        use azul_core::events::{KeyModifiers, MouseEventData};
+        SyntheticEvent::new(
+            ty,
+            EventSource::User,
+            target,
+            azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
+            EventData::Mouse(MouseEventData {
+                position: LogicalPosition::zero(),
+                button,
+                buttons: 0,
+                modifiers: KeyModifiers::default(),
+            }),
+        )
+    }
+
+    #[test]
+    fn a_release_over_another_node_is_also_delivered_to_the_pressed_node() {
+        // REPORTED (the whole "stuck input" family): a widget that latched on
+        // MouseDown never saw its MouseUp when the pointer released off it.
+        let mut hm = HoverManager::new();
+        let never_related = |_: DomNodeId, _: DomNodeId| false;
+
+        let mut events = vec![mouse_event(EventType::MouseDown, MouseButton::Left, press_dnid(3))];
+        hm.apply_press_target_capture(&mut events, &never_related);
+        assert_eq!(events.len(), 1, "a press adds nothing");
+        assert_eq!(hm.press_target(MouseButton::Left), Some(press_dnid(3)));
+
+        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(9))];
+        hm.apply_press_target_capture(&mut events, &never_related);
+        assert_eq!(events.len(), 2, "the pressed node gets its own release");
+        let captured = &events[1];
+        assert_eq!(captured.event_type, EventType::MouseUp);
+        assert_eq!(captured.target, press_dnid(3));
+        assert!(captured.at_target_only, "its ancestors already saw the real release");
+        assert_eq!(events[0].target, press_dnid(9), "the hovered node's release is untouched");
+        assert_eq!(hm.press_target(MouseButton::Left), None, "the owed release was delivered");
+
+        // Nothing pending: a stray release adds nothing.
+        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(9))];
+        hm.apply_press_target_capture(&mut events, &never_related);
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn a_release_on_the_pressed_node_or_its_descendant_is_not_doubled() {
+        let mut hm = HoverManager::new();
+        // The hovered node 5 is a descendant of the pressed node 3: the real
+        // release bubbles through 3 already.
+        let descendant_of = |press: DomNodeId, release: DomNodeId| press == press_dnid(3) && release == press_dnid(5);
+
+        let mut events = vec![mouse_event(EventType::MouseDown, MouseButton::Left, press_dnid(3))];
+        hm.apply_press_target_capture(&mut events, &descendant_of);
+        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(5))];
+        hm.apply_press_target_capture(&mut events, &descendant_of);
+        assert_eq!(events.len(), 1, "no second release when the path already covers the press");
+
+        let mut events = vec![mouse_event(EventType::MouseDown, MouseButton::Left, press_dnid(3))];
+        hm.apply_press_target_capture(&mut events, &descendant_of);
+        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(3))];
+        hm.apply_press_target_capture(&mut events, &descendant_of);
+        assert_eq!(events.len(), 1, "same node: one release");
+    }
+
+    #[test]
+    fn press_targets_are_per_button_and_follow_remaps() {
+        let mut hm = HoverManager::new();
+        let never_related = |_: DomNodeId, _: DomNodeId| false;
+        let mut events = vec![
+            mouse_event(EventType::MouseDown, MouseButton::Left, press_dnid(3)),
+            mouse_event(EventType::MouseDown, MouseButton::Right, press_dnid(4)),
+        ];
+        hm.apply_press_target_capture(&mut events, &never_related);
+        // Releasing the right button elsewhere releases node 4 only.
+        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Right, press_dnid(9))];
+        hm.apply_press_target_capture(&mut events, &never_related);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].target, press_dnid(4));
+        assert_eq!(hm.press_target(MouseButton::Left), Some(press_dnid(3)));
+
+        // A rebuild renumbers node 3 → 7; the owed release follows it.
+        let map = NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(7))]);
+        hm.remap_node_ids(DomId { inner: 0 }, &map);
+        assert_eq!(hm.press_target(MouseButton::Left), Some(press_dnid(7)));
+
+        // Purging the dom forgets the press.
+        hm.purge_dom(&DomId { inner: 0 });
+        assert_eq!(hm.press_target(MouseButton::Left), None);
+    }
 
     fn hit_item(depth: u32) -> HitTestItem {
         HitTestItem {
