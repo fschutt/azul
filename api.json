@@ -46022,6 +46022,36 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "StyleAppRegionValue": {
+                        "external": "azul_css::props::property::StyleAppRegionValue",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleAppRegion"
+                            ]
+                        }
+                    },
+                    "StyleAppRegion": {
+                        "external": "azul_css::props::style::transform::StyleAppRegion",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NoDrag": {},
+                                "Drag": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -75798,6 +75828,23 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "CssAppRegionParseErrorOwned": {
+                        "external": "azul_css::props::style::transform::CssAppRegionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
