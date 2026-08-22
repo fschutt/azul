@@ -5399,6 +5399,35 @@ impl X11Window {
     /// threshold turns the press into a `DragStart` on a later MotionNotify,
     /// so this is the pointer as of that motion. WMs treat the value as the
     /// drag anchor, so that is the right one to send.
+    /// The window's top-left in ROOT coordinates (physical px), for a
+    /// `_NET_WM_MOVERESIZE` request: what the last ConfigureNotify resolved,
+    /// else the state's absolute position, else one `XTranslateCoordinates`
+    /// round trip — a popup's `RelativeToParentWindow` offset says nothing
+    /// about the root on its own, and a window dragged before its first
+    /// configure has no position at all yet.
+    fn root_origin_physical(&self) -> (f32, f32) {
+        if let Some((x, y)) = self.last_absolute_origin {
+            return (x as f32, y as f32);
+        }
+        match self.common.current_window_state().position {
+            azul_core::window::WindowPosition::Initialized(pos) => (pos.x as f32, pos.y as f32),
+            azul_core::window::WindowPosition::Uninitialized
+            | azul_core::window::WindowPosition::RelativeToParentWindow(_) => {
+                match self.xlib.XTranslateCoordinates {
+                    Some(translate) => unsafe {
+                        let screen = (self.xlib.XDefaultScreen)(self.display);
+                        let root = (self.xlib.XRootWindow)(self.display, screen);
+                        let (mut rx, mut ry) = (0i32, 0i32);
+                        let mut child: Window = 0;
+                        (translate)(self.display, self.window, root, 0, 0, &mut rx, &mut ry, &mut child);
+                        (rx as f32, ry as f32)
+                    },
+                    None => (0.0, 0.0),
+                }
+            }
+        }
+    }
+
     fn handle_begin_interactive_move(&mut self) {
         let (x, y) = {
             let ws = self.common.current_window_state();
@@ -5414,12 +5443,7 @@ impl X11Window {
         // scale 1.0 — at Xft.dpi 192 the anchor landed `cursor` px off and
         // KWin/xfwm4 jumped the window by that much on the first motion.
         let s = self.hidpi();
-        let (ox, oy) = match self.common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                (pos.x as f32, pos.y as f32)
-            }
-            azul_core::window::WindowPosition::Uninitialized => (0.0, 0.0),
-        };
+        let (ox, oy) = self.root_origin_physical();
         self.begin_net_wm_moveresize(
             (x * s + ox) as std::os::raw::c_long,
             (y * s + oy) as std::os::raw::c_long,
