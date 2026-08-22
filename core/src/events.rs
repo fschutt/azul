@@ -5956,13 +5956,18 @@ mod autotest_generated {
             EventType::TimeUpdate,
             EventType::VolumeChange,
             EventType::MediaError,
-            EventType::PinchIn,
-            EventType::RotateClockwise,
-            EventType::SwipeLeft,
         ] {
             assert!(
                 event_type_to_filters(ty, &EventData::None).is_empty(),
                 "{ty:?} is unmapped and must yield no filters"
+            );
+        }
+        // Gestures ARE mapped (they were not, which is why a Pinch callback
+        // never fired) — see every_gesture_event_matches_its_same_named_filter.
+        for ty in [EventType::PinchIn, EventType::RotateClockwise, EventType::SwipeLeft] {
+            assert!(
+                !event_type_to_filters(ty, &EventData::None).is_empty(),
+                "{ty:?} must map to its gesture filters"
             );
         }
     }
