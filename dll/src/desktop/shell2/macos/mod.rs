@@ -154,6 +154,34 @@ pub enum RenderBackend {
 /// MWA-B9: height of the PRIMARY screen (Cocoa's global-coordinate anchor:
 /// its bottom-left is the origin for ALL window frame coordinates). Every
 /// top-down↔bottom-up flip must use this, never the current screen's height.
+/// What a `CVDisplayLink` callback is handed for a window: the `NSWindow`
+/// behind a liveness flag, with a lock around the retain.
+///
+/// The callback runs on CoreVideo's thread and must RETAIN the window before
+/// hopping to the main queue. If the window was closed in between, that
+/// retain lands on freed memory — `objc_msgSend` at 0x10, the crash that hit
+/// every closed popup: `close_window()` closes the NSWindow right away while
+/// the link was only stopped in `Drop`, which runs later from
+/// `drain_closed_windows()`. `retire_display_link` now flips `alive` under
+/// the lock and stops the link BEFORE the window is closed; a tick that
+/// already holds the lock retains a window that is still alive, a later
+/// tick finds `alive == false` and does nothing.
+///
+/// Leaked on purpose: a tick may still be inside the callback when the
+/// window goes away, and a freed context would be the same bug one level
+/// up. A few dozen bytes per window is the price.
+struct DisplayLinkTarget {
+    lock: std::sync::Mutex<()>,
+    alive: std::sync::atomic::AtomicBool,
+    window: *mut std::ffi::c_void,
+}
+
+// SAFETY: the raw window pointer is only dereferenced under `lock` while
+// `alive` is set, by the callback's retain — the main thread flips `alive`
+// under the same lock before it releases the window.
+unsafe impl Send for DisplayLinkTarget {}
+unsafe impl Sync for DisplayLinkTarget {}
+
 fn primary_screen_height() -> Option<f64> {
     let mtm = MainThreadMarker::new()?;
     unsafe {
@@ -3276,6 +3304,9 @@ pub struct MacOSWindow {
     // VSYNC and Display Management
     /// CVDisplayLink for proper VSYNC synchronization (optional, loaded via dlopen)
     display_link: Option<corevideo::DisplayLink>,
+    /// The display link's callback context: the NSWindow behind a liveness
+    /// flag. Intentionally leaked (see `retire_display_link`).
+    display_link_target: Option<*const DisplayLinkTarget>,
     /// CoreVideo functions (loaded via dlopen for backward compatibility)
     cv_functions: Option<Arc<CoreVideoFunctions>>,
     /// Core Graphics functions (for display enumeration)
@@ -3892,15 +3923,22 @@ impl MacOSWindow {
             _flags_out: *mut u64,
             display_link_context: *mut std::ffi::c_void,
         ) -> corevideo::CVReturn {
-            // SAFETY: display_link_context is a pointer to NSWindow. Retain it
-            // for the trip across threads so a window teardown between enqueue
-            // and main-queue drain can't leave the block a dangling pointer.
+            // SAFETY: display_link_context is a leaked `DisplayLinkTarget`.
+            // Retain the window UNDER ITS LOCK while it is alive, so the trip
+            // across threads can never start from a freed NSWindow.
             unsafe {
-                if !display_link_context.is_null() {
-                    objc2::ffi::objc_retain(display_link_context.cast());
+                if display_link_context.is_null() {
+                    return corevideo::K_CV_RETURN_SUCCESS;
+                }
+                let target = &*(display_link_context as *const DisplayLinkTarget);
+                let Ok(_guard) = target.lock.lock() else {
+                    return corevideo::K_CV_RETURN_SUCCESS;
+                };
+                if target.alive.load(std::sync::atomic::Ordering::Acquire) && !target.window.is_null() {
+                    objc2::ffi::objc_retain(target.window.cast());
                     dispatch_async_f(
                         std::ptr::addr_of!(_dispatch_main_q),
-                        display_link_context,
+                        target.window,
                         mark_views_dirty_on_main,
                     );
                 }
@@ -3908,9 +3946,14 @@ impl MacOSWindow {
             corevideo::K_CV_RETURN_SUCCESS
         }
 
-        // Pass NSWindow pointer as context
-        let window_ptr = &*self.window as *const NSWindow as *mut std::ffi::c_void;
-        let result = display_link.set_output_callback(display_link_callback, window_ptr);
+        // The context: the NSWindow behind a liveness flag (leaked, see the type).
+        let target: *const DisplayLinkTarget = Box::into_raw(Box::new(DisplayLinkTarget {
+            lock: std::sync::Mutex::new(()),
+            alive: std::sync::atomic::AtomicBool::new(true),
+            window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
+        }));
+        self.display_link_target = Some(target);
+        let result = display_link.set_output_callback(display_link_callback, target as *mut std::ffi::c_void);
 
         if result != corevideo::K_CV_RETURN_SUCCESS {
             return Err(format!("CVDisplayLinkSetOutputCallback failed: {}", result));
@@ -4671,6 +4714,7 @@ impl MacOSWindow {
             timers: std::collections::HashMap::new(),
             thread_timer_running: None,
             display_link: None, // Will be initialized when VSYNC is enabled
+            display_link_target: None,
             cv_functions,
             cg_functions,
             current_display_id: None, // Will be set after monitor detection
@@ -5566,7 +5610,29 @@ impl MacOSWindow {
     }
 
     /// Actually close the window
+    /// Stop the display link and mark its target dead, BEFORE the NSWindow
+    /// is closed or released. Idempotent; called from `close_window` and
+    /// `Drop`. See `DisplayLinkTarget` for the crash this prevents.
+    fn retire_display_link(&mut self) {
+        if let Some(target) = self.display_link_target.take() {
+            // SAFETY: the target is leaked and therefore always valid.
+            let target = unsafe { &*target };
+            let guard = target.lock.lock();
+            target.alive.store(false, std::sync::atomic::Ordering::Release);
+            drop(guard);
+        }
+        if let Some(link) = self.display_link.take() {
+            if link.is_running() {
+                let _ = link.stop();
+            }
+            drop(link); // CVDisplayLinkRelease
+        }
+    }
+
     fn close_window(&mut self) {
+        // The display link must be dead before the NSWindow goes: its callback
+        // retains the window on another thread.
+        self.retire_display_link();
         // Unregister from the global registry before closing, and park the box
         // for deferred drop — we cannot drop `self` from behind `&mut self`.
         // `self.window.close()` below re-enters windowWillClose:, whose
@@ -7202,18 +7268,8 @@ impl Drop for MacOSWindow {
         );
 
         // SAFETY: display_link must be stopped before window is dropped, because the
-        // CVDisplayLink callback holds a raw pointer to the NSWindow.
-        // Stop and release CVDisplayLink if active
-        if let Some(ref display_link) = self.display_link {
-            if display_link.is_running() {
-                log_trace!(
-                    LogCategory::Window,
-                    "[MacOSWindow::drop] Stopping CVDisplayLink"
-                );
-                display_link.stop();
-            }
-            // DisplayLink will be dropped automatically, calling release
-        }
+        // CVDisplayLink callback retains the NSWindow from another thread.
+        self.retire_display_link();
 
         // Release power management assertion if active
         if let Some(assertion_id) = self.pm_assertion_id.take() {
@@ -7831,21 +7887,29 @@ impl MacOSWindow {
 }
 
 /// Position window on requested monitor, or center on primary monitor
-/// Resolve a parent window's stored top-left from the registry, for
+/// Resolve a parent window's CONTENT-area top-left in global top-down
+/// coordinates (y = 0 at the top of the primary screen), for
 /// `WindowPosition::RelativeToParentWindow`. Returns `None` if there is no
-/// parent or it has no concrete position yet (caller treats the offset as
-/// monitor-relative).
-fn resolve_macos_parent_origin(parent_window_id: u64) -> Option<(i32, i32)> {
+/// parent (caller treats the offset as monitor-relative).
+///
+/// The offset a child carries is in the parent's LAYOUT space — a popup
+/// anchored below a swatch says "(swatch.x, swatch.bottom) from the content
+/// origin". The stored `position` is the FRAME top-left (title bar
+/// included), so it is read from the live `NSWindow` instead: frame →
+/// `contentRectForFrameRect`, flipped against the primary screen the way
+/// `window_did_move` / `sync_window_state` flip (MWA-B9).
+fn resolve_macos_parent_content_origin(parent_window_id: u64) -> Option<(f64, f64)> {
     if parent_window_id == 0 {
         return None;
     }
+    let primary_height = primary_screen_height()?;
     unsafe {
         let wptr =
             registry::get_window(parent_window_id as usize as *mut objc2::runtime::AnyObject)?;
-        match (*wptr).common.current_window_state().position {
-            azul_core::window::WindowPosition::Initialized(pos) => Some((pos.x, pos.y)),
-            _ => None,
-        }
+        let parent = &(*wptr).window;
+        let content = parent.contentRectForFrameRect(parent.frame());
+        let top_left_y = primary_height - (content.origin.y + content.size.height);
+        Some((content.origin.x, top_left_y))
     }
 }
 
@@ -7927,17 +7991,31 @@ fn position_window_on_monitor(
             (center_x, center_y)
         }
         WindowPosition::RelativeToParentWindow(offset) => {
-            // Child window (menu/dropdown/popup): place at parent_top_left +
-            // offset. Mirrors the Initialized arm with an effective position of
-            // parent + offset; falls back to monitor-relative if no parent.
-            match resolve_macos_parent_origin(parent_window_id) {
-                Some((px, py)) => (
-                    screen_frame.origin.x + (px + offset.x) as f64,
-                    screen_frame.origin.y + (py + offset.y) as f64,
-                ),
-                None => (
-                    screen_frame.origin.x + offset.x as f64,
-                    screen_frame.origin.y + offset.y as f64,
+            // Child window (menu/dropdown/popup): its TOP-LEFT is the parent's
+            // content top-left + offset, all in top-down coordinates. AppKit
+            // wants the frame's BOTTOM-left in bottom-up coordinates, so flip
+            // against the primary screen (MWA-B9) and subtract the child's own
+            // height. (The previous arm added a top-down offset to a bottom-up
+            // origin, which put the colour picker ABOVE its parent window.)
+            match (
+                resolve_macos_parent_content_origin(parent_window_id),
+                primary_screen_height(),
+            ) {
+                (Some((cx, cy)), Some(primary_height)) => {
+                    let top_left_y = cy + f64::from(offset.y);
+                    // The CONTENT height, not the frame's: this runs before
+                    // the borderless style mask is applied, so the frame still
+                    // carries a title bar here; it is shed from the top
+                    // afterwards, which would leave the popup that much too low.
+                    let content_height = unsafe { window.contentRectForFrameRect(window_frame) }.size.height;
+                    (
+                        cx + f64::from(offset.x),
+                        primary_height - top_left_y - content_height,
+                    )
+                }
+                _ => (
+                    screen_frame.origin.x + f64::from(offset.x),
+                    screen_frame.origin.y + f64::from(offset.y),
                 ),
             }
         }

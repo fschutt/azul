@@ -446,6 +446,25 @@ fn css_prop(ty: CssPropertyType, value: &str) -> Option<CssProperty> {
     parse_css_property(ty, value).ok()
 }
 
+/// The text/number inputs' default container style (border, padding, font)
+/// with a fixed width in place of whatever width it declares — extended, not
+/// replaced, so the fields inside the picker still look like fields.
+fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditionsVec {
+    let mut props: Vec<CssPropertyWithConditions> =
+        crate::widgets::text_input::TextInput::default().container_style.as_ref().to_vec();
+    props.retain(|p| {
+        !matches!(
+            p.property.get_type(),
+            CssPropertyType::Width | CssPropertyType::FlexGrow | CssPropertyType::MinWidth
+        )
+    });
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(width_px))));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+        isize::from(grow),
+    ))));
+    props.into()
+}
+
 /// The picker panel that lives inside the popup.
 fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     use azul_core::{
@@ -548,12 +567,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     let hex_input = TextInput::create()
         .with_text(hex.into())
         .with_accessibility_name("Hex colour")
-        .with_container_style(
-            CssPropertyWithConditionsVec::from_vec(vec![
-                CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(96))),
-                CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-            ]),
-        )
+        .with_container_style(field_container_style(96, true))
         .with_on_focus_lost(data.clone(), {
             let cb: crate::widgets::text_input::TextInputOnFocusLostCallbackType = on_hex_committed;
             cb
@@ -568,9 +582,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     let channel = |name: &str, short: &str, value: u8, cb: crate::widgets::number_input::NumberInputOnValueChangeCallbackType| {
         let field = NumberInput::create(f32::from(value))
             .with_accessibility_name(name)
-            .with_container_style(CssPropertyWithConditionsVec::from_vec(vec![
-                CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(48))),
-            ]))
+            .with_container_style(field_container_style(52, false))
             .with_on_value_change(data.clone(), cb)
             .dom();
         Dom::create_div()

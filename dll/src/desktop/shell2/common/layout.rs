@@ -1858,8 +1858,10 @@ fn reconcile_transient_windows(
         // Anchor rects come from the ROOT dom's layout. Borrow the result
         // immutably for the whole collection, then drop it before laying out.
         let forced: Vec<_> = layout_window.transient_windows.forced_open_nodes().to_vec();
+        // Anchors are VIEWPORT rects (scroll taken off): the popup must open
+        // where the anchor is on screen, not where the unscrolled layout has it.
         let rects: Vec<_> = collect_open_transient_windows(styled, &forced, |node| {
-            layout_window.get_node_layout_rect(azul_core::dom::DomNodeId {
+            layout_window.get_node_rect_in_viewport(azul_core::dom::DomNodeId {
                 dom: DomId::ROOT_ID,
                 node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
             })

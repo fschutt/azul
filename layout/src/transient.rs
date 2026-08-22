@@ -72,6 +72,45 @@ impl TransientPlacement {
             TransientAnchor::Cursor => cursor.unwrap_or(a.origin),
         }
     }
+
+    /// [`Self::resolve`], then keep the popup inside `bounds` — a rect in the
+    /// PARENT's coordinate space, normally the monitor's work area (a popup is
+    /// its own OS window and may hang out of the parent, but not off the
+    /// screen; a short parent window must not force its picker to flip).
+    /// A popup that would run off the bottom flips to open upward when there
+    /// is room above (and vice versa; left/right the same), and whatever
+    /// still overflows is slid back in. Menus have done this edge-flip +
+    /// clamp since forever.
+    #[must_use]
+    pub fn resolve_within(
+        &self,
+        size: LogicalSize,
+        cursor: Option<azul_core::geom::LogicalPosition>,
+        bounds: LogicalRect,
+    ) -> azul_core::geom::LogicalPosition {
+        let a = self.anchor_rect;
+        let (min_x, min_y) = (bounds.origin.x, bounds.origin.y);
+        let (max_x, max_y) = (bounds.max_x(), bounds.max_y());
+        let mut pos = self.resolve(size, cursor);
+        match self.anchor {
+            TransientAnchor::Bottom if pos.y + size.height > max_y && a.origin.y - size.height >= min_y => {
+                pos.y = a.origin.y - size.height;
+            }
+            TransientAnchor::Top if pos.y < min_y && a.origin.y + a.size.height + size.height <= max_y => {
+                pos.y = a.origin.y + a.size.height;
+            }
+            TransientAnchor::Right if pos.x + size.width > max_x && a.origin.x - size.width >= min_x => {
+                pos.x = a.origin.x - size.width;
+            }
+            TransientAnchor::Left if pos.x < min_x && a.origin.x + a.size.width + size.width <= max_x => {
+                pos.x = a.origin.x + a.size.width;
+            }
+            _ => {}
+        }
+        pos.x = pos.x.min(max_x - size.width).max(min_x);
+        pos.y = pos.y.min(max_y - size.height).max(min_y);
+        pos
+    }
 }
 
 /// Every `<transient-window>` in `styled_dom` whose config says `open`, with
@@ -197,6 +236,40 @@ mod tests {
         // Forcing a node that is not a transient window is ignored.
         let bogus = collect_open_transient_windows(&styled, &[NodeId::new(1)], rect_of);
         assert_eq!(bogus.len(), 1);
+    }
+
+    /// A popup that would run off the parent flips to the other side when
+    /// there is room, and is slid back in otherwise.
+    #[test]
+    fn resolve_within_flips_and_clamps_inside_the_parent() {
+        let mk = |anchor, y| TransientPlacement {
+            node: NodeId::new(0),
+            anchor_rect: rect(700.0, y, 40.0, 20.0),
+            anchor,
+            dismiss: TransientDismiss::Outside,
+            size: OptionLogicalSize::None,
+            tearoff: false,
+        };
+        let size = LogicalSize::new(200.0, 150.0);
+        let bounds = rect(0.0, 0.0, 800.0, 600.0);
+        // Plenty of room below: unchanged except the x clamp (700+200 > 800).
+        let p = mk(TransientAnchor::Bottom, 100.0).resolve_within(size, None, bounds);
+        assert_eq!((p.x, p.y), (600.0, 120.0));
+        // Near the bottom: flips to open upward.
+        let p = mk(TransientAnchor::Bottom, 550.0).resolve_within(size, None, bounds);
+        assert_eq!(p.y, 400.0, "flipped above the anchor");
+        // Near the top with anchor=top: flips to open downward.
+        let p = mk(TransientAnchor::Top, 10.0).resolve_within(size, None, bounds);
+        assert_eq!(p.y, 30.0);
+        // No room either way: clamped to the bounds.
+        let p = mk(TransientAnchor::Bottom, 590.0).resolve_within(LogicalSize::new(200.0, 700.0), None, bounds);
+        assert_eq!(p.y, 0.0);
+        // Bounds that START above/left of the parent (a monitor around a
+        // window that sits at (300, 200) on it): a popup may hang below the
+        // parent's own bottom edge, since the screen continues there.
+        let monitor = rect(-300.0, -200.0, 1920.0, 1080.0);
+        let p = mk(TransientAnchor::Bottom, 550.0).resolve_within(size, None, monitor);
+        assert_eq!(p.y, 570.0, "room on the screen below the window: no flip");
     }
 
     /// Placement arithmetic: the popup's top-left for each edge.
