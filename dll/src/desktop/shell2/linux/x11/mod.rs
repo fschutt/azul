@@ -2963,7 +2963,7 @@ impl X11Window {
                     // edit) instead of a full regenerate_layout(). Mirrors the
                     // macOS backend's ShouldIncrementalRelayout arm.
                     let mut debug_messages = None;
-                    if let Err(e) = self.common.incremental_relayout(
+                    if let Err(e) = self.incremental_relayout_dispatching(
                         crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                         &mut debug_messages,
                     ) {
@@ -3955,7 +3955,7 @@ impl X11Window {
         // transaction). The redraw is posted by the != DoNothing block below.
         if result == ProcessEventResult::ShouldIncrementalRelayout {
             let mut debug_messages = None;
-            if let Err(e) = self.common.incremental_relayout(
+            if let Err(e) = self.incremental_relayout_dispatching(
                 crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                 &mut debug_messages,
             ) {
@@ -4625,7 +4625,7 @@ impl X11Window {
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
             let mut debug_messages = None;
-            if let Err(e) = self.common.incremental_relayout(
+            if let Err(e) = self.incremental_relayout_dispatching(
                 crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
                 &mut debug_messages,
             ) {

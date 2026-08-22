@@ -590,6 +590,24 @@ pub fn run(
             None,
         );
 
+        // Get NSApplication and configure it — BEFORE the first window exists.
+        //
+        // ORDER MATTERS. `setup_main_menu` installs the launch-time stub bar
+        // (app submenu + Edit). Creating the window runs its first layout, and
+        // `apply_menu_bar_from_dom` installs the DOM's `menu_bar` (AzPaint's
+        // File / View) as the main menu. The stub used to be installed AFTER
+        // the window, overwriting the DOM menu — and every later
+        // `apply_menu_bar_from_dom` saw an unchanged menu hash and left the
+        // stub in place, so the user only ever saw "AzPaint | Edit".
+        // `set_application_menu` now also checks which NSMenu AppKit actually
+        // shows, but the stub belongs before the window regardless: it is the
+        // fallback for a DOM without a menu bar, not a replacement.
+        let app = NSApplication::sharedApplication(mtm);
+        unsafe {
+            app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+            crate::desktop::shell2::macos::setup_main_menu(&app, mtm);
+        }
+
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
         debug_server::log(
@@ -635,15 +653,7 @@ pub fn run(
             (*window_ptr).request_redraw();
         }
 
-        // Get NSApplication and configure it
-        let app = NSApplication::sharedApplication(mtm);
         unsafe {
-            app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-
-            // Set up main menu with Cmd+Q quit item.
-            // The menu item sends `terminate:` to NSApp which stops the run loop.
-            crate::desktop::shell2::macos::setup_main_menu(&app, mtm);
-
             // finishLaunching posts NSApplicationDidFinishLaunchingNotification,
             // which is required for the Window Server to fully register the app.
             // Without this, accessibility queries return kAXErrorCannotComplete

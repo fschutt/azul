@@ -1634,6 +1634,40 @@ fn create_resize_event(
     ))
 }
 
+/// A `Resize` lifecycle event (`ComponentEventFilter::NodeResized`) for
+/// `node_id` whose layout box went from `old` to `new` — or `None` when its
+/// SIZE did not change: a position-only move is not a resize, and a NaN
+/// dimension present on both sides reads as unchanged (see `size_changed`;
+/// a raw `!=` once produced a Resize every frame forever).
+///
+/// This is the constructor the layout tail uses after EVERY solve (full
+/// rebuild, pre-cascade relayout, window-resize fast path). The older
+/// reconcile-time emitter compared layout maps that production always
+/// passed EMPTY, so `NodeResized` had never fired in a running app.
+#[must_use]
+pub fn resize_event_for_bounds(
+    dom_id: DomId,
+    node_id: NodeId,
+    old: LogicalRect,
+    new: LogicalRect,
+    timestamp: &Instant,
+) -> Option<SyntheticEvent> {
+    if !size_changed(old.size, new.size) {
+        return None;
+    }
+    Some(create_lifecycle_event(
+        EventType::Resize,
+        node_id,
+        dom_id,
+        timestamp,
+        LifecycleEventData {
+            reason: LifecycleReason::Resize,
+            previous_bounds: Some(old),
+            current_bounds: new,
+        },
+    ))
+}
+
 /// Result of lifecycle event detection with reconciliation.
 ///
 /// Contains both the generated lifecycle events and a mapping from old to new

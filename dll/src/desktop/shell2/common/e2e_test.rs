@@ -230,7 +230,7 @@ pub fn run_e2e_scenario(
                     // The common method runs the relayout AND its finalize
                     // tail (the CPU hit-tester rebuild), like a real window.
                     let mut debug_messages = None;
-                    if let Err(e) = window.common.incremental_relayout(
+                    if let Err(e) = window.incremental_relayout_dispatching(
                         crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                         &mut debug_messages,
                     ) {

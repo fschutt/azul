@@ -1634,8 +1634,9 @@ impl HeadlessWindow {
         let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
 
         // The common method owns the finalize tail (the CPU hit-tester
-        // rebuild) — see `CommonWindowState::incremental_relayout`.
-        self.common.incremental_relayout(
+        // rebuild) and the trait wrapper delivers the lifecycle events the
+        // pass produced — see `PlatformWindow::incremental_relayout_dispatching`.
+        self.incremental_relayout_dispatching(
             crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
             &mut debug_messages,
         )?;
@@ -5670,6 +5671,123 @@ mod tests {
             1,
             "an ended pinch must not re-fire on the next pass"
         );
+    }
+
+    // --- NodeResized fires when a node's box changes ----------------------
+    //
+    // REPORTED (AzPaint): "do we have a working 'node was resized' event?"
+    // `ComponentEventFilter::NodeResized` is public API (the video widget
+    // resizes its decoder target on it) and had NEVER fired in a running
+    // app: its only emitter compared layout maps production passed EMPTY,
+    // ran before the new tree was solved, and was not reached by a window
+    // resize at all. The class: a lifecycle event derived from layout must
+    // be derived from the SOLVED layout, after every pass — and the relayout
+    // paths must deliver it. This resizes through the fast path, through a
+    // no-op restyle, and through a full rebuild.
+
+    #[derive(Debug, Clone)]
+    struct ResizeLog {
+        hits: Arc<core::sync::atomic::AtomicUsize>,
+        last_width: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn on_node_resized(
+        mut refany: RefAny,
+        info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        use core::sync::atomic::Ordering;
+        if let Some(log) = refany.downcast_ref::<ResizeLog>() {
+            log.hits.fetch_add(1, Ordering::SeqCst);
+            if let Some(size) = info.get_node_size(info.get_hit_node()) {
+                log.last_width.store(size.width.round() as usize, Ordering::SeqCst);
+            }
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn node_resized_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
+        use azul_core::dom::{ComponentEventFilter, EventFilter};
+        let log = data
+            .downcast_ref::<ResizeLog>()
+            .map(|l| l.clone())
+            .expect("resize log");
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: row; width: 100%; height: 100%;")
+            .with_child(
+                Dom::create_div().with_css("width: 100px; height: 50px; flex-grow: 0; flex-shrink: 0;"),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css("flex-grow: 1; height: 50px;")
+                    .with_callbacks(
+                        vec![CoreCallbackData {
+                            event: EventFilter::Component(ComponentEventFilter::NodeResized),
+                            callback: CoreCallback {
+                                cb: on_node_resized as usize,
+                                ctx: azul_core::refany::OptionRefAny::None,
+                            },
+                            refany: RefAny::new(log),
+                        }]
+                        .into(),
+                    ),
+            )
+    }
+
+    #[test]
+    fn node_resized_fires_after_a_relayout() {
+        use crate::desktop::shell2::common::event::{IncrementalRelayout, PlatformWindow};
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let log = ResizeLog {
+            hits: Arc::new(AtomicUsize::new(0)),
+            last_width: Arc::new(AtomicUsize::new(0)),
+        };
+        let state = Arc::new(RefCell::new(RefAny::new(log.clone())));
+        let mut window = make_window_sized(&state, node_resized_layout, 400.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        assert_eq!(log.hits.load(Ordering::SeqCst), 0, "a mount is not a resize");
+
+        // Widen through the RESIZE FAST PATH (no rebuild): 400 → 600 px grows
+        // the flex child from 300 to 500 px.
+        window.snapshot_window_state_baseline("headless.test.node_resized");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 600.0;
+            });
+        let mut debug_messages = None;
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize fast path");
+        assert_eq!(
+            log.hits.load(Ordering::SeqCst),
+            1,
+            "NodeResized must fire once for the child whose box grew (and not for \
+             the fixed-width sibling)"
+        );
+        assert_eq!(log.last_width.load(Ordering::SeqCst), 500, "the callback sees the NEW size");
+
+        // A relayout that changes nothing is not a resize.
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
+            .expect("restyle");
+        assert_eq!(log.hits.load(Ordering::SeqCst), 1, "an unchanged box must not re-fire");
+
+        // A FULL regeneration at yet another size fires too: the node keeps
+        // its identity across the rebuild, so its baseline follows it.
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 500.0;
+            });
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        window.regenerate_layout().expect("full regeneration");
+        assert_eq!(log.hits.load(Ordering::SeqCst), 2, "the full path delivers NodeResized as well");
+        assert_eq!(log.last_width.load(Ordering::SeqCst), 400);
     }
 
     // --- Indicator marks are centred ------------------------------------

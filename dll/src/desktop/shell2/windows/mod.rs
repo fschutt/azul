@@ -1791,7 +1791,7 @@ impl Win32Window {
                 // skip regenerate_layout and only rebuild + send the WebRender
                 // transaction.
                 let mut debug_messages = None;
-                if let Err(e) = self.common.incremental_relayout(
+                if let Err(e) = self.incremental_relayout_dispatching(
                     crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                     &mut debug_messages,
                 ) {
@@ -3713,7 +3713,7 @@ unsafe extern "system" fn window_proc(
             if window.common.take_resize_relayout() && !window.common.regeneration_pending() {
                 let mut resize_relayout_failed = false;
                 let mut debug_messages = None;
-                if let Err(e) = window.common.incremental_relayout(
+                if let Err(e) = window.incremental_relayout_dispatching(
                     crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
                     &mut debug_messages,
                 ) {
@@ -5192,7 +5192,7 @@ unsafe extern "system" fn window_proc(
                 // a long Japanese phrase ended up with its candidate list
                 // lines away from the text it belonged to.
                 let mut debug_messages = None;
-                if let Err(e) = window.common.incremental_relayout(
+                if let Err(e) = window.incremental_relayout_dispatching(
                     crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                     &mut debug_messages,
                 ) {
@@ -5534,7 +5534,7 @@ unsafe extern "system" fn window_proc(
                             // makes WM_PAINT skip regenerate_layout and only rebuild +
                             // send the WebRender transaction.
                             let mut debug_messages = None;
-                            if let Err(e) = window.common.incremental_relayout(
+                            if let Err(e) = window.incremental_relayout_dispatching(
                                 crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                                 &mut debug_messages,
                             ) {

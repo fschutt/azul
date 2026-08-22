@@ -177,6 +177,19 @@ mod view_handlers {
             "[mouseDown] LEFT at ({:.1}, {:.1})", loc.x, loc.y
         );
         if let Some(window_ptr) = window_ptr {
+            // Control+click is the macOS secondary click: AppKit hands it to a
+            // view without a `menuForEvent:` menu as a LEFT mouseDown with the
+            // Control flag. Route it to the right-button handlers (a context
+            // menu, not a paint stroke) and latch so the release follows,
+            // whether or not Control is still held by then.
+            let ctrl_click = unsafe { event.modifierFlags() }
+                .contains(objc2_app_kit::NSEventModifierFlags::Control);
+            if ctrl_click {
+                unsafe {
+                    (*(window_ptr as *mut MacOSWindow)).ctrl_click_as_right = true;
+                }
+                return right_mouse_down(Some(window_ptr), event);
+            }
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
@@ -216,6 +229,15 @@ mod view_handlers {
             "[mouseUp] LEFT at ({:.1}, {:.1})", loc.x, loc.y
         );
         if let Some(window_ptr) = window_ptr {
+            // The release of a Control+click (see `mouse_down`): finish it as
+            // the right-button release, which presents the context menu the
+            // press resolved.
+            let latched = unsafe {
+                core::mem::take(&mut (*(window_ptr as *mut MacOSWindow)).ctrl_click_as_right)
+            };
+            if latched {
+                return right_mouse_up(Some(window_ptr), event);
+            }
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
@@ -3118,6 +3140,14 @@ pub struct MacOSWindow {
     /// presentation outside the `&mut MacOSWindow` borrow (see
     /// [`PendingContextMenu`]).
     pending_context_menu: Option<PendingContextMenu>,
+    /// A Control+click is the macOS secondary click. AppKit delivers it to a
+    /// view without a `menuForEvent:` menu as `mouseDown:` with the Control
+    /// flag — NOT as `rightMouseDown:` — so `view_handlers::mouse_down` routes
+    /// it to the right-button handlers and latches this; the matching
+    /// `mouseUp:` consumes the latch and runs the right-button release
+    /// (which presents the context menu). Latched, not re-derived, because
+    /// the Control key may be released before the button.
+    ctrl_click_as_right: bool,
 
     // Tooltip
     /// Tooltip panel (for programmatic tooltip display)
@@ -4510,6 +4540,7 @@ impl MacOSWindow {
             accessibility_adapter: None, // Will be initialized after first layout
             pending_window_creates: Vec::new(),
             pending_context_menu: None,
+            ctrl_click_as_right: false,
             tooltip: None,         // Created lazily when first needed
             gpu_damage_rects: Vec::new(),
             pm_assertion_id: None, // No sleep prevention by default
@@ -5309,7 +5340,7 @@ impl MacOSWindow {
             }
             azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
                 let mut debug_messages = None;
-                if let Err(e) = self.common.incremental_relayout(
+                if let Err(e) = self.incremental_relayout_dispatching(
                     crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                     &mut debug_messages,
                 ) {
@@ -5349,7 +5380,7 @@ impl MacOSWindow {
     /// `request_redraw()` schedules the drawRect.
     pub(crate) fn apply_incremental_relayout_result(&mut self) {
         let mut debug_messages = None;
-        if let Err(e) = self.common.incremental_relayout(
+        if let Err(e) = self.incremental_relayout_dispatching(
             crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
             &mut debug_messages,
         ) {
@@ -5939,15 +5970,26 @@ impl MacOSWindow {
     /// Updates the macOS menu bar with the provided menu structure.
     /// Uses hash-based diffing to avoid unnecessary menu recreation.
     pub fn set_application_menu(&mut self, menu: &azul_core::menu::Menu) {
-        if self.menu_state.update_menubar_if_changed(menu, self.mtm) {
+        let rebuilt = self.menu_state.update_menubar_if_changed(menu, self.mtm);
+        let Some(ns_menu) = self.menu_state.get_nsmenu() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(self.mtm);
+        // IDENTITY, not only the hash. The hash answers "does OUR NSMenu need
+        // rebuilding"; whether it is the bar AppKit is showing is a separate
+        // question — the launch-time stub or another window's bar may have
+        // replaced it since. AzPaint's File / View bar was built, installed,
+        // and then overwritten by the stub; every later call here saw an
+        // unchanged hash and left the stub in place for the whole session.
+        let installed = app
+            .mainMenu()
+            .is_some_and(|current| core::ptr::eq(&*current, &**ns_menu));
+        if rebuilt || !installed {
             log_debug!(
                 LogCategory::Platform,
-                "[MacOSWindow] Application menu updated"
+                "[MacOSWindow] Application menu installed (rebuilt: {rebuilt})"
             );
-            if let Some(ns_menu) = self.menu_state.get_nsmenu() {
-                let app = NSApplication::sharedApplication(self.mtm);
-                app.setMainMenu(Some(ns_menu));
-            }
+            app.setMainMenu(Some(ns_menu));
         }
     }
 
@@ -6533,7 +6575,7 @@ impl MacOSWindow {
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
             let mut debug_messages = None;
-            if let Err(e) = self.common.incremental_relayout(
+            if let Err(e) = self.incremental_relayout_dispatching(
                 crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
                 &mut debug_messages,
             ) {

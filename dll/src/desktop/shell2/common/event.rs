@@ -2351,7 +2351,11 @@ impl CommonWindowState {
     ///
     /// A window without a layout window (still initialising) is a no-op,
     /// like the call sites this replaced.
-    pub fn incremental_relayout(
+    ///
+    /// Private to `common`: backends call
+    /// [`PlatformWindow::incremental_relayout_dispatching`], which adds the
+    /// lifecycle-event delivery (`NodeResized`) on top.
+    pub(in crate::desktop::shell2::common) fn incremental_relayout(
         &mut self,
         kind: IncrementalRelayout,
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
@@ -6843,6 +6847,34 @@ pub trait PlatformWindow {
         anything_changed
     }
 
+    /// Run an incremental relayout (see [`CommonWindowState::incremental_relayout`]:
+    /// layout on the existing StyledDom + the CPU hit-tester rebuild) AND
+    /// deliver the lifecycle events that pass produced — today that is
+    /// `Resize` (`NodeResized`) for every subscribed node whose box changed.
+    ///
+    /// The relayout-only paths (restyle, runtime edit, the coalesced window
+    /// resize) never reconciled, so nothing drained the lifecycle queue after
+    /// them; a `NodeResized` callback would have run at the NEXT full
+    /// rebuild, against stale geometry. A callback that asks for a rebuild
+    /// gets it right here, through the bounded lifecycle loop of
+    /// [`Self::regenerate_layout`]: a request merely latched for later would
+    /// be retired by the relayout-only frame branch that follows every one
+    /// of these call sites.
+    ///
+    /// `CommonWindowState::incremental_relayout` is private to `common` so a
+    /// backend cannot take the relayout without this delivery.
+    fn incremental_relayout_dispatching(
+        &mut self,
+        kind: IncrementalRelayout,
+        debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
+    ) -> Result<(), String> {
+        self.get_common_mut().incremental_relayout(kind, debug_messages)?;
+        if self.dispatch_pending_lifecycle_events() {
+            self.regenerate_layout()?;
+        }
+        Ok(())
+    }
+
     /// Drain `LayoutWindow.pending_lifecycle_events` and dispatch each event.
     ///
     /// Reconciliation (see `common::layout::regenerate_layout`) queues
@@ -9999,6 +10031,7 @@ mod tests {
     // core left to hoist.
 
     const MACOS_MOD_RS: &str = include_str!("../macos/mod.rs");
+    const RUN_RS: &str = include_str!("../run.rs");
     const WINDOWS_MOD_RS: &str = include_str!("../windows/mod.rs");
 
     /// The body of `source`'s first `fn name`, up to the next method in the
@@ -10026,6 +10059,32 @@ mod tests {
     /// holds a RETAINED menu and view and borrows nothing, and the presenter
     /// runs after the borrow has ended. Keeping the pop-up to ONE call site is
     /// what makes that reviewable.
+    /// The launch-time menu-bar stub (`setup_main_menu`) must be installed
+    /// BEFORE the first window is created: the window's first layout installs
+    /// the DOM's `menu_bar` as the main menu, and a stub installed afterwards
+    /// overwrites it — which is how AzPaint lost its File / View menus for a
+    /// whole session (`apply_menu_bar_from_dom` then saw an unchanged hash
+    /// forever). `set_application_menu` is identity-aware now as well, but
+    /// the order is the contract: the stub is the fallback, not the override.
+    #[test]
+    fn the_macos_menu_stub_is_installed_before_the_first_window() {
+        let stub = RUN_RS
+            .find("setup_main_menu(")
+            .expect("run.rs installs the launch-time menu stub");
+        let window = RUN_RS
+            .find("MacOSWindow::new_with_fc_cache(")
+            .expect("run.rs creates the root macOS window");
+        assert!(
+            stub < window,
+            "setup_main_menu() must run before MacOSWindow::new_with_fc_cache():              a stub installed after the window overwrites the DOM's menu bar"
+        );
+        assert_eq!(
+            RUN_RS.matches("setup_main_menu(").count(),
+            1,
+            "the stub is installed exactly once, before the window"
+        );
+    }
+
     #[test]
     fn the_macos_menu_runloop_is_entered_from_exactly_one_place() {
         let call_sites = MACOS_MOD_RS
