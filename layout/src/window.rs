@@ -1575,6 +1575,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -3314,6 +3317,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -5077,6 +5083,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -12504,8 +12513,7 @@ impl LayoutWindow {
         // typed glyphs were never painted where they actually are. Stale
         // `last_patch_damage` is the milder half of the same defect
         // (over-damage from rects that describe a different list).
-        self.layout_cache.last_build_was_patched = false;
-        self.layout_cache.last_patch_damage = None;
+        self.layout_cache.record_full_emission();
         self.layout_cache.last_patch_move = None;
 
         // Get all the data we need from the layout result

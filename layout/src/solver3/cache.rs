@@ -422,6 +422,31 @@ pub struct LayoutCache {
     /// but the patch knows exactly what it touched, so the renderers prefer
     /// this when the diff gives up. `None` after a full emission.
     pub last_patch_damage: Option<Vec<LogicalRect>>,
+    /// Monotonic count of display-list BUILDS, full or patched. A renderer
+    /// remembers the value it last presented against, so
+    /// [`Self::pending_patch_damage`] can hand it the damage of EVERY
+    /// patched build since — not just the last one.
+    pub build_seq: u64,
+    /// `build_seq` of the last FULL emission (0 = none yet). A renderer that
+    /// has not presented that build cannot use the patch log in its place:
+    /// its own item diff against the list it last presented is the
+    /// authority, and when that bails it repaints in full.
+    pub last_full_build_seq: u64,
+    /// `(build_seq, damage)` of the patched builds since the last full
+    /// emission, oldest first.
+    ///
+    /// WHY A LOG: two patched builds can land between two presents — a
+    /// callback's `set_css_property` patch followed, in the same pass, by
+    /// the `RefreshDom` it returns (a structure-preserved relayout is a
+    /// patched build too). Each build's damage is relative to the LAYOUT
+    /// before it, so the second knows nothing about the rect the first
+    /// vacated; when `last_patch_damage` was simply overwritten and the
+    /// renderer's item diff bailed (the rebuild changed the item count),
+    /// that rect was never repainted — the slider dragged a trail of
+    /// thumbs. Cleared by every full emission (its item diff against the
+    /// last presented list covers everything); bounded, and a renderer that
+    /// fell behind the window repaints in full.
+    pub patch_damage_log: Vec<(u64, Vec<LogicalRect>)>,
     /// The `DynamicSelectorContext` the cached display list was BUILT under.
     /// The structure-preserved patch arm requires the current context to be
     /// EQUAL: a cascade-external flip (viewport crossing an @media bound, a
@@ -558,7 +583,79 @@ impl Solver3CacheMemoryReport {
     }
 }
 
+/// What a renderer that last presented against `build_seq == consumed` still
+/// has to repaint from patched builds, per [`LayoutCache::pending_patch_damage`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum PendingPatchDamage {
+    /// Nothing was built since the renderer's last present.
+    None,
+    /// Every build since then was patched, the chain is complete, and this
+    /// is the union of their damage.
+    Rects(Vec<LogicalRect>),
+    /// A FULL emission happened since the renderer's last present. The log
+    /// cannot stand in for that: the renderer's item diff against the list
+    /// it last presented is the authority, and when that bails it repaints
+    /// in full.
+    FullBuildSincePresent,
+    /// The renderer fell further behind than the log keeps: the damage is
+    /// not known, repaint in full.
+    Unknown,
+}
+
+/// How many patched builds the log keeps. A renderer presents after nearly
+/// every build, so this is a bound on a pathological run of layouts between
+/// presents, not a working set.
+pub const PATCH_DAMAGE_LOG_CAP: usize = 16;
+
 impl LayoutCache {
+    /// A FULL emission happened: nothing patched is pending any more.
+    pub fn record_full_emission(&mut self) {
+        self.build_seq = self.build_seq.wrapping_add(1);
+        self.last_full_build_seq = self.build_seq;
+        self.last_build_was_patched = false;
+        self.last_patch_damage = None;
+        self.patch_damage_log.clear();
+    }
+
+    /// Record a PATCHED build's damage: the latest goes to `last_patch_damage`
+    /// (what the frame report and the debug traces read) AND onto the log a
+    /// renderer drains through [`Self::pending_patch_damage`].
+    pub fn record_patch_damage(&mut self, rects: Vec<LogicalRect>) {
+        self.build_seq = self.build_seq.wrapping_add(1);
+        self.patch_damage_log.push((self.build_seq, rects.clone()));
+        if self.patch_damage_log.len() > PATCH_DAMAGE_LOG_CAP {
+            let excess = self.patch_damage_log.len() - PATCH_DAMAGE_LOG_CAP;
+            self.patch_damage_log.drain(..excess);
+        }
+        self.last_patch_damage = Some(rects);
+    }
+
+    /// The damage of every patched build after the one a renderer last
+    /// presented against (`consumed` = the `build_seq` it saw then).
+    #[must_use]
+    pub fn pending_patch_damage(&self, consumed: u64) -> PendingPatchDamage {
+        if self.build_seq == consumed {
+            return PendingPatchDamage::None;
+        }
+        if self.last_full_build_seq > consumed {
+            return PendingPatchDamage::FullBuildSincePresent;
+        }
+        // Every build since `consumed` was patched, and the log is
+        // consecutive from the last full emission on — so the chain is
+        // complete exactly when its first entry is still logged.
+        match self.patch_damage_log.first() {
+            Some((oldest, _)) if *oldest <= consumed.wrapping_add(1) => {}
+            _ => return PendingPatchDamage::Unknown,
+        }
+        let mut rects = Vec::new();
+        for (seq, r) in &self.patch_damage_log {
+            if *seq > consumed {
+                rects.extend_from_slice(r);
+            }
+        }
+        PendingPatchDamage::Rects(rects)
+    }
+
     /// Drop all incremental-reuse state so the next `layout_document` lays the
     /// DOM out from scratch (cold path), as if no previous frame existed.
     ///
@@ -4096,6 +4193,65 @@ mod autotest_generated {
                 + r.cache_map_bytes
                 + r.cached_display_list_bytes
         );
+    }
+
+    /// The patch-damage LOG: a renderer that presented before two patched
+    /// builds gets BOTH builds' damage (the first's vacated rect was the
+    /// slider's thumb trail); a full emission in between hands authority
+    /// back to the renderer's own diff; falling off the log means "repaint
+    /// in full"; and nothing pending is nothing pending.
+    #[test]
+    fn pending_patch_damage_unions_every_patched_build_since_the_last_present() {
+        let r = |x: f32| LogicalRect::new(pos(x, 0.0), size(16.0, 16.0));
+        let mut cache = LayoutCache::default();
+        assert_eq!(cache.pending_patch_damage(0), PendingPatchDamage::None);
+
+        // The renderer presented against build 0. Then: a css patch (moves
+        // the thumb 100 -> 120) and, in the same pass, the RefreshDom's
+        // structure-preserved relayout (damages the caption + the thumb's
+        // CURRENT rect only — it never saw 100).
+        cache.record_patch_damage(vec![r(100.0), r(120.0)]);
+        cache.record_patch_damage(vec![r(300.0), r(120.0)]);
+        assert_eq!(
+            cache.pending_patch_damage(0),
+            PendingPatchDamage::Rects(vec![r(100.0), r(120.0), r(300.0), r(120.0)]),
+            "the first build's vacated rect must survive the second build"
+        );
+        assert_eq!(
+            cache.last_patch_damage,
+            Some(vec![r(300.0), r(120.0)]),
+            "the slot still reports the LAST build, for the frame report"
+        );
+        // Presented against build 2: nothing pending; a third patch is
+        // pending on its own.
+        assert_eq!(cache.pending_patch_damage(2), PendingPatchDamage::None);
+        cache.record_patch_damage(vec![r(140.0)]);
+        assert_eq!(cache.pending_patch_damage(2), PendingPatchDamage::Rects(vec![r(140.0)]));
+
+        // A full emission retires the log: a renderer that has not seen it
+        // must trust its own diff, and one that has sees nothing pending.
+        cache.record_full_emission();
+        assert_eq!(cache.pending_patch_damage(2), PendingPatchDamage::FullBuildSincePresent);
+        assert_eq!(cache.pending_patch_damage(4), PendingPatchDamage::None);
+        assert!(cache.last_patch_damage.is_none());
+        assert!(!cache.last_build_was_patched);
+
+        // Patches after the full emission chain from it.
+        cache.record_patch_damage(vec![r(1.0)]);
+        cache.record_patch_damage(vec![r(2.0)]);
+        assert_eq!(
+            cache.pending_patch_damage(4),
+            PendingPatchDamage::Rects(vec![r(1.0), r(2.0)])
+        );
+        assert_eq!(cache.pending_patch_damage(5), PendingPatchDamage::Rects(vec![r(2.0)]));
+
+        // Falling off the bounded log means the damage is unknown.
+        for i in 0..40 {
+            cache.record_patch_damage(vec![r(i as f32)]);
+        }
+        assert_eq!(cache.pending_patch_damage(4), PendingPatchDamage::Unknown);
+        let seq = cache.build_seq;
+        assert!(matches!(cache.pending_patch_damage(seq - 1), PendingPatchDamage::Rects(ref v) if v.len() == 1));
     }
 
     #[test]

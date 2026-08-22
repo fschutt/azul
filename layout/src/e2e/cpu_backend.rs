@@ -39,6 +39,9 @@ pub(super) struct CpuBackend {
     pub(super) glyph_cache: azul_layout::glyph_cache::GlyphCache,
     /// Previous display list for damage-rect computation.
     pub(super) previous_display_list: Option<Arc<DisplayList>>,
+    /// `LayoutCache::build_seq` at the last present — drains the patch log
+    /// from there, so two patched builds between presents both repaint.
+    pub(super) last_consumed_build_seq: u64,
     /// PAINT damage of the most recent `render_frame` — the region actually
     /// re-rasterised.
     pub(super) last_frame_damage: FrameDamage,
@@ -75,6 +78,7 @@ impl CpuBackend {
             compositor: None,
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             previous_display_list: None,
+            last_consumed_build_seq: 0,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
             previous_scroll_offsets: cpurender::ScrollOffsetMap::new(),
@@ -335,19 +339,28 @@ impl CpuBackend {
             // Never REPLACE a Some(diff) wholesale: unpatched-equal frames
             // must keep their baseline damage exactly (an empty diff on a
             // quiet frame stays the idle skip).
-            match (dl_damage, layout_window.layout_cache.last_patch_damage.clone()) {
+            // EVERY patched build since this backend last presented (see
+            // the headless twin): two patched builds in one pass each know
+            // only their own vacated rects.
+            use azul_layout::solver3::cache::PendingPatchDamage as P;
+            let pending = layout_window
+                .layout_cache
+                .pending_patch_damage(self.last_consumed_build_seq);
+            match (dl_damage, pending) {
                 // An EMPTY diff on a patched build means the splice produced a
                 // byte-identical list (same-text re-shape) — the frame is IDLE
                 // and must stay idle; painting patch rects here flips the
                 // idle-skip and drifts the frame scheduling (scrollbar-fade
                 // clock) off the baseline.
-                (Some(d), Some(_)) if d.is_empty() => Some(d),
-                (Some(mut d), Some(p)) => {
+                (Some(d), P::Rects(_)) if d.is_empty() => Some(d),
+                (Some(mut d), P::Rects(p)) => {
                     d.extend(p);
                     Some(d)
                 }
-                (None, p) => p,
-                (d, None) => d,
+                (None, P::Rects(p)) => Some(p),
+                (d, P::FullBuildSincePresent) => d,
+                (d, P::None) => d,
+                (_, P::Unknown) => None,
             }
         } else {
             dl_damage
@@ -382,6 +395,7 @@ impl CpuBackend {
                 // the host would publish (and present) a wrongly-sized buffer.
                 // A frame whose backing store changed size is never "nothing".
                 self.previous_display_list = Some(display_list.clone());
+                self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
                 self.previous_scroll_offsets = next_scroll_baseline;
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
@@ -533,6 +547,7 @@ impl CpuBackend {
 
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
+        self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
         self.previous_scroll_offsets = if is_incremental {
             next_scroll_baseline
         } else {

@@ -194,6 +194,10 @@ pub struct CpuBackend {
     /// Previous display list for damage rect computation.
     #[cfg(feature = "cpurender")]
     pub previous_display_list: Option<std::sync::Arc<azul_layout::solver3::display_list::DisplayList>>,
+    /// `LayoutCache::build_seq` at the last present — what
+    /// `LayoutCache::pending_patch_damage` drains the patch log from, so two
+    /// patched builds between presents both get repainted.
+    pub last_consumed_build_seq: u64,
     /// PAINT damage of the most recent `render_frame` — the region actually
     /// re-rasterised (for scroll this is just the thin exposed strip). This is the
     /// "pixels repainted" metric. Recorded so the headless test harness can assert
@@ -335,6 +339,7 @@ impl CpuBackend {
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             #[cfg(feature = "cpurender")]
             previous_display_list: None,
+            last_consumed_build_seq: 0,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
             last_patch_shift_dl: 0,
@@ -674,24 +679,50 @@ impl CpuBackend {
         let diff_path_ran = self.previous_display_list.is_some()
             && can_reuse_previous_frame
             && !gpu_damage.needs_full;
+        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            eprintln!(
+                "[HLDMG-PRE] item_diff={:?} prev_is_same_arc={} prev_items={:?} new_items={}",
+                dl_damage,
+                self.previous_display_list
+                    .as_ref()
+                    .is_some_and(|p| std::sync::Arc::ptr_eq(p, display_list)),
+                self.previous_display_list.as_ref().map(|p| p.items.len()),
+                display_list.items.len(),
+            );
+        }
+        // EVERY patched build since this backend last presented, not just
+        // the last one: a css patch and the RefreshDom it returns are two
+        // patched builds in one pass, each damaged relative to the layout
+        // before it, and the second knows nothing about the rect the first
+        // vacated. Replaying only the last one left a thumb behind on every
+        // slider drag.
+        let pending = layout_window
+            .layout_cache
+            .pending_patch_damage(self.last_consumed_build_seq);
         let dl_damage = if diff_path_ran && layout_window.layout_cache.last_build_was_patched {
+            use azul_layout::solver3::cache::PendingPatchDamage as P;
             // On a PATCHED build the patch's own damage AUGMENTS the item
             // diff (union), and stands alone when the diff bails to None on
             // an item-count change. Never replace a Some(diff) wholesale:
             // unpatched-equal frames keep baseline damage exactly.
-            match (dl_damage, layout_window.layout_cache.last_patch_damage.clone()) {
+            match (dl_damage, pending) {
                 // An EMPTY diff on a patched build means the splice produced a
                 // byte-identical list (same-text re-shape) — the frame is IDLE
                 // and must stay idle; painting patch rects here flips the
                 // idle-skip and drifts the frame scheduling (scrollbar-fade
                 // clock) off the baseline.
-                (Some(d), Some(_)) if d.is_empty() => Some(d),
-                (Some(mut d), Some(p)) => {
+                (Some(d), P::Rects(_)) if d.is_empty() => Some(d),
+                (Some(mut d), P::Rects(p)) => {
                     d.extend(p);
                     Some(d)
                 }
-                (None, p) => p,
-                (d, None) => d,
+                (None, P::Rects(p)) => Some(p),
+                // A full emission went unpresented: the item diff is the
+                // authority, and its bail is a full repaint.
+                (d, P::FullBuildSincePresent) => d,
+                (d, P::None) => d,
+                // Fell behind the log: nothing to replay, repaint in full.
+                (_, P::Unknown) => None,
             }
         } else {
             dl_damage
@@ -729,6 +760,7 @@ impl CpuBackend {
                 // keeps us out of this branch when only a VirtualView child DOM
                 // changed — that case must still re-composite, see below.)
                 self.previous_display_list = Some(display_list.clone());
+                self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
                 // Nothing painted: baseline keeps accumulating dropped
                 // sub-pixel scroll deltas (see next_scroll_baseline above).
                 self.previous_scroll_offsets = next_scroll_baseline;
@@ -1184,6 +1216,7 @@ impl CpuBackend {
 
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
+        self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
         // Full render paints EVERY frame at its current offset → baseline is
         // the current offsets. Incremental: only shifted frames advanced.
         self.previous_scroll_offsets = if is_incremental {
@@ -5048,7 +5081,7 @@ mod tests {
         // real pointer does, and every presented frame must match a full
         // repaint of what layout says is on screen.
         let mut prev_thumb = thumb0;
-        for (i, dx) in [24.0f32, 48.0, 72.0, 96.0, 120.0].iter().enumerate() {
+        for (i, dx) in [24.0f32, 48.0, 72.0, 96.0].iter().enumerate() {
             let x = x0 + dx;
             let damage = step(&mut window, HeadlessEvent::MouseMove { x, y });
             let now = rects_by_class(&window, "__azul-native-slider-thumb");
@@ -5075,23 +5108,40 @@ mod tests {
             }
         }
         // The drag must FOLLOW the pointer across the app's RefreshDom
-        // rebuilds: the thumb's centre ends under the last cursor x (230),
-        // not 1 px from where the press put it. Before the slider carried its
-        // `dragging` flag across a rebuild, every drag died on its second
-        // move in any app that refreshes on change.
-        let final_center = prev_thumb.origin.x + prev_thumb.size.width / 2.0;
+        // rebuilds, not die after the press. The widget maps the cursor's
+        // fraction of the track onto a travel of (track − thumb): for the
+        // last in-track cursor x that is where the thumb must sit. Before
+        // the slider carried its `dragging` flag across a rebuild (and
+        // before a bubbled MouseLeave from the thumb stopped ending the
+        // drag), it followed for exactly one move in any app that refreshes
+        // on change.
+        let last_x = x0 + 96.0;
+        let fraction = ((last_x - track.origin.x) / track.size.width).clamp(0.0, 1.0);
+        let expected_x = track.origin.x + (fraction * (track.size.width - thumb0.size.width)).round();
         assert!(
-            (final_center - (x0 + 120.0)).abs() <= 2.0,
-            "the thumb did not follow the drag: centre {final_center} vs cursor {} \
-             (thumb {prev_thumb:?}, started at {thumb0:?})",
-            x0 + 120.0
+            (prev_thumb.origin.x - expected_x).abs() <= 1.0,
+            "the thumb did not follow the drag: at {prev_thumb:?}, expected x≈{expected_x} for \
+             cursor x={last_x} (started at {thumb0:?})"
         );
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(slider_dragging(&window), Some(true), "still dragging inside the track");
+
+        // Leaving the TRACK ends the drag (the widget's rule); the thumb
+        // stays where the last in-track move put it, and the frame is still
+        // exact.
+        let outside_x = track.origin.x + track.size.width + 2.0;
+        step(&mut window, HeadlessEvent::MouseMove { x: outside_x, y });
+        let (diffs, first) = incremental_vs_full(&mut window);
+        assert_eq!(diffs, 0, "after leaving the track: {diffs} stale px, first at {first:?}");
         assert_eq!(
             slider_dragging(&window),
             Some(false),
-            "the release must end the drag"
+            "leaving the track ends the drag"
         );
+        let parked = rects_by_class(&window, "__azul-native-slider-thumb");
+        assert_eq!(parked.first().map(|r| r.origin.x), Some(prev_thumb.origin.x));
+
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(slider_dragging(&window), Some(false), "released");
     }
 
     // --- Ribbon tab switching -------------------------------------------

@@ -368,7 +368,7 @@ impl Slider {
             ),
             mk(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
-                on_slider_pointer_up as usize,
+                on_slider_pointer_leave as usize,
             ),
             mk(
                 EventFilter::Hover(HoverEventFilter::TouchStart),
@@ -485,8 +485,37 @@ extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -
     apply_cursor_value(&mut slider, &mut info)
 }
 
-/// Pointer up / leave → end the drag.
+/// Pointer up → end the drag.
 extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() {
+        slider.dragging = false;
+    }
+    Update::DoNothing
+}
+
+/// Pointer leave → end the drag, but only when the pointer left the TRACK.
+///
+/// Every event bubbles here (W3C `mouseleave` does not), so the thumb's own
+/// `MouseLeave` reaches this handler too — and the first real drag motion
+/// leaves the thumb, because the thumb is slid to the cursor only by the
+/// `MouseOver` handler that runs before the leave is delivered. Ending the
+/// drag on that made the slider follow the pointer for exactly one move.
+/// The callback sees its own node (the track), not the event's origin, so
+/// the cursor decides: still inside the track's rect means the pointer only
+/// left a child.
+extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
+    let still_inside = match (
+        info.get_cursor_relative_to_node().into_option(),
+        info.get_hit_node_rect(),
+    ) {
+        (Some(pos), Some(rect)) => {
+            pos.x >= 0.0 && pos.y >= 0.0 && pos.x < rect.size.width && pos.y < rect.size.height
+        }
+        _ => false,
+    };
+    if still_inside {
+        return Update::DoNothing;
+    }
     if let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() {
         slider.dragging = false;
     }
@@ -1777,7 +1806,7 @@ mod autotest_generated {
             (EventFilter::Hover(HoverEventFilter::MouseDown), on_slider_pointer_down as usize),
             (EventFilter::Hover(HoverEventFilter::MouseOver), on_slider_pointer_move as usize),
             (EventFilter::Hover(HoverEventFilter::MouseUp), on_slider_pointer_up as usize),
-            (EventFilter::Hover(HoverEventFilter::MouseLeave), on_slider_pointer_up as usize),
+            (EventFilter::Hover(HoverEventFilter::MouseLeave), on_slider_pointer_leave as usize),
             (EventFilter::Hover(HoverEventFilter::TouchStart), on_slider_pointer_down as usize),
             (EventFilter::Hover(HoverEventFilter::TouchMove), on_slider_pointer_move as usize),
             (EventFilter::Hover(HoverEventFilter::TouchEnd), on_slider_pointer_up as usize),
