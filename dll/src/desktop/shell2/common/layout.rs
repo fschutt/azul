@@ -500,6 +500,17 @@ phases.mark("after_callback");
             layout_window
                 .layout_results
                 .insert(azul_core::dom::DomId::ROOT_ID, old_result);
+            // THE DOM DID NOT CHANGE — THE DATA BEHIND IT MAY HAVE. A VirtualView
+            // renders from a RefAny the fingerprint cannot see (a map's tile
+            // cache, a virtual list's rows); `merge_fresh_dataset` above just
+            // handed it the app's new state. The full path re-invokes every
+            // view (`reset_all_invocation_flags` inside
+            // `layout_and_generate_display_list`); this exit used to re-invoke
+            // none, so a `RefreshDom` whose only change lived inside a dataset
+            // left the view showing last frame's data until some unrelated
+            // event relaid out. Queue them all — the frame path drains the
+            // queue (`drain_virtual_view_updates`) before it paints.
+            layout_window.queue_all_virtual_view_reinvoke();
             log_debug!(
                 LogCategory::Layout,
                 "[regenerate_layout] COMPLETE (pre-cascade skip, layout unchanged)"
@@ -1019,6 +1030,10 @@ phases.mark("after_runtime_states");
             }
 
             if !window_size_changed {
+                // Same rule as the pre-cascade exit above: the DOM is
+                // equivalent, the transferred datasets / VirtualView refanys
+                // are not necessarily — re-invoke every view in place.
+                layout_window.queue_all_virtual_view_reinvoke();
                 log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE (layout unchanged)");
                 azul_layout::probe::emit_phase_heap("end_unchanged");
                 phases.mark("end_unchanged");
@@ -1669,17 +1684,10 @@ pub fn generate_frame(
 
     // Process any pending VirtualView updates requested by callbacks
     // This must happen BEFORE wr_translate2::generate_frame() so that the VirtualView
-    // callbacks can be re-invoked and their layout results are available
-    let system_callbacks = ExternalSystemCallbacks::rust_internal();
-    let current_window_state = layout_window.current_window_state.clone();
-
-    let renderer_resources = std::mem::take(&mut layout_window.renderer_resources);
-    layout_window.process_pending_virtual_view_updates(
-        &current_window_state,
-        &renderer_resources,
-        &system_callbacks,
-    );
-    layout_window.renderer_resources = renderer_resources;
+    // callbacks can be re-invoked and their layout results are available.
+    // (GPU path: the WebRender hit-tester is refreshed by the transaction
+    // itself, so there is no CPU hit-tester to hand in.)
+    drain_virtual_view_updates(layout_window, None);
 
     let mut txn = WrTransaction::new();
 
@@ -1687,6 +1695,49 @@ pub fn generate_frame(
     wr_translate2::generate_frame(&mut txn, layout_window, render_api, true, gl_context);
 
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
+}
+
+/// Drain the queued `VirtualView` re-invocations — `trigger_virtual_view_rerender`
+/// from a callback or a background writeback, a scroll past an edge, or an
+/// unchanged `RefreshDom` (both `LayoutUnchanged` exits of [`regenerate_layout`]
+/// queue every view) — by re-invoking each view's callback IN PLACE on the
+/// existing DOM, and keep the CPU hit-tester honest about it.
+///
+/// Returns whether any view was rebuilt.
+///
+/// THE REBUILD IS PART OF THE DRAIN. An in-place re-invoke gives the view's
+/// child DOM fresh `NodeId`s, so a CPU hit-tester built before it indexes a
+/// generation of nodes that no longer exists: the next pointer move resolves
+/// to a stale id (cursor panic while panning the map, events on the wrong
+/// node). X11, Wayland and Windows each rebuilt the tester by hand after
+/// their own copy of this drain; macOS and headless did not. There is one
+/// drain now, and it cannot forget.
+pub fn drain_virtual_view_updates(
+    layout_window: &mut LayoutWindow,
+    cpu_hit_tester: Option<&mut azul_layout::headless::CpuHitTester>,
+) -> bool {
+    if layout_window.pending_virtual_view_updates.is_empty() {
+        return false;
+    }
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let current_window_state = layout_window.current_window_state.clone();
+    let renderer_resources = std::mem::take(&mut layout_window.renderer_resources);
+    let updated = layout_window.process_pending_virtual_view_updates(
+        &current_window_state,
+        &renderer_resources,
+        &system_callbacks,
+    );
+    layout_window.renderer_resources = renderer_resources;
+    let rebuilt = !updated.is_empty();
+    if rebuilt {
+        if let Some(cpu_ht) = cpu_hit_tester {
+            cpu_ht.rebuild_from_layout_with_gpu(
+                &layout_window.layout_results,
+                Some(&layout_window.gpu_state_manager),
+            );
+        }
+    }
+    rebuilt
 }
 
 /// Wrap the user's `StyledDom` with a `Titlebar` at the top.

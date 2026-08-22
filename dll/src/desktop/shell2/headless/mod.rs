@@ -2441,20 +2441,17 @@ impl HeadlessWindow {
             // the full regenerate below, which resets invocation flags and
             // re-invokes everything as InitialRender (queue never drained,
             // reasons untestable in E2E).
-            if let Some(lw) = self.common.layout_window.as_mut() {
-                if !lw.pending_virtual_view_updates.is_empty() {
-                    let system_callbacks =
-                        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-                    let current_window_state = lw.current_window_state.clone();
-                    let renderer_resources = std::mem::take(&mut lw.renderer_resources);
-                    let _ = lw.process_pending_virtual_view_updates(
-                        &current_window_state,
-                        &renderer_resources,
-                        &system_callbacks,
-                    );
-                    lw.renderer_resources = renderer_resources;
-                    events_need_redraw = true;
-                }
+            // One drain for every backend (re-invoke in place + CPU hit-tester
+            // rebuild). A non-empty queue owes a frame even if a view declined
+            // to rebuild, as before.
+            let had_virtual_view_updates = self
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| !lw.pending_virtual_view_updates.is_empty());
+            self.common.drain_virtual_view_updates();
+            if had_virtual_view_updates {
+                events_need_redraw = true;
             }
 
             if events_need_redraw {
@@ -5376,6 +5373,174 @@ mod tests {
         assert!(
             cpu_hit_tester_hits_class(&window, "target", 380.0, 20.0),
             "the restyle relayout must rebuild the hit-tester too"
+        );
+    }
+
+    // --- An unchanged RefreshDom still re-renders VirtualViews -------------
+    //
+    // REPORTED (AzMap "+" analysis, 2026-08-22): a RefreshDom whose only
+    // change lives inside a dataset or a VirtualView's refany rebuilds an
+    // IDENTICAL DOM, so regenerate_layout takes an unchanged exit — and the
+    // view that renders that data was never re-invoked. The full path
+    // re-invokes every view (reset_all_invocation_flags); the two unchanged
+    // exits re-invoked none. The class: "the DOM did not change" is not
+    // "the data did not change". Both exits now queue every view, and the
+    // one frame-path drain re-invokes them in place AND rebuilds the CPU
+    // hit-tester (macOS and headless used to skip that rebuild).
+
+    /// What the VirtualView renders from: a model the app mutates in place.
+    struct VvCounter {
+        value: u32,
+    }
+
+    /// The app state: holds the SAME RefAny across builds, the shape that
+    /// fingerprints equal (a map's tile cache, a virtual list's rows).
+    struct VvAppState {
+        content: RefAny,
+    }
+
+    static VV_INVOCATIONS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    extern "C" fn counter_view_render(
+        data: RefAny,
+        info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        use azul_core::geom::{LogicalPosition, LogicalRect};
+        VV_INVOCATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut data = data;
+        let value = data
+            .downcast_ref::<VvCounter>()
+            .map(|c| c.value)
+            .unwrap_or(u32::MAX);
+        let size = info.get_bounds().get_logical_size();
+        let rect = LogicalRect::new(LogicalPosition::zero(), size);
+        azul_core::callbacks::VirtualViewReturn {
+            dom: azul_core::dom::OptionDom::Some(
+                Dom::create_div()
+                    .with_child(Dom::create_p_with_text(format!("value {value}").as_str())),
+            ),
+            materialized: rect,
+            virtual_rect: rect,
+        }
+    }
+
+    extern "C" fn counter_view_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let content = data
+            .downcast_ref::<VvAppState>()
+            .map(|s| s.content.clone())
+            .expect("app state");
+        Dom::create_body().with_child(
+            Dom::create_virtual_view(
+                content,
+                azul_core::callbacks::VirtualViewCallback::create(counter_view_render),
+            )
+            .with_css("width: 200px; height: 100px;"),
+        )
+    }
+
+    /// Every text node in every NESTED dom (a VirtualView's content), debug-formatted.
+    fn nested_dom_texts(window: &HeadlessWindow) -> Vec<String> {
+        use azul_core::dom::NodeType;
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (dom_id, lr) in &lw.layout_results {
+            if dom_id.inner == 0 {
+                continue;
+            }
+            for nd in lr.styled_dom.node_data.as_container().internal.iter() {
+                if let NodeType::Text(_) = nd.get_node_type() {
+                    out.push(format!("{:?}", nd.get_node_type()));
+                }
+            }
+        }
+        out
+    }
+
+    fn pending_virtual_view_updates(window: &HeadlessWindow) -> usize {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .map_or(0, |lw| lw.pending_virtual_view_updates.values().map(|m| m.len()).sum())
+    }
+
+    #[test]
+    fn an_unchanged_refresh_dom_still_reinvokes_virtual_views() {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        use crate::desktop::shell2::common::layout::LayoutRegenerateResult;
+        use azul_core::geom::LogicalPosition;
+        use std::sync::atomic::Ordering;
+
+        let state = Arc::new(RefCell::new(RefAny::new(VvAppState {
+            content: RefAny::new(VvCounter { value: 0 }),
+        })));
+        let mut window = make_window_sized(&state, counter_view_layout, 300.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        // Settle the queue the identical second build just raised, so the
+        // count below starts from a drained state.
+        window.common.drain_virtual_view_updates();
+        assert!(
+            nested_dom_texts(&window).iter().any(|t| t.contains("value 0")),
+            "the view must have rendered the initial model: {:?}",
+            nested_dom_texts(&window)
+        );
+        let invocations_before = VV_INVOCATIONS.load(Ordering::SeqCst);
+        assert!(invocations_before >= 1);
+
+        // The app mutates its model IN PLACE and asks for a RefreshDom. The
+        // rebuilt DOM is identical (same RefAny, same callback, same CSS).
+        {
+            let mut g = state.borrow_mut();
+            let r: &mut RefAny = &mut g;
+            let mut app = r.downcast_mut::<VvAppState>().expect("app state");
+            let mut counter = app.content.downcast_mut::<VvCounter>().expect("counter");
+            counter.value = 1;
+        }
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout().expect("refresh");
+        assert!(
+            matches!(result, LayoutRegenerateResult::LayoutUnchanged),
+            "this test exercises the UNCHANGED exit — an identical rebuild must take it"
+        );
+        assert!(
+            pending_virtual_view_updates(&window) > 0,
+            "an unchanged RefreshDom must queue the VirtualViews for a re-invoke: the DOM \
+             did not change, the data behind the view did"
+        );
+
+        // The frame path drains the queue before it paints.
+        assert!(
+            window.common.drain_virtual_view_updates(),
+            "the drain must report that a view was rebuilt"
+        );
+        assert_eq!(pending_virtual_view_updates(&window), 0, "the drain empties the queue");
+        assert!(
+            VV_INVOCATIONS.load(Ordering::SeqCst) > invocations_before,
+            "the view's callback must run again after the RefreshDom"
+        );
+        let texts = nested_dom_texts(&window);
+        assert!(
+            texts.iter().any(|t| t.contains("value 1")),
+            "the view must now render the mutated model, not last frame's: {texts:?}"
+        );
+
+        // And the hit-tester knows the REBUILT child DOM (fresh NodeIds): a
+        // point inside the view resolves to a node of a nested dom.
+        let ht = window
+            .common
+            .cpu_hit_tester
+            .as_ref()
+            .expect("headless owns a CPU hit-tester");
+        let hits = ht.hit_test(LogicalPosition::new(100.0, 50.0));
+        assert!(
+            hits.iter().any(|(dom, _)| dom.inner != 0),
+            "after the drain the hit-tester must index the view's rebuilt content: {hits:?}"
         );
     }
 

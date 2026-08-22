@@ -4753,30 +4753,9 @@ impl X11Window {
                     // never drained and async-loaded VirtualView content never
                     // appears on the CPU backend. Must run BEFORE render_frame
                     // reads layout_results.
-                    let mut vviews_rebuilt = false;
-                    if let Some(lw) = self.common.layout_window.as_mut() {
-                        if !lw.pending_virtual_view_updates.is_empty() {
-                            let system_callbacks =
-                                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-                            let current_window_state = lw.current_window_state.clone();
-                            let renderer_resources =
-                                std::mem::take(&mut lw.renderer_resources);
-                            let updated = lw.process_pending_virtual_view_updates(
-                                &current_window_state,
-                                &renderer_resources,
-                                &system_callbacks,
-                            );
-                            lw.renderer_resources = renderer_resources;
-                            vviews_rebuilt = !updated.is_empty();
-                        }
-                    }
-                    // The drain REBUILT VirtualView child DOMs (fresh NodeIds).
-                    // The CPU hit-tester still indexes the previous generation's
-                    // rects — rebuild it now, or the next pointer move hit-tests
-                    // stale NodeIds (cursor panic / events on the wrong node).
-                    if vviews_rebuilt {
-                        self.common.rebuild_cpu_hit_tester();
-                    }
+                    // One drain for every backend: it re-invokes in place AND rebuilds
+                    // the CPU hit-tester (the rebuilt child DOMs carry fresh NodeIds).
+                    self.common.drain_virtual_view_updates();
 
                     // Shared per-frame content preparation (journal clock, image
                     // callbacks through the content chokepoint, scrollbar cache).

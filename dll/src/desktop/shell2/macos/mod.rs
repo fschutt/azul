@@ -6738,16 +6738,14 @@ impl MacOSWindow {
                 "[build_atomic_txn] Processing {} pending VirtualView update(s)",
                 layout_window.pending_virtual_view_updates.len()
             );
-            let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-            let current_window_state = layout_window.current_window_state.clone();
-            let renderer_resources_ptr = &layout_window.renderer_resources as *const _;
-            layout_window.process_pending_virtual_view_updates(
-                &current_window_state,
-                // SAFETY: process_pending_virtual_view_updates does not modify renderer_resources.
-                // The pointer cast works around the borrow checker since &mut self is
-                // already held by layout_window.
-                unsafe { &*renderer_resources_ptr },
-                &system_callbacks,
+            // One drain for every backend: it re-invokes in place AND rebuilds
+            // the CPU hit-tester (the rebuilt child DOMs carry fresh NodeIds) —
+            // X11/Wayland/Windows did that rebuild by hand, this path never did.
+            // `layout_window` borrows `self.common.layout_window`; the tester is
+            // a different field, so the two borrows are disjoint.
+            crate::desktop::shell2::common::layout::drain_virtual_view_updates(
+                layout_window,
+                self.common.cpu_hit_tester.as_mut(),
             );
         }
 

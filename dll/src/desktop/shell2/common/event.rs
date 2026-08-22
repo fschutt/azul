@@ -2380,6 +2380,18 @@ impl CommonWindowState {
         Ok(())
     }
 
+    /// Drain the queued `VirtualView` re-invocations (see
+    /// [`super::layout::drain_virtual_view_updates`]) — re-invoke each view in
+    /// place AND rebuild the CPU hit-tester when any child DOM was rebuilt.
+    /// Returns whether any view was rebuilt. Every CPU frame path calls this
+    /// before it paints; the GPU paths drain inside `generate_frame`.
+    pub fn drain_virtual_view_updates(&mut self) -> bool {
+        match self.layout_window.as_mut() {
+            Some(lw) => super::layout::drain_virtual_view_updates(lw, self.cpu_hit_tester.as_mut()),
+            None => false,
+        }
+    }
+
     /// Rebuild the CPU hit-tester from the current layout results.
     ///
     /// CPU backend only: under WebRender the field is `None` and the
