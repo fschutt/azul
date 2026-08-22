@@ -102,7 +102,7 @@ fn build_menubar_item(item: &StringMenuItem) -> Dom {
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(MENUBAR_ITEM_CLASS.into())]))
         .with_css(MENUBAR_ITEM_CSS)
-        .with_child(Dom::create_p_with_text(item.label.clone()))
+        .with_child(crate::widgets::widget_p_with_text(item.label.clone()))
         .with_callbacks(
             vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),

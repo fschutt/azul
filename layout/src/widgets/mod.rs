@@ -319,6 +319,74 @@ pub(crate) fn all_widget_doms_for_lint() -> Vec<(&'static str, azul_core::dom::D
     label_convention::every_widget_dom()
 }
 
+// ---------------------------------------------------------------------------
+// Widget-owned text carriers
+// ---------------------------------------------------------------------------
+//
+// The label convention (see `label_convention` below) puts every widget's own
+// text — a label, a value, a placeholder, a `×` glyph — inside a `<p>`, because
+// a bare text node is box-less. But the UA stylesheet gives every `<p>`
+// `margin: 1em 0`, which is right for a paragraph of prose and wrong for a
+// control's text: it is what made a NumberInput holding "42" 39 px tall
+// against a 26 px empty TextInput, pushed the TextArea placeholder 13 px down,
+// and grew hello-world's counter by two font-sizes (demo test, 2026-08-21).
+//
+// The reset cannot live in the per-site inline props: `with_css_props`
+// REPLACES a node's inline style, and half the call sites apply their style
+// after constructing the `<p>`. It lives on the `<p>`'s own component sheet
+// instead (`Dom::css`), which `with_css_props` never touches, at AUTHOR
+// priority — above the UA default, below an explicit inline margin, so a
+// widget that deliberately sets one still wins. It is scoped to the `<p>`
+// itself (`*` over a `<p>` whose only child is text), NOT to the widget's
+// subtree: a container widget's user content must keep its paragraph margins.
+//
+// `widget_text_carriers_do_not_inherit_the_ua_paragraph_margin` below fails
+// for any widget `<p>` built without these helpers.
+
+/// The component sheet [`widget_p`] attaches: `margin-top: 0; margin-bottom: 0`
+/// at AUTHOR priority on a `*` path.
+pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
+    use azul_css::{
+        css::{Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock, rule_priority},
+        props::{
+            layout::{LayoutMarginBottom, LayoutMarginTop},
+            property::CssProperty,
+        },
+    };
+    Css {
+        rules: vec![CssRuleBlock {
+            path: CssPath {
+                selectors: vec![CssPathSelector::Global].into(),
+            },
+            declarations: vec![
+                CssDeclaration::Static(CssProperty::const_margin_top(LayoutMarginTop::const_px(0))),
+                CssDeclaration::Static(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(0))),
+            ]
+            .into(),
+            conditions: Vec::new().into(),
+            priority: rule_priority::AUTHOR,
+        }]
+        .into(),
+        ..Css::default()
+    }
+}
+
+/// A `<p>` that carries a widget's OWN text (not a paragraph of the app's
+/// prose): `Dom::create_p()` with the UA paragraph margin reset attached as
+/// the node's component sheet. Set the rest of the style as usual —
+/// `with_css_props` replaces the inline style and leaves the sheet alone.
+#[must_use]
+pub(crate) fn widget_p() -> azul_core::dom::Dom {
+    azul_core::dom::Dom::create_p().with_component_css(widget_p_margin_reset())
+}
+
+/// [`widget_p`] with a text child — the widget-owned twin of
+/// `Dom::create_p_with_text`.
+#[must_use]
+pub(crate) fn widget_p_with_text<S: Into<azul_css::AzString>>(text: S) -> azul_core::dom::Dom {
+    widget_p().with_child(azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(text))
+}
+
 /// A widget telling its caller that only THEY can supply the missing piece.
 ///
 /// Two warnings exist for accessibility and they are deliberately different:
@@ -358,6 +426,122 @@ pub fn warn_widget_needs_a_name(widget_type: &str, has_name: bool) {
 pub fn warn_widget_needs_a_name(_widget_type: &str, _has_name: bool) {}
 
 #[allow(clippy::too_many_lines)]
+#[cfg(test)]
+mod ua_paragraph_margin {
+    //! Workspace-level guard for the bug class "a widget's text carrier inherits
+    //! the UA paragraph margin" (demo test 2026-08-21: NumberInput 26 → 39 px,
+    //! TextArea placeholder 13 px low, hello-world's counter two font-sizes
+    //! tall). Every `<p>` a widget emits must either go through
+    //! `widgets::widget_p` / `widget_p_with_text` (the reset rides on the
+    //! node's own component sheet) or set both margins inline itself.
+    //!
+    //! Scoped to widget-OWNED `<p>`s by construction: `every_widget_dom` builds
+    //! the widgets with their default content, so a `<p>` the walk finds is one
+    //! the widget created. User prose placed inside a container widget keeps
+    //! its margins — that is the reason the reset is per node, not per subtree.
+
+    use azul_core::dom::{Dom, NodeType};
+    use azul_css::{
+        css::{CssDeclaration, CssPathSelector},
+        props::property::CssPropertyType,
+    };
+
+    fn inline_sets(node: &Dom, ty: CssPropertyType) -> bool {
+        node.root
+            .style
+            .iter_inline_properties()
+            .any(|(p, _)| p.get_type() == ty)
+    }
+
+    /// The node's OWN component sheet (attached to this `Dom`, `*` path)
+    /// declares `ty`.
+    fn own_sheet_sets(node: &Dom, ty: CssPropertyType) -> bool {
+        node.css.as_ref().iter().any(|sheet| {
+            sheet.rules.as_ref().iter().any(|rule| {
+                let global = matches!(
+                    rule.path.selectors.as_ref().first(),
+                    None | Some(CssPathSelector::Global)
+                );
+                global
+                    && rule.declarations.as_ref().iter().any(|d| match d {
+                        CssDeclaration::Static(p) => p.get_type() == ty,
+                        CssDeclaration::Dynamic(_) => false,
+                    })
+            })
+        })
+    }
+
+    fn walk(node: &Dom, widget: &str, path: &str, bad: &mut Vec<String>) {
+        if matches!(node.root.get_node_type(), NodeType::P) {
+            let top = inline_sets(node, CssPropertyType::MarginTop)
+                || own_sheet_sets(node, CssPropertyType::MarginTop);
+            let bottom = inline_sets(node, CssPropertyType::MarginBottom)
+                || own_sheet_sets(node, CssPropertyType::MarginBottom);
+            if !(top && bottom) {
+                let text = node
+                    .children
+                    .as_ref()
+                    .first()
+                    .and_then(|c| match c.root.get_node_type() {
+                        NodeType::Text(t) => Some(t.as_ref().as_str().to_string()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                bad.push(format!(
+                    "{widget}: <p> at {path} ({text:?}) inherits the UA `margin: 1em 0` — build it \
+                     with widgets::widget_p_with_text / widget_p, or set margin-top AND \
+                     margin-bottom inline"
+                ));
+            }
+        }
+        for (i, child) in node.children.as_ref().iter().enumerate() {
+            walk(child, widget, &format!("{path}/{i}"), bad);
+        }
+    }
+
+    #[test]
+    fn widget_text_carriers_do_not_inherit_the_ua_paragraph_margin() {
+        let mut bad = Vec::new();
+        for (widget, dom) in super::label_convention::every_widget_dom() {
+            walk(&dom, widget, "root", &mut bad);
+        }
+        assert!(
+            bad.is_empty(),
+            "{} widget <p> node(s) inherit the UA paragraph margin:\n  {}",
+            bad.len(),
+            bad.join("\n  ")
+        );
+    }
+
+    /// The helper's own contract: the reset is on the node's sheet (so a later
+    /// `with_css_props` cannot wipe it), at AUTHOR priority (so an explicit
+    /// inline margin still wins), and the node is still a `<p>` with its text.
+    #[test]
+    fn widget_p_carries_the_reset_on_its_own_sheet_and_survives_with_css_props() {
+        use azul_css::{
+            css::rule_priority,
+            dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+            props::{basic::StyleFontSize, property::CssProperty},
+        };
+        let p = super::widget_p_with_text("label").with_css_props(CssPropertyWithConditionsVec::from_vec(
+            vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
+                StyleFontSize::const_px(12),
+            ))],
+        ));
+        assert!(matches!(p.root.get_node_type(), NodeType::P));
+        assert_eq!(p.children.as_ref().len(), 1);
+        assert!(own_sheet_sets(&p, CssPropertyType::MarginTop));
+        assert!(own_sheet_sets(&p, CssPropertyType::MarginBottom));
+        assert!(
+            !inline_sets(&p, CssPropertyType::MarginTop),
+            "the reset must not live in the inline style `with_css_props` replaces"
+        );
+        let sheet = &p.css.as_ref()[0];
+        assert_eq!(sheet.rules.as_ref()[0].priority, rule_priority::AUTHOR);
+        assert!(rule_priority::AUTHOR < rule_priority::INLINE, "an explicit inline margin wins");
+    }
+}
+
 #[cfg(test)]
 mod label_convention {
     //! Workspace-level enforcement of the widget label convention (USER ruling,

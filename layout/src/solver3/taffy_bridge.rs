@@ -532,6 +532,46 @@ fn multi_value_to_lpa_margin(mv: MultiValue<PixelValue>) -> LengthPercentageAuto
     }
 }
 
+/// `em` / `rem` resolved against the NODE's font sizes; every other unit as
+/// [`pixel_value_to_pixels_fallback`]. The fallback's `DEFAULT_FONT_SIZE`
+/// (16 px) is only right for a 16 px font: a widget label's `margin: 1em`
+/// at 11 px came out as 16 px top and bottom, which is the bug class "a
+/// relative unit resolved against a constant" — use this wherever the font
+/// size is known.
+fn pixel_value_to_pixels_ctx(pv: &PixelValue, em_size: f32, rem_size: f32) -> Option<f32> {
+    match pv.metric {
+        SizeMetric::Em => Some(pv.number.get() * em_size),
+        SizeMetric::Rem => Some(pv.number.get() * rem_size),
+        _ => pixel_value_to_pixels_fallback(pv),
+    }
+}
+
+/// [`multi_value_to_lpa_margin`] with the node's font sizes for `em` / `rem`.
+fn multi_value_to_lpa_margin_ctx(
+    mv: MultiValue<PixelValue>,
+    em_size: f32,
+    rem_size: f32,
+) -> LengthPercentageAuto {
+    match mv {
+        MultiValue::Exact(pv) if matches!(pv.metric, SizeMetric::Em | SizeMetric::Rem) => {
+            pixel_value_to_pixels_ctx(&pv, em_size, rem_size)
+                .map_or_else(|| LengthPercentageAuto::length(0.0), LengthPercentageAuto::length)
+        }
+        other => multi_value_to_lpa_margin(other),
+    }
+}
+
+/// [`multi_value_to_lp`] with the node's font sizes for `em` / `rem`.
+fn multi_value_to_lp_ctx(mv: MultiValue<PixelValue>, em_size: f32, rem_size: f32) -> LengthPercentage {
+    match mv {
+        MultiValue::Exact(pv) if matches!(pv.metric, SizeMetric::Em | SizeMetric::Rem) => {
+            pixel_value_to_pixels_ctx(&pv, em_size, rem_size)
+                .map_or(LengthPercentage::ZERO, LengthPercentage::length)
+        }
+        other => multi_value_to_lp(other),
+    }
+}
+
 // Helper function to convert MultiValue<PixelValue> to LengthPercentage
 fn multi_value_to_lp(mv: MultiValue<PixelValue>) -> LengthPercentage {
     match mv {
@@ -809,25 +849,28 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let margin_top_css = get_css_margin_top(styled_dom, id, node_state);
         let margin_bottom_css = get_css_margin_bottom(styled_dom, id, node_state);
 
+        // `em`/`rem` against THIS node's font size (the UA `<p>` margin is
+        // `1em`; resolving it against the 16 px constant gave an 11 px label
+        // 16 px margins).
         taffy_style.margin = Rect {
-            left: multi_value_to_lpa_margin(margin_left_css),
-            right: multi_value_to_lpa_margin(margin_right_css),
-            top: multi_value_to_lpa_margin(margin_top_css),
-            bottom: multi_value_to_lpa_margin(margin_bottom_css),
+            left: multi_value_to_lpa_margin_ctx(margin_left_css, em_size, rem_size),
+            right: multi_value_to_lpa_margin_ctx(margin_right_css, em_size, rem_size),
+            top: multi_value_to_lpa_margin_ctx(margin_top_css, em_size, rem_size),
+            bottom: multi_value_to_lpa_margin_ctx(margin_bottom_css, em_size, rem_size),
         };
 
         taffy_style.padding = Rect {
-            left: multi_value_to_lp(get_css_padding_left(styled_dom, id, node_state)),
-            right: multi_value_to_lp(get_css_padding_right(styled_dom, id, node_state)),
-            top: multi_value_to_lp(get_css_padding_top(styled_dom, id, node_state)),
-            bottom: multi_value_to_lp(get_css_padding_bottom(styled_dom, id, node_state)),
+            left: multi_value_to_lp_ctx(get_css_padding_left(styled_dom, id, node_state), em_size, rem_size),
+            right: multi_value_to_lp_ctx(get_css_padding_right(styled_dom, id, node_state), em_size, rem_size),
+            top: multi_value_to_lp_ctx(get_css_padding_top(styled_dom, id, node_state), em_size, rem_size),
+            bottom: multi_value_to_lp_ctx(get_css_padding_bottom(styled_dom, id, node_state), em_size, rem_size),
         };
 
         taffy_style.border = Rect {
-            left: multi_value_to_lp(get_css_border_left_width(styled_dom, id, node_state)),
-            right: multi_value_to_lp(get_css_border_right_width(styled_dom, id, node_state)),
-            top: multi_value_to_lp(get_css_border_top_width(styled_dom, id, node_state)),
-            bottom: multi_value_to_lp(get_css_border_bottom_width(styled_dom, id, node_state)),
+            left: multi_value_to_lp_ctx(get_css_border_left_width(styled_dom, id, node_state), em_size, rem_size),
+            right: multi_value_to_lp_ctx(get_css_border_right_width(styled_dom, id, node_state), em_size, rem_size),
+            top: multi_value_to_lp_ctx(get_css_border_top_width(styled_dom, id, node_state), em_size, rem_size),
+            bottom: multi_value_to_lp_ctx(get_css_border_bottom_width(styled_dom, id, node_state), em_size, rem_size),
         };
 
         // Grid & gap properties — COMPACT FAST PATH: row_gap/column_gap are
@@ -3447,6 +3490,40 @@ mod autotest_generated {
                 "{m:?} is silently dropped to auto"
             );
         }
+    }
+
+    /// Bug class: a relative unit resolved against a CONSTANT. The fallback's
+    /// 16 px is only right for a 16 px font; the UA `<p>` margin is `1em`, so
+    /// an 11 px widget label carried 16 px of margin top and bottom. With the
+    /// node's font sizes in hand, `em`/`rem` resolve against them and every
+    /// absolute unit is untouched.
+    #[test]
+    fn margins_paddings_and_borders_resolve_em_and_rem_against_the_nodes_font() {
+        let (em, rem) = (11.0, 16.0);
+        assert_eq!(
+            multi_value_to_lpa_margin_ctx(MultiValue::Exact(PixelValue::em(1.0)), em, rem),
+            LengthPercentageAuto::length(11.0)
+        );
+        assert_eq!(
+            multi_value_to_lpa_margin_ctx(MultiValue::Exact(PixelValue::from_metric(SizeMetric::Rem, 2.0)), em, rem),
+            LengthPercentageAuto::length(32.0)
+        );
+        assert_eq!(
+            multi_value_to_lp_ctx(MultiValue::Exact(PixelValue::em(0.5)), em, rem),
+            LengthPercentage::length(5.5)
+        );
+        // Absolute units and the keywords go through the plain converters unchanged.
+        assert_eq!(
+            multi_value_to_lpa_margin_ctx(MultiValue::Exact(PixelValue::px(7.0)), em, rem),
+            multi_value_to_lpa_margin(MultiValue::Exact(PixelValue::px(7.0)))
+        );
+        assert!(multi_value_to_lpa_margin_ctx(MultiValue::Auto, em, rem).is_auto());
+        assert_eq!(
+            multi_value_to_lp_ctx(MultiValue::Initial, em, rem),
+            LengthPercentage::ZERO
+        );
+        // And the constant-based fallback still says 16 — which is the point.
+        assert_eq!(pixel_value_to_pixels_fallback(&PixelValue::em(1.0)), Some(DEFAULT_FONT_SIZE));
     }
 
     #[test]

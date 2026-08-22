@@ -433,7 +433,7 @@ impl RadioGroup {
                     .into(),
                 );
 
-            let label_node = Dom::create_p_with_text(label.clone())
+            let label_node = crate::widgets::widget_p_with_text(label.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_LABEL_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     RADIO_GROUP_LABEL_STYLE,

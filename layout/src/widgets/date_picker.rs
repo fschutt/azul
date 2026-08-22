@@ -506,7 +506,7 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
     let nav = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
-        Dom::create_p_with_text(arrow)
+        crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(NAV_BTN_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(NAV_BTN_STYLE))
             .with_callbacks(
@@ -536,7 +536,7 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
         .with_children(
             alloc::vec![
                 nav(PREV_ARROW, on_prev_month as usize, shared.clone()),
-                Dom::create_p_with_text(label)
+                crate::widgets::widget_p_with_text(label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_LABEL_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                         HEADER_LABEL_STYLE,
@@ -551,7 +551,7 @@ fn build_weekday_row() -> Dom {
     let cells: Vec<Dom> = WEEKDAY_NAMES
         .iter()
         .map(|n| {
-            Dom::create_p_with_text(n.clone())
+            crate::widgets::widget_p_with_text(n.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(WEEKDAY_CELL_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     WEEKDAY_CELL_STYLE,
@@ -607,7 +607,7 @@ fn build_blank_cell() -> Dom {
 fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
-    Dom::create_p_with_text(AzString::from(format!("{day}")))
+    crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
         .with_css_props(build_day_cell_style(selected))
         .with_callbacks(

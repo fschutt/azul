@@ -556,7 +556,7 @@ impl ComboBox {
         // pattern), so open/selected/text stay in sync across interactions.
         let state_ref = RefAny::new(self.combo_state);
 
-        let text_node = Dom::create_p_with_text(field_text)
+        let text_node = crate::widgets::widget_p_with_text(field_text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_TEXT_CLASS))
             .with_css_props(self.text_style);
 
@@ -612,7 +612,7 @@ impl ComboBox {
         let mut option_doms: Vec<Dom> = Vec::with_capacity(items.as_ref().len());
         for option in items.as_ref() {
             option_doms.push(
-                Dom::create_p_with_text(option.clone())
+                crate::widgets::widget_p_with_text(option.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_OPTION_CLASS))
                     .with_css_props(self.option_style.clone())
                     .with_tab_index(TabIndex::Auto)

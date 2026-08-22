@@ -374,7 +374,7 @@ impl Frame {
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15264202958442287530)
                             })
                             .with_children(DomVec::from_vec(vec![Dom::create_div()])),
-                        Dom::create_p_with_text(self.title)
+                        crate::widgets::widget_p_with_text(self.title)
                             .with_css_props(CSS_MATCH_4236783900531286611),
                         Dom::create_div()
                             .with_css_props(CSS_MATCH_9156589477016488419)

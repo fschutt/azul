@@ -412,7 +412,7 @@ impl TimePicker {
                 on_hour_up as usize,
                 on_hour_down as usize,
             ),
-            Dom::create_p_with_text(SEPARATOR_TEXT)
+            crate::widgets::widget_p_with_text(SEPARATOR_TEXT)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SEPARATOR_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SEPARATOR_STYLE)),
             build_spinner(
@@ -430,7 +430,7 @@ impl TimePicker {
                 AzString::from_const_str("AM")
             };
             children.push(
-                Dom::create_p_with_text(ampm_text)
+                crate::widgets::widget_p_with_text(ampm_text)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(AMPM_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(AMPM_STYLE))
                     .with_callbacks(
@@ -475,7 +475,7 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
     let arrow_cell = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
-        Dom::create_p_with_text(arrow)
+        crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ARROW_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ARROW_STYLE))
             .with_callbacks(
@@ -503,7 +503,7 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
         .with_children(
             alloc::vec![
                 arrow_cell(UP_ARROW, up_cb, state.clone()),
-                Dom::create_p_with_text(value)
+                crate::widgets::widget_p_with_text(value)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(DISPLAY_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DISPLAY_STYLE)),
                 arrow_cell(DOWN_ARROW, down_cb, state),

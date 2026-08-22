@@ -216,7 +216,7 @@ impl Breadcrumb {
             if is_last {
                 // The current page: muted + bold, non-clickable (no callback).
                 children.push(
-                    Dom::create_p_with_text(label.clone())
+                    crate::widgets::widget_p_with_text(label.clone())
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(
                             BREADCRUMB_CURRENT_CLASS,
                         ))
@@ -227,7 +227,7 @@ impl Breadcrumb {
             } else {
                 // A clickable crumb link.
                 children.push(
-                    Dom::create_p_with_text(label.clone())
+                    crate::widgets::widget_p_with_text(label.clone())
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(BREADCRUMB_ITEM_CLASS))
                         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                             BREADCRUMB_ITEM_STYLE,
@@ -254,7 +254,7 @@ impl Breadcrumb {
                 );
                 // Separator after every non-last crumb.
                 children.push(
-                    Dom::create_p_with_text(SEPARATOR_GLYPH)
+                    crate::widgets::widget_p_with_text(SEPARATOR_GLYPH)
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(
                             BREADCRUMB_SEPARATOR_CLASS,
                         ))

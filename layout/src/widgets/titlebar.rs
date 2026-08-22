@@ -371,7 +371,7 @@ impl Titlebar {
         let title_node = Dom::create_div()
             .with_ids_and_classes(title_classes)
             .with_css_props(title_style)
-            .with_child(Dom::create_p_with_text(self.title)) // moves self.title
+            .with_child(crate::widgets::widget_p_with_text(self.title)) // moves self.title
             .with_callbacks(vec![
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::DragStart),

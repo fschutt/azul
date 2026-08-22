@@ -345,7 +345,7 @@ impl Segmented {
             let seg_style = build_segment_style(i == selected, is_first, is_last);
 
             children.push(
-                Dom::create_p_with_text(label.clone())
+                crate::widgets::widget_p_with_text(label.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(SEGMENT_ITEM_CLASS))
                     .with_css_props(seg_style)
                     .with_callbacks(

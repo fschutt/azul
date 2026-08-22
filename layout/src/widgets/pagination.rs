@@ -353,7 +353,7 @@ impl Pagination {
 
         let make_button =
             |label: AzString, class: &'static [IdOrClass], style: CssPropertyWithConditionsVec| {
-                Dom::create_p_with_text(label)
+                crate::widgets::widget_p_with_text(label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(class))
                     .with_css_props(style)
                     .with_callbacks(

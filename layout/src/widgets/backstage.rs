@@ -667,7 +667,7 @@ impl Backstage {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(part_style)
-                .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(item.label)]));
+                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(item.label)]));
             if let Some(cb) = on_nav_select.as_ref() {
                 d = d.with_callbacks(vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),

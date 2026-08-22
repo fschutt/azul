@@ -501,7 +501,7 @@ impl Button {
             self.label.as_str().is_empty() && (has_icon || has_image || has_trailing_icon);
         if !skip_label {
             button = button.with_child(
-                Dom::create_p()
+                crate::widgets::widget_p()
                     .with_css_props(self.label_style)
                     .with_children(azul_core::dom::DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(self.label)])),
             );

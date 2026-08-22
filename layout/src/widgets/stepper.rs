@@ -401,7 +401,7 @@ impl Stepper {
                                 STEPPER_CONNECTOR_CLASS,
                             ))
                             .with_css_props(connector_style(conn_left_fill(i, current))),
-                        Dom::create_p_with_text(AzString::from(format!("{}", i + 1).as_str()))
+                        crate::widgets::widget_p_with_text(AzString::from(format!("{}", i + 1).as_str()))
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CIRCLE_CLASS,
                             ))
@@ -447,7 +447,7 @@ impl Stepper {
                 .with_children(
                     vec![
                         row,
-                        Dom::create_p_with_text(label.clone())
+                        crate::widgets::widget_p_with_text(label.clone())
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_LABEL_CLASS,
                             ))

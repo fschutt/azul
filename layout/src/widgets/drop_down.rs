@@ -346,7 +346,7 @@ impl DropDown {
             )
             .with_children(DomVec::from_vec(vec![
                 // Selected text label wrapped in <p> for proper block formatting
-                Dom::create_p()
+                crate::widgets::widget_p()
                     .with_css_props(label_style)
                     .with_children(DomVec::from_vec(vec![
                         Dom::create_text_do_not_use_without_block_level_wrapper(selected_text),

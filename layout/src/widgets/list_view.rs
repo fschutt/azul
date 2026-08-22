@@ -1696,7 +1696,7 @@ impl ListView {
                                     .with_css_props(CSS_MATCH_12498280255863106397)
                                     .with_ids_and_classes(COLUMN_NAME_CLASS)
                                     .with_child({
-                                        Dom::create_p_with_text(col.clone())
+                                        crate::widgets::widget_p_with_text(col.clone())
                                             .with_css_props(CSS_MATCH_15673486787900743642)
                                     });
                                 // Wire the click only when the app set a handler.

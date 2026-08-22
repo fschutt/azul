@@ -312,7 +312,7 @@ fn render_node(
     };
 
     // Build the label
-    let label = Dom::create_p_with_text(node.label.clone())
+    let label = crate::widgets::widget_p_with_text(node.label.clone())
         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE));
 
     // Build the row with click callback

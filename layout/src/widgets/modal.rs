@@ -410,7 +410,7 @@ impl Modal {
         let mut panel_children = Vec::new();
 
         if self.show_close_button {
-            let close = Dom::create_p_with_text(AzString::from_const_str("\u{00D7}"))
+            let close = crate::widgets::widget_p_with_text(AzString::from_const_str("\u{00D7}"))
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_CLOSE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_CLOSE_STYLE))
                 .with_tab_index(TabIndex::Auto)
@@ -443,7 +443,7 @@ impl Modal {
         }
 
         if !self.title.as_str().is_empty() {
-            let title = Dom::create_p_with_text(self.title)
+            let title = crate::widgets::widget_p_with_text(self.title)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_TITLE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_TITLE_STYLE));
             panel_children.push(title);

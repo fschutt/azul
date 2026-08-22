@@ -1984,7 +1984,7 @@ impl Ribbon {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
                 .with_css_props(style.app_button_style.clone())
-                .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(ab.label)]));
+                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(ab.label)]));
             if let Some(oc) = ab.on_click.into_option() {
                 d = d.with_callbacks(vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -2021,7 +2021,7 @@ impl Ribbon {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(part_style)
-                .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(tab.label.clone())]));
+                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(tab.label.clone())]));
 
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
             if has_callback {
@@ -2115,7 +2115,7 @@ impl Ribbon {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_BUTTON))
             .with_css_props(style.mobile_tab_button_style.clone())
             .with_children(DomVec::from_vec(vec![
-                Dom::create_p()
+                crate::widgets::widget_p()
                     .with_css_props(style.mobile_tab_label_style.clone())
                     .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(active_label)])),
                 Dom::create_icon(AzString::from_const_str("expand_more"))
@@ -2158,7 +2158,7 @@ impl Ribbon {
                         CLS_MOBILE_TAB_OVERLAY_ITEM,
                     ))
                     .with_css_props(style.mobile_tab_overlay_item_style.clone())
-                    .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(label.clone())]));
+                    .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(label.clone())]));
                 if has_callback {
                     item = item.with_callbacks(vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -2199,7 +2199,7 @@ impl Ribbon {
                         CLS_MOBILE_GROUP_LIST_ITEM,
                     ))
                     .with_css_props(item_style)
-                    .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(label.clone())]));
+                    .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(label.clone())]));
                 if matches!(mode, RibbonChromeMode::Mobile) {
                     item = item.with_callbacks(vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -2437,7 +2437,7 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         );
     }
     footer_children.push(
-        Dom::create_p()
+        crate::widgets::widget_p()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
             .with_css_props(s.group_label_style.clone())
             .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label)])),
@@ -2492,7 +2492,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             } else {
                 (CLS_GALLERY_CELL, s.gallery_cell_style.clone())
             };
-            let label = Dom::create_p()
+            let label = crate::widgets::widget_p()
                 .with_css_props(s.gallery_cell_label_style.clone())
                 .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone())]));
             let mut d = Dom::create_div()

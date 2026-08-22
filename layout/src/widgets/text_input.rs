@@ -1005,7 +1005,7 @@ impl TextInput {
             )
             .with_children(
                 vec![
-                    Dom::create_p()
+                    crate::widgets::widget_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-placeholder".into())].into(),
                         )
@@ -1014,7 +1014,7 @@ impl TextInput {
                         // whole vector, classes included
                         .with_attribute(AttributeType::ContentEditable(false))
                         .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(placeholder)])),
-                    Dom::create_p()
+                    crate::widgets::widget_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-label".into())].into(),
                         )

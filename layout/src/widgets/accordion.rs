@@ -340,7 +340,7 @@ impl Accordion {
         let mut section_doms: Vec<Dom> = Vec::with_capacity(sections.as_ref().len());
 
         for (index, section) in sections.as_ref().iter().enumerate() {
-            let title = Dom::create_p_with_text(section.title.clone())
+            let title = crate::widgets::widget_p_with_text(section.title.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_TITLE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     ACCORDION_TITLE_STYLE,

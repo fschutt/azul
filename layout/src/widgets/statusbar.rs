@@ -938,7 +938,7 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         .with_children(DomVec::from_vec(vec![
             // `<p>` so the inert segment has the same `div > p > text` shape as
             // the clickable one (Button puts `label_style` on a `<p>` too).
-            Dom::create_p_with_text(label).with_css_props(style.segment_label_style.clone()),
+            crate::widgets::widget_p_with_text(label).with_css_props(style.segment_label_style.clone()),
         ]))
 }
 
@@ -1035,7 +1035,7 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ZOOM_LABEL))
                 .with_css_props(style.zoom_label_style.clone())
-                .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(AzString::from(
+                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(AzString::from(
                     label,
                 ))])),
         );

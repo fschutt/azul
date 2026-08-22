@@ -2296,7 +2296,7 @@ fn render_node(
            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4480169002427296613)
         })
         .with_children(DomVec::from_vec(vec![
-           Dom::create_p_with_text(AzString::from_const_str("X"))
+           crate::widgets::widget_p_with_text(AzString::from_const_str("X"))
                .with_css_props(CSS_MATCH_7395766480280098891)
                .with_callbacks(vec![
                    CoreCallbackData {
@@ -2310,7 +2310,7 @@ fn render_node(
                        &[Class(AzString::from_const_str("node_close_button"))];
                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7122017923389407516)
                }),
-           Dom::create_p_with_text(node_info.node_type_name.clone())
+           crate::widgets::widget_p_with_text(node_info.node_type_name.clone())
                .with_css_props(CSS_MATCH_1739273067404038547)
                .with_ids_and_classes({
                    const IDS_AND_CLASSES_15777790571346582635: &[IdOrClass] =
@@ -2374,7 +2374,7 @@ fn render_node(
                                                        IDS_AND_CLASSES_9154857442066749879,
                                                    )
                                                })
-                                               .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(
+                                               .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
                                                    input_label,
                                                )
                                                .with_css_props(
@@ -2468,7 +2468,7 @@ fn render_node(
                                    )
                                })
                                .with_children(DomVec::from_vec(vec![
-                                   Dom::create_p_with_text(field.key.clone())
+                                   crate::widgets::widget_p_with_text(field.key.clone())
                                    .with_css_props(CSS_MATCH_1198521124955124418)
                                    .with_ids_and_classes({
                                        const IDS_AND_CLASSES_12334207996395559585:
@@ -2616,7 +2616,7 @@ fn render_node(
                                                        IDS_AND_CLASSES_1667960214206134147,
                                                    )
                                                })
-                                               .with_children(DomVec::from_vec(vec![Dom::create_p_with_text(
+                                               .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
                                                    output_label,
                                                )
                                                .with_css_props(
