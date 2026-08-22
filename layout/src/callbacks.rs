@@ -483,6 +483,12 @@ pub enum CallbackChange {
         position: Option<LogicalPosition>,
     },
 
+    /// Hold a `<transient-window>` node open (or let it close) regardless of
+    /// its `open` attribute — how a self-contained widget opens its own popup
+    /// without the app carrying a flag. Node-keyed in the window's transient
+    /// manager, so it survives rebuilds; a user dismissal clears it.
+    SetTransientWindowOpen { node: DomNodeId, open: bool },
+
     // Tooltip Management
     /// Show a tooltip at a specific position
     ///
@@ -2212,6 +2218,19 @@ impl CallbackInfo {
             menu,
             position: None,
         });
+    }
+
+    /// Open (or close) the `<transient-window>` at `node` regardless of its
+    /// `open` attribute. The popup appears after this callback's layout pass;
+    /// it stays open across rebuilds until closed here, by the attribute
+    /// going false, or by the user dismissing it (outside click / Escape —
+    /// which also fires `ComponentEventFilter::Dismissed` on the node).
+    ///
+    /// `node` must be in THIS window's dom: a popup's own callbacks cannot
+    /// reach into the parent's manager this way — close from inside a popup
+    /// is the dismiss path.
+    pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
+        self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
     }
 
     /// Open a menu at a specific position

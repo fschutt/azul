@@ -196,7 +196,11 @@ fn an_open_transient_window_becomes_a_child_window_of_its_measured_size() {
         let open = lw.transient_windows.open_windows();
         assert_eq!(open.len(), 1, "exactly one popup must be open");
         let w = &open[0];
-        assert!(lw.layout_results.contains_key(&w.content_dom));
+        assert!(
+            !lw.layout_results.contains_key(&w.content_dom),
+            "the popup's content is measured on scratch caches, never parked in the \
+             parent's layout_results — hit testing and the display list must not see it"
+        );
         assert_ne!(w.content_dom, DomId::ROOT_ID);
         let a = w.placement.anchor_rect;
         assert!(
@@ -430,3 +434,128 @@ fn escape_in_the_popup_dismisses_it_and_reaches_the_parent() {
     assert!(!mailbox_state(&opts2.window_state).1);
     let _ = MouseButton::Left;
 }
+
+// ---------------------------------------------------------------------------
+// The real widget: ColorInput's swatch opens its picker through the engine
+// ---------------------------------------------------------------------------
+
+/// The showcase's layout: one `ColorInput` in a body, as the demo builds it.
+extern "C" fn picker_widget_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_layout::widgets::color_input::{color_from_hex, ColorInput};
+    Dom::create_body().with_child(
+        ColorInput::create(color_from_hex("#ff5733").expect("a colour"))
+            .with_accessibility_name("Accent colour")
+            .dom(),
+    )
+}
+
+/// Press-and-release at `pos` in the window, through the real event path.
+fn click_at(window: &mut HeadlessWindow, pos: azul_core::geom::LogicalPosition) {
+    window.snapshot_window_state_baseline("test.move");
+    window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
+    window.update_hit_test_at(pos);
+    let _ = window.process_window_events(0);
+    window.snapshot_window_state_baseline("test.down");
+    window.common.mouse_state_mut().left_down = true;
+    let _ = window.process_window_events(0);
+    window.snapshot_window_state_baseline("test.up");
+    window.common.mouse_state_mut().left_down = false;
+    let _ = window.process_window_events(0);
+}
+
+/// Clicking a `ColorInput`'s swatch opens its picker popup — no `open` flag
+/// in the app, no layout-callback plumbing: the widget asks the engine to
+/// hold the node open, the next pass reconciles, a popup window is queued.
+/// A second click closes it. The popup is the picker panel, laid out at a
+/// real size.
+#[test]
+fn clicking_a_color_input_opens_and_closes_its_picker_popup() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize { width: 800.0, height: 600.0 };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = picker_widget_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    assert!(parent.pending_window_creates.is_empty(), "closed until clicked");
+
+    // The swatch: wherever layout put it — read its rect rather than guess.
+    let swatch = {
+        let lw = parent.get_layout_window().unwrap();
+        let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+        let nodes = root.styled_dom.node_data.as_container();
+        let swatch_node = nodes
+            .linear_iter()
+            .find(|n| {
+                nodes.get(*n).is_some_and(|nd| {
+                    format!("{:?}", nd.get_ids_and_classes()).contains("__azul_native_color_input")
+                })
+            })
+            .expect("the swatch node");
+        let r = lw
+            .get_node_layout_rect(azul_core::dom::DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(swatch_node)),
+            })
+            .expect("swatch rect");
+        azul_core::geom::LogicalPosition::new(r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)
+    };
+    click_at(&mut parent, swatch);
+    parent.regenerate_layout().expect("reconcile after the click");
+
+    let popup_opts = take_queued_popup(&mut parent);
+    let size = popup_opts.window_state.size.dimensions;
+    assert!(
+        size.width > 200.0 && size.height > 150.0,
+        "the picker panel must have been measured at a real size, got {size:?}"
+    );
+    {
+        let lw = parent.get_layout_window().unwrap();
+        assert_eq!(lw.transient_windows.open_windows().len(), 1);
+        assert_eq!(lw.transient_windows.forced_open_nodes().len(), 1, "held open by the widget");
+    }
+
+    // The popup, built like the run loop would, lays the panel out: it holds
+    // the plane, the hue bar, the hex field and the three channel fields.
+    let mut popup = headless(popup_opts.clone(), app_data.clone());
+    popup.regenerate_layout().expect("popup layout");
+    let plw = popup.get_layout_window().unwrap();
+    let root = plw.layout_results.get(&DomId::ROOT_ID).expect("popup root");
+    let nodes = root.styled_dom.node_data.as_ref();
+    let classes: Vec<String> = nodes
+        .iter()
+        .flat_map(|n| {
+            let v: Vec<String> = n.get_ids_and_classes().as_ref().iter().map(|c| format!("{c:?}")).collect();
+            v
+        })
+        .collect();
+    assert!(classes.iter().any(|c| c.contains("__azul_native_color_picker_plane")), "{classes:?}");
+    assert!(classes.iter().any(|c| c.contains("__azul_native_color_picker_hue")));
+    assert!(nodes.len() > 15, "the panel flattened to only {} nodes", nodes.len());
+
+    // A second click on the swatch closes it.
+    click_at(&mut parent, swatch);
+    parent.regenerate_layout().expect("reconcile after the second click");
+    {
+        let lw = parent.get_layout_window().unwrap();
+        assert!(lw.transient_windows.open_windows().is_empty(), "closed again");
+        assert!(lw.transient_windows.forced_open_nodes().is_empty());
+    }
+    assert!(mailbox_state(&popup_opts.window_state).0, "the popup was told to close");
+    assert!(parent.pending_window_creates.is_empty());
+
+    // And a press elsewhere in the parent while it is open dismisses it, after
+    // which the widget's own Dismissed handler has reset its toggle: the next
+    // click OPENS (not "closes" a popup that is already gone).
+    click_at(&mut parent, swatch);
+    parent.regenerate_layout().expect("open again");
+    let _ = take_queued_popup(&mut parent);
+    click_at(&mut parent, azul_core::geom::LogicalPosition::new(400.0, 400.0));
+    parent.regenerate_layout().expect("dismissed by the outside press");
+    assert!(parent.get_layout_window().unwrap().transient_windows.open_windows().is_empty());
+    click_at(&mut parent, swatch);
+    parent.regenerate_layout().expect("reopen");
+    assert_eq!(parent.get_layout_window().unwrap().transient_windows.open_windows().len(), 1);
+    let _ = take_queued_popup(&mut parent);
+}
+

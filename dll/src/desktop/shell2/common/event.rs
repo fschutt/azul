@@ -4382,6 +4382,32 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
+            CallbackChange::SetTransientWindowOpen { node, open } => {
+                // Only this window's root dom hangs popups; a node id from a
+                // popup's own dom (or any child dom) means nothing here.
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != azul_core::dom::DomId::ROOT_ID {
+                    log_warn!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] set_transient_window_open on a non-root dom {:?}: ignored",
+                        node.dom
+                    );
+                    return ProcessEventResult::DoNothing;
+                }
+                let changed = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.transient_windows.set_forced_open(node_id, *open));
+                if changed {
+                    // The popup set is reconciled after a layout pass.
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
             CallbackChange::ShowTooltip { text, position } => {
                 self.show_tooltip_from_callback(text.as_str(), *position);
                 ProcessEventResult::DoNothing
@@ -7067,7 +7093,18 @@ pub trait PlatformWindow {
             r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
         }
 
-        let result = self.process_window_events_inner(depth);
+        let mut result = self.process_window_events_inner(depth);
+
+        // A callback that ran INSIDE a transient popup and asked for a
+        // refresh must refresh the PARENT: the popup only mirrors the
+        // parent's subtree (see `common::transient`), so re-laying the popup
+        // out alone would show the old content. The parent's pass then
+        // pushes the new subtree back into the popup's mailbox.
+        if result == ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            && super::transient::mailbox_of(self.get_current_window_state()).is_some()
+        {
+            result = ProcessEventResult::ShouldRegenerateDomAllWindows;
+        }
 
         // CONSUME the state delta this pass just processed. The
         // previous→current diff is a one-shot: without this, the delta

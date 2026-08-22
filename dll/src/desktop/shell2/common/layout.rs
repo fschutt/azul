@@ -518,6 +518,15 @@ phases.mark("after_callback");
             azul_layout::probe::emit_phase_heap("end_precascade_unchanged");
             phases.mark("end_precascade_unchanged");
             phases.report();
+            // The DOM did not change, but the popup set may have: a callback's
+            // `set_transient_window_open` changes NOTHING in the tree (that is
+            // its point — no app flag), so this exit is exactly the one a
+            // swatch click lands on. The reconcile is an empty diff when
+            // nothing is open or forced.
+            reconcile_transient_windows(
+                layout_window,
+                current_window_state,
+            );
             return Ok(LayoutRegenerateResult::LayoutUnchanged);
         }
 
@@ -573,8 +582,6 @@ phases.mark("after_callback");
         reconcile_transient_windows(
             layout_window,
             current_window_state,
-            renderer_resources,
-            debug_messages,
         );
         return Ok(LayoutRegenerateResult::LayoutChanged);
     }
@@ -1051,6 +1058,12 @@ phases.mark("after_runtime_states");
                 azul_layout::probe::emit_phase_heap("end_unchanged");
                 phases.mark("end_unchanged");
                 phases.report();
+                // Same reason as the pre-cascade exit above: the popup set can
+                // change while the tree does not.
+                reconcile_transient_windows(
+                    layout_window,
+                    current_window_state,
+                );
                 return Ok(LayoutRegenerateResult::LayoutUnchanged);
             }
 
@@ -1372,8 +1385,6 @@ phases.mark("end");
     reconcile_transient_windows(
         layout_window,
         current_window_state,
-        renderer_resources,
-        debug_messages,
     );
 
     Ok(LayoutRegenerateResult::LayoutChanged)
@@ -1850,8 +1861,6 @@ fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> azul_core::g
 fn reconcile_transient_windows(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
-    renderer_resources: &RendererResources,
-    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) {
     use azul_core::dom::DomId;
     use azul_layout::transient::collect_open_transient_windows;
@@ -1864,7 +1873,8 @@ fn reconcile_transient_windows(
         let styled = &root.styled_dom;
         // Anchor rects come from the ROOT dom's layout. Borrow the result
         // immutably for the whole collection, then drop it before laying out.
-        let rects: Vec<_> = collect_open_transient_windows(styled, |node| {
+        let forced: Vec<_> = layout_window.transient_windows.forced_open_nodes().to_vec();
+        let rects: Vec<_> = collect_open_transient_windows(styled, &forced, |node| {
             layout_window.get_node_layout_rect(azul_core::dom::DomNodeId {
                 dom: DomId::ROOT_ID,
                 node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
@@ -1873,11 +1883,11 @@ fn reconcile_transient_windows(
         rects
     };
 
-    // 2. Reconcile, laying out each popup's content on demand.
-    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    // 2. Reconcile, measuring each popup's content on demand (on scratch
+    //    caches — the popup window lays the content out itself).
     let diff = {
-        // `reconcile` wants a closure that borrows layout_window mutably while
-        // the manager is ALSO borrowed mutably — split the borrow by taking the
+        // `reconcile` wants a closure that reads layout_window while the
+        // manager is borrowed mutably — split the borrow by taking the
         // manager out, reconciling, and putting it back.
         let mut manager = core::mem::take(&mut layout_window.transient_windows);
         let diff = manager.reconcile(&wanted, |content_dom, placement| {
@@ -1886,20 +1896,11 @@ fn reconcile_transient_windows(
                 content_dom,
                 placement.size,
                 current_window_state,
-                renderer_resources,
-                &system_callbacks,
-                debug_messages,
             )
         });
         layout_window.transient_windows = manager;
         diff
     };
-
-    // 3. Drop the layout results of anything that closed — keeping them
-    // would leak a dom per closed popup for the life of the window.
-    for closed in &diff.closed {
-        layout_window.layout_results.remove(closed);
-    }
 
     if !diff.opened.is_empty() || !diff.closed.is_empty() || !diff.moved.is_empty() {
         log_debug!(
