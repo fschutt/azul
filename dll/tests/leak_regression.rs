@@ -306,8 +306,13 @@ const MAX_BYTES_PER_ITER: u64 = 256;
 /// happens once is not a leak — but bounded, because "one-time" cannot mean
 /// "still growing after 40 warmup frames and 500 measured ones".
 ///
-/// Measured: 18 to 73 bytes/iter over five runs.
-const MAX_FIRST_WINDOW_BYTES_PER_ITER: u64 = 1024;
+/// Measured: 18 to 73 bytes/iter over five runs on Linux/glibc. On macOS
+/// with the counting allocator (2026-08-22, run 32573722730) the first
+/// window came out at 1048 B/iter with a steady state of exactly 0 B/iter —
+/// a lazily filled cache settling inside the first window, the very case
+/// this budget exists to tolerate, so the bound sits at 2048: still an
+/// order of magnitude under the ~13 KiB/call leak this file was written for.
+const MAX_FIRST_WINDOW_BYTES_PER_ITER: u64 = 2048;
 
 /// Steady-state RSS budget, per iteration.
 ///
