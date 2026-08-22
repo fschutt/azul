@@ -5867,6 +5867,75 @@ mod tests {
         );
     }
 
+    // --- A flex item is sized by one authority ------------------------------
+    //
+    // REPORTED (AzWidgets, 2026-08-21): "multi-line text area bleeding into
+    // Slider". The textarea is a flex item with `min-height: 64px`; its
+    // container reserved a slot from the item's content (~36 px) while the
+    // item itself, re-laid-out as a STANDALONE layout root on every
+    // RefreshDom (its fresh dataset allocation fingerprinted as a layout
+    // change), applied its min-height — 64 px painted into a 36 px slot,
+    // over the widget beneath. Two fixes, one test: the dataset is no longer
+    // layout, and a dirty flex item promotes its container to the layout
+    // root. The invariant is the class: a flex item's painted box never
+    // overlaps the sibling its container placed after it — on the first
+    // layout and after a rebuild.
+
+    extern "C" fn text_area_over_next_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::text_area::TextArea;
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; padding: 20px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
+                    .with_child(
+                        TextArea::create().with_placeholder("Multi line text area".into()).dom(),
+                    ),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("next".into())].into())
+                    .with_css("height: 24px;"),
+            )
+    }
+
+    fn assert_text_area_does_not_overlap_its_next_sibling(window: &HeadlessWindow, when: &str) {
+        let area = rects_by_class(window, "__azul-native-text-area-container");
+        let next = rects_by_class(window, "next");
+        assert_eq!(area.len(), 1, "{when}: {area:?}");
+        assert_eq!(next.len(), 1, "{when}: {next:?}");
+        let (a, n) = (area[0], next[0]);
+        assert!(
+            a.size.height >= 63.5,
+            "{when}: the textarea's painted box honours its min-height: {a:?}"
+        );
+        assert!(
+            n.origin.y >= a.origin.y + a.size.height - 0.5,
+            "{when}: the textarea's painted box ({a:?}) overlaps the sibling its flex container \
+             placed after it ({n:?}) — the item was sized by two authorities"
+        );
+    }
+
+    #[test]
+    fn a_flex_items_painted_box_never_overlaps_the_sibling_its_container_placed() {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, text_area_over_next_layout, 400.0, 400.0);
+        window.regenerate_layout().expect("initial layout");
+        assert_text_area_does_not_overlap_its_next_sibling(&window, "first layout");
+
+        // Every RefreshDom rebuilds the widget with a FRESH dataset allocation;
+        // that must not make the item a standalone layout root.
+        for pass in 0..3 {
+            window
+                .common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            window.regenerate_layout().expect("refresh");
+            assert_text_area_does_not_overlap_its_next_sibling(&window, &format!("after RefreshDom #{pass}"));
+        }
+    }
+
     // --- Indicator marks are centred ------------------------------------
     //
     // REPORTED (demo test 2026-08-21): "CheckBox not centered" — the 8 px mark

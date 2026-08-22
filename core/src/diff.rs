@@ -1815,8 +1815,20 @@ pub struct NodeDataFingerprint {
     pub ids_classes_hash: u64,
     /// Hash of callbacks (event types + function pointers)
     pub callbacks_hash: u64,
-    /// Hash of other attributes (contenteditable, `tab_index`, dataset)
+    /// Hash of the layout-relevant attributes (contenteditable, flags)
     pub attrs_hash: u64,
+    /// Hash of the dataset's PRESENCE and TYPE — never its allocation.
+    ///
+    /// A widget's dataset is state, not layout. Most widgets allocate a fresh
+    /// `RefAny` on every build, and `RefAny` hashes by pointer, so hashing the
+    /// dataset into `attrs_hash` (which maps to `CONTENTEDITABLE`, a layout
+    /// change) made every `with_dataset` node LAYOUT-DIRTY on every
+    /// `RefreshDom`: the TextArea became a standalone layout root on each
+    /// callback, was re-laid-out with its `min-height` while its flex
+    /// container kept the old slot, and painted 64 px into a 36 px slot — over
+    /// the slider beneath it. A dataset change is [`NodeChangeSet::DATASET`],
+    /// which affects neither layout nor paint.
+    pub dataset_hash: u64,
 }
 
 
@@ -1881,12 +1893,24 @@ impl NodeDataFingerprint {
             h.finish()
         };
 
-        // Attributes hash
+        // Attributes hash — the layout-relevant ones only
         let attrs_hash = {
             let mut h = crate::hash::DefaultHasher::new();
             node.is_contenteditable().hash(&mut h);
             node.flags.hash(&mut h);
-            node.get_dataset().hash(&mut h);
+            h.finish()
+        };
+
+        // Dataset hash: presence + type, NOT the allocation (see the field doc).
+        let dataset_hash = {
+            let mut h = crate::hash::DefaultHasher::new();
+            match node.get_dataset() {
+                Some(ds) => {
+                    true.hash(&mut h);
+                    ds.get_type_id().hash(&mut h);
+                }
+                None => false.hash(&mut h),
+            }
             h.finish()
         };
 
@@ -1897,11 +1921,12 @@ impl NodeDataFingerprint {
             ids_classes_hash,
             callbacks_hash,
             attrs_hash,
+            dataset_hash,
         }
     }
 
     /// Returns a quick `NodeChangeSet` by comparing two fingerprints.
-    /// This is O(1) — just comparing 6 u64s.
+    /// This is O(1) — just comparing 7 u64s.
     ///
     /// The result is *conservative*: if a field hash differs, we set the
     /// broadest applicable flag. For precise classification (e.g., which
@@ -1939,6 +1964,10 @@ impl NodeDataFingerprint {
         if self.attrs_hash != other.attrs_hash {
             changes.insert(NodeChangeSet::TAB_INDEX);
             changes.insert(NodeChangeSet::CONTENTEDITABLE);
+        }
+
+        if self.dataset_hash != other.dataset_hash {
+            changes.insert(NodeChangeSet::DATASET);
         }
 
         changes
@@ -4376,6 +4405,40 @@ mod autotest_generated {
             assert!(a.is_identical(&b));
             assert!(a.diff(&b).is_empty());
         }
+    }
+
+    #[test]
+    fn a_fresh_dataset_allocation_is_not_a_layout_change() {
+        // REPORTED (TextArea bleeding into the Slider): every `with_dataset`
+        // widget allocates a fresh RefAny per build, RefAny hashes by pointer,
+        // and the dataset sat in `attrs_hash` → CONTENTEDITABLE → layout
+        // dirty on every RefreshDom. The dataset is state: same type, new
+        // allocation, IDENTICAL fingerprint.
+        let a = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_dataset(RefAny::new(42u32).into()),
+            None,
+        );
+        let b = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_dataset(RefAny::new(43u32).into()),
+            None,
+        );
+        assert!(a.is_identical(&b), "a new allocation of the same dataset type is not a change");
+        assert!(a.diff(&b).is_empty());
+        assert!(!a.might_affect_layout(&b));
+
+        // A dataset of another TYPE (or none) is a DATASET change — and
+        // still not a layout one.
+        let c = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_dataset(RefAny::new(String::from("x")).into()),
+            None,
+        );
+        let changes = a.diff(&c);
+        assert!(changes.contains(NodeChangeSet::DATASET));
+        assert!(!changes.needs_layout(), "a dataset change must never relayout: {changes:?}");
+        assert!(!a.might_affect_layout(&c));
+        let d = NodeDataFingerprint::compute(&NodeData::create_div(), None);
+        assert!(a.diff(&d).contains(NodeChangeSet::DATASET));
+        assert!(!a.diff(&d).needs_layout());
     }
 
     #[test]

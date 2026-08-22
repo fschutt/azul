@@ -1178,6 +1178,37 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
         clean_slice,
     )?;
 
+    // A dirty FLEX / GRID ITEM cannot be laid out on its own: its size is
+    // decided by its container's flex algorithm, and its siblings' slots
+    // move with it. Promote such a root to its container (walking up through
+    // nested flex/grid containers). Without this the item was re-solved as
+    // a standalone root with its own `min-height` while the container kept
+    // the slot it had reserved from the item's content size — the TextArea
+    // painted 64 px into a 36 px slot, over the widget beneath it. (The
+    // `reposition_clean_subtrees` comment always claimed the parent would
+    // "already be a layout root"; now it is.)
+    let promoted_layout_roots: alloc::collections::BTreeSet<usize> = recon_result
+        .layout_roots
+        .iter()
+        .map(|&idx| {
+            let mut root = idx;
+            while let Some(parent) = new_tree_builder.get(root).and_then(|n| n.parent) {
+                let parent_is_flex_or_grid = new_tree_builder.get(parent).is_some_and(|p| {
+                    matches!(
+                        p.formatting_context,
+                        FormattingContext::Flex | FormattingContext::Grid
+                    )
+                });
+                if !parent_is_flex_or_grid {
+                    break;
+                }
+                root = parent;
+            }
+            root
+        })
+        .collect();
+    recon_result.layout_roots = promoted_layout_roots;
+
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.
     let final_layout_roots = recon_result
         .layout_roots
