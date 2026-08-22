@@ -49,11 +49,22 @@
 //! The lesson is the recurring one in this repo: the check was wrong about
 //! its own inputs. A red gate is evidence about the gate too.
 //!
+//! ## The heap instrument (2026-08-22)
+//!
+//! The heap figure is now counted by this binary's own `#[global_allocator]`
+//! (see `live_heap` below): live bytes at the allocator boundary, exact on
+//! every thread. It replaced `azul_layout::probe::malloc_heap_bytes()`,
+//! whose macOS reading (`mstats().bytes_used`) drifted with zone capacity —
+//! 399 / 3517 / 5963 B/iter on identical code, RSS flat — and therefore
+//! could only convict with RSS's agreement, which a page-granular RSS can
+//! never give for a small retention. The exact figure gates on its own
+//! again; the libc figure and its corroboration rule remain as the fallback
+//! when the dll's `allocator_*` features own the global allocator.
+//!
 //! Gated behind both `build-dll` (to pull in the full layout pipeline)
 //! and `e2e-test` (to expose `HeadlessWindow` and its deps), and on the
-//! targets where `azul_layout::probe::malloc_heap_bytes()` reads a real
-//! allocator figure: macOS via `mstats().bytes_used`, Linux/glibc via
-//! `mallinfo2().uordblks`.
+//! targets where the RSS probe and the libc fallback read real figures:
+//! macOS (`mstats().bytes_used`), Linux/glibc (`mallinfo2().uordblks`).
 //!
 //! It said `target_os = "macos"` until 2026-07-29, described as keeping
 //! the test "strict on the platform where the leak was first observed".
@@ -92,6 +103,114 @@ use azul_core::{
 };
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
+
+// ---------------------------------------------------------------------------
+// The heap instrument: LIVE bytes, counted at the allocator boundary
+// ---------------------------------------------------------------------------
+//
+// `azul_layout::probe::malloc_heap_bytes()` asks the libc allocator what it
+// holds, and the answer is not "live bytes" on either platform this test
+// runs on. macOS `mstats().bytes_used` is libmalloc's per-zone
+// `size_in_use`, which moves with zone growth and fragmentation while nothing
+// is retained — measured on this tree, identical code, three consecutive
+// runs: 399 / 3517 / 5963 B/iter with RSS flat at zero. glibc's
+// `mallinfo2().uordblks` accounts the main arena only, so anything retained
+// on the font threads' arenas is invisible to it. Both failure modes made the
+// heap verdict unusable on its own: it needed RSS to corroborate it, and a
+// page-granular RSS cannot corroborate a retention of a few hundred bytes.
+//
+// So this binary counts the bytes itself, at the `GlobalAlloc` boundary:
+// every Rust allocation adds its requested size, every deallocation subtracts
+// it, and the difference is — by definition — the live heap, exact to the
+// byte, on every thread, on every platform, independent of how the allocator
+// underneath chooses to carve its zones. A retained `Vec`, `Arc` chain or
+// `Box` is visible at its true size; allocator housekeeping is not visible at
+// all, which is the point. What it cannot see is C-side `malloc` (CoreText,
+// fontconfig) — that stays RSS's job, and RSS keeps its own assertion.
+//
+// It is a test-binary concern, not a library one: the dll's own allocator
+// selection (`allocator_mimalloc` / `allocator_jemalloc`) is a
+// `#[global_allocator]` too, and a crate may declare only one, so under those
+// features this falls back to the probe and the RSS-corroboration rule.
+#[cfg(not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc")))]
+mod live_heap {
+    use std::{
+        alloc::{GlobalAlloc, Layout, System},
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    /// Bytes currently allocated through the global allocator. Requested
+    /// sizes, not allocator-rounded ones: what the code asked to keep.
+    static LIVE: AtomicU64 = AtomicU64::new(0);
+
+    struct Counting;
+
+    // SAFETY: every method forwards to `System` unchanged; the counter is a
+    // side effect that never touches the returned memory. Relaxed ordering is
+    // enough — the counter is read between measurement windows on the
+    // sampling thread after the work has finished, not as a synchronisation
+    // primitive.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let p = System.alloc(layout);
+            if !p.is_null() {
+                LIVE.fetch_add(layout.size() as u64, Ordering::Relaxed);
+            }
+            p
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let p = System.alloc_zeroed(layout);
+            if !p.is_null() {
+                LIVE.fetch_add(layout.size() as u64, Ordering::Relaxed);
+            }
+            p
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            System.dealloc(ptr, layout);
+            LIVE.fetch_sub(layout.size() as u64, Ordering::Relaxed);
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let p = System.realloc(ptr, layout, new_size);
+            if !p.is_null() {
+                // The old block is gone and a `new_size` one exists; the
+                // counter must reflect exactly that, in either direction.
+                let old = layout.size() as u64;
+                let new = new_size as u64;
+                if new >= old {
+                    LIVE.fetch_add(new - old, Ordering::Relaxed);
+                } else {
+                    LIVE.fetch_sub(old - new, Ordering::Relaxed);
+                }
+            }
+            p
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+
+    /// Live heap bytes right now.
+    pub fn bytes() -> u64 {
+        LIVE.load(Ordering::Relaxed)
+    }
+
+    /// Whether this binary is measuring at the allocator boundary.
+    pub const ACTIVE: bool = true;
+}
+
+#[cfg(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc"))]
+mod live_heap {
+    /// The dll owns the global allocator under these features; fall back to
+    /// the libc figure and the RSS-corroboration rule that goes with it.
+    pub fn bytes() -> u64 {
+        azul_layout::probe::malloc_heap_bytes()
+    }
+
+    pub const ACTIVE: bool = false;
+}
 
 /// Generate ~500 divs so the DOM is non-trivial — the bug is in the
 /// font registry path which fires regardless of DOM size, but a fat DOM
@@ -443,7 +562,7 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     // FASTER than a fixed warmup large enough to be safe.
     if deliberate_leak_bytes == 0 {
         let block = SIZES.len() as u32 * WARMUP_CYCLES;
-        let mut prev = azul_layout::probe::malloc_heap_bytes();
+        let mut prev = live_heap::bytes();
         let mut settled = 0_u32;
         let mut done = 0_u32;
         // Starts at u64::MAX so the very first block cannot satisfy the
@@ -452,7 +571,7 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
         while done < MAX_WARMUP_ITERATIONS && settled < 2 {
             run_iterations(&mut window, block);
             done += block;
-            let now = azul_layout::probe::malloc_heap_bytes();
+            let now = live_heap::bytes();
             let growth = now.saturating_sub(prev);
             // Same insight as the steady-state windows: a one-off allocator
             // zone reservation lands in exactly ONE block. Requiring two
@@ -500,12 +619,7 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     // Every sample below is taken at the SAME point in the size cycle (a
     // multiple of SIZES.len() iterations apart), so the ~1.5 MiB oscillation
     // cancels instead of landing in the result.
-    let sample = || {
-        (
-            azul_layout::probe::malloc_heap_bytes(),
-            azul_layout::probe::current_rss_bytes().0,
-        )
-    };
+    let sample = || (live_heap::bytes(), azul_layout::probe::current_rss_bytes().0);
 
     // THREE steady-state windows, not two. A leak is growth that does not
     // stop, so the test should require growth that does not stop.
@@ -604,7 +718,15 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     // independently and still gates, so the test does not become vacuous. The
     // report says plainly which verdicts were live, because a silent downgrade
     // to half a test is how a gate stops meaning anything.
-    let heap_trustworthy = final_heap <= final_rss.saturating_mul(2).saturating_add(32 << 20);
+    //
+    // That rule is for the LIBC figure. Allocator-boundary live bytes are
+    // exact by construction and CAN legitimately exceed RSS: pages the
+    // process owns but has not touched, or that the OS paged or compressed
+    // out under memory pressure, are live heap and not resident. (The
+    // deliberate-leak control showed exactly this: 262144/262144 B/iter
+    // counted, RSS moving by a twentieth of it on a loaded machine.)
+    let heap_trustworthy =
+        live_heap::ACTIVE || final_heap <= final_rss.saturating_mul(2).saturating_add(32 << 20);
     if !heap_trustworthy {
         eprintln!(
             "[leak_regression] HEAP INSTRUMENT REJECTED: {} KiB of reported heap in a process \
@@ -616,6 +738,14 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
             final_rss / 1024,
         );
     }
+    eprintln!(
+        "[leak_regression] heap instrument: {}",
+        if live_heap::ACTIVE {
+            "allocator-boundary live bytes (exact; gates on its own)"
+        } else {
+            "libc figure via probe::malloc_heap_bytes (needs RSS corroboration)"
+        }
+    );
 
     Measurement {
         first_window_per_iter,
@@ -647,9 +777,20 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     // agreement keeps that catch while dropping the false positives that have
     // now blocked two deploys. RSS keeps its own INDEPENDENT assertion below —
     // if residency grows on its own, that still fails on the spot.
-    let heap_and_rss_agree = m.per_iter >= MAX_BYTES_PER_ITER && m.rss_per_iter > 0;
+    //
+    // That rule is for the LIBC figure. With the allocator-boundary instrument
+    // (`live_heap::ACTIVE`) the number IS live bytes — requested sizes in
+    // minus requested sizes out — so zone capacity cannot drift it and there
+    // is nothing for RSS to corroborate: a retention of a few hundred bytes
+    // per call is exactly what a page-granular RSS cannot see, and exactly
+    // what the heap figure is for. It gates alone again.
+    let heap_convicts = if live_heap::ACTIVE {
+        m.per_iter >= MAX_BYTES_PER_ITER
+    } else {
+        m.heap_trustworthy && m.per_iter >= MAX_BYTES_PER_ITER && m.rss_per_iter > 0
+    };
     assert!(
-        !m.heap_trustworthy || !heap_and_rss_agree,
+        !heap_convicts,
         "regenerate_layout resize loop leaked {} bytes/iter (>{} allowed) in \
          STEADY STATE — and this is the MINIMUM of two consecutive {}-iteration \
          windows, each sampled at a matched point in the size cycle after {} \
@@ -673,12 +814,16 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
     // Require RSS to have moved before calling it slow-filling retention. In the
     // run that prompted this, RSS was 44226 KiB at all four samples — flat to
     // the kilobyte — while the heap reported 3211 B/iter.
+    let first_window_convicts = if live_heap::ACTIVE {
+        m.first_window_per_iter >= MAX_FIRST_WINDOW_BYTES_PER_ITER
+    } else {
+        m.heap_trustworthy
+            && m.first_window_per_iter >= MAX_FIRST_WINDOW_BYTES_PER_ITER
+            && m.rss_per_iter > 0
+    };
     assert!(
-        !m.heap_trustworthy
-            || m.first_window_per_iter < MAX_FIRST_WINDOW_BYTES_PER_ITER
-            || m.rss_per_iter == 0,
-        "the first measured window grew {} bytes/iter (>{} allowed), AND RSS \
-         moved too. Steady \
+        !first_window_convicts,
+        "the first measured window grew {} bytes/iter (>{} allowed) of live heap. Steady \
          state is {} B/iter, so this is not an unbounded leak — but {} warmup \
          cycles plus {} iterations were not enough for it to settle, which \
          means something is filling far more slowly than any cache should.",
