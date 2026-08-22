@@ -7200,13 +7200,11 @@ pub trait PlatformWindow {
             w.biometric_manager.clear_pending_event();
             w.keyring_manager.clear_pending_event();
             w.gesture_drag_manager.clear_pen_event_pending();
-            // MWA-C-gesture: an injected native gesture (macOS magnify/rotate
-            // per MWA-B4, or debug-server injection) is consumed by exactly
-            // this pass's detectors — clear it so an ended pinch doesn't
-            // latch and re-fire PinchIn/RotateClockwise on every later pass.
-            // (iOS/Android clear per-frame in their own loops; gesture.rs
-            // documented this clear but no desktop path ever performed it.)
-            w.gesture_drag_manager.clear_native_gesture();
+            // The injected native gesture (macOS magnify/rotate, debug-server
+            // injection) is NOT cleared here: the PinchIn/PinchOut callbacks
+            // this pass is about to dispatch read it live through
+            // `CallbackInfo::get_pinch()`. It is cleared right after the
+            // dispatch below, next to the wheel delta — the same rule.
             // MWA-B12: a LongPress was just emitted for this hold — mark it
             // so it doesn't re-fire on every later pass of the same session.
             if synthetic_events
@@ -7567,12 +7565,26 @@ pub trait PlatformWindow {
             self.dispatch_events_propagated(&pre_filter.user_events);
         result = result.max(changes_result);
 
+        // THE RULE FOR PER-PASS INPUT THAT CALLBACKS READ LIVE: clear it AFTER
+        // dispatch, never during determination.
+        //
         // The wheel delta for this pass has now been delivered to any Scroll
         // callback (read via CallbackInfo::get_scroll_delta during dispatch).
         // Clear it so the recursion below — and any later pass — doesn't re-fire
         // a stale Scroll event (which would zoom the map on every mouse move).
+        //
+        // The injected native gesture (macOS magnify/rotate per MWA-B4, or a
+        // debug-server injection) is the same kind of thing: the detectors
+        // above turned it into this pass's PinchIn/PinchOut event, and the
+        // callback for that event reads the gesture itself through
+        // `CallbackInfo::get_pinch()`. It used to be cleared with the other
+        // manager flags BEFORE dispatch, so every pinch callback saw `None`
+        // and a trackpad pinch over the map did nothing. Clearing it here
+        // still stops an ended pinch from re-firing on every later pass
+        // (iOS/Android clear per-frame in their own loops).
         if let Some(w) = self.get_layout_window_mut() {
             w.scroll_manager.pending_wheel_event = None;
+            w.gesture_drag_manager.clear_native_gesture();
         }
 
         // MWA-C-clipboard: fire the W3C clipboard events for the deferred

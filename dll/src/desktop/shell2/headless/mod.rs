@@ -5544,6 +5544,134 @@ mod tests {
         );
     }
 
+    // --- A native pinch reaches the callbacks of its own pass --------------
+    //
+    // REPORTED (AzMap, 2026-08-21): a trackpad pinch over the map did nothing.
+    // The class: per-pass input that callbacks read LIVE from a manager
+    // (the wheel delta via get_scroll_delta, the injected native gesture via
+    // get_pinch) must be cleared AFTER dispatch. The native gesture was
+    // cleared with the other manager flags during determination, so the
+    // PinchIn/PinchOut event it produced was dispatched to a callback that
+    // read `None`. The clear now sits next to the wheel delta's, after
+    // dispatch; this injects a magnify the way macOS does and checks what
+    // the callback saw — and that it does not re-fire on the next pass.
+
+    #[derive(Debug, Clone)]
+    struct PinchLog {
+        /// (callbacks invoked, callbacks that saw a pinch, last scale × 1000)
+        seen: Arc<core::sync::atomic::AtomicUsize>,
+        invoked: Arc<core::sync::atomic::AtomicUsize>,
+        scale_milli: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn log_pinch(
+        mut refany: RefAny,
+        info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        use core::sync::atomic::Ordering;
+        if let Some(log) = refany.downcast_ref::<PinchLog>() {
+            log.invoked.fetch_add(1, Ordering::SeqCst);
+            if let Some(p) = info.get_pinch().into_option() {
+                log.seen.fetch_add(1, Ordering::SeqCst);
+                log.scale_milli
+                    .store((p.scale * 1000.0).round() as usize, Ordering::SeqCst);
+            }
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn pinch_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        let log = data
+            .downcast_ref::<PinchLog>()
+            .map(|l| l.clone())
+            .expect("pinch log");
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("width: 300px; height: 200px;")
+                .with_callbacks(
+                    vec![
+                        CoreCallbackData {
+                            event: EventFilter::Hover(HoverEventFilter::PinchOut),
+                            callback: CoreCallback {
+                                cb: log_pinch as usize,
+                                ctx: azul_core::refany::OptionRefAny::None,
+                            },
+                            refany: RefAny::new(log.clone()),
+                        },
+                        CoreCallbackData {
+                            event: EventFilter::Hover(HoverEventFilter::PinchIn),
+                            callback: CoreCallback {
+                                cb: log_pinch as usize,
+                                ctx: azul_core::refany::OptionRefAny::None,
+                            },
+                            refany: RefAny::new(log),
+                        },
+                    ]
+                    .into(),
+                ),
+        )
+    }
+
+    #[test]
+    fn a_native_pinch_is_visible_to_the_callbacks_of_its_own_pass() {
+        use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let log = PinchLog {
+            seen: Arc::new(AtomicUsize::new(0)),
+            invoked: Arc::new(AtomicUsize::new(0)),
+            scale_milli: Arc::new(AtomicUsize::new(0)),
+        };
+        let state = Arc::new(RefCell::new(RefAny::new(log.clone())));
+        let mut window = make_window_sized(&state, pinch_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+
+        // Hover the box (PinchIn/PinchOut target the hovered node), then inject
+        // a magnify exactly like macOS's magnify handler does, and run a pass.
+        step(&mut window, HeadlessEvent::MouseMove { x: 150.0, y: 100.0 });
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("layout window")
+            .gesture_drag_manager
+            .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
+                scale: 1.5,
+                center: azul_core::geom::LogicalPosition::new(150.0, 100.0),
+                initial_distance: 100.0,
+                current_distance: 150.0,
+                duration_ms: 0,
+            }));
+        window.snapshot_window_state_baseline("headless.test.magnify");
+        let _ = window.process_window_events(0);
+
+        assert_eq!(
+            log.invoked.load(Ordering::SeqCst),
+            1,
+            "the injected magnify must dispatch exactly one PinchOut callback"
+        );
+        assert_eq!(
+            log.seen.load(Ordering::SeqCst),
+            1,
+            "the callback must be able to READ the pinch it was dispatched for: \
+             clearing the native gesture before dispatch hands it `None`"
+        );
+        assert_eq!(log.scale_milli.load(Ordering::SeqCst), 1500);
+
+        // The gesture is consumed by its pass: a later pass with nothing new
+        // must not re-fire it.
+        window.snapshot_window_state_baseline("headless.test.magnify_idle");
+        let _ = window.process_window_events(0);
+        assert_eq!(
+            log.invoked.load(Ordering::SeqCst),
+            1,
+            "an ended pinch must not re-fire on the next pass"
+        );
+    }
+
     // --- Indicator marks are centred ------------------------------------
     //
     // REPORTED (demo test 2026-08-21): "CheckBox not centered" — the 8 px mark

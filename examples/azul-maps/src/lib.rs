@@ -130,26 +130,74 @@ impl MapState {
         }
     }
 
-    /// Nudge the viewport ~half a tile in tile-space at the current
-    /// integer zoom. Hooks up the four arrow buttons to the same
-    /// Web-Mercator math the widget uses internally; useful until
-    /// the gesture wiring lands.
+    /// Nudge the viewport half a tile in TILE space at the current integer
+    /// zoom: `dx` in tile-x (grows east), `dy` in tile-y (grows SOUTH —
+    /// Web-Mercator tile rows start at the north edge). "↑" passes
+    /// `dy = -1`.
     fn pan(&mut self, dx: f64, dy: f64) {
         let z_int = self.viewport.zoom.floor() as i32;
         let tile_count = (1u32 << z_int.max(0) as u32) as f64;
-        // tile-x is `(lon + 180)/360 * 2^z`; invert by stepping a
-        // half-tile in tile-x:
-        let delta_lon = (dx / 2.0) * (360.0 / tile_count);
-        let new_lon = self.viewport.centre_lon_deg + delta_lon;
-        // Wrap lon into [-180, 180].
-        let wrapped_lon = ((new_lon + 540.0) % 360.0) - 180.0;
-        self.viewport.centre_lon_deg = wrapped_lon;
+        let (lon, lat) = pan_tiles(
+            self.viewport.centre_lon_deg,
+            self.viewport.centre_lat_deg,
+            tile_count,
+            dx / 2.0,
+            dy / 2.0,
+        );
+        self.viewport.centre_lon_deg = lon;
+        self.viewport.centre_lat_deg = lat;
+    }
+}
 
-        // Lat is non-linear in Mercator; step in degrees directly
-        // (small steps, fine for this demo).
-        let delta_lat = (dy / 2.0) * (180.0 / tile_count);
-        self.viewport.centre_lat_deg =
-            (self.viewport.centre_lat_deg + delta_lat).clamp(-85.0, 85.0);
+/// Move a centre by `(dx, dy)` TILES at a `tile_count`-wide world, through
+/// the projection: lon ↔ tile-x is linear, lat ↔ tile-y is Web Mercator.
+///
+/// The old version stepped LATITUDE by `dy` degrees directly. Tile-y grows
+/// south, latitude grows north, so "↑" (`dy < 0`) moved the map SOUTH — in
+/// both hemispheres — and the linear step overshot by ~2× near 60° because
+/// Mercator rows are not equal in latitude. Stepping in tile space and
+/// projecting back is exact and cannot have a sign convention of its own.
+fn pan_tiles(lon_deg: f64, lat_deg: f64, tile_count: f64, dx_tiles: f64, dy_tiles: f64) -> (f64, f64) {
+    use std::f64::consts::PI;
+    // lon → tile-x → step → lon, wrapped into [-180, 180].
+    let x = (lon_deg + 180.0) / 360.0 * tile_count + dx_tiles;
+    let lon = ((x / tile_count * 360.0 - 180.0) + 540.0).rem_euclid(360.0) - 180.0;
+    // lat → tile-y (Mercator) → step → lat, clamped to the Mercator limits.
+    let lat_rad = lat_deg.to_radians();
+    let y = (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / PI) / 2.0 * tile_count;
+    let y = (y + dy_tiles).clamp(0.0, tile_count);
+    let lat = (PI * (1.0 - 2.0 * y / tile_count)).sinh().atan().to_degrees();
+    (lon, lat.clamp(-85.0, 85.0))
+}
+
+#[cfg(test)]
+mod pan_tests {
+    use super::pan_tiles;
+
+    #[test]
+    fn up_goes_north_in_both_hemispheres() {
+        // "↑" is dy = -0.5 tiles (tile-y grows south) → a HIGHER latitude.
+        for lat in [37.7749, -33.8688, 0.0] {
+            let (_, north) = pan_tiles(0.0, lat, 4.0, 0.0, -0.5);
+            let (_, south) = pan_tiles(0.0, lat, 4.0, 0.0, 0.5);
+            assert!(north > lat, "↑ must go north: {lat} → {north}");
+            assert!(south < lat, "↓ must go south: {lat} → {south}");
+        }
+    }
+
+    #[test]
+    fn steps_are_exact_in_tile_space_and_east_is_positive() {
+        // Half a tile east at zoom 2 (4 tiles across) is exactly 45°.
+        let (lon, lat) = pan_tiles(0.0, 0.0, 4.0, 0.5, 0.0);
+        assert!((lon - 45.0).abs() < 1e-9, "{lon}");
+        assert!(lat.abs() < 1e-9, "{lat}");
+        // A full tile south from the equator at zoom 1 lands on the
+        // Mercator latitude of tile row 2 of 2 — i.e. the southern limit.
+        let (_, lat) = pan_tiles(0.0, 0.0, 2.0, 0.0, 1.0);
+        assert!((lat - -85.0).abs() < 1e-9, "{lat}");
+        // Wrapping past the antimeridian.
+        let (lon, _) = pan_tiles(179.0, 0.0, 4.0, 0.5, 0.0);
+        assert!((lon - -136.0).abs() < 1e-9, "{lon}");
     }
 }
 
