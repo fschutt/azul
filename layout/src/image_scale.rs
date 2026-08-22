@@ -255,11 +255,12 @@ pub fn fan_out(
 ) -> Vec<ConsumerFrame> {
     consumers
         .iter()
-        .filter(|c| c.is_valid())
+        .copied()
+        .filter(FrameConsumer::is_valid)
         .filter_map(|c| {
             let rgba = cut(src, c.width, c.height, resample);
             (!rgba.is_empty())
-                .then(|| ConsumerFrame::new(*c, VideoFrame::new(c.width, c.height, rgba.into())))
+                .then(|| ConsumerFrame::new(c, VideoFrame::new(c.width, c.height, rgba.into())))
         })
         .collect()
 }

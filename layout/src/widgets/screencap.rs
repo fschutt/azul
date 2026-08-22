@@ -301,7 +301,7 @@ extern "C" fn screencap_on_resize(mut data: RefAny, info: CallbackInfo) -> Updat
 }
 
 /// Background worker: the shared capture loop over the registered screen
-/// backend (ScreenCaptureKit / PipeWire / X11 / DXGI), else the moving-band
+/// backend (`ScreenCaptureKit` / `PipeWire` / X11 / DXGI), else the moving-band
 /// test pattern — see `capture_common::run_capture_loop`.
 extern "C" fn screencap_worker(
     mut init: RefAny,

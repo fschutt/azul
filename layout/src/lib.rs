@@ -278,7 +278,7 @@ pub mod journal;
 pub mod image;
 /// Pure-functional image resampling (area downscale / bilinear upscale): the
 /// golden-reference scaler shared by the CPU rasterizer, the capture pipeline
-/// and any RawImage resize. No `image`-crate or platform dependency.
+/// and any `RawImage` resize. No `image`-crate or platform dependency.
 pub mod image_scale;
 /// Scroll, hover, clipboard, cursor, and focus managers.
 #[cfg(feature = "text_layout")]

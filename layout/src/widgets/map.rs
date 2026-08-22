@@ -92,9 +92,9 @@ pub struct MapTileLayer {
     pub theme: MapTheme,
 }
 
-/// A map look. Presets are vendored MapCSS palettes
+/// A map look. Presets are vendored `MapCSS` palettes
 /// (`widgets::map_themes`, see its header for provenance and licences —
-/// the OpenFreeMap designs are CC BY 4.0, credit is shown through
+/// the `OpenFreeMap` designs are CC BY 4.0, credit is shown through
 /// [`MapTheme::credit`] / the layer's attribution); `System` follows the
 /// window's light / dark theme with the platform-native look; `Custom`
 /// uses `MapTileLayer::style_css` (the built-in palette when that is
@@ -107,13 +107,13 @@ pub enum MapTheme {
     /// elsewhere) and its dark counterpart in dark mode.
     #[default]
     System,
-    /// CARTO Positron via OpenFreeMap (light, desaturated).
+    /// CARTO Positron via `OpenFreeMap` (light, desaturated).
     Positron,
-    /// OSM Bright via OpenFreeMap (light, colourful).
+    /// OSM Bright via `OpenFreeMap` (light, colourful).
     Bright,
-    /// OSM Liberty via OpenFreeMap (light, blue sea).
+    /// OSM Liberty via `OpenFreeMap` (light, blue sea).
     Liberty,
-    /// CARTO Dark Matter via OpenFreeMap (dark).
+    /// CARTO Dark Matter via `OpenFreeMap` (dark).
     Dark,
     /// A Google-Maps-like light look.
     GoogleLight,
@@ -128,7 +128,7 @@ pub enum MapTheme {
 }
 
 impl MapTheme {
-    /// The MapCSS sheet of a preset; empty for `Custom` and the unresolved
+    /// The `MapCSS` sheet of a preset; empty for `Custom` and the unresolved
     /// `System` (resolve it with [`Self::resolve`] first).
     #[must_use]
     pub fn stylesheet(self) -> AzString {
@@ -179,7 +179,7 @@ impl MapTheme {
     }
 
     /// The credit line a preset's licence asks for (CC BY 4.0 for the
-    /// OpenFreeMap designs, Apache-2.0 for Google's sample); empty for the
+    /// `OpenFreeMap` designs, Apache-2.0 for Google's sample); empty for the
     /// authored looks and `Custom`. Appended to the layer's attribution by
     /// [`MapTileLayer::with_theme`].
     #[must_use]
@@ -225,7 +225,7 @@ impl MapTileLayer {
         self
     }
 
-    /// The MapCSS the tiles are decoded with for `resolved` (a resolved
+    /// The `MapCSS` the tiles are decoded with for `resolved` (a resolved
     /// theme, see [`MapTheme::resolve`]): a non-empty `style_css` always
     /// wins; else the preset's sheet; else the built-in palette (empty).
     #[must_use]
@@ -264,7 +264,7 @@ impl Default for MapTileLayer {
 }
 
 /// Centre + zoom + camera state. The Leaflet shape
-/// (`map.setView([lat, lon], zoom)`) plus the MapLibre camera: `bearing_deg`
+/// (`map.setView([lat, lon], zoom)`) plus the `MapLibre` camera: `bearing_deg`
 /// rotates the map (clockwise, degrees), `pitch_deg` tilts it away from the
 /// viewer (0 = straight down, up to [`MAX_PITCH_DEG`]). Both render as a
 /// CSS `perspective() rotateX() rotate()` transform on the tile canvas —
@@ -350,14 +350,14 @@ impl MapWidget {
     /// Tilt the camera: 0 looks straight down, [`MAX_PITCH_DEG`] is the
     /// steepest 3D view (clamped). Rendered as a perspective transform on
     /// the tile canvas; right-drag vertically changes it at runtime.
-    #[must_use] pub fn with_pitch(mut self, pitch_deg: f32) -> Self {
+    #[must_use] pub const fn with_pitch(mut self, pitch_deg: f32) -> Self {
         self.viewport.pitch_deg = clamp_pitch(pitch_deg);
         self
     }
 
     /// Rotate the map (clockwise degrees, normalised to `-180..180`).
     /// Right-drag horizontally or a rotate gesture changes it at runtime.
-    #[must_use] pub fn with_bearing(mut self, bearing_deg: f32) -> Self {
+    #[must_use] pub const fn with_bearing(mut self, bearing_deg: f32) -> Self {
         self.viewport.bearing_deg = normalize_bearing(bearing_deg);
         self
     }
@@ -823,7 +823,7 @@ pub enum TileEntry {
 pub struct TileFetchInit {
     pub tile: MapTileId,
     pub url: AzString,
-    /// The MapCSS to decode with: `MapTileLayer::effective_style_css` for
+    /// The `MapCSS` to decode with: `MapTileLayer::effective_style_css` for
     /// the resolved theme (empty = the built-in palette).
     pub style_css: AzString,
     /// The resolved theme `style_css` belongs to — echoed back in
@@ -1135,11 +1135,11 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
 
 /// A right-button drag moves the camera: horizontal pixels turn the
 /// bearing (0.5 deg/px, clockwise when dragging right), vertical pixels
-/// change the pitch (dragging UP tilts the view — MapLibre's direction),
+/// change the pitch (dragging UP tilts the view — `MapLibre`'s direction),
 /// clamped to `0..=MAX_PITCH_DEG`. Pure, so the convention is pinned by a
 /// test and shared by every backend.
 #[must_use]
-pub fn camera_drag(bearing_deg: f32, pitch_deg: f32, dx_px: f32, dy_px: f32) -> (f32, f32) {
+pub const fn camera_drag(bearing_deg: f32, pitch_deg: f32, dx_px: f32, dy_px: f32) -> (f32, f32) {
     const DEG_PER_PX: f32 = 0.5;
     (
         normalize_bearing(bearing_deg + dx_px * DEG_PER_PX),
@@ -1321,14 +1321,20 @@ fn wrap_lon(lon: f64) -> f64 {
 // the widget's projection — `map_widget_render` forward-projects the
 // viewport centre through them; tap-to-pin will inverse-project taps.
 
-/// The steepest tilt the camera allows (MapLibre's default maximum).
+/// The steepest tilt the camera allows (`MapLibre`'s default maximum).
 pub const MAX_PITCH_DEG: f32 = 60.0;
 
 /// `pitch_deg` clamped to `0..=MAX_PITCH_DEG` (NaN -> 0).
 #[must_use]
-pub fn clamp_pitch(pitch_deg: f32) -> f32 {
+pub const fn clamp_pitch(pitch_deg: f32) -> f32 {
     if pitch_deg.is_finite() {
-        pitch_deg.clamp(0.0, MAX_PITCH_DEG)
+        if pitch_deg < 0.0 {
+            0.0
+        } else if pitch_deg > MAX_PITCH_DEG {
+            MAX_PITCH_DEG
+        } else {
+            pitch_deg
+        }
     } else {
         0.0
     }
@@ -1336,7 +1342,7 @@ pub fn clamp_pitch(pitch_deg: f32) -> f32 {
 
 /// `bearing_deg` wrapped into `-180..180` (NaN -> 0).
 #[must_use]
-pub fn normalize_bearing(bearing_deg: f32) -> f32 {
+pub const fn normalize_bearing(bearing_deg: f32) -> f32 {
     if !bearing_deg.is_finite() {
         return 0.0;
     }
@@ -1353,7 +1359,7 @@ pub fn normalize_bearing(bearing_deg: f32) -> f32 {
 /// `None` for the flat view (no transform, no layer promotion, no cost).
 /// `perspective()` is the camera distance — 1.5x the larger viewport side,
 /// a natural "standing above the map" look; `rotateX` leans the top edge
-/// away (MapLibre's pitch), `rotate` applies the bearing; all about the
+/// away (`MapLibre`'s pitch), `rotate` applies the bearing; all about the
 /// canvas centre.
 #[must_use]
 pub fn camera_transform_css(viewport: &MapViewport, width_px: f32, height_px: f32) -> Option<String> {

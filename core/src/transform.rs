@@ -563,7 +563,7 @@ impl ComputedTransform3D {
     /// perspective row. `is_affine` tells whether the perspective row is
     /// the trivial `[0 0 1]`.
     #[must_use]
-    pub fn plane_homography(&self) -> [f32; 9] {
+    pub const fn plane_homography(&self) -> [f32; 9] {
         [
             self.m[0][0], self.m[0][1], self.m[0][3],
             self.m[1][0], self.m[1][1], self.m[1][3],
@@ -573,8 +573,9 @@ impl ComputedTransform3D {
 
     /// Does the z = 0 plane map affinely (no perspective foreshortening)?
     #[must_use]
-    pub fn is_plane_affine(&self) -> bool {
-        self.m[0][3].abs() < 1e-7 && self.m[1][3].abs() < 1e-7 && (self.m[3][3] - 1.0).abs() < 1e-6
+    pub const fn is_plane_affine(&self) -> bool {
+        let (a, b, w) = (self.m[0][3], self.m[1][3], self.m[3][3]);
+        a > -1e-7 && a < 1e-7 && b > -1e-7 && b < 1e-7 && w > 1.0 - 1e-6 && w < 1.0 + 1e-6
     }
 
     /// Creates a scaling matrix with independent scale factors per axis.

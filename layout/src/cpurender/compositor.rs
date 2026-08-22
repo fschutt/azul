@@ -42,8 +42,8 @@ pub const fn mat3_translation(tx: f64, ty: f64) -> Mat3 {
 
 /// Is the third row the trivial `[0 0 1]` (no perspective)?
 #[must_use]
-pub fn mat3_is_affine(m: &Mat3) -> bool {
-    m[6].abs() < 1e-12 && m[7].abs() < 1e-12 && (m[8] - 1.0).abs() < 1e-9
+pub const fn mat3_is_affine(m: &Mat3) -> bool {
+    m[6] > -1e-12 && m[6] < 1e-12 && m[7] > -1e-12 && m[7] < 1e-12 && m[8] > 1.0 - 1e-9 && m[8] < 1.0 + 1e-9
 }
 
 /// The affine part as agg's `TransAffine` (exact when [`mat3_is_affine`]).

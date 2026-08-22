@@ -1,9 +1,9 @@
-//! Built-in map themes: MapCSS sheets for the vector-tile renderer
+//! Built-in map themes: `MapCSS` sheets for the vector-tile renderer
 //! (`azul_dll::desktop::extra::map::svg`), one per [`MapTheme`] preset.
 //!
 //! THE DIALECT the renderer understands is deliberately small — `selector
 //! { fill: …; stroke: …; stroke-width: …; }` where the selector is an
-//! OpenMapTiles LAYER name (`water`, `building`, `transportation`, …), a
+//! `OpenMapTiles` LAYER name (`water`, `building`, `transportation`, …), a
 //! `layer.class` pair (`transportation.motorway`) or `canvas` (the tile's
 //! base colour, i.e. land). Every colour is a plain hex so the SVG
 //! rasteriser never has to parse `hsl()`.
@@ -11,7 +11,7 @@
 //! # Provenance and licences (credit is REQUIRED, see `MapTheme::credit`)
 //!
 //! * `POSITRON`, `DARK`, `BRIGHT`, `LIBERTY` are palette extractions from
-//!   the styles OpenFreeMap publishes at `tiles.openfreemap.org/styles/*`
+//!   the styles `OpenFreeMap` publishes at `tiles.openfreemap.org/styles/*`
 //!   (repo `hyperknot/openfreemap-styles`, MIT). The styles themselves:
 //!   Positron and Dark (Dark Matter) — CARTO basemaps designed by Stamen
 //!   and Paul Norman, forked via `openmaptiles/positron-gl-style` and
@@ -27,7 +27,7 @@
 //!   resemble the familiar default looks of those products; no asset,
 //!   style file or trademark of theirs is used — colour values only.
 
-/// CARTO Positron via OpenFreeMap — the light, desaturated reference look.
+/// CARTO Positron via `OpenFreeMap` — the light, desaturated reference look.
 pub const POSITRON: &str = r"
 canvas { fill: #f2f3f0; }
 water { fill: #c2c8ca; stroke: none; }
@@ -47,7 +47,7 @@ boundary { fill: none; stroke: #b3b3b3; stroke-width: 0.6; }
 aeroway { fill: #e9e9e6; stroke: none; }
 ";
 
-/// CARTO Dark Matter via OpenFreeMap — the dark reference look.
+/// CARTO Dark Matter via `OpenFreeMap` — the dark reference look.
 pub const DARK: &str = r"
 canvas { fill: #0c0c0c; }
 water { fill: #1b1b1d; stroke: none; }
@@ -67,7 +67,7 @@ boundary { fill: none; stroke: #3b3b3b; stroke-width: 0.6; }
 aeroway { fill: #161616; stroke: none; }
 ";
 
-/// OSM Bright via OpenFreeMap — the colourful general-purpose look.
+/// OSM Bright via `OpenFreeMap` — the colourful general-purpose look.
 pub const BRIGHT: &str = r"
 canvas { fill: #f8f4f0; }
 water { fill: #aecfe2; stroke: none; }
@@ -88,7 +88,7 @@ boundary { fill: none; stroke: #a4a2ae; stroke-width: 0.7; }
 aeroway { fill: #e8e8e8; stroke: none; }
 ";
 
-/// OSM Liberty via OpenFreeMap — the Bright lineage with a brighter sea.
+/// OSM Liberty via `OpenFreeMap` — the Bright lineage with a brighter sea.
 pub const LIBERTY: &str = r"
 canvas { fill: #f8f4f0; }
 water { fill: #9ebdff; stroke: none; }
@@ -224,7 +224,8 @@ pub fn parse_hex_rgb(s: &str) -> Option<[u8; 3]> {
 /// Perceived lightness of an sRGB colour, 0 (black) .. 1 (white).
 #[must_use]
 pub fn luma(rgb: [u8; 3]) -> f32 {
-    (0.2126 * f32::from(rgb[0]) + 0.7152 * f32::from(rgb[1]) + 0.0722 * f32::from(rgb[2])) / 255.0
+    let [r, g, b] = rgb;
+    0.0722f32.mul_add(f32::from(b), 0.2126f32.mul_add(f32::from(r), 0.7152 * f32::from(g))) / 255.0
 }
 
 #[cfg(test)]
