@@ -3327,12 +3327,33 @@ pub trait PlatformWindow {
         }
     }
 
-    /// `<transient-window>`, popup side: close if the parent said so.
+    /// Does applying a new `position` through `sync_window_state` actually
+    /// move this window? `true` everywhere a window can be placed; a Wayland
+    /// popup (no `xdg_popup.reposition` at the bound protocol version) says
+    /// `false`, and the tear-off drag then tracks the pointer arithmetically.
+    fn window_follows_position_changes(&self) -> bool {
+        true
+    }
+
+    /// `<transient-window>`, popup side: close if the parent said so; move
+    /// and resize to the placement the parent last wrote (the anchor moved,
+    /// the content re-measured) - a torn-off toplevel only resizes.
     fn poll_transient_mailbox(&mut self) {
-        if super::transient::poll_popup(self.get_current_window_state())
-            == super::transient::PopupAction::Close
-        {
-            let _ = self.request_window_close("transient.closed_by_parent");
+        use super::transient::{poll_popup, relative_position, PopupAction};
+        match poll_popup(self.get_current_window_state()) {
+            PopupAction::Close => {
+                let _ = self.request_window_close("transient.closed_by_parent");
+            }
+            PopupAction::Place { origin, size } => {
+                self.get_common_mut().update_window_state(WindowStateSource::App, |ws| {
+                    if let Some(o) = origin {
+                        ws.position = relative_position(o);
+                    }
+                    ws.size.dimensions = size;
+                });
+                self.sync_window_state();
+            }
+            PopupAction::Nothing => {}
         }
     }
 
@@ -3355,6 +3376,16 @@ pub trait PlatformWindow {
                 let _ = self.request_window_close("transient.dismissed");
                 self.request_regeneration_all_windows();
             }
+            return;
+        }
+        // The window is closing for a reason of its own (a torn-off
+        // toplevel's close button): the parent's node closes with it.
+        if super::transient::post_dismissed_on_close(&previous, &current) {
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[transient] closing window reports itself dismissed"
+            );
+            self.request_regeneration_all_windows();
             return;
         }
 
@@ -4418,6 +4449,31 @@ pub trait PlatformWindow {
                     .is_some_and(|lw| lw.transient_windows.set_forced_open(node_id, *open));
                 if changed {
                     // The popup set is reconciled after a layout pass.
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
+            CallbackChange::SetTransientWindowTorn { node, torn } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != azul_core::dom::DomId::ROOT_ID {
+                    log_warn!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] set_transient_window_torn on a non-root dom {:?}: ignored",
+                        node.dom
+                    );
+                    return ProcessEventResult::DoNothing;
+                }
+                let changed = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.set_transient_window_torn(node_id, *torn));
+                if changed {
+                    // The surface change (popup <-> toplevel) is synced after
+                    // a layout pass, which also drains the TornOff/Docked event.
                     self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 } else {
@@ -6227,6 +6283,31 @@ pub trait PlatformWindow {
     /// * `ProcessEventResult` - The maximum framework-determined processing level from applied changes
     /// * `Update` - The maximum update level requested by all invoked callbacks
     /// * `bool` - Whether any callback called preventDefault()
+    /// The deepest node under the point where the current drag gesture was
+    /// PRESSED - the drag's source element. `None` when no gesture session
+    /// is running.
+    fn drag_source_node(&mut self) -> Option<azul_core::dom::DomNodeId> {
+        let start = self.drag_press_position()?;
+        let hit = self.get_common_mut().perform_hit_test(start);
+        hit.hovered_nodes.iter().rev().find_map(|(dom, h)| {
+            h.regular_hit_test_nodes.keys().last().map(|n| azul_core::dom::DomNodeId {
+                dom: *dom,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*n)),
+            })
+        })
+    }
+
+    /// Where the current drag gesture was pressed (window-local).
+    fn drag_press_position(&self) -> Option<azul_core::geom::LogicalPosition> {
+        Some(
+            self.get_layout_window()?
+                .gesture_drag_manager
+                .get_current_session()?
+                .first_sample()?
+                .position,
+        )
+    }
+
     /// Does this node — or an ancestor — declare `-azul-app-region: drag`?
     ///
     /// The property does NOT cascade, deliberately: a drag region names the
@@ -6302,18 +6383,73 @@ pub trait PlatformWindow {
         // of the bar — the text inside it — and the bar is what declared the
         // region. Walking up is how a click on the title text still drags,
         // while a button that sets `no-drag` stops the walk at itself.
+        //
+        // In a `<transient-window>` the drag is the TEAR-OFF drag instead:
+        // the window's own pipeline moves it with the pointer and reports
+        // the drop to the parent (see `common::transient`). A popup has no
+        // window manager to hand the gesture to.
         for ev in events {
-            let is_drag_start =
-                matches!(ev.event_type, azul_core::events::EventType::DragStart);
-            let is_double = matches!(ev.event_type, azul_core::events::EventType::DoubleClick);
+            use azul_core::events::EventType;
+            match ev.event_type {
+                EventType::Drag if super::transient::tear_drag_active(self.get_current_window_state()) => {
+                    let follows = self.window_follows_position_changes();
+                    if let Some(position) = super::transient::tear_drag_move(self.get_current_window_state(), follows) {
+                        self.get_common_mut()
+                            .update_window_state(WindowStateSource::App, |ws| ws.position = position);
+                    }
+                    continue;
+                }
+                EventType::DragEnd if super::transient::tear_drag_active(self.get_current_window_state()) => {
+                    let follows = self.window_follows_position_changes();
+                    if super::transient::tear_drag_end(self.get_current_window_state(), follows) {
+                        log_debug!(
+                            super::debug_server::LogCategory::Window,
+                            "[transient] tear-off drag ended; reporting the drop to the parent"
+                        );
+                        self.request_regeneration_all_windows();
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            let is_drag_start = matches!(ev.event_type, EventType::DragStart);
+            let is_double = matches!(ev.event_type, EventType::DoubleClick);
             if !(is_drag_start || is_double) {
                 continue;
             }
-            let target = ev.target;
-            if !self.node_is_window_drag_region(target) {
+            // A DragStart targets the node under the pointer NOW - after the
+            // drag threshold, by which time a fast press on a thin title strip
+            // has already left it. The region is the one that was PRESSED
+            // (W3C: `dragstart` fires on the source element), so hit-test the
+            // gesture's start position; the current target is the fallback.
+            let target = if is_drag_start {
+                self.drag_source_node().unwrap_or(ev.target)
+            } else {
+                ev.target
+            };
+            let is_region = self.node_is_window_drag_region(target);
+            log_debug!(
+                super::debug_server::LogCategory::Input,
+                "[app-region] {:?} on {:?} (drag region: {})",
+                ev.event_type,
+                target,
+                is_region
+            );
+            if !is_region {
                 continue;
             }
             if is_drag_start {
+                let press = self.drag_press_position();
+                if super::transient::tear_drag_begin(self.get_current_window_state(), press) {
+                    log_debug!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] tear-off drag begins"
+                    );
+                    continue;
+                }
+                if super::transient::mailbox_of(self.get_current_window_state()).is_some() {
+                    continue; // a popup without tearoff: the strip does nothing
+                }
                 self.handle_begin_interactive_move();
             } else {
                 // Double-click on a drag region toggles the frame, the way

@@ -398,6 +398,20 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
         for (key, value) in attrs {
             if let Some(cfg) = transient_cfg.as_mut() {
                 if cfg.apply_attr(key.as_str(), value.as_str()) {
+                    // `tearoff="zone:<selector>"`: the MODE rides in the
+                    // config (it is `Copy`), the selector - a string - stays
+                    // on the node as its `tearoff-zone` attribute, where the
+                    // engine's drop handling reads it.
+                    if key == "tearoff" {
+                        if let Some(selector) = value.trim().strip_prefix("zone:") {
+                            attr_vec.push(azul_core::dom::AttributeType::Custom(
+                                azul_core::dom::AttributeNameValue {
+                                    attr_name: str_arena.intern("tearoff-zone"),
+                                    value: str_arena.intern(selector.trim()),
+                                },
+                            ));
+                        }
+                    }
                     continue;
                 }
             }

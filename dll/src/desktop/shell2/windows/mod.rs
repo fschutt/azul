@@ -145,6 +145,9 @@ pub struct Win32Window {
     /// This window was created as an OWNED popup of another azul window
     /// (a transient window or fallback menu): never made topmost.
     owned_popup: bool,
+    /// The owner's registry id (its HWND), for re-placing a
+    /// `RelativeToParentWindow` popup against the owner's live position.
+    owner_id: u64,
     /// Application instance handle
     pub hinstance: HINSTANCE,
 
@@ -682,6 +685,7 @@ impl Win32Window {
         let mut result = Win32Window {
             hwnd,
             owned_popup: owner_hwnd.is_some(),
+            owner_id: owner_hwnd.map_or(0, |h| h as usize as u64),
             hinstance,
             render_mode,
             gl_functions,
@@ -2390,9 +2394,27 @@ impl Win32Window {
                         SWP_NOSIZE | SWP_NOZORDER,
                     );
                 },
-                // Relative (child) windows are positioned once at creation and not
-                // re-synced at runtime; Uninitialized lets the OS decide.
-                WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => {}
+                // A popup's offset from its owner changed (a
+                // `<transient-window>` following its anchor, or its tear-off
+                // drag): re-place it against the owner's live position.
+                WindowPosition::RelativeToParentWindow(offset) => {
+                    if let Some((px, py)) = resolve_windows_parent_origin(self.owner_id) {
+                        unsafe {
+                            use dlopen::constants::{SWP_NOSIZE, SWP_NOZORDER};
+                            (self.win32.user32.SetWindowPos)(
+                                self.hwnd,
+                                std::ptr::null_mut(),
+                                px + offset.x,
+                                py + offset.y,
+                                0,
+                                0,
+                                SWP_NOSIZE | SWP_NOZORDER,
+                            );
+                        }
+                    }
+                }
+                // Uninitialized lets the OS decide.
+                WindowPosition::Uninitialized => {}
             }
         }
 

@@ -2568,6 +2568,19 @@ impl Runner {
                     ProcessEventResult::DoNothing
                 }
             }
+            CallbackChange::SetTransientWindowTorn { node, torn } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != DomId::ROOT_ID {
+                    return ProcessEventResult::DoNothing;
+                }
+                if self.layout_window.set_transient_window_torn(node_id, *torn) {
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
             CallbackChange::ShowTooltip { .. } => {
                 self.unsupported("ShowTooltip", "tooltips are a second platform window")
             }

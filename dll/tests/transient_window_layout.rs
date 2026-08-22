@@ -658,3 +658,440 @@ fn escape_in_the_parent_dismisses_its_popups() {
     assert_eq!(dismissed_calls(&parent), 1);
 }
 
+
+// ---------------------------------------------------------------------------
+// Tear-off (plan §5): the grip drag, dock back, zones, the API
+// ---------------------------------------------------------------------------
+
+use azul_core::{
+    geom::LogicalPosition,
+    transient::TransientTearoff,
+    window::WindowType,
+};
+
+/// The rect of the first node whose classes contain `class`, in `window`.
+fn rect_of_class(window: &HeadlessWindow, class: &str) -> azul_core::geom::LogicalRect {
+    let lw = window.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    let n = nodes
+        .linear_iter()
+        .find(|n| nodes.get(*n).is_some_and(|nd| format!("{:?}", nd.get_ids_and_classes()).contains(class)))
+        .unwrap_or_else(|| panic!("no node with class {class}"));
+    lw.get_node_layout_rect(azul_core::dom::DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+    })
+    .expect("laid out")
+}
+
+/// A pointer move, the way a backend delivers one: state, hit test, gesture
+/// sample, pass.
+fn move_to(window: &mut HeadlessWindow, pos: LogicalPosition, site: &str) {
+    use azul::desktop::shell2::common::event::{BUTTON_STATE_LEFT, BUTTON_STATE_NONE};
+    window.snapshot_window_state_baseline(site);
+    window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
+    window.update_hit_test_at(pos);
+    let buttons = if window.get_current_window_state().mouse_state.left_down { BUTTON_STATE_LEFT } else { BUTTON_STATE_NONE };
+    window.record_input_sample(pos, buttons, false, false, None);
+    let _ = window.process_window_events(0);
+}
+
+fn press(window: &mut HeadlessWindow, down: bool, site: &str) {
+    use azul::desktop::shell2::common::event::{BUTTON_STATE_LEFT, BUTTON_STATE_NONE};
+    window.snapshot_window_state_baseline(site);
+    window.common.mouse_state_mut().left_down = down;
+    let pos = window
+        .get_current_window_state()
+        .mouse_state
+        .cursor_position
+        .get_position()
+        .unwrap_or(LogicalPosition::zero());
+    window.record_input_sample(pos, if down { BUTTON_STATE_LEFT } else { BUTTON_STATE_NONE }, down, !down, None);
+    let _ = window.process_window_events(0);
+}
+
+/// Drag from `from` by `delta` in `window` through the real gesture path
+/// (press, a move past the 5px drag threshold, the move to the end, release).
+fn drag_by(window: &mut HeadlessWindow, from: LogicalPosition, delta: LogicalPosition) {
+    move_to(window, from, "t.hover");
+    press(window, true, "t.down");
+    // Past the threshold first: DragStart fires on this move.
+    let step = LogicalPosition::new(from.x + delta.x.signum() * 8.0, from.y + delta.y.signum() * 8.0);
+    move_to(window, step, "t.start");
+    move_to(window, LogicalPosition::new(from.x + delta.x, from.y + delta.y), "t.drag");
+    press(window, false, "t.up");
+}
+
+fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> TransientWindowData {
+    let mut m = mailbox_of(opts_state).expect("the window's ctx is its mailbox");
+    let d = m.downcast_ref::<TransientWindowData>().unwrap();
+    TransientWindowData {
+        parent_window_id: d.parent_window_id,
+        content_dom: d.content_dom,
+        placement: d.placement,
+        content_size: d.content_size,
+        content: d.content.clone(),
+        generation: d.generation,
+        closed: d.closed,
+        dismissed: d.dismissed,
+        origin: d.origin,
+        torn: d.torn,
+        drag: d.drag,
+        drop: d.drop,
+    }
+}
+
+/// The colour picker's grip: dragging it off the swatch turns the popup into
+/// a `Normal` toplevel titled "Colour" at the drop point; dragging the
+/// toplevel's grip back over the swatch docks it — a popup again, fresh id
+/// each way, the old window told to close each way.
+#[test]
+fn dragging_the_grip_tears_the_picker_off_and_dragging_it_back_docks_it() {
+    let app_data = Arc::new(RefCell::new(RefAny::new(0u8)));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize { width: 800.0, height: 600.0 };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = picker_widget_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+    let swatch_rect = rect_of_class(&parent, "native_color_input");
+    let swatch = LogicalPosition::new(
+        swatch_rect.origin.x + swatch_rect.size.width / 2.0,
+        swatch_rect.origin.y + swatch_rect.size.height / 2.0,
+    );
+    click_at(&mut parent, swatch);
+    parent.regenerate_layout().expect("reconcile");
+    let popup_opts = take_queued_popup(&mut parent);
+    assert_eq!(popup_opts.window_state.flags.window_type, WindowType::Menu);
+    let popup_origin = mailbox(&popup_opts.window_state).origin;
+    assert!(
+        (popup_origin.y - (swatch_rect.origin.y + swatch_rect.size.height)).abs() < 1.0,
+        "the popup hangs below the swatch: {popup_origin:?} vs {swatch_rect:?}"
+    );
+    let popup_dom = mailbox(&popup_opts.window_state).content_dom;
+
+    // The popup, with its grip.
+    let mut popup = headless(popup_opts.clone(), app_data.clone());
+    popup.regenerate_layout().expect("popup layout");
+    let grip = rect_of_class(&popup, "color_picker_grip");
+    let grip_mid = LogicalPosition::new(grip.origin.x + grip.size.width / 2.0, grip.origin.y + grip.size.height / 2.0);
+
+    // Drag the grip 300px right and 200px down: the window moves with it.
+    drag_by(&mut popup, grip_mid, LogicalPosition::new(300.0, 200.0));
+    let m = mailbox(&popup_opts.window_state);
+    assert!(m.drag.is_none(), "the drag ended");
+    let report = m.drop.expect("the drop was reported to the parent");
+    assert!(
+        (report.origin.x - (popup_origin.x + 300.0)).abs() < 1.0
+            && (report.origin.y - (popup_origin.y + 200.0)).abs() < 1.0,
+        "the window's origin moved by the drag: {:?} from {popup_origin:?}",
+        report.origin
+    );
+    assert!(
+        (report.cursor.x - (popup_origin.x + grip_mid.x + 300.0)).abs() < 1.0,
+        "the pointer is reported in parent coordinates: {:?}",
+        report.cursor
+    );
+
+    // The parent's next pass: the popup closes, a toplevel opens at the drop.
+    relayout(&mut parent);
+    assert!(mailbox(&popup_opts.window_state).closed, "the popup was told to close");
+    {
+        let lw = parent.get_layout_window().unwrap();
+        let open = lw.transient_windows.open_windows();
+        assert_eq!(open.len(), 1, "still exactly one window for the node");
+        assert_ne!(open[0].content_dom, popup_dom, "a fresh id for the new kind of window");
+        let torn = open[0].torn.expect("torn off");
+        assert!((torn.x - report.origin.x).abs() < 1.0 && (torn.y - report.origin.y).abs() < 1.0);
+    }
+    let top_opts = take_queued_popup(&mut parent);
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal, "a real toplevel");
+    assert_eq!(top_opts.window_state.title.as_str(), "Colour");
+    assert!(!top_opts.window_state.flags.is_always_on_top);
+    let tm = mailbox(&top_opts.window_state);
+    assert!(tm.torn);
+    assert_eq!(tm.content_size, popup_opts.window_state.size.dimensions, "same content, same size");
+
+    // The toplevel lays the same panel out; Escape does NOT dismiss a palette.
+    let mut top = headless(top_opts.clone(), app_data.clone());
+    top.regenerate_layout().expect("toplevel layout");
+    top.snapshot_window_state_baseline("t.escape");
+    top.common.keyboard_state_mut().pressed_virtual_keycodes = vec![VirtualKeyCode::Escape].into();
+    let _ = top.process_window_events(0);
+    assert!(!close_requested(&top), "a torn-off palette ignores Escape");
+    top.snapshot_window_state_baseline("t.escape_up");
+    top.common.keyboard_state_mut().pressed_virtual_keycodes = vec![].into();
+    let _ = top.process_window_events(0);
+
+    // Drag the toplevel's grip so the pointer lands on the swatch: it docks.
+    let grip = rect_of_class(&top, "color_picker_grip");
+    let grip_mid = LogicalPosition::new(grip.origin.x + grip.size.width / 2.0, grip.origin.y + grip.size.height / 2.0);
+    let pointer_now = LogicalPosition::new(tm.origin.x + grip_mid.x, tm.origin.y + grip_mid.y);
+    drag_by(&mut top, grip_mid, LogicalPosition::new(swatch.x - pointer_now.x, swatch.y - pointer_now.y));
+    let report = mailbox(&top_opts.window_state).drop.expect("reported");
+    assert!(swatch_rect.contains(report.cursor), "the pointer is over the swatch: {:?}", report.cursor);
+
+    relayout(&mut parent);
+    assert!(mailbox(&top_opts.window_state).closed, "the toplevel was told to close");
+    let docked_opts = take_queued_popup(&mut parent);
+    assert_eq!(docked_opts.window_state.flags.window_type, WindowType::Menu, "a popup again");
+    let dm = mailbox(&docked_opts.window_state);
+    assert!(!dm.torn);
+    assert!(
+        (dm.origin.y - (swatch_rect.origin.y + swatch_rect.size.height)).abs() < 1.0,
+        "back below the swatch: {:?}",
+        dm.origin
+    );
+    let lw = parent.get_layout_window().unwrap();
+    assert!(lw.transient_windows.open_windows()[0].torn.is_none());
+    assert_eq!(lw.transient_windows.open_windows().len(), 1);
+}
+
+/// App state for the zone / API scenarios: which events the node reported.
+struct TearState {
+    open: bool,
+    torn_attr: bool,
+    tearoff: TransientTearoff,
+    events: Arc<std::sync::Mutex<Vec<&'static str>>>,
+}
+
+extern "C" fn on_torn_off(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(s) = data.downcast_ref::<TearState>() {
+        s.events.lock().unwrap().push("torn-off");
+    }
+    Update::DoNothing
+}
+
+extern "C" fn on_docked(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(s) = data.downcast_ref::<TearState>() {
+        s.events.lock().unwrap().push("docked");
+    }
+    Update::DoNothing
+}
+
+/// Press on the "float" button inside the popup: tear the window off by API.
+extern "C" fn on_float_clicked(_data: RefAny, mut info: CallbackInfo) -> Update {
+    // The button lives in the POPUP's dom; the node to tear off is in the
+    // parent's. The test drives the parent-side API directly instead (see
+    // `set_transient_window_torn_tears_off_and_docks_with_events`); this
+    // handler only proves a popup callback runs.
+    let _ = &mut info;
+    Update::DoNothing
+}
+
+/// A tool window: `tearoff="zone:.dock"` with two dock zones beside it.
+extern "C" fn zones_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    let (open, torn, tearoff) = data
+        .downcast_ref::<TearState>()
+        .map_or((false, false, TransientTearoff::None), |s| (s.open, s.torn_attr, s.tearoff));
+    let cfg = if open { TransientWindowConfig::opened() } else { TransientWindowConfig::closed() }
+        .with_tearoff(tearoff)
+        .with_torn(torn);
+    let mut node = NodeData::create_node(NodeType::TransientWindow(cfg));
+    node.set_attributes(
+        vec![
+            azul_core::dom::AttributeType::Title("Tools".into()),
+            azul_core::dom::AttributeType::Custom(azul_core::dom::AttributeNameValue {
+                attr_name: "tearoff-zone".into(),
+                value: ".dock".into(),
+            }),
+        ]
+        .into(),
+    );
+    node.add_callback(
+        EventFilter::Component(ComponentEventFilter::TornOff),
+        data.clone(),
+        Callback { cb: on_torn_off, ctx: azul_core::refany::OptionRefAny::None }.to_core(),
+    );
+    node.add_callback(
+        EventFilter::Component(ComponentEventFilter::Docked),
+        data.clone(),
+        Callback { cb: on_docked, ctx: azul_core::refany::OptionRefAny::None }.to_core(),
+    );
+    let mut float = NodeData::create_node(NodeType::Div);
+    float.add_callback(
+        EventFilter::Hover(azul_core::events::HoverEventFilter::MouseUp),
+        data.clone(),
+        Callback { cb: on_float_clicked, ctx: azul_core::refany::OptionRefAny::None }.to_core(),
+    );
+    let popup = Dom::create_from_data(node).with_child(
+        Dom::create_div()
+            .with_css("width: 200px; height: 120px; background: white;".into())
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("grip".into())].into())
+                    .with_css("height: 16px; -azul-app-region: drag;".into()),
+            )
+            .with_child(Dom::create_from_data(float).with_css("height: 20px;".into())),
+    );
+    let anchor = Dom::create_div()
+        .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("anchor".into())].into())
+        .with_css("position: absolute; left: 300px; top: 20px; width: 80px; height: 24px; background: #888;".into())
+        .with_child(popup);
+    let zone = |left: f32| {
+        Dom::create_div()
+            .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("dock".into())].into())
+            .with_css(&format!(
+                "position: absolute; left: {left}px; top: 200px; width: 120px; height: 300px; background: #ddd;"
+            ))
+    };
+    Dom::create_body().with_child(anchor).with_child(zone(0.0)).with_child(zone(680.0))
+}
+
+fn make_zones_parent(open: bool, torn: bool, tearoff: TransientTearoff) -> (HeadlessWindow, Arc<std::sync::Mutex<Vec<&'static str>>>) {
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let app_data = Arc::new(RefCell::new(RefAny::new(TearState {
+        open,
+        torn_attr: torn,
+        tearoff,
+        events: events.clone(),
+    })));
+    let mut options = WindowCreateOptions::default();
+    // Tall enough for a 120px popup below a zone ending at y=500.
+    options.window_state.size.dimensions = LogicalSize { width: 800.0, height: 700.0 };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = zones_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    (headless(options, app_data), events)
+}
+
+fn set_torn_attr(window: &HeadlessWindow, torn: bool) {
+    let mut app = window.common.app_data.borrow_mut();
+    let guard = app.downcast_mut::<TearState>();
+    if let Some(mut s) = guard {
+        s.torn_attr = torn;
+    }
+}
+
+fn transient_node(parent: &HeadlessWindow) -> azul_core::id::NodeId {
+    parent.get_layout_window().unwrap().transient_windows.open_windows()[0].source_node
+}
+
+/// Dropping onto a `.dock` zone re-anchors the window there (the popup is
+/// kept, its placement moves to the zone); dropping off every zone tears it
+/// off; the `torn` attribute tears off / docks on change; the events fire.
+#[test]
+fn a_drop_on_a_zone_re_anchors_and_the_torn_attribute_is_followed() {
+    let (mut parent, events) = make_zones_parent(true, false, TransientTearoff::Zone);
+    parent.regenerate_layout().expect("layout");
+    let popup_opts = take_queued_popup(&mut parent);
+    let anchor = rect_of_class(&parent, "anchor");
+    let first = mailbox(&popup_opts.window_state);
+    assert!((first.origin.y - (anchor.origin.y + anchor.size.height)).abs() < 1.0, "below the anchor");
+    let node = transient_node(&parent);
+
+    // 1. Drop on the right zone: re-anchored, same window, placement moved.
+    let mut popup = headless(popup_opts.clone(), parent.common.app_data.clone());
+    popup.regenerate_layout().expect("popup layout");
+    let grip = rect_of_class(&popup, "grip");
+    let grip_mid = LogicalPosition::new(grip.origin.x + grip.size.width / 2.0, grip.origin.y + 8.0);
+    let pointer_now = LogicalPosition::new(first.origin.x + grip_mid.x, first.origin.y + grip_mid.y);
+    let zone_point = LogicalPosition::new(700.0, 300.0);
+    drag_by(&mut popup, grip_mid, LogicalPosition::new(zone_point.x - pointer_now.x, zone_point.y - pointer_now.y));
+    relayout(&mut parent);
+    assert!(parent.pending_window_creates.is_empty(), "a zone dock keeps the popup window");
+    assert!(!mailbox(&popup_opts.window_state).closed);
+    let m = mailbox(&popup_opts.window_state);
+    assert!(
+        (m.placement.anchor_rect.origin.x - 680.0).abs() < 1.0 && (m.placement.anchor_rect.origin.y - 200.0).abs() < 1.0,
+        "anchored to the zone now: {:?}",
+        m.placement.anchor_rect
+    );
+    assert!(
+        (m.origin.y - 500.0).abs() < 1.0 && (m.origin.x - 600.0).abs() < 1.0,
+        "placed below the zone, slid in from the right edge: {:?}",
+        m.origin
+    );
+    assert!(events.lock().unwrap().is_empty(), "popup to popup: no tear-off event");
+    {
+        let lw = parent.get_layout_window().unwrap();
+        assert_eq!(lw.transient_windows.anchor_overrides().len(), 1);
+        assert_eq!(lw.transient_windows.open_windows()[0].source_node, node);
+    }
+
+    // 2. Drop in the open: torn off, the event fires, a toplevel is queued.
+    let popup_origin = m.origin;
+    let pointer_now = LogicalPosition::new(popup_origin.x + grip_mid.x, popup_origin.y + grip_mid.y);
+    let free_point = LogicalPosition::new(400.0, 100.0);
+    drag_by(&mut popup, grip_mid, LogicalPosition::new(free_point.x - pointer_now.x, free_point.y - pointer_now.y));
+    relayout(&mut parent);
+    assert!(mailbox(&popup_opts.window_state).closed);
+    let top_opts = take_queued_popup(&mut parent);
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal);
+    assert_eq!(top_opts.window_state.title.as_str(), "Tools");
+    assert_eq!(*events.lock().unwrap(), vec!["torn-off"]);
+
+    // 3. The app sets `torn="false"`: docked (onto the zone it last had).
+    set_torn_attr(&parent, true); // matches reality first: no change...
+    relayout(&mut parent);
+    assert!(parent.pending_window_creates.is_empty(), "attribute == state: nothing happens");
+    set_torn_attr(&parent, false);
+    relayout(&mut parent);
+    assert!(mailbox(&top_opts.window_state).closed, "the toplevel closes");
+    let docked = take_queued_popup(&mut parent);
+    assert_eq!(docked.window_state.flags.window_type, WindowType::Menu);
+    assert!((mailbox(&docked.window_state).placement.anchor_rect.origin.x - 680.0).abs() < 1.0, "still the zone");
+    assert_eq!(*events.lock().unwrap(), vec!["torn-off", "docked"]);
+}
+
+/// `CallbackInfo::set_transient_window_torn`, through the change pipeline:
+/// tears off at the popup's place, docks back, fires the events once each.
+#[test]
+fn set_transient_window_torn_tears_off_and_docks_with_events() {
+    let (mut parent, events) = make_zones_parent(true, false, TransientTearoff::Free);
+    parent.regenerate_layout().expect("layout");
+    let popup_opts = take_queued_popup(&mut parent);
+    let node = transient_node(&parent);
+
+    let changed = parent.get_layout_window_mut().unwrap().set_transient_window_torn(node, true);
+    assert!(changed);
+    relayout(&mut parent);
+    assert!(mailbox(&popup_opts.window_state).closed);
+    let top_opts = take_queued_popup(&mut parent);
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal);
+    let origin = mailbox(&top_opts.window_state).origin;
+    assert_eq!(origin, mailbox(&popup_opts.window_state).origin, "torn off where the popup was");
+    assert_eq!(*events.lock().unwrap(), vec!["torn-off"]);
+
+    // Again: nothing.
+    assert!(!parent.get_layout_window_mut().unwrap().set_transient_window_torn(node, true));
+
+    let changed = parent.get_layout_window_mut().unwrap().set_transient_window_torn(node, false);
+    assert!(changed);
+    relayout(&mut parent);
+    assert!(mailbox(&top_opts.window_state).closed);
+    let docked = take_queued_popup(&mut parent);
+    assert_eq!(docked.window_state.flags.window_type, WindowType::Menu);
+    assert_eq!(*events.lock().unwrap(), vec!["torn-off", "docked"]);
+
+    // A window without `tearoff` ignores it.
+    let (mut plain, _) = make_zones_parent(true, false, TransientTearoff::None);
+    plain.regenerate_layout().expect("layout");
+    let _ = take_queued_popup(&mut plain);
+    let node = transient_node(&plain);
+    assert!(!plain.get_layout_window_mut().unwrap().set_transient_window_torn(node, true));
+}
+
+/// The torn-off toplevel's close button: the node closes, `Dismissed` fires.
+#[test]
+fn closing_a_torn_off_toplevel_dismisses_the_node() {
+    let mut parent = make_parent(true, TransientDismiss::Outside);
+    parent.regenerate_layout().expect("layout");
+    let _ = take_queued_popup(&mut parent);
+    // Not tear-off capable: the plain fixture. Use the engine API on a
+    // capable window instead.
+    let (mut parent, _events) = make_zones_parent(true, true, TransientTearoff::Free);
+    parent.regenerate_layout().expect("layout");
+    let top_opts = take_queued_popup(&mut parent);
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal, "torn=\"true\" opens torn");
+    let mut top = headless(top_opts.clone(), parent.common.app_data.clone());
+    top.regenerate_layout().expect("layout");
+
+    // The close button.
+    let _ = top.request_window_close("test.close_button");
+    assert!(mailbox(&top_opts.window_state).dismissed, "the closing palette reports itself dismissed");
+    relayout(&mut parent);
+    assert!(parent.get_layout_window().unwrap().transient_windows.open_windows().is_empty());
+    assert!(parent.pending_window_creates.is_empty());
+}
+

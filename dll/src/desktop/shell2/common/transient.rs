@@ -39,6 +39,21 @@
 //! - The parent then marks the node dismissed (edge-triggered, so the node's
 //!   still-`open` attribute cannot reopen it), and fires
 //!   `ComponentEventFilter::Dismissed` on the node so the app drops its flag.
+//!
+//! # Tear-off
+//!
+//! A `tearoff` window's `-azul-app-region: drag` strip does not hand the
+//! gesture to the window manager (an override-redirect popup has no WM, an
+//! `xdg_popup` cannot be moved at all): the popup's OWN pipeline runs the
+//! drag. `DragStart` on the strip records the press, every `Drag` moves the
+//! window by the pointer's offset from it (the window follows the pointer,
+//! so the offset stays small), and `DragEnd` posts where the window and the
+//! pointer ended up, in PARENT coordinates, to the mailbox. The parent's next
+//! sync hands that to the engine (`LayoutWindow::drop_transient_window`),
+//! which decides - dock, dock onto a zone, tear off - and the surface diff
+//! that follows is an ordinary close + open: the popup becomes a
+//! `WindowType::Normal` toplevel (title bar, no light-dismiss, the same
+//! mailbox layout callback) or the toplevel becomes a popup again.
 
 use alloc::vec::Vec;
 
@@ -48,7 +63,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalSize, PhysicalPosition},
     id::NodeId,
     refany::{OptionRefAny, RefAny},
-    transient::TransientDismiss,
+    transient::{TransientDismiss, TransientTearoff},
     window::{VirtualKeyCode, WindowDecorations, WindowPosition, WindowType},
 };
 use azul_layout::{
@@ -80,6 +95,35 @@ pub struct TransientWindowData {
     pub closed: bool,
     /// Popup → parent: the user dismissed me (I am already closing).
     pub dismissed: bool,
+    /// The window's top-left in the PARENT's logical coordinates: the
+    /// resolved placement for a popup, the drop origin for a torn-off
+    /// toplevel. Kept live by the popup's own tear-off drag.
+    pub origin: LogicalPosition,
+    /// This window is a torn-off toplevel, not a popup on its anchor.
+    pub torn: bool,
+    /// Popup → popup: a tear-off drag in progress (see [`TearDrag`]).
+    pub drag: Option<TearDrag>,
+    /// Popup → parent: the tear-off drag ended; decide what it meant.
+    pub drop: Option<TearDropReport>,
+}
+
+/// A tear-off drag in progress, inside the popup window.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TearDrag {
+    /// Where the pointer was, in the popup's own coordinates, when the drag
+    /// began. The window is moved so that the pointer stays there.
+    pub press_local: LogicalPosition,
+    /// The window's origin (parent coordinates) when the drag began.
+    pub origin_at_press: LogicalPosition,
+}
+
+/// Where a tear-off drag ended, in the PARENT's logical coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TearDropReport {
+    /// The window's top-left.
+    pub origin: LogicalPosition,
+    /// The pointer.
+    pub cursor: LogicalPosition,
 }
 
 impl TransientWindowData {
@@ -163,11 +207,83 @@ pub fn popup_create_options(
         generation: 0,
         closed: false,
         dismissed: false,
+        origin,
+        torn: false,
+        drag: None,
+        drop: None,
     });
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
     window_state.size.dpi = parent.size.dpi;
     window_state.theme = parent.theme;
+    window_state.layout_callback = LayoutCallback {
+        cb: transient_layout_callback,
+        ctx: OptionRefAny::Some(mailbox.clone()),
+    };
+
+    let options = WindowCreateOptions {
+        window_state,
+        size_to_content: false,
+        renderer: None.into(),
+        theme: None.into(),
+        create_callback: None.into(),
+        hot_reload: false,
+        parent_window_id,
+    };
+    (options, mailbox)
+}
+
+/// Build the TOPLEVEL for a torn-off transient window: a `Normal` window
+/// with a title bar (so the OS gives it a close button and its own moves),
+/// not always-on-top, never light-dismissed, at the engine's torn origin
+/// (parent coordinates -> screen, where the parent's screen position is
+/// known; the compositor places it where it is not). The same mailbox
+/// layout callback as a popup: it is still the one subtree.
+#[must_use]
+pub fn toplevel_create_options(
+    parent_window_id: u64,
+    parent: &FullWindowState,
+    open: &OpenTransientWindow,
+    content: Dom,
+    title: &str,
+) -> (WindowCreateOptions, RefAny) {
+    let size = open.content_size;
+    let origin = open.torn.unwrap_or_else(|| open.placement.resolve(size, None));
+
+    let mailbox = RefAny::new(TransientWindowData {
+        parent_window_id,
+        content_dom: open.content_dom,
+        placement: open.placement,
+        content_size: size,
+        content,
+        generation: 0,
+        closed: false,
+        dismissed: false,
+        origin,
+        torn: true,
+        drag: None,
+        drop: None,
+    });
+
+    let mut window_state = FullWindowState::default();
+    window_state.flags.window_type = WindowType::Normal;
+    window_state.flags.is_visible = true;
+    window_state.flags.is_resizable = false;
+    window_state.title = title.into();
+    window_state.window_id = "azul-transient-torn".into();
+    window_state.size.dimensions = size;
+    window_state.size.dpi = parent.size.dpi;
+    window_state.theme = parent.theme;
+    #[allow(clippy::cast_possible_truncation)] // whole pixels
+    {
+        window_state.position = match parent.position {
+            WindowPosition::Initialized(pp) => WindowPosition::Initialized(PhysicalPosition::new(
+                pp.x + origin.x.round() as i32,
+                pp.y + origin.y.round() as i32,
+            )),
+            _ => WindowPosition::Uninitialized,
+        };
+    }
     window_state.layout_callback = LayoutCallback {
         cb: transient_layout_callback,
         ctx: OptionRefAny::Some(mailbox.clone()),
@@ -293,6 +409,40 @@ pub fn sync_parent(
 ) -> SyncOutcome {
     let mut out = SyncOutcome::default();
 
+    // 0. Tear-off drags that ended: the engine decides what the drop meant
+    //    (dock / zone / tear off) and queues the surface changes + event.
+    let drops: Vec<(NodeId, TearDropReport)> = lw
+        .transient_windows
+        .open_windows()
+        .iter()
+        .filter_map(|w| match &w.surface {
+            OptionRefAny::Some(m) => read(m, |d| d.drop).flatten().map(|r| (w.source_node, r)),
+            OptionRefAny::None => None,
+        })
+        .collect();
+    for (node, report) in drops {
+        if let Some(w) = lw.transient_windows.open_windows().iter().find(|w| w.source_node == node) {
+            if let OptionRefAny::Some(m) = &w.surface {
+                write(m, |d| d.drop = None);
+            }
+        }
+        let changed = lw.drop_transient_window(node, report.origin, report.cursor);
+        log_debug!(
+            LogCategory::Window,
+            "[transient] drop of node {:?} at {:?} (cursor {:?}): changed={}",
+            node,
+            report.origin,
+            report.cursor,
+            changed
+        );
+        if changed {
+            // The drop changed where the window anchors (a zone) or what
+            // kind of window it is: re-place it against the parent's CURRENT
+            // layout now, rather than one layout late.
+            super::layout::reconcile_transient_windows(lw, parent_state);
+        }
+    }
+
     // 1. Dismissals posted by popups.
     let dismissed: Vec<NodeId> = lw
         .transient_windows
@@ -337,15 +487,21 @@ pub fn sync_parent(
         };
         match &w.surface {
             OptionRefAny::None => {
-                // Just opened (or a surface never attached): create the window.
-                let (options, mailbox) =
-                    popup_create_options(parent_window_id, parent_state, &w, content, cursor);
+                // Just opened (or a surface never attached): create the
+                // window - a popup on its anchor, or a toplevel if torn off.
+                let (options, mailbox) = if w.torn.is_some() {
+                    let title = transient_title(styled, w.source_node);
+                    toplevel_create_options(parent_window_id, parent_state, &w, content, &title)
+                } else {
+                    popup_create_options(parent_window_id, parent_state, &w, content, cursor)
+                };
                 if let Some(slot) = lw.transient_windows.get_mut(w.content_dom) {
                     slot.surface = OptionRefAny::Some(mailbox);
                 }
                 log_debug!(
                     LogCategory::Window,
-                    "[transient] opening popup {:?}: {}x{} at {:?}",
+                    "[transient] opening {} {:?}: {}x{} at {:?}",
+                    if w.torn.is_some() { "toplevel" } else { "popup" },
                     w.content_dom,
                     w.content_size.width,
                     w.content_size.height,
@@ -357,10 +513,23 @@ pub fn sync_parent(
                 let moved = diff.moved.contains(&w.content_dom);
                 let changed = read(m, |d| d.content != content).unwrap_or(false);
                 if moved || changed {
+                    // A popup follows its anchor (the parent scrolled, the
+                    // zone it docked onto moved); a torn toplevel is where
+                    // the user put it and only its content refreshes.
+                    let origin = if w.torn.is_some() {
+                        None
+                    } else {
+                        Some(w.placement.resolve_within(w.content_size, cursor, placement_bounds(parent_state)))
+                    };
                     write(m, |d| {
                         d.content = content;
                         d.placement = w.placement;
                         d.content_size = w.content_size;
+                        if let Some(o) = origin {
+                            if d.drag.is_none() {
+                                d.origin = o;
+                            }
+                        }
                         d.generation += 1;
                     });
                     out.wake_all = true;
@@ -390,26 +559,184 @@ pub fn sync_parent(
     out
 }
 
+/// The torn-off toplevel's title: the `<transient-window>` node's `title`
+/// attribute, else its accessible name, else "Panel".
+fn transient_title(styled: &azul_core::styled_dom::StyledDom, node: NodeId) -> String {
+    use azul_core::dom::AttributeType;
+    let nodes = styled.node_data.as_container();
+    let Some(nd) = nodes.get(node) else {
+        return "Panel".into();
+    };
+    nd.attributes()
+        .as_ref()
+        .iter()
+        .find_map(|a| match a {
+            AttributeType::Title(t) | AttributeType::AriaLabel(t) => Some(t.as_str().to_owned()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "Panel".into())
+}
+
 /// What the popup side found in its mailbox this pass.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PopupAction {
     /// Nothing to do.
     Nothing,
     /// The parent closed this popup: close the window.
     Close,
+    /// The parent re-placed / re-measured this popup: move and resize the
+    /// window to match (`origin` in parent coordinates, `None` for a torn
+    /// toplevel, which stays where the user put it).
+    Place {
+        origin: Option<LogicalPosition>,
+        size: LogicalSize,
+    },
 }
 
-/// The popup side: act on what the parent wrote.
+/// The popup side: act on what the parent wrote. `placed_generation` is the
+/// mailbox generation the window last applied; the returned one replaces it.
 #[must_use]
 pub fn poll_popup(state: &FullWindowState) -> PopupAction {
     let Some(m) = mailbox_of(state) else {
         return PopupAction::Nothing;
     };
-    if read(&m, |d| d.closed).unwrap_or(false) {
-        PopupAction::Close
+    let Some((closed, generation, origin, size, torn, dragging)) =
+        read(&m, |d| (d.closed, d.generation, d.origin, d.content_size, d.torn, d.drag.is_some()))
+    else {
+        return PopupAction::Nothing;
+    };
+    if closed {
+        return PopupAction::Close;
+    }
+    // The window's own state is the "last applied" record: a placement the
+    // parent wrote shows up as a position/size that differs from it.
+    let _ = generation;
+    if dragging {
+        return PopupAction::Nothing;
+    }
+    let want_pos = (!torn).then(|| relative_position(origin));
+    let pos_differs = want_pos.is_some_and(|p| state.position != p);
+    let size_differs = state.size.dimensions != size;
+    if pos_differs || size_differs {
+        PopupAction::Place {
+            origin: (!torn).then_some(origin),
+            size,
+        }
     } else {
         PopupAction::Nothing
     }
+}
+
+/// `origin` (parent logical coordinates) as the `WindowPosition` a popup
+/// carries - whole pixels, relative to the parent's content origin.
+#[must_use]
+pub fn relative_position(origin: LogicalPosition) -> WindowPosition {
+    #[allow(clippy::cast_possible_truncation)] // whole logical pixels
+    WindowPosition::RelativeToParentWindow(PhysicalPosition::new(
+        origin.x.round() as i32,
+        origin.y.round() as i32,
+    ))
+}
+
+/// Is a tear-off drag running in this window?
+#[must_use]
+pub fn tear_drag_active(state: &FullWindowState) -> bool {
+    mailbox_of(state).is_some_and(|m| read(&m, |d| d.drag.is_some()).unwrap_or(false))
+}
+
+/// The popup side, on `DragStart` over its `-azul-app-region: drag` strip:
+/// begin a tear-off drag if the window allows one. Returns whether it did -
+/// if not, the caller may hand the gesture to the window manager as for any
+/// other window. `press` is where the gesture was PRESSED (the pointer has
+/// moved past the drag threshold by now); the window catches up to it.
+pub fn tear_drag_begin(state: &FullWindowState, press: Option<LogicalPosition>) -> bool {
+    let Some(m) = mailbox_of(state) else {
+        return false;
+    };
+    let Some(allowed) = read(&m, |d| d.placement.tearoff != TransientTearoff::None) else {
+        return false;
+    };
+    if !allowed {
+        return false;
+    }
+    let Some(cursor) = press.or_else(|| state.mouse_state.cursor_position.get_position()) else {
+        return false;
+    };
+    write(&m, |d| {
+        d.drag = Some(TearDrag {
+            press_local: cursor,
+            origin_at_press: d.origin,
+        });
+    })
+}
+
+/// The popup side, on every `Drag` while a tear-off drag runs: the window
+/// moves so the pointer stays where it pressed. Returns the new window
+/// position to apply, or `None` when nothing moved / no drag runs. The
+/// mailbox `origin` (parent coordinates) moves with it, so the drop can be
+/// reported without knowing the screen.
+///
+/// `window_follows`: whether this backend actually moves the window when
+/// the position is applied. Where it does (macOS, Windows, X11), the
+/// pointer's offset from the press point is the RESIDUAL after the last
+/// move, and the origin advances by it. Where it cannot (Wayland at
+/// `xdg_wm_base` v1 has no `xdg_popup.reposition`), the offset is the whole
+/// drag so far, and the origin is the press origin plus it.
+#[must_use]
+pub fn tear_drag_move(state: &FullWindowState, window_follows: bool) -> Option<WindowPosition> {
+    let m = mailbox_of(state)?;
+    let (drag, origin, torn) = read(&m, |d| (d.drag, d.origin, d.torn))?;
+    let drag = drag?;
+    let cursor = state.mouse_state.cursor_position.get_position()?;
+    let dx = cursor.x - drag.press_local.x;
+    let dy = cursor.y - drag.press_local.y;
+    if dx.abs() < 0.5 && dy.abs() < 0.5 {
+        return None;
+    }
+    let new_origin = if window_follows {
+        LogicalPosition::new(origin.x + dx, origin.y + dy)
+    } else {
+        LogicalPosition::new(drag.origin_at_press.x + dx, drag.origin_at_press.y + dy)
+    };
+    write(&m, |d| d.origin = new_origin);
+    #[allow(clippy::cast_possible_truncation)] // whole pixels
+    let position = if torn {
+        match state.position {
+            WindowPosition::Initialized(p) => {
+                WindowPosition::Initialized(PhysicalPosition::new(p.x + dx.round() as i32, p.y + dy.round() as i32))
+            }
+            // No screen coordinates (Wayland): a torn toplevel cannot be
+            // moved by its content; the compositor's own move does that.
+            other => other,
+        }
+    } else {
+        relative_position(new_origin)
+    };
+    Some(position)
+}
+
+/// The popup side, on `DragEnd`: report where the window and the pointer
+/// ended up (parent coordinates) for the parent to decide. Returns whether a
+/// report was posted (the caller wakes all windows). `window_follows` as in
+/// [`tear_drag_move`]: the pointer is `local` from wherever the window
+/// ACTUALLY is - the moved origin, or the press origin if it never moved.
+pub fn tear_drag_end(state: &FullWindowState, window_follows: bool) -> bool {
+    let Some(m) = mailbox_of(state) else {
+        return false;
+    };
+    let Some((drag, origin)) = read(&m, |d| (d.drag, d.origin)) else {
+        return false;
+    };
+    let Some(drag) = drag else {
+        return false;
+    };
+    let local = state.mouse_state.cursor_position.get_position().unwrap_or(LogicalPosition::zero());
+    let actual = if window_follows { origin } else { drag.origin_at_press };
+    let cursor = LogicalPosition::new(actual.x + local.x, actual.y + local.y);
+    write(&m, |d| {
+        d.drag = None;
+        d.drop = Some(TearDropReport { origin, cursor });
+    })
 }
 
 /// Why a popup dismissed itself.
@@ -436,7 +763,14 @@ pub fn popup_dismiss_cause(
     // "lift Menu's window into TransientWindow" step is for: Escape and
     // focus loss close a fallback menu on every backend the same way.
     let policy = match mailbox_of(current) {
-        Some(m) => read(&m, |d| d.placement.dismiss)?,
+        // A torn-off toplevel is a palette: it closes by its close button.
+        Some(m) => {
+            let (torn, dismiss) = read(&m, |d| (d.torn, d.placement.dismiss))?;
+            if torn {
+                return None;
+            }
+            dismiss
+        }
         None if current.flags.window_type == WindowType::Menu => TransientDismiss::Outside,
         None => return None,
     };
@@ -465,7 +799,24 @@ pub fn popup_dismiss_cause(
 /// The popup side: post `dismissed` to the parent. The caller closes the
 /// window and wakes all windows.
 pub fn post_dismissed(state: &FullWindowState) -> bool {
-    mailbox_of(state).is_some_and(|m| write(&m, |d| d.dismissed = true))
+    mailbox_of(state).is_some_and(|m| {
+        // A window the parent already closed has nothing to report.
+        if read(&m, |d| d.closed).unwrap_or(true) {
+            return false;
+        }
+        write(&m, |d| d.dismissed = true)
+    })
+}
+
+/// The popup side: the window is closing for ANY reason the parent did not
+/// cause (the torn-off toplevel's close button, the app) - tell the parent,
+/// so the node closes too and the app hears `Dismissed`. A no-op for a
+/// window the parent closed.
+pub fn post_dismissed_on_close(previous: &FullWindowState, current: &FullWindowState) -> bool {
+    if previous.flags.close_requested || !current.flags.close_requested {
+        return false;
+    }
+    post_dismissed(current)
 }
 
 /// The parent side: Escape was pressed while popups are open. The popup
@@ -574,6 +925,9 @@ mod tests {
             ),
             content_size: LogicalSize::new(240.0, 160.0),
             surface: OptionRefAny::None,
+            torn: None,
+            anchor_override: None,
+            attr_torn: false,
         }
     }
 

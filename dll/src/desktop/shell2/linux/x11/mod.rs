@@ -1401,6 +1401,11 @@ pub struct X11Window {
     /// target window by `XAnyEvent.window`, so children neither drain nor close it.
     pub owns_display: bool,
     pub window: Window,
+    /// The registry id of the window this one was created relative to
+    /// (`WindowCreateOptions::parent_window_id`), 0 for a toplevel. Used to
+    /// re-place a `RelativeToParentWindow` popup against the parent's live
+    /// position at runtime.
+    parent_window_id: u64,
     pub is_open: bool,
     /// Has a `MapNotify` ever arrived? Only the FIRST one owes a DOM rebuild.
     has_been_mapped: bool,
@@ -2504,6 +2509,7 @@ impl X11Window {
             gtk_im,
             gtk_im_context,
             display,
+            parent_window_id: options.parent_window_id,
             owns_display,
             window: window_handle,
             is_open: true,
@@ -5472,10 +5478,19 @@ impl X11Window {
                 azul_core::window::WindowPosition::Initialized(pos) => unsafe {
                     (self.xlib.XMoveWindow)(self.display, self.window, pos.x, pos.y);
                 },
-                // Relative (child) windows are positioned once at creation and not
-                // re-synced at runtime; Uninitialized lets the WM decide.
-                azul_core::window::WindowPosition::Uninitialized
-                | azul_core::window::WindowPosition::RelativeToParentWindow(_) => {}
+                // A popup's offset from its parent changed (a
+                // `<transient-window>` following its anchor, or its tear-off
+                // drag): re-place it against the parent's live position.
+                azul_core::window::WindowPosition::RelativeToParentWindow(offset) => {
+                    if let Some((px, py)) = Self::resolve_parent_origin(self.parent_window_id) {
+                        unsafe {
+                            (self.xlib.XMoveWindow)(self.display, self.window, px + offset.x, py + offset.y);
+                            (self.xlib.XFlush)(self.display);
+                        }
+                    }
+                }
+                // Uninitialized lets the WM decide.
+                azul_core::window::WindowPosition::Uninitialized => {}
             }
         }
 

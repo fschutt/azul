@@ -5278,9 +5278,23 @@ impl MacOSWindow {
                         }
                     }
                 }
-                // Relative (child) windows are positioned once at creation and not
-                // re-synced at runtime; Uninitialized lets the OS decide.
-                WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => {}
+                // A child popup's offset from its parent's content origin
+                // changed (a `<transient-window>` following its anchor, or
+                // its tear-off drag): re-place it against the parent's LIVE
+                // origin, the same conversion creation uses. The frame is
+                // borderless by now, so frame top-left == content top-left.
+                WindowPosition::RelativeToParentWindow(offset) => {
+                    if let (Some((cx, cy)), Some(primary_height)) = (
+                        resolve_macos_parent_content_origin(self.child_of),
+                        primary_screen_height(),
+                    ) {
+                        let top_left_y = cy + f64::from(offset.y);
+                        let origin = NSPoint::new(cx + f64::from(offset.x), primary_height - top_left_y);
+                        unsafe { self.window.setFrameTopLeftPoint(origin) };
+                    }
+                }
+                // Uninitialized lets the OS decide.
+                WindowPosition::Uninitialized => {}
             }
         }
 
