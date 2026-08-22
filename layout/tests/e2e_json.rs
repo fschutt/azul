@@ -81,6 +81,18 @@ fn run_all_e2e_scenarios() {
     let mut tests = load_dir(&root.join("e2e"));
     tests.extend(load_dir(&root.join("layout/tests/e2e_fixtures")));
 
+    // `AZ_E2E_ONLY=<substring>` narrows the run to the scenarios whose name
+    // contains it — for iterating on ONE scenario without paying for the
+    // other ~60 every time. Unset (CI, `scripts/check.sh`) runs everything;
+    // a filter that matches nothing is a typo, not a green run.
+    if let Ok(only) = std::env::var("AZ_E2E_ONLY") {
+        tests.retain(|t| t.name.contains(&only));
+        assert!(
+            !tests.is_empty(),
+            "AZ_E2E_ONLY={only:?} matched no scenario — check the name"
+        );
+    }
+
     // `render_report` pairs a result to its `expect` marker BY NAME, so a
     // duplicate name would silently apply the wrong marker to one of them.
     let mut names: Vec<&str> = tests.iter().map(|t| t.name.as_str()).collect();

@@ -4881,6 +4881,219 @@ mod tests {
         );
     }
 
+    // --- Slider drag -----------------------------------------------------
+    //
+    // REPORTED: "dragging the slider leaves old thumbs on the track". The
+    // widget slides its thumb with `set_css_property(thumb, margin-left)` on
+    // every pointer move, and the AzWidgets demo's `on_value_change` bumps a
+    // RENDERED interactions counter and returns `RefreshDom` — so each move
+    // is an in-place relayout followed by a full DOM regeneration, through
+    // the same `headless::CpuBackend` every desktop shell presents with.
+
+    #[derive(Debug, Clone)]
+    struct SliderUiState {
+        slider_value: f32,
+        interactions: usize,
+    }
+
+    extern "C" fn slider_demo_on_change(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+        _state: azul_layout::widgets::slider::SliderState,
+    ) -> azul_core::callbacks::Update {
+        if let Some(mut s) = data.downcast_mut::<SliderUiState>() {
+            // Exactly what examples/azul-widgets does: count the callback,
+            // do NOT store the value, refresh.
+            s.interactions += 1;
+        }
+        azul_core::callbacks::Update::RefreshDom
+    }
+
+    extern "C" fn slider_demo_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::refany::OptionRefAny;
+        use azul_css::dynamic_selector::CssPropertyWithConditions as C;
+        use azul_css::props::layout::spacing::{
+            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+        };
+        use azul_css::props::property::CssProperty;
+        use azul_layout::widgets::slider::{Slider, SliderOnValueChangeCallback};
+
+        let (value, interactions) = data
+            .downcast_ref::<SliderUiState>()
+            .map(|s| (s.slider_value, s.interactions))
+            .unwrap_or((0.0, 0));
+        let caption = format!("callbacks fired so far: {interactions}");
+        Dom::create_body()
+            .with_css_props(
+                vec![
+                    C::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(20))),
+                    C::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(20))),
+                    C::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(20))),
+                    C::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(20))),
+                ]
+                .into(),
+            )
+            .with_child(
+                Dom::create_div().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper(caption.as_str()),
+                ),
+            )
+            .with_child(
+                Slider::create(value, 0.0, 100.0)
+                    .with_on_value_change(
+                        data.clone(),
+                        SliderOnValueChangeCallback {
+                            cb: slider_demo_on_change,
+                            ctx: OptionRefAny::None,
+                        },
+                    )
+                    .dom(),
+            )
+    }
+
+    /// The slider's live `dragging` flag, read from the callback state on the
+    /// CURRENT DOM's track node — i.e. whatever the reconciler left there
+    /// after the app's last `RefreshDom`. `None` when no track node exists.
+    fn slider_dragging(window: &HeadlessWindow) -> Option<bool> {
+        use azul_core::dom::{DomId, IdOrClass};
+        use azul_layout::widgets::slider::SliderStateWrapper;
+
+        let lw = window.common.layout_window.as_ref()?;
+        let dom = lw.layout_results.get(&DomId { inner: 0 })?;
+        for data in dom.styled_dom.node_data.as_container().internal.iter() {
+            let is_track = data.get_ids_and_classes().iter().any(|c| match c {
+                IdOrClass::Class(s) => s.as_str() == "__azul-native-slider",
+                IdOrClass::Id(_) => false,
+            });
+            if !is_track {
+                continue;
+            }
+            let mut state = data.callbacks.as_ref().first()?.refany.clone();
+            let w = state.downcast_ref::<SliderStateWrapper>()?;
+            return Some(w.dragging);
+        }
+        None
+    }
+
+    /// Pixel-diff the window's INCREMENTALLY presented frame against a full
+    /// repaint of the SAME display list by a fresh backend (no retained
+    /// pixels, nothing to blit or skip). Returns (differing px, first diff).
+    fn incremental_vs_full(window: &mut HeadlessWindow) -> (usize, Option<(u32, u32)>) {
+        let incremental = window
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("incremental frame")
+            .clone_pixmap();
+        let ws = window.common.current_window_state();
+        let (w, h, dpi) = (
+            ws.size.dimensions.width,
+            ws.size.dimensions.height,
+            ws.size.dpi as f32 / 96.0,
+        );
+        let mut fresh = CpuBackend::new();
+        let lw = window.common.layout_window.as_ref().expect("layout window");
+        fresh.render_frame(lw, &window.common.renderer_resources, w, h, dpi);
+        let full = fresh.last_frame.as_ref().expect("full frame").clone_pixmap();
+        assert_eq!(incremental.width(), full.width());
+        assert_eq!(incremental.height(), full.height());
+        let (a, b) = (incremental.data(), full.data());
+        let mut diffs = 0usize;
+        let mut first: Option<(u32, u32)> = None;
+        for i in (0..a.len().min(b.len())).step_by(4) {
+            if a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] {
+                diffs += 1;
+                if first.is_none() {
+                    let px = (i / 4) as u32;
+                    first = Some((px % incremental.width(), px / incremental.width()));
+                }
+            }
+        }
+        (diffs, first)
+    }
+
+    #[test]
+    fn dragging_the_slider_leaves_no_thumb_behind() {
+        use azul_core::events::MouseButton;
+
+        let state = Arc::new(RefCell::new(RefAny::new(SliderUiState {
+            slider_value: 40.0,
+            interactions: 0,
+        })));
+        let mut window = make_window_sized(&state, slider_demo_layout, 400.0, 160.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let thumb = rects_by_class(&window, "__azul-native-slider-thumb");
+        assert_eq!(thumb.len(), 1, "one thumb: {thumb:?}");
+        let thumb0 = thumb[0];
+        let track = rects_by_class(&window, "__azul-native-slider");
+        assert_eq!(track.len(), 1, "one track: {track:?}");
+        let track = track[0];
+        let y = thumb0.origin.y + thumb0.size.height / 2.0;
+        let x0 = thumb0.origin.x + thumb0.size.width / 2.0;
+        println!("[slider] track={track:?} thumb={thumb0:?}");
+
+        step(&mut window, HeadlessEvent::MouseMove { x: x0, y });
+        let press_damage = step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        println!(
+            "[slider] press: dragging={:?} damage={press_damage:?} thumb={:?}",
+            slider_dragging(&window),
+            rects_by_class(&window, "__azul-native-slider-thumb")
+        );
+        let (d, f) = incremental_vs_full(&mut window);
+        assert_eq!(d, 0, "after the press: {d} stale px, first at {f:?}");
+
+        // A drag: the cursor walks right across the rail in steps, like a
+        // real pointer does, and every presented frame must match a full
+        // repaint of what layout says is on screen.
+        let mut prev_thumb = thumb0;
+        for (i, dx) in [24.0f32, 48.0, 72.0, 96.0, 120.0].iter().enumerate() {
+            let x = x0 + dx;
+            let damage = step(&mut window, HeadlessEvent::MouseMove { x, y });
+            let now = rects_by_class(&window, "__azul-native-slider-thumb");
+            let fired = state
+                .borrow_mut()
+                .downcast_ref::<SliderUiState>()
+                .map(|s| s.interactions)
+                .unwrap_or(0);
+            println!(
+                "[slider] move {i}: cursor x={x} thumb={now:?} (was {prev_thumb:?}) \
+                 callbacks={fired} damage={damage:?} dragging={:?}",
+                slider_dragging(&window)
+            );
+            let (diffs, first) = incremental_vs_full(&mut window);
+            assert_eq!(
+                diffs, 0,
+                "drag step {i} (cursor x={x}): the presented frame differs from a full \
+                 repaint of the same display list in {diffs} px, first at {first:?} — a \
+                 thumb ghost / stale pixels on a real screen. thumb now {now:?}, before \
+                 {prev_thumb:?}, damage {damage:?}"
+            );
+            if let Some(r) = now.first() {
+                prev_thumb = *r;
+            }
+        }
+        // The drag must FOLLOW the pointer across the app's RefreshDom
+        // rebuilds: the thumb's centre ends under the last cursor x (230),
+        // not 1 px from where the press put it. Before the slider carried its
+        // `dragging` flag across a rebuild, every drag died on its second
+        // move in any app that refreshes on change.
+        let final_center = prev_thumb.origin.x + prev_thumb.size.width / 2.0;
+        assert!(
+            (final_center - (x0 + 120.0)).abs() <= 2.0,
+            "the thumb did not follow the drag: centre {final_center} vs cursor {} \
+             (thumb {prev_thumb:?}, started at {thumb0:?})",
+            x0 + 120.0
+        );
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(
+            slider_dragging(&window),
+            Some(false),
+            "the release must end the drag"
+        );
+    }
+
     // --- Ribbon tab switching -------------------------------------------
     //
     // REPORTED: "clicking on various tabs causes repaint / damage rect

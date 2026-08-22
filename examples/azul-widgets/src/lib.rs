@@ -503,7 +503,14 @@ extern "C" fn on_dropdown(mut data: RefAny, _: CallbackInfo, choice: usize) -> U
 extern "C" fn on_switch(mut data: RefAny, _: CallbackInfo, _: SwitchState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_slider(mut data: RefAny, _: CallbackInfo, _: SliderState) -> Update {
+extern "C" fn on_slider(mut data: RefAny, _: CallbackInfo, state: SliderState) -> Update {
+    // A controlled widget: the slider reports the value, the app STORES it,
+    // the refresh rebuilds the slider at that value. Counting the callback
+    // and refreshing without storing rebuilt the thumb at the old 40.0 under
+    // the pointer on every move — the "thumb trail" report.
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.slider_value = state.value;
+    }
     bump(&mut data)
 }
 extern "C" fn on_segmented(mut data: RefAny, _: CallbackInfo, _: SegmentedState) -> Update {

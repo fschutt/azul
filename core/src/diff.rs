@@ -25,6 +25,7 @@ use crate::{
     },
     geom::LogicalRect,
     id::NodeId,
+    refany::RefAny,
     styled_dom::{ChangedCssProperty, NodeHierarchyItemId, NodeHierarchyItem, RestyleResult, StyledNodeState},
     task::Instant,
     OrderedMap,
@@ -1081,24 +1082,7 @@ pub fn transfer_states(
                 // only re-pointed a VirtualView ON the merge node itself — the
                 // MapWidget puts its VirtualView in a CHILD and its pan/zoom
                 // callbacks on the parent, which that case missed.)
-                for nd in new_node_data.iter_mut() {
-                    if let Some(vv) = nd.get_virtual_view_node() {
-                        if vv.refany.sharing_info.ptr as usize == orphan_alloc {
-                            vv.refany = merged.clone();
-                        }
-                    }
-                    for cb in nd.callbacks.as_mut().iter_mut() {
-                        if cb.refany.sharing_info.ptr as usize == orphan_alloc {
-                            cb.refany = merged.clone();
-                        }
-                    }
-                    let ds_is_orphan = nd
-                        .get_dataset()
-                        .is_some_and(|ds| ds.sharing_info.ptr as usize == orphan_alloc);
-                    if ds_is_orphan {
-                        nd.set_dataset(OptionRefAny::Some(merged.clone()));
-                    }
-                }
+                repoint_orphaned_refanys(new_node_data, orphan_alloc, &merged);
             }
             (new_ds, old_ds) => {
                 // One or both datasets missing - restore what we had
@@ -1111,6 +1095,71 @@ pub fn transfer_states(
             }
         }
     }
+}
+
+/// Re-point every `RefAny` across `node_data` that is a clone of the
+/// allocation `orphan_alloc` (a dataset the merge discarded) at `merged`, so
+/// the whole widget reads ONE state: VirtualView content refanys, event
+/// callback refanys and datasets cloned from the same source. The MapWidget
+/// puts its VirtualView in a CHILD and its pan/zoom callbacks on the parent,
+/// which is why this scans the whole arena and not just the merge node.
+fn repoint_orphaned_refanys(node_data: &mut [NodeData], orphan_alloc: usize, merged: &RefAny) {
+    use crate::refany::OptionRefAny;
+    if merged.sharing_info.ptr as usize == orphan_alloc {
+        return; // the merge kept the fresh allocation: nothing is orphaned
+    }
+    for nd in node_data.iter_mut() {
+        if let Some(vv) = nd.get_virtual_view_node() {
+            if vv.refany.sharing_info.ptr as usize == orphan_alloc {
+                vv.refany = merged.clone();
+            }
+        }
+        for cb in nd.callbacks.as_mut().iter_mut() {
+            if cb.refany.sharing_info.ptr as usize == orphan_alloc {
+                cb.refany = merged.clone();
+            }
+        }
+        let ds_is_orphan = nd
+            .get_dataset()
+            .is_some_and(|ds| ds.sharing_info.ptr as usize == orphan_alloc);
+        if ds_is_orphan {
+            nd.set_dataset(OptionRefAny::Some(merged.clone()));
+        }
+    }
+}
+
+/// The pre-cascade fast path's half of [`transfer_states`].
+///
+/// When the fresh build's fingerprints equal the retained DOM's, the cascade
+/// is skipped and the retained `StyledDom` is kept; the fresh build's event
+/// callbacks are installed on it (they may reference new app state). That
+/// left the DATASETS behind: the fresh callbacks' `RefAny`s were clones of
+/// the fresh build's dataset, the retained node kept last frame's, and no
+/// merge callback ever ran — so a `RefreshDom` that rebuilt an identical DOM
+/// reset every stateful widget's callback state (a slider's drag died on its
+/// second move) and split the widget across two allocations, the exact
+/// fragmentation [`repoint_orphaned_refanys`] exists to prevent.
+///
+/// Same rules as `transfer_states`, with the retained node as "old" and the
+/// fresh dataset as "new": merge through the node's merge callback when it
+/// has one, otherwise the fresh dataset wins; then re-point everything on the
+/// retained DOM that was a clone of the fresh dataset at the result. Call it
+/// AFTER the fresh callbacks have been installed on `node_data`, once per
+/// fresh dataset, with `idx` the node's flattened index.
+pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny) {
+    use crate::refany::OptionRefAny;
+    let Some(nd) = node_data.get_mut(idx) else {
+        return;
+    };
+    let orphan_alloc = fresh.sharing_info.ptr as usize;
+    let merge_callback = nd.get_merge_callback();
+    let retained = nd.take_dataset();
+    let result = match (merge_callback, retained) {
+        (Some(cb), Some(old)) => (cb.cb)(fresh, old),
+        _ => fresh,
+    };
+    nd.set_dataset(OptionRefAny::Some(result.clone()));
+    repoint_orphaned_refanys(node_data, orphan_alloc, &result);
 }
 
 /// Calculate a stable key for a contenteditable node using the hierarchy:
@@ -3608,6 +3657,65 @@ mod autotest_generated {
         );
     }
 
+    /// The pre-cascade skip path: fresh callbacks were installed on the
+    /// retained node, then the fresh dataset arrives. With a merge callback
+    /// the retained state wins (the widget's rule), and the fresh callbacks
+    /// must end up on the SAME allocation as the node's dataset — the
+    /// fragmentation this guards against is a callback mutating one
+    /// allocation while the next merge reads another.
+    #[test]
+    fn autotest_merge_fresh_dataset_unifies_fresh_callbacks_with_the_retained_state() {
+        use crate::callbacks::{CoreCallback, CoreCallbackData};
+        use crate::dom::{EventFilter, HoverEventFilter};
+
+        // Never invoked here; `CoreCallback::cb` is a type-erased fn address.
+        fn noop_cb() {}
+
+        let mut nodes = vec![NodeData::create_div()];
+        let retained = RefAny::new(TestState(7));
+        let retained_ptr = retained.sharing_info.ptr as usize;
+        nodes[0].set_dataset(OptionRefAny::Some(retained));
+        nodes[0].set_merge_callback(merge_keep_old as DatasetMergeCallbackType);
+
+        // The fresh build: a new dataset, and callbacks cloned from it — which
+        // the skip path installs on the retained node before merging.
+        let fresh = RefAny::new(TestState(0));
+        let fresh_ptr = fresh.sharing_info.ptr as usize;
+        nodes[0].callbacks = vec![CoreCallbackData {
+            event: EventFilter::Hover(HoverEventFilter::MouseDown),
+            callback: CoreCallback {
+                cb: noop_cb as usize,
+                ctx: OptionRefAny::None,
+            },
+            refany: fresh.clone(),
+        }]
+        .into();
+        assert_ne!(retained_ptr, fresh_ptr);
+
+        merge_fresh_dataset(&mut nodes, 0, fresh);
+
+        let ds_ptr = nodes[0].get_dataset().unwrap().sharing_info.ptr as usize;
+        assert_eq!(ds_ptr, retained_ptr, "merge_keep_old keeps the retained allocation");
+        let cb_ptr = nodes[0].callbacks.as_ref()[0].refany.sharing_info.ptr as usize;
+        assert_eq!(
+            cb_ptr, ds_ptr,
+            "the fresh callback must be re-pointed at the merged dataset, or the widget \
+             mutates one allocation and the next merge reads another"
+        );
+
+        // Without a merge callback the fresh dataset wins (same as transfer_states'
+        // skip), and the callbacks already point at it.
+        let mut plain = vec![NodeData::create_div()];
+        plain[0].set_dataset(OptionRefAny::Some(RefAny::new(TestState(1))));
+        let fresh2 = RefAny::new(TestState(2));
+        let fresh2_ptr = fresh2.sharing_info.ptr as usize;
+        merge_fresh_dataset(&mut plain, 0, fresh2);
+        assert_eq!(plain[0].get_dataset().unwrap().sharing_info.ptr as usize, fresh2_ptr);
+
+        // An index past the arena is a no-op, not a panic.
+        merge_fresh_dataset(&mut plain, 99, RefAny::new(TestState(3)));
+    }
+
     #[test]
     fn autotest_transfer_states_without_merge_callback_leaves_datasets_intact() {
         let mut old = vec![NodeData::create_div()];
@@ -4476,6 +4584,12 @@ pub struct PreCascadeTransfers {
     /// `(flattened NodeId index, fresh event callbacks)` for every node with
     /// a non-empty callback list.
     pub callbacks: Vec<(usize, crate::callbacks::CoreCallbackDataVec)>,
+    /// `(flattened NodeId index, fresh dataset)` for every node that carries
+    /// one. Merged onto the retained DOM by [`merge_fresh_dataset`] — the
+    /// skip path's equivalent of `transfer_states` — so a widget's state
+    /// survives an identical rebuild and its callbacks (installed from
+    /// `callbacks` above) end up on the SAME allocation as its dataset.
+    pub datasets: Vec<(usize, RefAny)>,
 }
 
 /// Walk a recursive [`crate::dom::Dom`] once, pre-order.
@@ -4599,6 +4713,9 @@ pub struct PreCascadeTransfers {
         }
         if !dom.root.callbacks.as_ref().is_empty() {
             transfers.callbacks.push((idx, dom.root.callbacks.clone()));
+        }
+        if let Some(ds) = dom.root.get_dataset() {
+            transfers.datasets.push((idx, ds.clone()));
         }
 
         for child in dom.children.as_ref() {

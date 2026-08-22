@@ -461,6 +461,18 @@ phases.mark("after_callback");
                     nd.callbacks = new_cbs.clone();
                 }
             }
+            // The callbacks just installed are clones of the FRESH build's
+            // datasets; the retained nodes still hold last frame's. Merge
+            // them the way the full path's `transfer_states` does (merge
+            // callback when the node has one, fresh wins otherwise) and
+            // re-point the fresh callbacks at the result. Without this an
+            // identical rebuild reset every widget's callback state — a
+            // slider's drag died on its second move whenever the app's
+            // `RefreshDom` was followed by a redraw-driven relayout — and
+            // split the widget across two allocations.
+            for (idx, fresh) in &transfers.datasets {
+                azul_core::diff::merge_fresh_dataset(node_data_mut, *idx, fresh.clone());
+            }
         }
 
         // Re-derive hover/focus/active flags from the managers. A state
@@ -959,15 +971,33 @@ phases.mark("after_runtime_states");
             }
 
             // Also transfer any updated callback data (RefAny) for event callbacks
-            // so that future events use fresh app state references
-            let mut callback_updates: Vec<(usize, azul_core::callbacks::CoreCallbackDataVec)> = Vec::new();
+            // so that future events use fresh app state references.
+            //
+            // The DATASET (and a VirtualView's content refany) travel with
+            // them. `transfer_states` above merged the fresh build's datasets
+            // with last frame's and re-pointed the fresh callbacks at the
+            // result, so `styled_dom`'s nodes are unified: callbacks and
+            // dataset on ONE allocation. Copying only the callbacks onto the
+            // retained node left its dataset on last frame's allocation —
+            // every later callback mutated the one the dataset no longer was,
+            // and the NEXT rebuild merged from the stale dataset (a released
+            // slider came back mid-drag). Copy all three, so the retained
+            // node IS the unified one.
+            let mut callback_updates: Vec<(
+                usize,
+                azul_core::callbacks::CoreCallbackDataVec,
+                Option<azul_core::refany::RefAny>,
+                Option<azul_core::refany::RefAny>,
+            )> = Vec::new();
             {
                 let old_nd_ref = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded").styled_dom.node_data.as_ref();
                 let new_nd_ref = styled_dom.node_data.as_ref();
                 for (idx, (_old_nd, new_nd)) in old_nd_ref.iter().zip(new_nd_ref.iter()).enumerate() {
-                    if !new_nd.callbacks.as_ref().is_empty() {
-                        callback_updates.push((idx, new_nd.callbacks.clone()));
+                    let dataset = new_nd.get_dataset().cloned();
+                    let vv_refany = new_nd.get_virtual_view_node_ref().map(|vv| vv.refany.clone());
+                    if !new_nd.callbacks.as_ref().is_empty() || dataset.is_some() || vv_refany.is_some() {
+                        callback_updates.push((idx, new_nd.callbacks.clone(), dataset, vv_refany));
                     }
                 }
             }
@@ -975,9 +1005,15 @@ phases.mark("after_runtime_states");
                 let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded");
                 let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
-                for (idx, new_callbacks) in callback_updates {
+                for (idx, new_callbacks, dataset, vv_refany) in callback_updates {
                     if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
                         old_nd.callbacks = new_callbacks;
+                        if let Some(ds) = dataset {
+                            old_nd.set_dataset(azul_core::refany::OptionRefAny::Some(ds));
+                        }
+                        if let (Some(r), Some(vv)) = (vv_refany, old_nd.get_virtual_view_node()) {
+                            vv.refany = r;
+                        }
                     }
                 }
             }
