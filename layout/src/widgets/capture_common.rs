@@ -94,13 +94,29 @@ pub fn present_frame(
     current_id: Option<u32>,
     frame: &VideoFrame,
 ) -> Option<u32> {
+    present_frame_pixels(info, dataset, current_id, frame.bytes.clone(), frame.width, frame.height)
+}
+
+/// [`present_frame`] taking the pixels BY VALUE: the writebacks `mem::take`
+/// them out of the frame `RefAny` (dropped right after) instead of cloning
+/// a full frame on the main thread. `premultiplied_alpha: true` because every
+/// capture backend forces alpha 255, for which straight == premultiplied —
+/// `load_rgba8` then skips its per-pixel multiply.
+pub fn present_frame_pixels(
+    info: &mut CallbackInfo,
+    dataset: RefAny,
+    current_id: Option<u32>,
+    bytes: azul_css::U8Vec,
+    width: u32,
+    height: u32,
+) -> Option<u32> {
     use azul_core::resources::{RawImage, RawImageData, RawImageFormat};
 
     if let Some(img) = ImageRef::new_rawimage(RawImage {
-        pixels: RawImageData::U8(frame.bytes.clone()),
-        width: frame.width as usize,
-        height: frame.height as usize,
-        premultiplied_alpha: false,
+        pixels: RawImageData::U8(bytes),
+        width: width as usize,
+        height: height as usize,
+        premultiplied_alpha: true,
         data_format: RawImageFormat::RGBA8,
         tag: b"azul-capture-frame".to_vec().into(),
     }) {

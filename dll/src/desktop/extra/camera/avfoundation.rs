@@ -8,7 +8,7 @@
 //! the delegate's pixel buffer is always BGRA8 -> a cheap channel swap to RGBA.
 
 use std::ffi::c_void;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -18,6 +18,7 @@ use objc2_av_foundation::{
     AVCaptureDevicePosition, AVCaptureDeviceType, AVCaptureOutput, AVCaptureSession,
     AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaType,
     AVMediaTypeVideo,
+    AVCaptureSessionPreset1280x720, AVCaptureSessionPreset640x480, AVCaptureSessionPreset960x540,
 };
 use objc2_core_media::CMSampleBuffer;
 use objc2_core_video::{
@@ -30,18 +31,10 @@ use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSObject, NSObjectProtoc
 /// kCVPixelFormatType_32BGRA ('BGRA').
 const PIXEL_FORMAT_32BGRA: u32 = 0x42475241;
 
-/// Latest captured frame (RGBA + dims), filled by the delegate, drained by read.
-#[derive(Default)]
-struct FrameSlot {
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-    /// Bumped each frame; `read` returns the newest available.
-    seq: u64,
-}
+use crate::desktop::extra::capture_slot::CaptureSlot;
 
 struct DelegateIvars {
-    slot: Arc<Mutex<FrameSlot>>,
+    slot: Arc<CaptureSlot>,
 }
 
 define_class!(
@@ -70,32 +63,14 @@ define_class!(
             let h = CVPixelBufferGetHeight(pb) as usize;
             let stride = CVPixelBufferGetBytesPerRow(pb);
             let base = CVPixelBufferGetBaseAddress(pb) as *const u8;
-            if !base.is_null() && w > 0 && h > 0 && stride >= w * 4 {
-                let mut rgba = vec![0u8; w * h * 4];
-                for y in 0..h {
-                    let row = base.add(y * stride);
-                    for x in 0..w {
-                        let s = row.add(x * 4); // BGRA
-                        let o = (y * w + x) * 4;
-                        rgba[o] = *s.add(2); // R
-                        rgba[o + 1] = *s.add(1); // G
-                        rgba[o + 2] = *s; // B
-                        rgba[o + 3] = 255;
-                    }
-                }
-                if let Ok(mut slot) = self.ivars().slot.lock() {
-                    if slot.seq == 0 {
-                        // Log the very first frame only (the callback is hot).
-                        crate::plog_info!(
-                            "[camera] avfoundation: first frame {}x{} stride={} BGRA→RGBA ok",
-                            w, h, stride
-                        );
-                    }
-                    slot.rgba = rgba;
-                    slot.width = w as u32;
-                    slot.height = h as u32;
-                    slot.seq = slot.seq.wrapping_add(1);
-                }
+            // Swizzle into the slot's REUSED buffer and wake the reader; the
+            // slot validates the plane (see `CaptureSlot::publish_bgra`).
+            if self.ivars().slot.publish_bgra(base, w, h, stride) {
+                // Log the very first frame only (the callback is hot).
+                crate::plog_info!(
+                    "[camera] avfoundation: first frame {}x{} stride={} BGRA→RGBA ok",
+                    w, h, stride
+                );
             }
             CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(0));
         }
@@ -103,7 +78,7 @@ define_class!(
 );
 
 impl FrameDelegate {
-    fn new(slot: Arc<Mutex<FrameSlot>>) -> Retained<Self> {
+    fn new(slot: Arc<CaptureSlot>) -> Retained<Self> {
         let this = Self::alloc().set_ivars(DelegateIvars { slot });
         unsafe { msg_send![super(this), init] }
     }
@@ -113,7 +88,7 @@ impl FrameDelegate {
 struct AvfCam {
     session: Retained<AVCaptureSession>,
     _delegate: Retained<FrameDelegate>,
-    slot: Arc<Mutex<FrameSlot>>,
+    slot: Arc<CaptureSlot>,
     last_seq: u64,
 }
 
@@ -211,7 +186,7 @@ unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCa
 
 /// Open the video device at `index`, request BGRA frames, start the session.
 /// Returns a boxed handle, or `0` on failure (worker uses the test pattern).
-pub fn open(index: u32, _width: u32, _height: u32) -> u64 {
+pub fn open(index: u32, width: u32, height: u32) -> u64 {
     // TCC gate first: without authorization the session runs but vends only
     // black frames. Blocking (≤60 s prompt wait) is fine on this worker thread.
     if !super::avf_auth::ensure_camera_access() {
@@ -231,10 +206,33 @@ pub fn open(index: u32, _width: u32, _height: u32) -> u64 {
             Err(_) => return 0,
         };
         let session = AVCaptureSession::new();
+        // HONOUR THE REQUESTED SIZE. Without a preset the session runs at
+        // AVCaptureSessionPresetHigh — 1080p on a modern Mac — so a 300×200
+        // tile received 8 MB frames and paid six full-resolution passes per
+        // frame for them (the AzMeet "high CPU"). The smallest preset that
+        // covers the request wins; the presets are extern NSString statics
+        // present since 10.7, and `canSetSessionPreset` guards a device
+        // that cannot do one.
+        let preset: Option<&NSString> = if width == 0 || height == 0 {
+            None
+        } else if width <= 640 && height <= 480 {
+            Some(AVCaptureSessionPreset640x480)
+        } else if width <= 960 && height <= 540 {
+            Some(AVCaptureSessionPreset960x540)
+        } else if width <= 1280 && height <= 720 {
+            Some(AVCaptureSessionPreset1280x720)
+        } else {
+            None
+        };
         if !session.canAddInput(&input) {
             return 0;
         }
         session.addInput(&input);
+        if let Some(preset) = preset {
+            if session.canSetSessionPreset(preset) {
+                session.setSessionPreset(preset);
+            }
+        }
 
         let output = AVCaptureVideoDataOutput::new();
         // Request 32-BGRA so the delegate always gets a packed BGRA8 buffer.
@@ -245,7 +243,7 @@ pub fn open(index: u32, _width: u32, _height: u32) -> u64 {
         output.setVideoSettings(Some(&settings));
         output.setAlwaysDiscardsLateVideoFrames(true);
 
-        let slot = Arc::new(Mutex::new(FrameSlot::default()));
+        let slot = CaptureSlot::new();
         let delegate = FrameDelegate::new(slot.clone());
         let queue = dispatch2::DispatchQueue::new("azul.camera", None);
         output.setSampleBufferDelegate_queue(
@@ -265,38 +263,27 @@ pub fn open(index: u32, _width: u32, _height: u32) -> u64 {
             last_seq: 0,
         };
         crate::plog_info!(
-            "[camera] avfoundation: opened device (index {}), requested 32-BGRA → converting to \
-             RGBA8",
-            index
+            "[camera] avfoundation: opened device (index {}), requested {}x{} 32-BGRA → \
+             converting to RGBA8",
+            index,
+            width,
+            height
         );
         Box::into_raw(Box::new(cam)) as u64
     }
 }
 
-/// Drain the newest frame into `out` (RGBA8). Spins briefly for the first
-/// frame after `open`. Returns `(width, height)`, or `(0, 0)` on error.
+/// Drain the newest frame into `out` (RGBA8). Waits (on the slot's condvar,
+/// bounded at ~1 s) for a frame newer than the last one returned. Returns
+/// `(width, height)`, or `(0, 0)` on error / timeout.
 pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
     let cam = match unsafe { (handle as *mut AvfCam).as_mut() } {
         Some(c) => c,
         None => return (0, 0),
     };
-    // Wait (bounded) for a frame newer than the last one we returned.
-    for _ in 0..120 {
-        {
-            let slot = match cam.slot.lock() {
-                Ok(s) => s,
-                Err(_) => return (0, 0),
-            };
-            if slot.seq != cam.last_seq && slot.width > 0 {
-                cam.last_seq = slot.seq;
-                out.clear();
-                out.extend_from_slice(&slot.rgba);
-                return (slot.width, slot.height);
-            }
-        }
-        std::thread::sleep(std::time::Duration::from_millis(8));
-    }
-    (0, 0)
+    cam.slot
+        .read_newer(&mut cam.last_seq, out, std::time::Duration::from_millis(1000))
+        .unwrap_or((0, 0))
 }
 
 /// Stop the session + free the capture (drops the boxed `AvfCam`).

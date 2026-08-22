@@ -27,7 +27,7 @@ use azul_core::task::{ThreadId, ThreadReceiver};
 use azul_core::video::VideoFrame;
 
 use super::capture_common::{
-    camera_backend, invoke_on_frame, present_frame, terminate_requested, OnVideoFrame,
+    camera_backend, invoke_on_frame, present_frame_pixels, terminate_requested, OnVideoFrame,
     OnVideoFrameCallback, OptionOnVideoFrame,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
@@ -192,10 +192,12 @@ extern "C" fn camera_worker(
                 if fw == 0 || fh == 0 {
                     break;
                 }
+                // Move the pixels out — `read` refills `buf` anyway; the
+                // clone was a full frame copy on every frame.
                 let frame = VideoFrame {
                     width: fw,
                     height: fh,
-                    bytes: buf.clone().into(),
+                    bytes: core::mem::take(&mut buf).into(),
                 };
                 if !sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
                     WriteBackCallback::new(camera_writeback),
@@ -274,11 +276,14 @@ extern "C" fn camera_writeback(
 ) -> Update {
     let (current, hook) = writeback_data.downcast_ref::<CameraWidgetState>().map_or_else(|| (None, OptionOnVideoFrame::None), |s| (s.gl_texture_id, s.on_frame.clone()));
     let mut user_update = Update::DoNothing;
-    let new_id = match frame_data.downcast_ref::<VideoFrame>() {
-        Some(frame) => {
-            let id = present_frame(&mut info, writeback_data.clone(), current, &frame);
+    let new_id = match frame_data.downcast_mut::<VideoFrame>() {
+        Some(mut frame) => {
+            // The hook needs the frame; present it afterwards by MOVING the
+            // pixels out (the RefAny is dropped when this returns).
             user_update = invoke_on_frame(&hook, &mut info, &frame);
-            id
+            let (w, h) = (frame.width, frame.height);
+            let bytes = core::mem::take(&mut frame.bytes);
+            present_frame_pixels(&mut info, writeback_data.clone(), current, bytes, w, h)
         }
         None => return Update::DoNothing,
     };
