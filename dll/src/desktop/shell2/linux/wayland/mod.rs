@@ -1154,10 +1154,50 @@ impl WaylandWindow {
 
 // PlatformWindow Trait Implementation (Cross-platform V2 Event System)
 
+
+/// `wl_surface.set_input_region` from the frame's alpha outline. Rects are
+/// PHYSICAL pixels; a wl_region is in surface-local (logical) coordinates,
+/// so they are divided by the buffer scale (outward-rounded, so an
+/// anti-aliased edge stays clickable). The compositor does the visual part
+/// on its own: an ARGB buffer's transparent pixels just are not drawn.
+fn apply_input_region_from_shape(
+    wayland: &Wayland,
+    compositor: *mut defines::wl_compositor,
+    surface: *mut defines::wl_surface,
+    rects: &[azul_layout::cpurender::ShapeRect],
+    scale: f32,
+) {
+    if compositor.is_null() || surface.is_null() || rects.is_empty() {
+        return;
+    }
+    let scale = scale.max(0.01);
+    unsafe {
+        let region = (wayland.wl_compositor_create_region)(compositor);
+        if region.is_null() {
+            return;
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // pixel coords
+        for r in rects {
+            let x0 = (r.x as f32 / scale).floor();
+            let y0 = (r.y as f32 / scale).floor();
+            let x1 = ((r.x + r.width) as f32 / scale).ceil();
+            let y1 = ((r.y + r.height) as f32 / scale).ceil();
+            (wayland.wl_region_add)(region, x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32);
+        }
+        (wayland.wl_surface_set_input_region)(surface, region);
+        (wayland.wl_region_destroy)(region);
+    }
+}
+
 impl PlatformWindow for WaylandWindow {
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
         crate::desktop::eyedropper::wayland::capture(scale)
+    }
+
+    fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {
+        let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
+        apply_input_region_from_shape(&self.wayland, self.compositor, self.surface, rects, scale);
     }
 
     /// Wayland owns its shm pool / EGL drawable, so an application-initiated
@@ -5531,6 +5571,9 @@ impl WaylandWindow {
                                 // Replaces the logic that used to live here and lacked
                                 // all the scroll machinery (#13/#14).
                                 if !native_skip_render {
+                                    // Transparent material clears to alpha 0
+                                    // (ARGB8888 carries it); shape if asked.
+                                    self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
                                     self.cpu_backend.render_frame(
                                         layout_window,
                                         &layout_window.renderer_resources,
@@ -6053,6 +6096,12 @@ impl WaylandWindow {
                 &FRAME_CALLBACK_LISTENER,
                 self as *mut _ as *mut _,
             );
+        }
+        // A shaped window: the input region rides on this commit.
+        if let Some(rects) = self.cpu_backend.take_changed_shape() {
+            self.apply_window_shape(&rects);
+        }
+        unsafe {
             (self.wayland.wl_surface_commit)(self.surface);
         }
 
@@ -7407,6 +7456,7 @@ impl WaylandPopup {
                         lw.prepare_frame_cpu();
                     }
                     if let Some(ref layout_window) = self.common.layout_window {
+                        self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
                         self.cpu_backend.render_frame(
                             layout_window,
                             &layout_window.renderer_resources,
@@ -7688,6 +7738,11 @@ impl PlatformWindow for WaylandPopup {
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
         crate::desktop::eyedropper::wayland::capture(scale)
+    }
+
+    fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {
+        let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
+        apply_input_region_from_shape(&self.wayland, self.compositor, self.surface, rects, scale);
     }
 
     fn regenerate_layout_once(

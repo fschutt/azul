@@ -1391,6 +1391,9 @@ pub struct X11Window {
     pub egl: Rc<Egl>,
     pub xkb: Rc<Xkb>,
     pub xrender: Option<Rc<dlopen::Xrender>>, // Optional XRender for ARGB visual detection
+    /// Optional XShape for alpha-shaped windows (loaded on first use).
+    xext: Option<Rc<dlopen::Xext>>,
+    xext_probed: bool,
     pub gtk_im: Option<Rc<Gtk3Im>>,           // Optional GTK IM context for IME
     pub gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance
     pub display: *mut Display,
@@ -2506,6 +2509,8 @@ impl X11Window {
             egl,
             xkb,
             xrender,
+            xext: None,
+            xext_probed: false,
             gtk_im,
             gtk_im_context,
             display,
@@ -4789,6 +4794,9 @@ impl X11Window {
                                 // here and lacked ALL the scroll machinery (its
                                 // incremental path only damaged the scrollbar, so
                                 // scrolling left the content frozen — #13/#14).
+                                // Transparent material: clear to alpha 0 (the
+                                // ARGB visual carries it); shape from alpha if asked.
+                                self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
                                 self.cpu_backend.render_frame(
                                     layout_window,
                                     &layout_window.renderer_resources,
@@ -5001,6 +5009,11 @@ impl X11Window {
                 }
             }
             unsafe { (self.xlib.XFlush)(self.display) };
+
+            // A shaped window: hand XShape the frame's alpha outline when it changed.
+            if let Some(rects) = self.cpu_backend.take_changed_shape() {
+                self.apply_window_shape(&rects);
+            }
 
             self.common.display_list_initialized = true;
 
@@ -5731,6 +5744,58 @@ impl X11Window {
 impl PlatformWindow for X11Window {
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         crate::desktop::eyedropper::x11::capture(self)
+    }
+
+    /// XShape: the bounding (drawn) and input shapes both follow the frame's
+    /// alpha. Rects arrive y-then-x sorted and non-overlapping (`YXBanded`).
+    fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {
+        use defines::{ShapeBounding, ShapeInput, ShapeSet, XRectangle, YXBanded};
+        if !self.xext_probed {
+            self.xext_probed = true;
+            self.xext = match dlopen::Xext::new() {
+                Ok(x) => Some(x),
+                Err(e) => {
+                    crate::plog_warn!("[X11] libXext could not be loaded ({:?}) - shaped windows stay rectangular", e);
+                    None
+                }
+            };
+        }
+        let Some(xext) = self.xext.clone() else {
+            return;
+        };
+        let mut xrects: Vec<XRectangle> = rects
+            .iter()
+            .map(|r| XRectangle {
+                x: r.x.min(i16::MAX as u32) as i16,
+                y: r.y.min(i16::MAX as u32) as i16,
+                width: r.width.min(u16::MAX as u32) as u16,
+                height: r.height.min(u16::MAX as u32) as u16,
+            })
+            .collect();
+        if xrects.is_empty() {
+            return;
+        }
+        unsafe {
+            let (mut ev, mut err) = (0, 0);
+            if (xext.XShapeQueryExtension)(self.display, &mut ev, &mut err) == 0 {
+                return;
+            }
+            let n = xrects.len().min(c_int::MAX as usize) as c_int;
+            for kind in [ShapeBounding, ShapeInput] {
+                (xext.XShapeCombineRectangles)(
+                    self.display,
+                    self.window,
+                    kind,
+                    0,
+                    0,
+                    xrects.as_mut_ptr(),
+                    n,
+                    ShapeSet,
+                    YXBanded,
+                );
+            }
+            (self.xlib.XFlush)(self.display);
+        }
     }
 
     fn regenerate_layout_once(

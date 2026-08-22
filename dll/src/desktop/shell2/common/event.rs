@@ -3338,6 +3338,16 @@ pub trait PlatformWindow {
         }
     }
 
+    /// Give the OS the window's shape: `rects` (physical pixels of the
+    /// frame just presented) cover every pixel that IS the window; outside
+    /// them clicks fall through and, where the OS draws shapes (X11 /
+    /// Windows), nothing is drawn. An empty `rects` means "the whole frame
+    /// is transparent": backends keep the previous shape rather than vanish.
+    /// Called after a CPU present while `WindowFlags::shape_from_alpha` is
+    /// set, only when the shape changed. macOS needs no call - a non-opaque
+    /// window hit-tests by its alpha - so the default is a no-op.
+    fn apply_window_shape(&mut self, _rects: &[azul_layout::cpurender::ShapeRect]) {}
+
     /// Start the OS's own eyedropper for `request_id` (macOS: the system
     /// sampler). `true` if one started - the answer arrives through
     /// `azul_layout::managers::eyedropper::push_result`. The default has none.

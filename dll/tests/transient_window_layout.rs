@@ -1214,3 +1214,139 @@ fn the_eyedropper_answer_is_routed_to_the_picker_that_asked() {
     let _ = swatch_bg; // the app-side colour is what matters; the dom follows from it
 }
 
+
+// ---------------------------------------------------------------------------
+// Transparent + shaped windows: the frame carries alpha, the shape follows it
+// ---------------------------------------------------------------------------
+
+/// A popup whose node asks for `material="transparent"`; its panel has
+/// rounded corners (12px radius) on a white background.
+extern "C" fn rounded_popup_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::window::WindowBackgroundMaterial;
+    let open = data.downcast_ref::<PickerState>().is_some_and(|s| s.open);
+    let cfg = if open { TransientWindowConfig::opened() } else { TransientWindowConfig::closed() }
+        .with_material(WindowBackgroundMaterial::Transparent);
+    let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(cfg))).with_child(
+        Dom::create_div().with_css("width: 120px; height: 80px; background: white; border-radius: 12px;"),
+    );
+    let anchor = Dom::create_div()
+        .with_css("width: 60px; height: 24px; margin: 40px; background: #e66465;")
+        .with_child(popup);
+    Dom::create_body().with_child(anchor)
+}
+
+/// A popup whose node carries a CLIP MASK (the DOM's own mask): that implies
+/// a transparent window - the mask is the window's shape.
+extern "C" fn masked_popup_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::{
+        geom::{LogicalRect, LogicalSize as LS},
+        resources::{ImageMask, ImageRef, RawImage, RawImageData, RawImageFormat},
+    };
+    let open = data.downcast_ref::<PickerState>().is_some_and(|s| s.open);
+    let cfg = if open { TransientWindowConfig::opened() } else { TransientWindowConfig::closed() };
+    let mut node = NodeData::create_node(NodeType::TransientWindow(cfg));
+    // A 100x60 mask: opaque on the left half only.
+    let mut px = vec![0u8; 100 * 60];
+    for y in 0..60 {
+        for x in 0..50 {
+            px[y * 100 + x] = 255;
+        }
+    }
+    let mask = ImageRef::new_rawimage(RawImage {
+        width: 100,
+        height: 60,
+        pixels: RawImageData::U8(px.into()),
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::R8,
+        tag: Vec::new().into(),
+    })
+    .expect("mask image");
+    node.set_clip_mask(ImageMask {
+        image: mask,
+        rect: LogicalRect::new(LogicalPosition::zero(), LS::new(100.0, 60.0)),
+        repeat: false,
+    });
+    let popup = Dom::create_from_data(node)
+        .with_child(Dom::create_div().with_css("width: 100px; height: 60px; background: white;"));
+    let anchor = Dom::create_div()
+        .with_css("width: 60px; height: 24px; margin: 40px; background: #e66465;")
+        .with_child(popup);
+    Dom::create_body().with_child(anchor)
+}
+
+fn transparent_parent(cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom) -> HeadlessWindow {
+    let app_data = Arc::new(RefCell::new(RefAny::new(PickerState {
+        open: true,
+        label: "",
+        dismiss: TransientDismiss::Outside,
+        ack_dismiss: true,
+        dismissed_calls: Arc::new(AtomicUsize::new(0)),
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize { width: 400.0, height: 300.0 };
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    headless(options, app_data)
+}
+
+/// The popup window is created with the transparent material; laid out and
+/// rendered headless through the shared CPU path, its frame is cleared to
+/// alpha 0 where the rounded panel does not paint, and the shape computed
+/// from it is NOT one full rectangle (the corners are cut) - with every
+/// opaque pixel inside it and every corner pixel outside.
+#[test]
+fn a_transparent_popup_renders_alpha_and_a_non_rectangular_shape() {
+    use azul_core::window::WindowBackgroundMaterial;
+    let mut parent = transparent_parent(rounded_popup_layout);
+    parent.regenerate_layout().expect("layout");
+    let popup_opts = take_queued_popup(&mut parent);
+    assert_eq!(
+        popup_opts.window_state.flags.background_material,
+        WindowBackgroundMaterial::Transparent,
+        "material=\"transparent\" on the node reaches the popup's window state"
+    );
+    let mut popup = headless(popup_opts, parent.common.app_data.clone());
+    popup.regenerate_layout().expect("popup layout + frame");
+
+    let frame = popup.cpu_backend.last_frame.as_ref().expect("a frame was rendered");
+    let (w, h) = (frame.width(), frame.height());
+    assert!(w >= 100 && h >= 60, "{w}x{h}");
+    let alpha_at = |x: u32, y: u32| frame.data()[((y * w + x) * 4 + 3) as usize];
+    assert_eq!(alpha_at(0, 0), 0, "the corner outside the 12px radius is transparent");
+    assert_eq!(alpha_at(w / 2, h / 2), 255, "the panel's middle is opaque white");
+
+    assert!(popup.cpu_backend.transparent && popup.cpu_backend.shape_from_alpha);
+    let shape = popup.cpu_backend.last_shape.clone().expect("a shape was computed");
+    assert!(shape.len() > 1, "rounded corners: more than one rect, got {}", shape.len());
+    let covers = |x: u32, y: u32| shape.iter().any(|r| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+    assert!(covers(w / 2, h / 2), "the body is inside the shape");
+    assert!(!covers(0, 0), "the transparent corner is outside the shape");
+    // The first (top) rect starts right of the corner: the corner is cut.
+    assert!(shape[0].x > 0, "top row starts past the corner radius: {:?}", shape[0]);
+    // Applied once; an identical next frame does not re-issue it.
+    assert!(popup.cpu_backend.take_changed_shape().is_some());
+    assert!(popup.cpu_backend.take_changed_shape().is_none());
+}
+
+/// A clip mask on the `<transient-window>` node makes the popup transparent
+/// without asking, and the rendered shape is the mask's: the left half.
+#[test]
+fn a_clip_mask_on_the_node_is_the_popups_shape() {
+    use azul_core::window::WindowBackgroundMaterial;
+    let mut parent = transparent_parent(masked_popup_layout);
+    parent.regenerate_layout().expect("layout");
+    let popup_opts = take_queued_popup(&mut parent);
+    assert_eq!(
+        popup_opts.window_state.flags.background_material,
+        WindowBackgroundMaterial::Transparent,
+        "a clip mask implies a transparent window"
+    );
+    let mut popup = headless(popup_opts, parent.common.app_data.clone());
+    popup.regenerate_layout().expect("popup layout + frame");
+    let frame = popup.cpu_backend.last_frame.as_ref().expect("frame");
+    let (w, h) = (frame.width(), frame.height());
+    let alpha_at = |x: u32, y: u32| frame.data()[((y * w + x) * 4 + 3) as usize];
+    assert_eq!(alpha_at(10, h / 2), 255, "inside the mask: painted");
+    assert_eq!(alpha_at(w - 10, h / 2), 0, "outside the mask: nothing");
+    let shape = popup.cpu_backend.last_shape.clone().expect("shape");
+    assert!(shape.iter().all(|r| r.x + r.width <= w / 2 + 1), "the shape stops at the mask's edge: {shape:?}");
+}

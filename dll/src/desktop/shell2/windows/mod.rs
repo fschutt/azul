@@ -1161,6 +1161,10 @@ impl Win32Window {
                             // thin-strip scroll-shift with eligibility + offset-aware
                             // render. Replaces the logic that used to live here and
                             // lacked all the scroll machinery (#13/#14).
+                            // Transparent material: the frame clears to alpha 0;
+                            // the DWM (blur-behind, see apply_background_material)
+                            // composites the DIB's premultiplied alpha.
+                            self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
                             self.cpu_backend.render_frame(
                                 layout_window,
                                 &layout_window.renderer_resources,
@@ -1308,6 +1312,11 @@ impl Win32Window {
                                     }
                                 }
                                 rendered = true;
+                            }
+                            // A transparent window's input + visual shape
+                            // follows the frame's alpha (SetWindowRgn).
+                            if let Some(rects) = self.cpu_backend.take_changed_shape() {
+                                self.apply_window_shape(&rects);
                             }
                             // (previous-display-list tracking now lives inside
                             // CpuBackend::render_frame.)
@@ -6269,6 +6278,41 @@ impl Win32Window {
 impl PlatformWindow for Win32Window {
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         crate::desktop::eyedropper::windows::capture(self)
+    }
+
+    /// `SetWindowRgn` with the union of the alpha-shape rects (window-client
+    /// coordinates: the DIB covers the client area of a borderless popup;
+    /// a decorated window's region is offset by its frame, which a shaped
+    /// window does not have). The region's ownership passes to the system.
+    fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {
+        const RGN_OR: i32 = 2;
+        if rects.is_empty() {
+            return;
+        }
+        unsafe {
+            let gdi32 = &self.win32.gdi32;
+            let region = (gdi32.CreateRectRgn)(0, 0, 0, 0);
+            if region.is_null() {
+                return;
+            }
+            #[allow(clippy::cast_possible_wrap)] // pixel coordinates
+            for r in rects {
+                let piece = (gdi32.CreateRectRgn)(
+                    r.x as i32,
+                    r.y as i32,
+                    (r.x + r.width) as i32,
+                    (r.y + r.height) as i32,
+                );
+                if piece.is_null() {
+                    continue;
+                }
+                (gdi32.CombineRgn)(region, region, piece, RGN_OR);
+                (gdi32.DeleteObject)(piece);
+            }
+            // Ownership of `region` passes to the window; no redraw needed,
+            // the frame that produced the shape was just presented.
+            (self.win32.user32.SetWindowRgn)(self.hwnd, region, 0);
+        }
     }
 
     fn regenerate_layout_once(

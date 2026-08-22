@@ -1623,6 +1623,11 @@ pub struct CPUViewIvars {
     /// after that only the dirty rows are copied per `drawRect` (see
     /// `dirty_rows_to_copy`).
     cached_bitmap_stale: Cell<bool>,
+    /// The window's background material is not `Opaque`: the view reports
+    /// itself non-opaque (AppKit then composites the alpha the frame left)
+    /// and the frame is drawn with the Copy operation so stale pixels never
+    /// accumulate under transparent regions.
+    transparent: Cell<bool>,
 }
 
 /// The framebuffer rows + columns a `drawRect` must copy into the cached
@@ -1822,7 +1827,7 @@ define_class!(
 
         #[unsafe(method(isOpaque))]
         fn is_opaque(&self) -> bool {
-            true
+            !self.ivars().transparent.get()
         }
 
         // Event Handling
@@ -2193,6 +2198,7 @@ define_class!(
                 cached_bitmap_w: Cell::new(0),
                 cached_bitmap_h: Cell::new(0),
             cached_bitmap_stale: Cell::new(true),
+                transparent: Cell::new(false),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -2626,6 +2632,11 @@ impl CPUView {
     /// catch-up contract is met by construction. Render and `drawRect` both
     /// run on the main thread — no concurrent access — and the pointer stays
     /// valid because only these paths resize the Vec.
+    /// Whether the view composites the frame's alpha (see the ivar).
+    pub fn set_transparent(&self, transparent: bool) {
+        self.ivars().transparent.set(transparent);
+    }
+
     pub fn native_target_ptr(&self, w: usize, h: usize) -> Option<*mut u8> {
         if w == 0 || h == 0 {
             return None;
@@ -7080,6 +7091,14 @@ impl MacOSWindow {
                     // directive 2026-08-12 — not yet run on real hardware.
                     let native_pw = (width * dpi).ceil() as u32;
                     let native_ph = (height * dpi).ceil() as u32;
+                    // Transparent material: the frame clears to alpha 0
+                    // and the view composites it (macOS shapes the window's
+                    // hit-testing by that alpha on its own).
+                    self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
+                    if let Some(ref cpu_view) = self.cpu_view {
+                        cpu_view.set_transparent(self.cpu_backend.transparent);
+                    }
+
                     if crate::desktop::shell2::headless::native_backbuffer_enabled() {
                         if let Some(ref cpu_view) = self.cpu_view {
                             if let Some(ptr) = cpu_view

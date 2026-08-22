@@ -505,6 +505,26 @@ impl Gtk3Im {
     }
 }
 
+/// Dynamically loaded XShape (libXext) functions: a window shaped by its
+/// rendered alpha (`WindowFlags::shape_from_alpha`). Optional - without
+/// the library a shaped window is simply rectangular.
+pub struct Xext {
+    _lib: Library,
+    pub XShapeQueryExtension: XShapeQueryExtension,
+    pub XShapeCombineRectangles: XShapeCombineRectangles,
+}
+
+impl Xext {
+    pub fn new() -> Result<Rc<Self>, DlError> {
+        let lib = load_first_available::<Library>(&["libXext.so.6", "libXext.so"])?;
+        Ok(Rc::new(Self {
+            XShapeQueryExtension: load_symbol!(lib, _, "XShapeQueryExtension"),
+            XShapeCombineRectangles: load_symbol!(lib, _, "XShapeCombineRectangles"),
+            _lib: lib,
+        }))
+    }
+}
+
 /// Dynamically loaded XRender functions for ARGB visual detection
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 pub struct Xrender {

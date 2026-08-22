@@ -51,6 +51,9 @@ pub struct TransientPlacement {
     /// The app's `torn` attribute: a request, applied when it CHANGES (the
     /// manager keeps the user's own tear-offs in between).
     pub torn: bool,
+    /// The popup window's background material (a clip mask on the node
+    /// implies `Transparent`, see `collect_open_transient_windows`).
+    pub material: azul_core::window::WindowBackgroundMaterial,
 }
 
 impl TransientPlacement {
@@ -163,7 +166,14 @@ pub fn collect_open_transient_windows(
         let Some(anchor_rect) = zone_rect.or_else(|| rect_of(parent)) else {
             continue; // the parent was not laid out (display:none ancestor)
         };
-        out.push(placement_for(node, anchor_rect, cfg));
+        let mut placement = placement_for(node, anchor_rect, cfg);
+        // A clip mask on the node is the window's shape: that needs alpha.
+        if nd.get_svg_data().is_some()
+            && placement.material == azul_core::window::WindowBackgroundMaterial::Opaque
+        {
+            placement.material = azul_core::window::WindowBackgroundMaterial::Transparent;
+        }
+        out.push(placement);
     }
     out
 }
@@ -180,6 +190,7 @@ pub const fn placement_for(node: NodeId, anchor_rect: LogicalRect, cfg: &Transie
         size: cfg.size,
         tearoff: cfg.tearoff,
         torn: cfg.torn,
+        material: cfg.material,
     }
 }
 
@@ -327,6 +338,7 @@ mod tests {
             size: OptionLogicalSize::None,
             tearoff: TransientTearoff::None,
             torn: false,
+            material: azul_core::window::WindowBackgroundMaterial::Opaque,
         };
         let size = LogicalSize::new(200.0, 150.0);
         let bounds = rect(0.0, 0.0, 800.0, 600.0);
@@ -361,6 +373,7 @@ mod tests {
             size: OptionLogicalSize::None,
             tearoff: TransientTearoff::None,
             torn: false,
+            material: azul_core::window::WindowBackgroundMaterial::Opaque,
         };
         let popup = LogicalSize::new(300.0, 150.0);
 
@@ -842,6 +855,7 @@ mod manager_tests {
             size: OptionLogicalSize::None,
             tearoff: TransientTearoff::None,
             torn: false,
+            material: azul_core::window::WindowBackgroundMaterial::Opaque,
         }
     }
     fn sized(_: DomId, _: &TransientPlacement) -> Option<LogicalSize> {

@@ -472,6 +472,9 @@ pub struct User32Functions {
     /// Screen metrics (`SM_CXSCREEN` / `SM_CYSCREEN` for the eyedropper's
     /// screenshot of the primary monitor).
     pub GetSystemMetrics: unsafe extern "system" fn(i32) -> i32,
+    /// The window's region (its input + visual shape) for a transparent
+    /// window shaped by its alpha. Takes ownership of the region.
+    pub SetWindowRgn: unsafe extern "system" fn(HWND, HRGN, BOOL) -> i32,
     pub ScreenToClient: unsafe extern "system" fn(HWND, *mut POINT) -> BOOL,
     pub ClientToScreen: unsafe extern "system" fn(HWND, *mut POINT) -> BOOL,
 
@@ -530,6 +533,8 @@ pub struct Gdi32Functions {
     /// Create a rectangular region - used for DwmEnableBlurBehindWindow
     /// CreateRectRgn(0, 0, -1, -1) creates a minimal region for transparent backgrounds
     pub CreateRectRgn: unsafe extern "system" fn(i32, i32, i32, i32) -> HRGN,
+    /// (dest, src1, src2, mode) - `RGN_OR` unions the alpha-shape rects.
+    pub CombineRgn: unsafe extern "system" fn(HRGN, HRGN, HRGN, i32) -> i32,
     /// StretchDIBits - blit pixel data from memory to device context (for CPU rendering)
     /// (hdc, xDest, yDest, wDest, hDest, xSrc, ySrc, wSrc, hSrc, lpBits, lpBmi, iUsage, dwRop)
     pub StretchDIBits: unsafe extern "system" fn(
@@ -806,6 +811,7 @@ impl Win32Libraries {
                 // Cursor
                 GetCursorPos: user32_dll.get_symbol("GetCursorPos")?,
                 GetSystemMetrics: user32_dll.get_symbol("GetSystemMetrics")?,
+                SetWindowRgn: user32_dll.get_symbol("SetWindowRgn")?,
                 ScreenToClient: user32_dll.get_symbol("ScreenToClient")?,
                 ClientToScreen: user32_dll.get_symbol("ClientToScreen")?,
 
@@ -848,6 +854,7 @@ impl Win32Libraries {
                 CreateSolidBrush: gdi32_dll.get_symbol("CreateSolidBrush")?,
                 DeleteObject: gdi32_dll.get_symbol("DeleteObject")?,
                 CreateRectRgn: gdi32_dll.get_symbol("CreateRectRgn")?,
+                CombineRgn: gdi32_dll.get_symbol("CombineRgn")?,
                 StretchDIBits: gdi32_dll.get_symbol("StretchDIBits")?,
                 CreateDIBSection: gdi32_dll.get_symbol("CreateDIBSection")?,
                 CreateCompatibleDC: gdi32_dll.get_symbol("CreateCompatibleDC")?,

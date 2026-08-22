@@ -1001,6 +1001,10 @@ pub struct CpuRenderState {
     /// the CPU path has no pipelines, so the `DisplayListItem::VirtualView` arm
     /// recursively rasterises the child's display list from here (translated to the
     /// item's `bounds.origin`, clipped to `bounds`). Empty for non-window renders.
+    /// What a damage rect is cleared to before it repaints: opaque white,
+    /// or transparent black for a `Transparent`-material window.
+    /// (`AZ_DEBUG_FILL` still wins, for the repaint-coverage diagnostics.)
+    pub clear_color: [u8; 4],
     pub virtual_view_display_lists:
         std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
 }
@@ -1012,8 +1016,15 @@ impl CpuRenderState {
             transforms: HashMap::new(),
             opacities: HashMap::new(),
             system_style: None,
+            clear_color: [255, 255, 255, 255],
             virtual_view_display_lists: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Clear damage rects to `color` (see the field).
+    #[must_use] pub fn with_clear_color(mut self, color: [u8; 4]) -> Self {
+        self.clear_color = color;
+        self
     }
 
     /// Provide the nested `VirtualView` child DOM display lists so the CPU
@@ -1048,6 +1059,7 @@ impl CpuRenderState {
             transforms,
             opacities,
             system_style: None,
+            clear_color: [255, 255, 255, 255],
             virtual_view_display_lists: std::collections::BTreeMap::new(),
         }
     }
@@ -1446,7 +1458,12 @@ pub fn render_display_list_damaged(
     }
 
     for sr in &rects {
-        let (cr, cg, cb, ca) = damage_clear_color();
+        let (cr, cg, cb, ca) = if std::env::var_os("AZ_DEBUG_FILL").is_some() {
+            damage_clear_color()
+        } else {
+            let [r, g, b, a] = render_state.clear_color;
+            (r, g, b, a)
+        };
         pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
 
         let base_clip = AzRect::from_xywh(

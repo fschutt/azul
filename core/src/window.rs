@@ -1120,7 +1120,18 @@ impl Default for WindowDecorations {
     }
 }
 
-/// Compositor blur/transparency effects for window background
+/// Compositor blur/transparency effects for window background.
+///
+/// Anything but `Opaque` gives the window PER-PIXEL alpha on the CPU path:
+/// the frame is cleared to transparent and whatever the content leaves at
+/// alpha 0 shows the desktop through (a `border-radius` on the body makes
+/// real rounded corners; a clip mask on the body makes any shape). The
+/// window's INPUT shape follows that alpha as well - clicks on fully
+/// transparent pixels fall through to whatever is behind, on every backend
+/// (macOS does this by itself for a non-opaque window; X11 gets an XShape,
+/// Wayland an input region, Windows a window region). This is partial
+/// (per-pixel) transparency, not whole-window opacity; X11 without an ARGB
+/// visual falls back to `_NET_WM_WINDOW_OPACITY`, which is whole-window.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub enum WindowBackgroundMaterial {

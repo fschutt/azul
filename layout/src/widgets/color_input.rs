@@ -222,11 +222,15 @@ impl ColorInput {
 
         // `tearoff`: the grip strip at the top of the panel tears the picker
         // off into a floating palette (a real toplevel) and docks it back.
+        // `Transparent`: the popup window has per-pixel alpha, so the panel's
+        // rounded corners are real corners (the desktop shows through them
+        // and a click there falls through) instead of white window corners.
         let mut transient = NodeData::create_node(NodeType::TransientWindow(
             TransientWindowConfig::closed()
                 .with_anchor(TransientAnchor::Bottom)
                 .with_dismiss(TransientDismiss::Outside)
-                .with_tearoff(azul_core::transient::TransientTearoff::Free),
+                .with_tearoff(azul_core::transient::TransientTearoff::Free)
+                .with_material(azul_core::window::WindowBackgroundMaterial::Transparent),
         ));
         transient.set_attributes(
             vec![azul_core::dom::AttributeType::Title("Colour".into())].into(),

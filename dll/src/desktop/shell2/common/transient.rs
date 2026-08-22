@@ -216,6 +216,10 @@ pub fn popup_create_options(
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
     window_state.size.dpi = parent.size.dpi;
     window_state.theme = parent.theme;
+    // `material="transparent"` (or a clip mask on the node): the frame
+    // clears to transparent and whatever the content leaves at alpha 0 is
+    // not window - clicks fall through, the corners are really round.
+    window_state.flags.background_material = open.placement.material;
     window_state.layout_callback = LayoutCallback {
         cb: transient_layout_callback,
         ctx: OptionRefAny::Some(mailbox.clone()),

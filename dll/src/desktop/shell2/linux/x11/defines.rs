@@ -1172,6 +1172,31 @@ pub type XMatchVisualInfo =
     unsafe extern "C" fn(*mut Display, c_int, c_int, c_int, *mut XVisualInfo) -> c_int;
 pub type XFreeColormap = unsafe extern "C" fn(*mut Display, Colormap) -> c_int;
 
+// XShape (libXext) function types - the window's bounding + input shape
+// from the rendered alpha (`WindowFlags::shape_from_alpha`).
+pub type XShapeQueryExtension = unsafe extern "C" fn(*mut Display, *mut c_int, *mut c_int) -> c_int;
+/// (display, window, dest_kind, x_off, y_off, rects, n_rects, op, ordering)
+pub type XShapeCombineRectangles = unsafe extern "C" fn(
+    *mut Display,
+    Window,
+    c_int,
+    c_int,
+    c_int,
+    *mut XRectangle,
+    c_int,
+    c_int,
+    c_int,
+) -> c_int;
+/// `dest_kind`: what is drawn.
+pub const ShapeBounding: c_int = 0;
+/// `dest_kind`: what receives input.
+pub const ShapeInput: c_int = 2;
+/// `op`: replace the shape.
+pub const ShapeSet: c_int = 0;
+/// `ordering`: rects sorted by y, then x, non-overlapping bands - what
+/// the alpha scan produces.
+pub const YXBanded: c_int = 3;
+
 // XRender function types
 pub type XRenderFindVisualFormat =
     unsafe extern "C" fn(*mut Display, *const Visual) -> *mut XRenderPictFormat;

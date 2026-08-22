@@ -135,6 +135,13 @@ pub struct TransientWindowConfig {
     /// Whether the user may drag the window OUT of its anchor into a free
     /// toplevel that is still the same DOM subtree (see [`TransientTearoff`]).
     pub tearoff: TransientTearoff,
+    /// The popup window's background material (`material="transparent"`):
+    /// `Transparent` gives the window per-pixel alpha, and its shape follows
+    /// what the content paints - rounded corners are real corners, a
+    /// pointer arrow is part of the window, a click beside it falls through.
+    /// A clip mask on the node (`set_clip_mask`, the same mask any DOM node
+    /// can carry) implies `Transparent`: the mask IS the window's shape.
+    pub material: crate::window::WindowBackgroundMaterial,
     /// The ONLY thing an application toggles. `true` materialises the subtree
     /// as a window; `false` tears it down and drops it from layout entirely.
     pub open: bool,
@@ -157,6 +164,7 @@ impl Default for TransientWindowConfig {
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
             tearoff: TransientTearoff::None,
+            material: crate::window::WindowBackgroundMaterial::Opaque,
             torn: false,
         }
     }
@@ -172,6 +180,7 @@ impl TransientWindowConfig {
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
             tearoff: TransientTearoff::None,
+            material: crate::window::WindowBackgroundMaterial::Opaque,
             torn: false,
         }
     }
@@ -211,6 +220,12 @@ impl TransientWindowConfig {
         self.torn = torn;
         self
     }
+
+    #[must_use]
+    pub const fn with_material(mut self, material: crate::window::WindowBackgroundMaterial) -> Self {
+        self.material = material;
+        self
+    }
 }
 
 impl TransientWindowConfig {
@@ -240,6 +255,18 @@ impl TransientWindowConfig {
             }
             "torn" => {
                 self.torn = matches!(value.trim(), "true" | "1" | "");
+                true
+            }
+            "material" => {
+                self.material = match value.trim() {
+                    "transparent" => crate::window::WindowBackgroundMaterial::Transparent,
+                    "sidebar" => crate::window::WindowBackgroundMaterial::Sidebar,
+                    "menu" => crate::window::WindowBackgroundMaterial::Menu,
+                    "hud" => crate::window::WindowBackgroundMaterial::HUD,
+                    "titlebar" => crate::window::WindowBackgroundMaterial::Titlebar,
+                    "mica-alt" => crate::window::WindowBackgroundMaterial::MicaAlt,
+                    _ => crate::window::WindowBackgroundMaterial::Opaque,
+                };
                 true
             }
             "size" => {
@@ -353,6 +380,7 @@ mod tests {
         assert!(c.apply_attr("size", "320x240"));
         assert!(c.apply_attr("tearoff", "true"));
         assert!(c.apply_attr("torn", "true"));
+        assert!(c.apply_attr("material", "transparent"));
         assert!(!c.apply_attr("class", "x"), "not ours - the caller keeps it");
 
         assert!(c.open);
@@ -361,6 +389,9 @@ mod tests {
         assert!(matches!(c.size, OptionLogicalSize::Some(s) if s.width == 320.0 && s.height == 240.0));
         assert_eq!(c.tearoff, TransientTearoff::Free);
         assert!(c.torn);
+        assert_eq!(c.material, crate::window::WindowBackgroundMaterial::Transparent);
+        c.apply_attr("material", "opaque");
+        assert_eq!(c.material, crate::window::WindowBackgroundMaterial::Opaque);
         c.apply_attr("tearoff", "zone:.sidebar");
         assert_eq!(c.tearoff, TransientTearoff::Zone);
         c.apply_attr("tearoff", "nope");

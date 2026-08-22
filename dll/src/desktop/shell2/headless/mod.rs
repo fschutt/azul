@@ -181,6 +181,25 @@ pub use azul_layout::window::{FrameDamage, FrameReport};
 pub struct CpuBackend {
     /// CPU-based hit tester rebuilt after each layout pass.
     pub hit_tester: azul_layout::headless::CpuHitTester,
+    /// The window's background material is `Transparent`: frames are
+    /// cleared to transparent black instead of opaque white, so whatever
+    /// the content leaves at alpha 0 shows the desktop through (the backend
+    /// presents the alpha). Set by the backend from the window state before
+    /// every `render_frame`.
+    pub transparent: bool,
+    /// Implied by `transparent`: after every frame the window's shape (the
+    /// rectangles of opaque-enough pixels, physical px) is computed into
+    /// `last_shape` for the backend to hand to the OS, so clicks on fully
+    /// transparent pixels fall through like they do on macOS.
+    pub shape_from_alpha: bool,
+    /// The shape of the last rendered frame when `shape_from_alpha` is on
+    /// (`None` otherwise, or before the first frame). Physical pixels.
+    #[cfg(feature = "cpurender")]
+    pub last_shape: Option<Vec<azul_layout::cpurender::ShapeRect>>,
+    /// The shape the backend last handed to the OS, so an unchanged frame
+    /// shape does not re-issue the (not free) OS call.
+    #[cfg(feature = "cpurender")]
+    pub applied_shape: Option<Vec<azul_layout::cpurender::ShapeRect>>,
     /// Last rendered pixmap (if CPU rendering is enabled).
     /// `None` when rendering is disabled (layout-only mode).
     #[cfg(feature = "cpurender")]
@@ -331,6 +350,12 @@ impl CpuBackend {
     pub fn new() -> Self {
         Self {
             hit_tester: azul_layout::headless::CpuHitTester::new(),
+            transparent: false,
+            shape_from_alpha: false,
+            #[cfg(feature = "cpurender")]
+            last_shape: None,
+            #[cfg(feature = "cpurender")]
+            applied_shape: None,
             #[cfg(feature = "cpurender")]
             last_frame: None,
             #[cfg(feature = "cpurender")]
@@ -357,6 +382,30 @@ impl CpuBackend {
             #[cfg(feature = "cpurender")]
             previous_gpu_opacities: std::collections::HashMap::new(),
         }
+    }
+
+    /// Read the window's transparency / shape flags off the window state
+    /// before a frame: what the frame is cleared to, and whether its shape
+    /// is computed. Every backend's CPU present calls this first.
+    pub fn sync_window_flags(&mut self, state: &azul_layout::window_state::FullWindowState) {
+        self.transparent = !matches!(
+            state.flags.background_material,
+            azul_core::window::WindowBackgroundMaterial::Opaque
+        );
+        self.shape_from_alpha = self.transparent;
+    }
+
+    /// After a present: the frame's shape if it differs from the one the
+    /// OS has (recorded as applied). `None` = nothing to do. A frame that
+    /// painted nothing opaque keeps the OS shape (the window does not vanish).
+    #[cfg(feature = "cpurender")]
+    pub fn take_changed_shape(&mut self) -> Option<Vec<azul_layout::cpurender::ShapeRect>> {
+        let shape = self.last_shape.as_ref()?;
+        if shape.is_empty() || self.applied_shape.as_ref() == Some(shape) {
+            return None;
+        }
+        self.applied_shape = Some(shape.clone());
+        self.applied_shape.clone()
     }
 
     /// Render the current display list into `last_frame`.
@@ -416,9 +465,11 @@ impl CpuBackend {
         }
 
         // Allocate or resize compositor
+        let clear_color: [u8; 4] = if self.transparent { [0, 0, 0, 0] } else { [255, 255, 255, 255] };
         let compositor = self.compositor.get_or_insert_with(|| {
             cpurender::CompositorState::new(pixel_w, pixel_h)
         });
+        compositor.set_clear_color(clear_color);
 
         // Check if we need to resize the root layer
         let root = compositor.layers.get(&compositor.root_layer);
@@ -1146,6 +1197,7 @@ impl CpuBackend {
         let render_state =
             cpurender::CpuRenderState::from_gpu_cache(gpu_cache, dom_id, render_offsets)
                 .with_system_style(layout_window.system_style.clone())
+                .with_clear_color(clear_color)
                 .with_virtual_view_display_lists(vview_dls);
 
         if is_incremental && !all_damage.is_empty() {
@@ -1167,7 +1219,7 @@ impl CpuBackend {
             }
         } else {
             // Full render
-            output.fill(255, 255, 255, 255);
+            output.fill(clear_color[0], clear_color[1], clear_color[2], clear_color[3]);
             compositor.allocate_layers_from_display_list(
                 display_list,
                 dpi_factor,
@@ -1223,6 +1275,13 @@ impl CpuBackend {
             next_scroll_baseline
         } else {
             scroll_offsets.clone()
+        };
+        // The window's shape, from what this frame painted (every frame:
+        // the content decides; a popover's arrow may move).
+        self.last_shape = if self.shape_from_alpha {
+            Some(cpurender::alpha_shape_rects(&output, cpurender::SHAPE_ALPHA_THRESHOLD))
+        } else {
+            None
         };
         if output.is_external() {
             // #27: the pixels live in the platform's backbuffer and the shell
@@ -1530,6 +1589,7 @@ impl HeadlessWindow {
                 lw.refresh_scrollbar_transforms();
             }
             if let Some(lw) = self.common.layout_window.as_ref() {
+                self.cpu_backend.sync_window_flags(&lw.current_window_state);
                 self.cpu_backend.render_frame(
                     lw,
                     &self.common.renderer_resources,
@@ -1672,6 +1732,7 @@ impl HeadlessWindow {
                 lw.refresh_scrollbar_transforms();
             }
             if let Some(lw) = self.common.layout_window.as_ref() {
+                self.cpu_backend.sync_window_flags(&lw.current_window_state);
                 self.cpu_backend.render_frame(
                     lw,
                     &self.common.renderer_resources,
