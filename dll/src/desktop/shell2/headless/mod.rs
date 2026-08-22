@@ -5951,19 +5951,36 @@ mod tests {
         // and the empty editable painted no caret, so a focused empty field
         // was a blank box — "the TextInput is not working". The placeholder
         // now stays until the first character (it hides on insert, not on
-        // focus), and the field keeps a line (min-height) instead of
-        // collapsing to its 4 px of chrome.
-        //
-        // (The strut CARET for a genuinely empty editing host needs a real
-        // line box for the host — an engine change, report fix B-iii — so it
-        // is not asserted here; the placeholder is the visible deliverable.)
-        let _ = caret_items(&window); // keep the helper referenced
+        // focus), the field keeps a line, and the caret is PAINTED: an empty
+        // IFC inside an editing host keeps a strut line box (fc.rs
+        // `editing_host_strut_height`), which is the line the caret stands
+        // on and the height the value `<p>` keeps.
         assert!(c.size.height > 12.0, "an empty field keeps a line, not just its chrome: {c:?}");
         let placeholder = rects_by_class(&window, "__azul-native-text-input-placeholder");
         assert!(
             placeholder.first().is_some_and(|r| r.size.height > 0.0),
             "the placeholder stays visible while the focused field is empty (not hidden on focus): \
              {placeholder:?}"
+        );
+        let carets = caret_items(&window);
+        assert!(
+            !carets.is_empty(),
+            "NO CARET: a focused EMPTY editable must paint the strut caret (the empty value \
+             <p> keeps a strut line box inside the editing host)"
+        );
+        let caret = carets[carets.len() - 1];
+        assert!(
+            caret.size.height >= 8.0 && caret.size.height <= 40.0,
+            "the strut caret is one line tall: {caret:?} in {c:?}"
+        );
+        assert!(
+            caret.origin.x >= c.origin.x - 0.5 && caret.origin.x <= c.origin.x + c.size.width,
+            "the caret stands inside the field: {caret:?} in {c:?}"
+        );
+        assert!(
+            caret.origin.y >= c.origin.y - 0.5
+                && caret.origin.y + caret.size.height <= c.origin.y + c.size.height + 0.5,
+            "…vertically too: {caret:?} in {c:?}"
         );
     }
 

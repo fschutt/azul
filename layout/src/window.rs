@@ -6971,10 +6971,29 @@ impl LayoutWindow {
         // happens. Put the request back and let the next post-layout call do
         // it properly. Bounded by `MAX_PENDING_FOCUS_RETRIES` so a node that
         // never gains an inline layout still gets its (0,0) fallback.
-        let node_has_layout = self
-            .layout_results
-            .get(&pending.dom_id)
-            .is_some_and(|lr| lr.layout_tree.dom_to_layout.contains_key(&pending.text_node_id));
+        let node_has_layout = self.layout_results.get(&pending.dom_id).is_some_and(|lr| {
+            if lr.layout_tree.dom_to_layout.contains_key(&pending.text_node_id) {
+                return true;
+            }
+            // An EMPTY text node generates no box (it is filtered out of the
+            // layout tree), but its block parent is laid out — with the
+            // editing host's strut line box. Nothing more will ever arrive
+            // for it: seed the (0,0) caret NOW instead of burning the retry
+            // budget and showing no caret for the first frames.
+            let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+            let mut current = hierarchy
+                .get(pending.text_node_id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            while let Some(parent) = current {
+                if lr.layout_tree.dom_to_layout.contains_key(&parent) {
+                    return true;
+                }
+                current = hierarchy
+                    .get(parent)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            }
+            false
+        });
         if dense_cursor.is_none()
             && sparse_cursor.is_none()
             && !node_has_layout
@@ -16874,6 +16893,53 @@ mod autotest_generated {
         win.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
             .expect("layout must succeed on a well-formed DOM");
         win
+    }
+
+    /// THE CLASS (AzWidgets "TextInput not working", 2026-08-21): an IFC root
+    /// with an EMPTY text run produced no inline layout and zero height, so a
+    /// focused empty editable had no line for its caret and collapsed to its
+    /// chrome. Inside an editing host the empty IFC now keeps a strut line
+    /// box: an (item-less) inline layout and one line-height of height. A
+    /// non-editable twin still renders nothing — the strut is not a general
+    /// "empty blocks get height" rule.
+    #[test]
+    fn an_empty_editing_host_keeps_a_strut_line_box() {
+        fn host(editable: bool) -> StyledDom {
+            let mut inner = Dom::create_div()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(""));
+            if editable {
+                inner = inner.with_contenteditable(true);
+            }
+            StyledDom::create_from_dom(Dom::create_body().with_child(inner))
+        }
+        // body(0) > div(1) > text(2)
+        let inner = NodeId::new(1);
+        let dnid = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(inner)),
+        };
+
+        let win = laid_out(host(true), 400.0, 300.0);
+        let size = win.get_node_size(dnid).expect("the editable div is laid out");
+        assert!(
+            size.height > 8.0 && size.height < 48.0,
+            "an empty editing host keeps ONE line of height (the strut), got {size:?}"
+        );
+        let layout = win
+            .get_inline_layout_for_node(DomId::ROOT_ID, inner)
+            .expect("an empty editing host keeps an inline layout for its caret");
+        assert!(layout.items.is_empty(), "…with no items: the caret painter's strut branch");
+
+        let plain = laid_out(host(false), 400.0, 300.0);
+        let size = plain.get_node_size(dnid).expect("the plain div is laid out");
+        assert!(
+            size.height.abs() < 0.5,
+            "a non-editable empty block still collapses to zero height, got {size:?}"
+        );
+        assert!(
+            plain.get_inline_layout_for_node(DomId::ROOT_ID, inner).is_none(),
+            "…and keeps no inline layout (an empty IFC renders nothing)"
+        );
     }
 
     #[test]

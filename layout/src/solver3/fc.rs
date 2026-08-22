@@ -3313,6 +3313,27 @@ fn apply_text_box_trim(
 
     }
 
+/// The height of the strut line box an EMPTY IFC root keeps when it is an
+/// editing host (or inside one): one `line-height` of its font, the same
+/// rect the caret painter uses (`display_list::empty_editable_caret_rect`).
+/// `None` for every other empty IFC — those render nothing.
+fn editing_host_strut_height<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> Option<f32> {
+    let dom_id = tree.get(LayoutNodeId::new(node_index))?.dom_node_id?;
+    if !crate::solver3::getters::is_node_contenteditable_inherited(ctx.styled_dom, dom_id) {
+        return None;
+    }
+    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let font_size = get_element_font_size(ctx.styled_dom, dom_id, node_state);
+    let line_height =
+        crate::solver3::getters::get_line_height_value(ctx.styled_dom, dom_id, node_state)
+            .map_or(1.2, |lh| lh.inner.normalized());
+    Some(crate::solver3::display_list::empty_editable_caret_rect(font_size, line_height).size.height)
+}
+
 fn layout_ifc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -3573,6 +3594,36 @@ fn layout_ifc<T: ParsedFontTrait>(
 
     if inline_content.is_empty() {
         debug_warning!(ctx, "inline_content is empty, returning default output!");
+        // THE EDITING-HOST STRUT. An IFC root with nothing to type into yet
+        // — an empty TextInput's value `<p>`, a `<div contenteditable>`
+        // before its first character — still gets ONE line box, the strut:
+        // one line-height tall, no items. That is the line the caret stands
+        // on (display_list `paint_cursor` paints the strut caret for an
+        // inline layout with no items) and the height the block keeps, so a
+        // focused empty field is neither blank nor collapsed. Browsers do
+        // the same (the editing host's placeholder `<br>`). Every OTHER
+        // empty IFC renders nothing, as before.
+        if let Some(strut_height) = editing_host_strut_height(ctx, tree, node_index) {
+            if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                warm_node.inline_layout_result = Some(Box::new(CachedInlineLayout::new(
+                    Arc::new(crate::text3::cache::UnifiedLayout {
+                        items: Vec::new(),
+                        overflow: crate::text3::cache::OverflowInfo::default(),
+                    }),
+                    constraints.available_width_type,
+                    false,
+                )));
+                // A strut has no glyphs: its baseline sits where a line of
+                // this font would put one (ascent ~ 0.8 em within the line).
+                warm_node.baseline = Some(strut_height * 0.8);
+            }
+            ctx.reflowed_ifcs.insert(node_index);
+            return Ok(LayoutOutput {
+                positions: BTreeMap::new(),
+                overflow_size: LogicalSize::new(0.0, strut_height),
+                baseline: Some(strut_height * 0.8),
+            });
+        }
         // The node has no inline-level content this pass (e.g. its only
         // inline child — a text run or an inline image — was removed by a
         // relayout). Any `inline_layout_result` left over from a previous

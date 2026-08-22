@@ -3363,11 +3363,28 @@ where
     /// instead of scanning the root's children.
     fn ifc_root_owns_dom_node(&self, node_index: usize, dom_id: NodeId) -> bool {
         let tree = self.positioned_tree.tree;
-        tree.dom_to_layout.get(&dom_id).is_some_and(|indices| {
-            indices
+        if let Some(indices) = tree.dom_to_layout.get(&dom_id) {
+            return indices
                 .iter()
-                .any(|&idx| tree.get_ifc_root_layout_index(idx.index()) == node_index)
-        })
+                .any(|&idx| tree.get_ifc_root_layout_index(idx.index()) == node_index);
+        }
+        // The node generated NO box of its own — an EMPTY text node is
+        // filtered out of the layout tree — so it belongs to the IFC of the
+        // nearest DOM ancestor that did generate one. This is the focused
+        // empty editable: the caret session sits on the value's empty text
+        // node, and the strut line box lives on its `<p>`.
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let mut current = hierarchy.get(dom_id).and_then(|h| h.parent_id());
+        while let Some(parent) = current {
+            if let Some(indices) = tree.dom_to_layout.get(&parent) {
+                return indices.iter().any(|&idx| {
+                    idx.index() == node_index
+                        || tree.get_ifc_root_layout_index(idx.index()) == node_index
+                });
+            }
+            current = hierarchy.get(parent).and_then(|h| h.parent_id());
+        }
+        false
     }
 
     /// Emits drawing commands for all text cursors (carets).
