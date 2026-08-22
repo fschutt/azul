@@ -350,7 +350,7 @@ impl MapWidget {
     /// Tilt the camera: 0 looks straight down, [`MAX_PITCH_DEG`] is the
     /// steepest 3D view (clamped). Rendered as a perspective transform on
     /// the tile canvas; right-drag vertically changes it at runtime.
-    #[must_use] pub const fn with_pitch(mut self, pitch_deg: f32) -> Self {
+    #[must_use] pub fn with_pitch(mut self, pitch_deg: f32) -> Self {
         self.viewport.pitch_deg = clamp_pitch(pitch_deg);
         self
     }
@@ -1140,7 +1140,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
 /// clamped to `0..=MAX_PITCH_DEG`. Pure, so the convention is pinned by a
 /// test and shared by every backend.
 #[must_use]
-pub const fn camera_drag(bearing_deg: f32, pitch_deg: f32, dx_px: f32, dy_px: f32) -> (f32, f32) {
+pub fn camera_drag(bearing_deg: f32, pitch_deg: f32, dx_px: f32, dy_px: f32) -> (f32, f32) {
     const DEG_PER_PX: f32 = 0.5;
     (
         normalize_bearing(bearing_deg + dx_px * DEG_PER_PX),
@@ -1327,15 +1327,10 @@ pub const MAX_PITCH_DEG: f32 = 60.0;
 
 /// `pitch_deg` clamped to `0..=MAX_PITCH_DEG` (NaN -> 0).
 #[must_use]
-pub const fn clamp_pitch(pitch_deg: f32) -> f32 {
+#[allow(clippy::missing_const_for_fn)] // `f32::clamp` is not const on the CI toolchain
+pub fn clamp_pitch(pitch_deg: f32) -> f32 {
     if pitch_deg.is_finite() {
-        if pitch_deg < 0.0 {
-            0.0
-        } else if pitch_deg > MAX_PITCH_DEG {
-            MAX_PITCH_DEG
-        } else {
-            pitch_deg
-        }
+        pitch_deg.clamp(0.0, MAX_PITCH_DEG)
     } else {
         0.0
     }

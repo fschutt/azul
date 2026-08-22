@@ -385,7 +385,7 @@ fn an_empty_block_between_siblings_collapses_every_margin_to_the_max() {
     assert!((b_y - 80.0).abs() < 0.5, "b must start at 50 + max(10, 20, 30, 5) = 80, got {b_y}");
     let (_, e_y, _, e_h) = rect_of_class(&cache, &dom, "empty");
     assert!(e_h.abs() < 0.5, "an empty block is zero tall, got {e_h}");
-    assert!(e_y >= 50.0 && e_y <= 80.5, "the empty block sits inside the collapsed seam: {e_y}");
+    assert!((50.0..=80.5).contains(&e_y), "the empty block sits inside the collapsed seam: {e_y}");
 }
 
 /// THE CLASS (AzWidgets 2026-08-21, "placeholder drawn low"): an EMPTY FIRST
