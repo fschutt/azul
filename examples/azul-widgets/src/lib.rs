@@ -31,7 +31,7 @@ use azul::dom::{
 
 // ───────────────────────── Model (source of truth) ─────────────────────────
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 struct Showcase {
     switch_on: bool,
     slider_value: f32,
@@ -44,6 +44,8 @@ struct Showcase {
     current_step: usize,
     /// Bumped by every hooked callback so the UI shows that callbacks fire.
     interactions: usize,
+    /// The colour picked in the `ColorInput`'s popup; the swatch shows it.
+    color: ColorU,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -115,7 +117,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             labelled("NumberInput", NumberInput::create(42.0).dom()),
             labelled(
                 "ColorInput",
-                ColorInput::create(ColorU { r: 255, g: 87, b: 51, a: 255 }).dom(),
+                ColorInput::create(s.color)
+                    .with_accessibility_name("Accent colour")
+                    .with_on_value_change(data.clone(), on_color)
+                    .dom(),
             ),
             labelled(
                 "TextArea",
@@ -519,6 +524,18 @@ extern "C" fn on_slider(mut data: RefAny, _: CallbackInfo, state: SliderState) -
     }
     bump(&mut data)
 }
+/// The picker reports every change; storing it is what makes the swatch
+/// (and the rest of the UI) follow the pick.
+extern "C" fn on_color(mut data: RefAny, _: CallbackInfo, state: ColorInputState) -> Update {
+    match data.downcast_mut::<Showcase>() {
+        Some(mut s) => {
+            s.color = state.color;
+            s.interactions += 1;
+            Update::RefreshDom
+        }
+        None => Update::DoNothing,
+    }
+}
 extern "C" fn on_segmented(mut data: RefAny, _: CallbackInfo, state: SegmentedState) -> Update {
     if let Some(mut s) = data.downcast_mut::<Showcase>() {
         s.selected_segment = state.selected_index;
@@ -595,6 +612,7 @@ pub fn start() {
         current_page: 1,
         current_step: 1,
         interactions: 0,
+        color: ColorU { r: 255, g: 87, b: 51, a: 255 },
     });
     let config = AppConfig::create();
     let app = App::create(data, config);

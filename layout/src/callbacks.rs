@@ -483,6 +483,24 @@ pub enum CallbackChange {
         position: Option<LogicalPosition>,
     },
 
+    /// Hold a `<transient-window>` node open (or let it close) regardless of
+    /// its `open` attribute — how a self-contained widget opens its own popup
+    /// without the app carrying a flag. Node-keyed in the window's transient
+    /// manager, so it survives rebuilds; a user dismissal clears it.
+    SetTransientWindowOpen { node: DomNodeId, open: bool },
+
+    /// Tear a `tearoff`-capable `<transient-window>` off into a free toplevel
+    /// (`torn = true`) or dock it back onto its anchor (`false`) — what the
+    /// user's drag of its `-azul-app-region: drag` strip does, available to a
+    /// "float" / "dock" button as well.
+    SetTransientWindowTorn { node: DomNodeId, torn: bool },
+
+    /// Route every mouse move and the release to `node` until the button
+    /// comes up, whatever is under the cursor (W3C `setPointerCapture`).
+    CapturePointer { node: DomNodeId },
+    /// Drop an active pointer capture before the release would.
+    ReleasePointerCapture,
+
     // Tooltip Management
     /// Show a tooltip at a specific position
     ///
@@ -2212,6 +2230,45 @@ impl CallbackInfo {
             menu,
             position: None,
         });
+    }
+
+    /// Open (or close) the `<transient-window>` at `node` regardless of its
+    /// `open` attribute. The popup appears after this callback's layout pass;
+    /// it stays open across rebuilds until closed here, by the attribute
+    /// going false, or by the user dismissing it (outside click / Escape —
+    /// which also fires `ComponentEventFilter::Dismissed` on the node).
+    ///
+    /// `node` must be in THIS window's dom: a popup's own callbacks cannot
+    /// reach into the parent's manager this way — close from inside a popup
+    /// is the dismiss path.
+    pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
+        self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
+    }
+
+    /// Tear the open `<transient-window>` at `node` off into a free toplevel
+    /// (`torn = true`, placed where the popup is) or dock it back onto its
+    /// anchor (`false`). Needs `tearoff` on the node; a plain popup ignores
+    /// it. The same thing the user's drag of the window's
+    /// `-azul-app-region: drag` strip does, and it fires the same
+    /// `ComponentEventFilter::TornOff` / `Docked` on the node.
+    pub fn set_transient_window_torn(&mut self, node: DomNodeId, torn: bool) {
+        self.push_change(CallbackChange::SetTransientWindowTorn { node, torn });
+    }
+
+    /// Capture the pointer for `node`: until the mouse button is released,
+    /// `MouseOver` and `MouseUp` are delivered to `node` even when the cursor
+    /// has left it — a drag that must follow the mouse (a slider thumb, a
+    /// colour plane) calls this from its `MouseDown` handler.
+    /// `get_cursor_relative_to_node` keeps reading against the node's rect
+    /// while captured, so coordinates may run outside `[0, size]`.
+    /// Released automatically on mouse-up, or by [`Self::release_pointer_capture`].
+    pub fn capture_pointer(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::CapturePointer { node });
+    }
+
+    /// End an active pointer capture early.
+    pub fn release_pointer_capture(&mut self) {
+        self.push_change(CallbackChange::ReleasePointerCapture);
     }
 
     /// Open a menu at a specific position

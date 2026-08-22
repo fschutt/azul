@@ -142,6 +142,12 @@ static NATIVE_DIB_SUPPORTED: core::sync::atomic::AtomicBool =
 pub struct Win32Window {
     /// Win32 window handle
     pub hwnd: HWND,
+    /// This window was created as an OWNED popup of another azul window
+    /// (a transient window or fallback menu): never made topmost.
+    owned_popup: bool,
+    /// The owner's registry id (its HWND), for re-placing a
+    /// `RelativeToParentWindow` popup against the owner's live position.
+    owner_id: u64,
     /// Application instance handle
     pub hinstance: HINSTANCE,
 
@@ -325,11 +331,25 @@ impl Win32Window {
         wcreate::register_window_class(hinstance, Some(window_proc), &win32)?;
         timing_log!("Register window class");
 
+        // A parent-owned popup (Menu type + parent id) gets its parent's HWND
+        // as OWNER: it orders above the owner, hides/minimises with it, and
+        // (with WS_EX_TOOLWINDOW, see create_hwnd) has no taskbar button —
+        // instead of HWND_TOPMOST floating over every other application.
+        let owner_hwnd: Option<HWND> = if options.window_state.flags.window_type
+            == azul_core::window::WindowType::Menu
+            && options.parent_window_id != 0
+        {
+            registry::get_window(options.parent_window_id as usize as HWND)
+                .map(|_| options.parent_window_id as usize as HWND)
+        } else {
+            None
+        };
+
         // Create HWND (invisible initially to avoid black flash)
         let hwnd = wcreate::create_hwnd(
             hinstance,
             &options,
-            None,            // No parent window
+            owner_hwnd,
             ptr::null_mut(), // User data will be set later
             &win32,
         )?;
@@ -664,6 +684,8 @@ impl Win32Window {
 
         let mut result = Win32Window {
             hwnd,
+            owned_popup: owner_hwnd.is_some(),
+            owner_id: owner_hwnd.map_or(0, |h| h as usize as u64),
             hinstance,
             render_mode,
             gl_functions,
@@ -2020,9 +2042,15 @@ impl Win32Window {
     /// This method applies the remaining fields and seeds both baselines
     /// (event-diff and OS-sync) so that sync_window_state() works correctly for
     /// future changes.
+    /// Created as an owned popup of another azul window (see `new`).
+    const fn is_owned_popup(&self) -> bool {
+        self.owned_popup
+    }
+
     fn apply_initial_window_state(&mut self) {
-        // is_always_on_top
-        if self.common.current_window_state().flags.is_always_on_top {
+        // is_always_on_top — except for an owned popup, which already orders
+        // above its owner and must not float over other applications.
+        if self.common.current_window_state().flags.is_always_on_top && !self.is_owned_popup() {
             use dlopen::constants::*;
             unsafe {
                 (self.win32.user32.SetWindowPos)(
@@ -2366,9 +2394,27 @@ impl Win32Window {
                         SWP_NOSIZE | SWP_NOZORDER,
                     );
                 },
-                // Relative (child) windows are positioned once at creation and not
-                // re-synced at runtime; Uninitialized lets the OS decide.
-                WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => {}
+                // A popup's offset from its owner changed (a
+                // `<transient-window>` following its anchor, or its tear-off
+                // drag): re-place it against the owner's live position.
+                WindowPosition::RelativeToParentWindow(offset) => {
+                    if let Some((px, py)) = resolve_windows_parent_origin(self.owner_id) {
+                        unsafe {
+                            use dlopen::constants::{SWP_NOSIZE, SWP_NOZORDER};
+                            (self.win32.user32.SetWindowPos)(
+                                self.hwnd,
+                                std::ptr::null_mut(),
+                                px + offset.x,
+                                py + offset.y,
+                                0,
+                                0,
+                                SWP_NOSIZE | SWP_NOZORDER,
+                            );
+                        }
+                    }
+                }
+                // Uninitialized lets the OS decide.
+                WindowPosition::Uninitialized => {}
             }
         }
 
@@ -6355,6 +6401,22 @@ impl PlatformWindow for Win32Window {
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
                 layout_window.threads.remove(thread_id);
+            }
+        }
+    }
+
+    fn request_regeneration_all_windows(&mut self) {
+        let hwnd = self.hwnd;
+        for other_hwnd in registry::get_all_window_handles() {
+            if other_hwnd == hwnd {
+                continue;
+            }
+            if let Some(wptr) = registry::get_window(other_hwnd) {
+                let w = unsafe { &mut *wptr };
+                w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                unsafe {
+                    (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                }
             }
         }
     }

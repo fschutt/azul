@@ -108,6 +108,48 @@ Dismiss: `outside` ⇒ a press anywhere not inside the transient closes it
 `open=false` through the normal reconcile, so the app's next `layout()` sees
 it closed — no side channel.
 
+### 3b'. DECISION (2026-08-22, after reading all four backends): the surface is a full window
+
+Every backend's popup is already a *complete* window — own `LayoutWindow`,
+own WebRender renderer, own GL context — including Wayland's `xdg_popup`
+(`WaylandPopup` embeds all of that). A "thin surface that paints the
+parent's display list and forwards input" would mean re-architecting four
+render paths; that is not the cheap lift §3b assumed. So:
+
+- **The parent's `LayoutWindow` stays the source of truth.** It holds the
+  `<transient-window>` nodes, runs the reconcile, lays each popup's subtree
+  out under its own `DomId` (this gives the content size BEFORE any surface
+  exists — the `xdg_positioner` needs it up front, and it kills the
+  `size_to_content` 1×1-then-resize dance that mispositions Wayland menus),
+  and emits a per-pass diff `{opened, moved, closed}`.
+- **A popup surface is a child window created through the existing
+  `queue_window_create` path** with the `Menu` window type (so every backend's
+  popup treatment applies unchanged: override-redirect + `POPUP_MENU` on X11,
+  `xdg_popup` on Wayland, borderless always-on-top on macOS/Windows), sized to
+  the measured content, positioned `RelativeToParentWindow` from the anchor.
+- **"One tree" is kept at the STATE level, not the surface level.** The popup's
+  layout callback returns the extracted subtree (resolved style baked in, see
+  `extract_subtree_as_dom`), so its callbacks are the same function pointers
+  on the same `RefAny`s; any `RefreshDom` inside the popup escalates to the
+  parent, whose rebuild re-extracts and pushes fresh content into the popup.
+- **The channel between parent and popup is the popup's layout-callback ctx
+  `RefAny`** (`TransientWindowData`: content, generation, closed, dismissed).
+  The parent keeps a clone; no backend needs a cross-window "close by id",
+  which does not exist (Wayland's popup is not even a registered window).
+  Wake-up after writing the mailbox is `request_regeneration_all_windows`,
+  the fan-out every backend already does inline for `RefreshDomAllWindows`.
+- **Dismiss is engine-side and edge-triggered.** Escape in the popup, or the
+  popup losing focus while `dismiss=outside`, sets `dismissed` in the mailbox;
+  the parent's next pass marks the SOURCE NODE dismissed in the manager (so a
+  still-`open` node does not reopen until `open` goes false→true), closes the
+  surface, and fires `ComponentEventFilter::Dismissed` on the node so the app
+  drops its own flag. The app never has to know which platform it is on.
+- **Wayland is the one real port**: `WaylandPopup` is a click-only menu
+  surface (no hover, drag, keys, scroll). It has to become "a `WaylandWindow`
+  whose shell role is `xdg_popup`", driven by the full common event pipeline.
+  That is the last step, after macOS/Windows/X11 — where popups already ride
+  full windows — and the colour picker.
+
 ### 3c. The reconcile rule (the thing that will bite)
 
 A transient window is a **child DOM attached to a node**, so it needs exactly
@@ -226,3 +268,22 @@ other widget (b7ab320ad). Nothing in it knows it is inside a window.
 - **Reconcile** (3c) is where the screenshare flicker and the map's orphaned
   tile cache both came from. It is step 3 for a reason: do not build the colour
   picker on a popup that closes every relayout.
+
+## 10. Status — 2026-08-22 (branch `transient-window`)
+
+| step | state | where |
+|---|---|---|
+| 1 lift Menu's window | **done (shared builder + shared dismiss)** — `popup_window_state` is the one "what a popup window is" for menus and transient windows; Escape/focus-loss dismiss serves window-based menus too. Menu CONTENT still comes from `menu_renderer`, not from `<transient-window>` nodes. | `dll/src/desktop/menu.rs`, `common/transient.rs` |
+| 2 node type + layout + UA CSS + web fallback | **done** | `core/src/transient.rs`, `ua_css.rs`, `solver3/layout_tree.rs`, `dll/src/web/html_render.rs` |
+| 3 reconcile survival | **done** (manager matched by source node, `NodeIdRemap`, content ids never reused; `transient-churn` lint NOT added) | `layout/src/transient.rs` |
+| 3b surfaces | **done on macOS (verified on screen), X11/Windows ride the same Menu-window path (type-checked, not run), Wayland = `WaylandPopup` is now a FULL `PlatformWindow`** (its own `CommonWindowState`, the real regenerate/process pipeline, keyboard + pointer capture + engine dismissal) | `common/transient.rs`, `macos/mod.rs`, `linux/wayland/mod.rs` |
+| 4 dismiss | **done** (outside press in the parent, Escape in popup or parent, focus loss; `ComponentEventFilter::Dismissed`; edge-triggered re-arm) | `common/transient.rs`, `common/event.rs` |
+| 5 colour picker | **done** (plane/hue/alpha with pointer capture, hex + RGBA fields, themed div checkerboards, a11y names/values). No eyedropper, no R/G/B⌃ mode toggle. | `layout/src/widgets/color_input.rs` |
+| 6 tearoff | **done** (grip drag off the anchor -> `Normal` toplevel, drag back docks, `tearoff="zone:.sel"` re-anchors, `torn` attribute + `TornOff`/`Docked` events + `set_transient_window_torn`; macOS verified on screen incl. the reverse drag). The drag runs in the popup's OWN pipeline; runtime `RelativeToParentWindow` re-placement on mac/win/x11, arithmetic on Wayland. | `layout/src/transient.rs`, `common/transient.rs`, `color_input.rs` |
+| 7 shape | **not started** (deliberately last) | - |
+
+Engine fixes that fell out of it (all general): `get_node_layout_rect` ignored
+the dom id and halved sizes on HiDPI; the pre-cascade fast path forked widget
+datasets from their callbacks; macOS closed windows crashed (display-link
+retain after free, `releasedWhenClosed` double release) and had no
+`RefreshDomAllWindows` fan-out; pointer capture did not exist.

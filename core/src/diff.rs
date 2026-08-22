@@ -769,6 +769,62 @@ fn create_lifecycle_event(
     }
 }
 
+/// The event a `<transient-window>` receives when the USER closed it — an
+/// outside click, or Escape — as opposed to the app flipping `open`.
+///
+/// Built here, next to the other lifecycle events, so it carries the same
+/// `EventSource::Lifecycle` / `EventPhase::Target` shape the dispatcher
+/// expects for a `ComponentEventFilter`. `bounds` is the popup's anchor
+/// rect in the parent, the closest thing to "where it was".
+#[must_use]
+pub fn create_dismiss_event(
+    node_id: NodeId,
+    dom_id: DomId,
+    timestamp: &Instant,
+    bounds: LogicalRect,
+) -> SyntheticEvent {
+    create_lifecycle_event(
+        EventType::Dismiss,
+        node_id,
+        dom_id,
+        timestamp,
+        LifecycleEventData {
+            reason: LifecycleReason::Dismiss,
+            previous_bounds: None,
+            current_bounds: bounds,
+        },
+    )
+}
+
+/// The event a `<transient-window>` receives when the user tore it off its
+/// anchor (`torn == true`, `bounds` = the toplevel's rect in the parent) or
+/// docked it back (`torn == false`, `bounds` = the anchor it docked onto).
+#[must_use]
+pub fn create_tearoff_event(
+    node_id: NodeId,
+    dom_id: DomId,
+    timestamp: &Instant,
+    torn: bool,
+    bounds: LogicalRect,
+) -> SyntheticEvent {
+    let (ty, reason) = if torn {
+        (EventType::TearOff, LifecycleReason::TearOff)
+    } else {
+        (EventType::Dock, LifecycleReason::Dock)
+    };
+    create_lifecycle_event(
+        ty,
+        node_id,
+        dom_id,
+        timestamp,
+        LifecycleEventData {
+            reason,
+            previous_bounds: None,
+            current_bounds: bounds,
+        },
+    )
+}
+
 /// Check if the node has an `AfterMount` callback registered.
 fn has_mount_callback(node: &NodeData) -> bool {
     node.get_callbacks().iter().any(|cb| {

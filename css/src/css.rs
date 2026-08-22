@@ -1087,6 +1087,8 @@ pub enum NodeTypeTag {
     Text,
     Img,
     VirtualView,
+    /// `<transient-window>` — a popup that is a real OS window.
+    TransientWindow,
     /// Icon element - resolved to actual content by `IconProvider`
     Icon,
     /// Invisible probe — `NodeType::GeolocationProbe`. Zero-size in
@@ -1365,6 +1367,7 @@ impl NodeTypeTag {
             "text" => Ok(Self::Text), // Display emits "text"; from_str must accept it back
             "img" => Ok(Self::Img),
             "virtual-view" | "iframe" => Ok(Self::VirtualView),
+            "transient-window" => Ok(Self::TransientWindow),
             "icon" => Ok(Self::Icon),
             "geolocation-probe" => Ok(Self::GeolocationProbe),
             "pagebreak" => Ok(Self::PageBreak),
@@ -1597,6 +1600,7 @@ impl fmt::Display for NodeTypeTag {
             Self::Text => write!(f, "text"),
             Self::Img => write!(f, "img"),
             Self::VirtualView => write!(f, "virtual-view"),
+            Self::TransientWindow => write!(f, "transient-window"),
             Self::Icon => write!(f, "icon"),
             Self::GeolocationProbe => write!(f, "geolocation-probe"),
             Self::PageBreak => write!(f, "pagebreak"),
@@ -2923,7 +2927,7 @@ mod autotest_generated {
             SvgFeSpecularLighting, SvgFeSpotLight, SvgFeTile, SvgFeTurbulence, SvgMarker, SvgImage,
             SvgForeignObject, SvgTitle, SvgDesc, SvgMetadata, SvgA, SvgView, SvgStyle, SvgScript,
             SvgAnimate, SvgAnimateMotion, SvgAnimateTransform, SvgSet, SvgMpath, Title, Meta, Link,
-            Script, Style, Base, Text, Img, VirtualView, Icon, GeolocationProbe, Before, After,
+            Script, Style, Base, Text, Img, VirtualView, TransientWindow, Icon, GeolocationProbe, Before, After,
             Marker, Placeholder,
         ]
     };
@@ -2934,7 +2938,7 @@ mod autotest_generated {
         // without being added here, this count check fails and points at the omission.
         assert_eq!(
             ALL_TAGS.len(),
-            182,
+            183, // +TransientWindow (2026-08-22)
             "ALL_TAGS is out of sync with the NodeTypeTag enum"
         );
         let mut seen: Vec<NodeTypeTag> = Vec::new();

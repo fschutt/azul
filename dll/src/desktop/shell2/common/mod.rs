@@ -26,6 +26,7 @@ pub mod debug_server;
 pub mod e2e_test;
 pub mod event;
 pub mod layout;
+pub mod transient;
 /// The runtime gate for every `log_*!` macro, plus RAII enter/exit spans.
 /// Logging is gated here by atomics — never by a cargo feature.
 pub mod log_gate;

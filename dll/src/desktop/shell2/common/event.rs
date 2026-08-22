@@ -3002,10 +3002,14 @@ pub trait PlatformWindow {
         );
         let started = std::time::Instant::now();
 
+        self.poll_transient_mailbox();
         let mut result = self.regenerate_layout_once()?;
         let mut passes = 1usize;
 
         for _pass in 1..MAX_LIFECYCLE_REGEN_PASSES {
+            // Popups first: a dismissal queues its `Dismissed` lifecycle event,
+            // which the drain below then delivers in this same call.
+            self.sync_transient_windows();
             if !self.dispatch_pending_lifecycle_events() {
                 self.refill_a11y_tree_after_regeneration();
                 self.flush_a11y_tree_update();
@@ -3018,6 +3022,7 @@ pub trait PlatformWindow {
             result = self.regenerate_layout_once()?;
             passes += 1;
         }
+        self.sync_transient_windows();
 
         // One last drain, so callbacks still RUN on the final pass even though we
         // will not lay out again for them.
@@ -3280,6 +3285,127 @@ pub trait PlatformWindow {
     /// ## Parameters
     /// * `options` - Configuration for the new window
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions);
+
+    /// This window's key in the backend's window registry — what a child
+    /// passes as `WindowCreateOptions::parent_window_id`. Every backend keys
+    /// its registry by the native handle the raw window handle carries
+    /// (`NSWindow*`, `HWND`, the X11 window id, the `wl_surface*`), so the
+    /// default derives it; headless has no registry and reports 0.
+    fn registry_window_id(&self) -> u64 {
+        use azul_core::window::RawWindowHandle;
+        match self.get_raw_window_handle() {
+            RawWindowHandle::MacOS(h) => h.ns_window as usize as u64,
+            RawWindowHandle::Windows(h) => h.hwnd as usize as u64,
+            RawWindowHandle::Xlib(h) => h.window,
+            RawWindowHandle::Wayland(h) => h.surface as usize as u64,
+            _ => 0,
+        }
+    }
+
+    /// Ask every OTHER window of this app to regenerate its layout and
+    /// redraw. Backends implement it by walking their registry — the same
+    /// fan-out they do for `Update::RefreshDomAllWindows`. It is how a parent
+    /// wakes the popups it wrote a mailbox for, and how a popup wakes its
+    /// parent after dismissing itself. Headless has nobody to wake.
+    fn request_regeneration_all_windows(&mut self) {}
+
+    /// `<transient-window>`, parent side: after a layout pass, turn the
+    /// engine's popup diff into child windows / mailbox writes, and act on
+    /// popups that dismissed themselves. See `common::transient`.
+    fn sync_transient_windows(&mut self) {
+        let parent_id = self.registry_window_id();
+        let parent_state = self.get_current_window_state().clone();
+        let Some(lw) = self.get_layout_window_mut() else {
+            return;
+        };
+        let outcome = super::transient::sync_parent(parent_id, &parent_state, lw);
+        for options in outcome.create {
+            self.queue_window_create(options);
+        }
+        if outcome.wake_all {
+            self.request_regeneration_all_windows();
+        }
+    }
+
+    /// Does applying a new `position` through `sync_window_state` actually
+    /// move this window? `true` everywhere a window can be placed; a Wayland
+    /// popup (no `xdg_popup.reposition` at the bound protocol version) says
+    /// `false`, and the tear-off drag then tracks the pointer arithmetically.
+    fn window_follows_position_changes(&self) -> bool {
+        true
+    }
+
+    /// `<transient-window>`, popup side: close if the parent said so; move
+    /// and resize to the placement the parent last wrote (the anchor moved,
+    /// the content re-measured) - a torn-off toplevel only resizes.
+    fn poll_transient_mailbox(&mut self) {
+        use super::transient::{poll_popup, relative_position, PopupAction};
+        match poll_popup(self.get_current_window_state()) {
+            PopupAction::Close => {
+                let _ = self.request_window_close("transient.closed_by_parent");
+            }
+            PopupAction::Place { origin, size } => {
+                self.get_common_mut().update_window_state(WindowStateSource::App, |ws| {
+                    if let Some(o) = origin {
+                        ws.position = relative_position(o);
+                    }
+                    ws.size.dimensions = size;
+                });
+                self.sync_window_state();
+            }
+            PopupAction::Nothing => {}
+        }
+    }
+
+    /// `<transient-window>`, both sides, on every input transition:
+    /// - a popup dismisses itself on Escape / focus loss (per its policy),
+    /// - a parent dismisses its `outside`-dismissable popups on a fresh press.
+    fn process_transient_dismissal(&mut self) {
+        use super::transient::{dismiss_outside_on_press, popup_dismiss_cause, post_dismissed};
+        let Some(previous) = self.get_previous_window_state().clone() else {
+            return;
+        };
+        let current = self.get_current_window_state().clone();
+
+        if let Some(cause) = popup_dismiss_cause(&previous, &current) {
+            if post_dismissed(&current) {
+                log_debug!(
+                    super::debug_server::LogCategory::Window,
+                    "[transient] popup dismissing itself: {cause:?}"
+                );
+                let _ = self.request_window_close("transient.dismissed");
+                self.request_regeneration_all_windows();
+            }
+            return;
+        }
+        // The window is closing for a reason of its own (a torn-off
+        // toplevel's close button): the parent's node closes with it.
+        if super::transient::post_dismissed_on_close(&previous, &current) {
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[transient] closing window reports itself dismissed"
+            );
+            self.request_regeneration_all_windows();
+            return;
+        }
+
+        let dismissed_any = match self.get_layout_window_mut() {
+            Some(lw) => {
+                dismiss_outside_on_press(&previous, &current, lw)
+                    | super::transient::dismiss_on_escape(&previous, &current, lw)
+            }
+            None => false,
+        };
+        if dismissed_any {
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[transient] press in the parent dismissed its popups"
+            );
+            // The Dismissed lifecycle event is queued; a regeneration drains it.
+            self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            self.request_regeneration_all_windows();
+        }
+    }
 
     // REQUIRED: Menu Display (Platform-Specific Implementation)
 
@@ -4288,6 +4414,71 @@ pub trait PlatformWindow {
                 let pos = position.unwrap_or(LogicalPosition::new(0.0, 0.0));
                 self.show_menu_from_callback(menu, pos);
                 ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::CapturePointer { node } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = Some(*node);
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::ReleasePointerCapture => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = None;
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::SetTransientWindowOpen { node, open } => {
+                // Only this window's root dom hangs popups; a node id from a
+                // popup's own dom (or any child dom) means nothing here.
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != azul_core::dom::DomId::ROOT_ID {
+                    log_warn!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] set_transient_window_open on a non-root dom {:?}: ignored",
+                        node.dom
+                    );
+                    return ProcessEventResult::DoNothing;
+                }
+                let changed = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.transient_windows.set_forced_open(node_id, *open));
+                if changed {
+                    // The popup set is reconciled after a layout pass.
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
+            CallbackChange::SetTransientWindowTorn { node, torn } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != azul_core::dom::DomId::ROOT_ID {
+                    log_warn!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] set_transient_window_torn on a non-root dom {:?}: ignored",
+                        node.dom
+                    );
+                    return ProcessEventResult::DoNothing;
+                }
+                let changed = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.set_transient_window_torn(node_id, *torn));
+                if changed {
+                    // The surface change (popup <-> toplevel) is synced after
+                    // a layout pass, which also drains the TornOff/Docked event.
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
             }
 
             CallbackChange::ShowTooltip { text, position } => {
@@ -6092,6 +6283,31 @@ pub trait PlatformWindow {
     /// * `ProcessEventResult` - The maximum framework-determined processing level from applied changes
     /// * `Update` - The maximum update level requested by all invoked callbacks
     /// * `bool` - Whether any callback called preventDefault()
+    /// The deepest node under the point where the current drag gesture was
+    /// PRESSED - the drag's source element. `None` when no gesture session
+    /// is running.
+    fn drag_source_node(&mut self) -> Option<azul_core::dom::DomNodeId> {
+        let start = self.drag_press_position()?;
+        let hit = self.get_common_mut().perform_hit_test(start);
+        hit.hovered_nodes.iter().rev().find_map(|(dom, h)| {
+            h.regular_hit_test_nodes.keys().last().map(|n| azul_core::dom::DomNodeId {
+                dom: *dom,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*n)),
+            })
+        })
+    }
+
+    /// Where the current drag gesture was pressed (window-local).
+    fn drag_press_position(&self) -> Option<azul_core::geom::LogicalPosition> {
+        Some(
+            self.get_layout_window()?
+                .gesture_drag_manager
+                .get_current_session()?
+                .first_sample()?
+                .position,
+        )
+    }
+
     /// Does this node — or an ancestor — declare `-azul-app-region: drag`?
     ///
     /// The property does NOT cascade, deliberately: a drag region names the
@@ -6167,18 +6383,73 @@ pub trait PlatformWindow {
         // of the bar — the text inside it — and the bar is what declared the
         // region. Walking up is how a click on the title text still drags,
         // while a button that sets `no-drag` stops the walk at itself.
+        //
+        // In a `<transient-window>` the drag is the TEAR-OFF drag instead:
+        // the window's own pipeline moves it with the pointer and reports
+        // the drop to the parent (see `common::transient`). A popup has no
+        // window manager to hand the gesture to.
         for ev in events {
-            let is_drag_start =
-                matches!(ev.event_type, azul_core::events::EventType::DragStart);
-            let is_double = matches!(ev.event_type, azul_core::events::EventType::DoubleClick);
+            use azul_core::events::EventType;
+            match ev.event_type {
+                EventType::Drag if super::transient::tear_drag_active(self.get_current_window_state()) => {
+                    let follows = self.window_follows_position_changes();
+                    if let Some(position) = super::transient::tear_drag_move(self.get_current_window_state(), follows) {
+                        self.get_common_mut()
+                            .update_window_state(WindowStateSource::App, |ws| ws.position = position);
+                    }
+                    continue;
+                }
+                EventType::DragEnd if super::transient::tear_drag_active(self.get_current_window_state()) => {
+                    let follows = self.window_follows_position_changes();
+                    if super::transient::tear_drag_end(self.get_current_window_state(), follows) {
+                        log_debug!(
+                            super::debug_server::LogCategory::Window,
+                            "[transient] tear-off drag ended; reporting the drop to the parent"
+                        );
+                        self.request_regeneration_all_windows();
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            let is_drag_start = matches!(ev.event_type, EventType::DragStart);
+            let is_double = matches!(ev.event_type, EventType::DoubleClick);
             if !(is_drag_start || is_double) {
                 continue;
             }
-            let target = ev.target;
-            if !self.node_is_window_drag_region(target) {
+            // A DragStart targets the node under the pointer NOW - after the
+            // drag threshold, by which time a fast press on a thin title strip
+            // has already left it. The region is the one that was PRESSED
+            // (W3C: `dragstart` fires on the source element), so hit-test the
+            // gesture's start position; the current target is the fallback.
+            let target = if is_drag_start {
+                self.drag_source_node().unwrap_or(ev.target)
+            } else {
+                ev.target
+            };
+            let is_region = self.node_is_window_drag_region(target);
+            log_debug!(
+                super::debug_server::LogCategory::Input,
+                "[app-region] {:?} on {:?} (drag region: {})",
+                ev.event_type,
+                target,
+                is_region
+            );
+            if !is_region {
                 continue;
             }
             if is_drag_start {
+                let press = self.drag_press_position();
+                if super::transient::tear_drag_begin(self.get_current_window_state(), press) {
+                    log_debug!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] tear-off drag begins"
+                    );
+                    continue;
+                }
+                if super::transient::mailbox_of(self.get_current_window_state()).is_some() {
+                    continue; // a popup without tearoff: the strip does nothing
+                }
                 self.handle_begin_interactive_move();
             } else {
                 // Double-click on a drag region toggles the frame, the way
@@ -6975,7 +7246,18 @@ pub trait PlatformWindow {
             r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
         }
 
-        let result = self.process_window_events_inner(depth);
+        let mut result = self.process_window_events_inner(depth);
+
+        // A callback that ran INSIDE a transient popup and asked for a
+        // refresh must refresh the PARENT: the popup only mirrors the
+        // parent's subtree (see `common::transient`), so re-laying the popup
+        // out alone would show the old content. The parent's pass then
+        // pushes the new subtree back into the popup's mailbox.
+        if result == ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            && super::transient::mailbox_of(self.get_current_window_state()).is_some()
+        {
+            result = ProcessEventResult::ShouldRegenerateDomAllWindows;
+        }
 
         // CONSUME the state delta this pass just processed. The
         // previous→current diff is a one-shot: without this, the delta
@@ -7115,6 +7397,7 @@ pub trait PlatformWindow {
                 super::capability_pump::pump(lw);
             }
             self.sync_capability_pump_timer();
+            self.process_transient_dismissal();
         }
 
         // Get previous state (or use current as fallback for first frame)
@@ -7247,6 +7530,26 @@ pub trait PlatformWindow {
             };
             lw.hover_manager
                 .apply_press_target_capture(&mut synthetic_events, &in_release_path);
+        }
+
+        // Pointer capture: while a node holds the pointer, moves and the
+        // release go to IT, not to whatever the hit test found. The capture
+        // ends with the release (W3C `setPointerCapture` semantics).
+        if let Some(captured) = self.get_layout_window().and_then(|lw| lw.pointer_capture) {
+            use azul_core::events::EventType;
+            let mut released = false;
+            for ev in &mut synthetic_events {
+                if matches!(ev.event_type, EventType::MouseOver | EventType::MouseUp) {
+                    ev.target = captured;
+                    ev.current_target = captured;
+                    released |= ev.event_type == EventType::MouseUp;
+                }
+            }
+            if released {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = None;
+                }
+            }
         }
 
         // Clear the sensor/gamepad pending-event flags now that this pass has

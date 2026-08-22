@@ -798,6 +798,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         clipboard_manager: _,
         hover_manager: _,
         virtual_view_manager: _,
+        transient_windows: _,
+        pointer_capture: _,
+        pending_transient_diff: _,
         gpu_state_manager: _,
         a11y_manager: _,
         permission_manager: _,
@@ -1148,6 +1151,20 @@ pub struct LayoutWindow {
     pub hover_manager: crate::managers::hover::HoverManager,
     /// `VirtualView` manager for all nodes across all DOMs
     pub virtual_view_manager: VirtualViewManager,
+    /// Open `<transient-window>`s: which nodes are materialised as popups,
+    /// and under which `DomId` each one's content is laid out. See
+    /// `crate::transient`.
+    pub transient_windows: crate::transient::TransientWindowManager,
+    /// The node that captured the pointer (`CallbackInfo::capture_pointer`):
+    /// while set, mouse moves and the release are delivered to THIS node no
+    /// matter what is under the cursor — W3C `setPointerCapture`. A slider
+    /// or colour plane that only listened for `MouseOver` on itself lost the
+    /// drag the instant the cursor slipped off it. Released on mouse-up.
+    pub pointer_capture: Option<DomNodeId>,
+    /// What layout has done to the set of open popups since the backend last
+    /// looked — accumulated across passes (see `TransientDiff::merge`), taken
+    /// with [`Self::take_transient_diff`] to create/move/destroy surfaces.
+    pub pending_transient_diff: crate::transient::TransientDiff,
     /// GPU state manager for all nodes across all DOMs
     pub gpu_state_manager: GpuStateManager,
     /// Accessibility manager for screen reader support
@@ -1623,6 +1640,9 @@ impl LayoutWindow {
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
             virtual_view_manager: VirtualViewManager::new(),
+            transient_windows: crate::transient::TransientWindowManager::new(),
+            pointer_capture: None,
+            pending_transient_diff: crate::transient::TransientDiff::default(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),
                 default_duration_200ms(),
@@ -3329,6 +3349,48 @@ impl LayoutWindow {
         styled_dom: &StyledDom,
         available: LogicalSize,
     ) -> LogicalSize {
+        self.scratch_layout(styled_dom, available)
+            .map_or_else(LogicalSize::zero, |cache| Self::scratch_extent(&cache))
+    }
+
+    /// Measure a DOM the way a popup wants to be measured: as wide as its
+    /// content asks for, no wider than `bound`, and as tall as that makes it.
+    ///
+    /// A block root stretches to whatever width it is given, so a single
+    /// layout against the bound says nothing about the content's own width
+    /// (the colour picker's panel came out as wide as the parent window).
+    /// Intrinsic sizing (phase 2a of every layout) leaves the root's
+    /// max-content width behind, so: lay out once against the bound, read
+    /// that width, lay out again at `min(max-content, bound)` so the content
+    /// wraps and stretches to exactly it, and take the extent. Two cold
+    /// layouts of a popup-sized DOM are cheap. Returns `None` if layout
+    /// failed.
+    pub fn measure_styled_dom_shrink_to_fit(
+        &self,
+        styled_dom: &StyledDom,
+        bound: LogicalSize,
+    ) -> Option<LogicalSize> {
+        let first = self.scratch_layout(styled_dom, bound)?;
+        let max_content = first
+            .tree
+            .as_ref()
+            .and_then(|t| t.warm.get(t.root))
+            .and_then(|w| w.intrinsic_sizes.map(|i| i.max_content_width));
+        let Some(w) = max_content else {
+            return Some(Self::scratch_extent(&first));
+        };
+        let w = w.ceil().max(1.0);
+        if w + 0.5 >= bound.width {
+            return Some(Self::scratch_extent(&first));
+        }
+        let second = self.scratch_layout(styled_dom, LogicalSize::new(w, bound.height))?;
+        Some(Self::scratch_extent(&second))
+    }
+
+    /// Style + lay `styled_dom` out against `available` on fresh scratch
+    /// caches — nothing of the window's live layout state is touched. The
+    /// returned cache holds the tree and positions for the caller to read.
+    fn scratch_layout(&self, styled_dom: &StyledDom, available: LogicalSize) -> Option<Solver3LayoutCache> {
         let mut scratch_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
@@ -3385,20 +3447,22 @@ impl LayoutWindow {
             external.get_system_time_fn,
             &[],
         );
-        if layout_result.is_err() {
-            return LogicalSize::zero();
-        }
+        layout_result.ok()?;
+        scratch_cache.tree.as_ref()?;
+        Some(scratch_cache)
+    }
 
-        // Union of every node's absolute bounds = true content extent
-        // (root.used_size alone can be clamped to the viewport).
-        let Some(tree) = scratch_cache.tree.as_ref() else {
+    /// Union of every node's absolute bounds = true content extent
+    /// (`root.used_size` alone can be clamped to the viewport).
+    fn scratch_extent(cache: &Solver3LayoutCache) -> LogicalSize {
+        let Some(tree) = cache.tree.as_ref() else {
             return LogicalSize::zero();
         };
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
         for (idx, node) in tree.nodes.iter().enumerate() {
             let Some(size) = node.used_size else { continue };
-            let pos = solver3::pos_get(&scratch_cache.calculated_positions, idx)
+            let pos = solver3::pos_get(&cache.calculated_positions, idx)
                 .unwrap_or(LogicalPosition::zero());
             max_x = max_x.max(pos.x + size.width);
             max_y = max_y.max(pos.y + size.height);
@@ -3406,10 +3470,230 @@ impl LayoutWindow {
         LogicalSize::new(max_x, max_y)
     }
 
-    /// # Errors
+    /// A node's layout rect moved into VIEWPORT space: the scroll offsets of
+    /// every scrollable ancestor are taken off, so the result is where the
+    /// node is on screen right now, not where the unscrolled layout put it.
+    /// This is what a popup must anchor to — a swatch halfway down a
+    /// scrolled page is not at its layout y.
     ///
-    /// Returns a [`solver3::LayoutError`] if the solver fails to lay out the
-    /// root DOM or any child (`VirtualView` / iframe) DOM.
+    /// GPU transforms on ancestors are not applied (the IME caret path does;
+    /// popups under a `transform`ed ancestor are a follow-up).
+    #[must_use]
+    pub fn get_node_rect_in_viewport(&self, node: DomNodeId) -> Option<LogicalRect> {
+        let mut rect = self.get_node_layout_rect(node)?;
+        let node_id = node.node.into_crate_internal()?;
+        let layout_idx = self
+            .layout_results
+            .get(&node.dom)?
+            .layout_tree
+            .dom_to_layout
+            .get(&node_id)
+            .and_then(|v| v.first().copied())?;
+        let scroll = self.accumulated_scroll_for_node(node.dom, layout_idx.index());
+        rect.origin.x -= scroll.x;
+        rect.origin.y -= scroll.y;
+        Some(rect)
+    }
+
+    /// Hand the accumulated popup diff to the backend, leaving it empty.
+    pub fn take_transient_diff(&mut self) -> crate::transient::TransientDiff {
+        core::mem::take(&mut self.pending_transient_diff)
+    }
+
+    /// The user dismissed the popup hanging off `source_node` (outside click,
+    /// Escape). Closes it in the manager — edge-triggered, so the node's
+    /// still-`open` attribute does not reopen it — drops its layout result,
+    /// records the close for the backend, and queues
+    /// `ComponentEventFilter::Dismissed` on the node so the app can clear its
+    /// own `open` flag on the next lifecycle drain. Returns the closed window.
+    pub fn dismiss_transient_window(
+        &mut self,
+        source_node: NodeId,
+    ) -> Option<crate::transient::OpenTransientWindow> {
+        let closed = self.transient_windows.dismiss(source_node)?;
+        self.layout_results.remove(&closed.content_dom);
+        self.pending_transient_diff.merge(crate::transient::TransientDiff {
+            closed: vec![closed.content_dom],
+            ..Default::default()
+        });
+        let now = {
+            #[cfg(feature = "std")]
+            {
+                Instant::now()
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
+            }
+        };
+        self.pending_lifecycle_events.push(azul_core::diff::create_dismiss_event(
+            source_node,
+            DomId::ROOT_ID,
+            &now,
+            closed.placement.anchor_rect,
+        ));
+        Some(closed)
+    }
+
+    /// The user's tear-off drag of the window at `source_node` ended with the
+    /// window's top-left at `window_origin` and the pointer at `cursor`, both
+    /// in this (parent) window's logical coordinates. Decides what that means
+    /// (see [`crate::transient::decide_drop`]) - the current anchor docks,
+    /// a `tearoff-zone` node re-anchors, anywhere else tears off - applies
+    /// it, accumulates the surface diff, and queues `TornOff` / `Docked` on
+    /// the node when the torn-ness flipped. Returns whether anything changed.
+    pub fn drop_transient_window(
+        &mut self,
+        source_node: NodeId,
+        window_origin: LogicalPosition,
+        cursor: LogicalPosition,
+    ) -> bool {
+        use crate::transient::{decide_drop, nodes_matching_selector, tearoff_zone_selector, TearDrop};
+        let Some(open) = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == source_node)
+            .cloned()
+        else {
+            return false;
+        };
+        // Zones: the nodes matching the window's `tearoff-zone` selector,
+        // hit-tested by their viewport rects; the innermost (last in
+        // document order) one under the pointer wins.
+        let zones: Vec<(NodeId, LogicalRect)> = if open.placement.tearoff == azul_core::transient::TransientTearoff::Zone {
+            let root = self.layout_results.get(&DomId::ROOT_ID);
+            let selector = root.and_then(|r| tearoff_zone_selector(&r.styled_dom, source_node));
+            match (root, selector) {
+                (Some(r), Some(sel)) => nodes_matching_selector(&r.styled_dom, &sel)
+                    .into_iter()
+                    .filter(|n| *n != source_node)
+                    .filter_map(|n| {
+                        let rect = self.get_node_rect_in_viewport(DomNodeId {
+                            dom: DomId::ROOT_ID,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                        })?;
+                        Some((n, rect))
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            }
+        } else {
+            Vec::new()
+        };
+        let drop = decide_drop(cursor, open.placement.anchor_rect, window_origin, |p| {
+            zones.iter().rev().find(|(_, r)| r.contains(p)).map(|(n, _)| *n)
+        });
+        self.apply_transient_drop(source_node, drop)
+    }
+
+    /// A callback's `set_transient_window_torn`: tear the window off at its
+    /// anchor position, or dock it back. Returns whether anything changed.
+    pub fn set_transient_window_torn(&mut self, source_node: NodeId, torn: bool) -> bool {
+        let Some(w) = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == source_node)
+        else {
+            return false;
+        };
+        if w.torn.is_some() == torn {
+            return false; // already so
+        }
+        let drop = if torn {
+            crate::transient::TearDrop::TearOff(w.placement.resolve(w.content_size, None))
+        } else {
+            crate::transient::TearDrop::Dock
+        };
+        self.apply_transient_drop(source_node, drop)
+    }
+
+    fn apply_transient_drop(&mut self, source_node: NodeId, drop: crate::transient::TearDrop) -> bool {
+        let Some((diff, changed)) = self.transient_windows.apply_drop(source_node, drop) else {
+            return false;
+        };
+        for dom in &diff.closed {
+            self.layout_results.remove(dom);
+        }
+        self.pending_transient_diff.merge(diff);
+        let Some(w) = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == source_node)
+        else {
+            return changed;
+        };
+        if changed {
+            let bounds = match w.torn {
+                Some(origin) => LogicalRect::new(origin, w.content_size),
+                None => w.placement.anchor_rect,
+            };
+            let now = {
+                #[cfg(feature = "std")]
+                {
+                    Instant::now()
+                }
+                #[cfg(not(feature = "std"))]
+                {
+                    azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
+                }
+            };
+            self.pending_lifecycle_events.push(azul_core::diff::create_tearoff_event(
+                source_node,
+                DomId::ROOT_ID,
+                &now,
+                w.torn.is_some(),
+                bounds,
+            ));
+        }
+        // A re-anchor (a zone) or a move of a torn window changes placement
+        // without changing kind: the next reconcile re-places it.
+        changed || matches!(drop, crate::transient::TearDrop::DockOnto(_) | crate::transient::TearDrop::TearOff(_))
+    }
+
+    /// Measure the content of the `<transient-window>` at `source_node` for
+    /// the popup the backend is about to open: the subtree is extracted with
+    /// its resolved style baked in, given its own `DomId`, styled with this
+    /// window's dynamic-selector context, and laid out on SCRATCH caches —
+    /// shrink-to-fit within the parent window (or at `requested`, if given).
+    ///
+    /// Nothing is written into `layout_results`: the popup is a separate
+    /// window that lays the same subtree out itself, and every consumer of
+    /// `layout_results` (hit testing, the display list, scroll registration,
+    /// accessibility) would otherwise see the popup's content sitting at
+    /// (0,0) INSIDE the parent — which is exactly how the second click on
+    /// the colour swatch once landed on the picker's plane instead.
+    pub fn layout_transient_content(
+        &self,
+        source_node: NodeId,
+        content_dom: DomId,
+        requested: azul_core::geom::OptionLogicalSize,
+        window_state: &FullWindowState,
+    ) -> Option<LogicalSize> {
+        use azul_core::geom::OptionLogicalSize;
+
+        if let OptionLogicalSize::Some(sz) = requested {
+            return Some(sz);
+        }
+        let parent = self.layout_results.get(&DomId::ROOT_ID)?;
+        let dom = azul_core::transient::extract_subtree_as_dom(&parent.styled_dom, source_node)?;
+        let mut styled = StyledDom::create_from_dom(dom);
+        styled.dom_id = content_dom;
+        {
+            let dims = window_state.size.dimensions;
+            let base = self.system_style.as_deref().map_or_else(
+                azul_css::dynamic_selector::DynamicSelectorContext::default,
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+            );
+            let mut ctx = base.with_viewport(dims.width, dims.height);
+            ctx.window_focused = window_state.flags.has_focus;
+            styled.set_dynamic_selector_context(ctx);
+        }
+        self.measure_styled_dom_shrink_to_fit(&styled, window_state.size.dimensions)
+    }
+
     pub fn layout_dom_recursive(
         &mut self,
         mut styled_dom: StyledDom,
@@ -8649,23 +8933,34 @@ impl LayoutWindow {
     /// for positioning menus, tooltips, or other overlays.
     ///
     /// Returns None if the node is not currently laid out (e.g., display:none)
+    ///
+    /// The root dom reads the live layout cache; any other dom (a `VirtualView`,
+    /// an iframe, a transient window's content) reads the snapshot in
+    /// `layout_results` — its scratch cache is discarded after the pass (see
+    /// `layout_dom_recursive`). Before this dispatch a child-dom id silently
+    /// returned the ROOT's node of the same index: asking for a popup's
+    /// 240x160 child answered with the parent's swatch rect.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn get_node_layout_rect(
         &self,
         node_id: DomNodeId,
     ) -> Option<LogicalRect> {
-        // Get the layout tree from cache
-        let layout_tree = self.layout_cache.tree.as_ref()?;
+        let target_node_id = node_id.node.into_crate_internal();
+        let (layout_tree, positions): (&LayoutTree, &solver3::PositionVec) =
+            if node_id.dom == DomId::ROOT_ID {
+                (self.layout_cache.tree.as_ref()?, &self.layout_cache.calculated_positions)
+            } else {
+                let lr = self.layout_results.get(&node_id.dom)?;
+                (&lr.layout_tree, &lr.calculated_positions)
+            };
         { let _ = (0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8)); }
 
         // Find the layout node index corresponding to this DOM node
-        // Convert NodeHierarchyItemId to Option<NodeId> for comparison
-        let target_node_id = node_id.node.into_crate_internal();
         let Some(layout_idx) = layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) else { { let _ = (0xE5_0000FFu32); } return None; };
-        { let _ = (0xE5_000003u32 | ((self.layout_cache.calculated_positions.len() as u32 & 0xfff) << 8)); }
+        { let _ = (0xE5_000003u32 | ((positions.len() as u32 & 0xfff) << 8)); }
 
-        // Get the calculated layout position from cache (already in logical units)
-        let Some(calc_pos) = self.layout_cache.calculated_positions.get(layout_idx) else { { let _ = (0xE5_0000FEu32); } return None; };
+        // Get the calculated layout position (already in logical units)
+        let Some(calc_pos) = positions.get(layout_idx) else { { let _ = (0xE5_0000FEu32); } return None; };
 
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
@@ -8674,20 +8969,14 @@ impl LayoutWindow {
         let Some(used_size) = layout_node.used_size else { { let _ = (0xE5_0000FDu32); } return None; };
         { let _ = (0xE5_000004u32); }
 
-        // Convert size to logical coordinates
-        let hidpi_factor = self
-            .current_window_state
-            .size
-            .get_hidpi_factor()
-            .inner
-            .get();
-
+        // `used_size` is LOGICAL already (the same value `get_node_size`
+        // returns untouched). This used to divide it by the HiDPI factor, so
+        // on a Retina display every rect came back at half its size: a 14px
+        // swatch reported 14x7 and its popup hung from the swatch's midline,
+        // and a11y click centres / e2e rects were off the same way.
         Some(LogicalRect::new(
             LogicalPosition::new(calc_pos.x, calc_pos.y),
-            LogicalSize::new(
-                used_size.width / hidpi_factor,
-                used_size.height / hidpi_factor,
-            ),
+            used_size,
         ))
     }
 
@@ -10265,16 +10554,26 @@ impl LayoutWindow {
         // callback needing a node-local cursor (map pan/drag, custom hit
         // logic) silently bailed. Falls back to `None` when the node isn't in
         // the current hit test (e.g. non-pointer events).
+        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
         let cursor_relative_to_item = match hit_dom_node.node.into_crate_internal() {
             Some(node_id) => self
                 .hover_manager
                 .get_current(&crate::managers::hover::InputPointId::Mouse)
                 .and_then(|ht| ht.hovered_nodes.get(&hit_dom_node.dom))
                 .and_then(|hit| hit.regular_hit_test_nodes.get(&node_id))
-                .map_or(OptionLogicalPosition::None, |item| OptionLogicalPosition::Some(item.point_relative_to_item)),
+                .map(|item| item.point_relative_to_item)
+                // Not under the cursor — a node that CAPTURED the pointer and
+                // is being dragged past its edge: measure against its rect
+                // instead, so the node-local cursor keeps reading (and may
+                // run negative / past the size, which is what a drag wants).
+                .or_else(|| {
+                    let rect = self.get_node_rect_in_viewport(hit_dom_node)?;
+                    let c = cursor_in_viewport.into_option()?;
+                    Some(LogicalPosition::new(c.x - rect.origin.x, c.y - rect.origin.y))
+                })
+                .map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some),
             None => OptionLogicalPosition::None,
         };
-        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
 
         // Create changes container for callback transaction system
         let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -14451,6 +14750,7 @@ impl LayoutWindow {
             text_edit_manager,
             hover_manager,
             virtual_view_manager,
+            transient_windows,
             gpu_state_manager,
             text_input_manager,
             undo_redo_manager,
@@ -14462,10 +14762,13 @@ impl LayoutWindow {
             pending_virtual_view_updates,
             gl_texture_cache,
             currently_dragging_thumb,
+            pointer_capture,
             content_overlay,
             content_journal,
 
             // --- EXEMPT: not keyed by NodeId ---------------------------------
+            // holds content DomIds, which a rebuild does not renumber
+            pending_transient_diff: _,
             // Rebuilt wholesale by the very layout pass that triggered this remap:
             // Exempt: damage rects + frame counters only, keyed by nothing.
             frame_report: _,
@@ -14614,6 +14917,7 @@ impl LayoutWindow {
         scroll_manager.remap_node_ids(dom, map);
         gesture_drag_manager.remap_node_ids(dom, map);
         focus_manager.remap_node_ids(dom, map);
+        transient_windows.remap_node_ids(dom, map);
         text_edit_manager.remap_node_ids(dom, map);
         hover_manager.remap_node_ids(dom, map);
         virtual_view_manager.remap_node_ids(dom, map);
@@ -14663,6 +14967,16 @@ impl LayoutWindow {
             })
             .collect();
 
+        // A pointer capture follows its node; an unmounted node releases it.
+        if let Some(captured) = *pointer_capture {
+            if captured.dom == dom {
+                *pointer_capture = captured
+                    .node
+                    .into_crate_internal()
+                    .and_then(|n| map.resolve(n))
+                    .map(|n| DomNodeId { dom, node: NodeHierarchyItemId::from_crate_internal(Some(n)) });
+            }
+        }
         // An in-flight scrollbar-thumb drag holds the NodeId of its scroll
         // container; if that node is gone the drag must end, not retarget.
         if let Some(drag) = currently_dragging_thumb.as_ref() {

@@ -2620,6 +2620,14 @@ macro_rules! html_tag_node_types {
                 "icon" => NodeType::Icon(azul_css::css::BoxOrStatic::heap(
                     azul_css::AzString::from_const_str(""),
                 )),
+                // `<transient-window>` starts CLOSED with every default; the
+                // parser applies `open=` / `anchor=` / `dismiss=` / `size=` /
+                // `tearoff=` onto this config afterwards (see
+                // `apply_transient_window_attrs`). Carrying the config inline is
+                // what lets a closed popup cost nothing.
+                "transient-window" => NodeType::TransientWindow(
+                    crate::transient::TransientWindowConfig::closed(),
+                ),
                 $($tag => NodeType::$variant,)*
                 _ => NodeType::Div,
             }
@@ -2633,6 +2641,7 @@ macro_rules! html_tag_node_types {
                 // `tag_to_node_type`), so they map to dedicated `NodeTypeTag` variants.
                 "img" | "image" => NodeTypeTag::Img,
                 "icon" => NodeTypeTag::Icon,
+                "transient-window" => NodeTypeTag::TransientWindow,
                 $($tag => NodeTypeTag::$variant,)*
                 _ => NodeTypeTag::Div,
             }
