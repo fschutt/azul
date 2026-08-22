@@ -2260,6 +2260,35 @@ impl CallbackInfo {
         self.push_change(CallbackChange::SetTransientWindowTorn { node, torn });
     }
 
+    /// The drop zone the `tearoff="zone:..."` window at `node` is docked
+    /// onto, if any - the node matching the zone selector that the user
+    /// last dropped it on. `None` while it hangs off its own parent (or is
+    /// torn off / not open). Read it in a `Docked` handler to move the
+    /// panel's content INTO that zone on the next layout and close the
+    /// window: the app-side way to recombine torn-off panels into a new
+    /// layout (see the plan's docking notes).
+    #[must_use]
+    pub fn get_transient_window_zone(&self, node: DomNodeId) -> azul_core::dom::OptionDomNodeId {
+        let Some(n) = node.node.into_crate_internal() else {
+            return azul_core::dom::OptionDomNodeId::None;
+        };
+        if node.dom != azul_core::dom::DomId::ROOT_ID {
+            return azul_core::dom::OptionDomNodeId::None;
+        }
+        self.get_layout_window()
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == n)
+            .and_then(|w| w.anchor_override)
+            .map_or(azul_core::dom::OptionDomNodeId::None, |zone| {
+                azul_core::dom::OptionDomNodeId::Some(DomNodeId {
+                    dom: azul_core::dom::DomId::ROOT_ID,
+                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(zone)),
+                })
+            })
+    }
+
     /// Let the user pick a colour from the screen with the platform
     /// eyedropper: macOS's system sampler; elsewhere a screenshot shown in
     /// a fullscreen loupe window (Wayland asks the user's permission through

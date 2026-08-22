@@ -870,9 +870,14 @@ extern "C" fn on_torn_off(mut data: RefAny, _info: CallbackInfo) -> Update {
     Update::DoNothing
 }
 
-extern "C" fn on_docked(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_docked(mut data: RefAny, info: CallbackInfo) -> Update {
     if let Some(s) = data.downcast_ref::<TearState>() {
-        s.events.lock().unwrap().push("docked");
+        // The zone it landed on (a `Docked` onto the plain anchor has none).
+        let label = match info.get_transient_window_zone(info.get_hit_node()) {
+            azul_core::dom::OptionDomNodeId::Some(_) => "docked-on-zone",
+            azul_core::dom::OptionDomNodeId::None => "docked",
+        };
+        s.events.lock().unwrap().push(label);
     }
     Update::DoNothing
 }
@@ -1038,7 +1043,11 @@ fn a_drop_on_a_zone_re_anchors_and_the_torn_attribute_is_followed() {
     let docked = take_queued_popup(&mut parent);
     assert_eq!(docked.window_state.flags.window_type, WindowType::Menu);
     assert!((mailbox(&docked.window_state).placement.anchor_rect.origin.x - 680.0).abs() < 1.0, "still the zone");
-    assert_eq!(*events.lock().unwrap(), vec!["torn-off", "docked"]);
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec!["torn-off", "docked-on-zone"],
+        "the Docked handler can read which zone it landed on"
+    );
 }
 
 /// `CallbackInfo::set_transient_window_torn`, through the change pipeline:

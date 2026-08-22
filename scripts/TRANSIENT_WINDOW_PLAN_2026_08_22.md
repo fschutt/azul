@@ -287,3 +287,80 @@ the dom id and halved sizes on HiDPI; the pre-cascade fast path forked widget
 datasets from their callbacks; macOS closed windows crashed (display-link
 retain after free, `releasedWhenClosed` double release) and had no
 `RefreshDomAllWindows` fan-out; pointer capture did not exist.
+
+## 11. Investigation: drop zones as DOCK TARGETS (Visual Studio-style recombination) - 2026-08-22
+
+**Question.** Can "drag areas" take a torn-off window back so that panels can be
+torn off and recombined into a different layout, the way Visual Studio docks?
+
+**What works today (shipped in #439).**
+
+- `tearoff="free"`: grip drag off the anchor -> a `Normal` toplevel; drag it back
+  over the anchor -> docked (a popup again). `torn` attribute, `TornOff`/`Docked`
+  events, `set_transient_window_torn`.
+- `tearoff="zone:<selector>"`: dropping on a node matching the selector
+  **re-anchors** the window: it stays a separate popup window, placed at that
+  zone's edge (`anchor_override` in the manager, remapped across rebuilds,
+  `Docked` fires, `CallbackInfo::get_transient_window_zone(node)` says which
+  zone). e2e: `a_drop_on_a_zone_re_anchors_and_the_torn_attribute_is_followed`.
+
+So "drop it on a drag area and it snaps to that area" works - but the docked
+panel is still a **window hovering at the zone**, not part of the zone's layout.
+VS-style docking needs the second half: the panel becomes **inline content of
+the zone** (shares the zone's layout, scrolls with it, is clipped by it), and a
+drag on its grip tears it out again.
+
+**The app can do VS-lite right now, without engine changes.** On `Docked` read
+`get_transient_window_zone`, store "panel P lives in zone Z", and on the next
+`layout()` render P's content INLINE inside Z and render the `<transient-window>`
+closed. A "float" button on the inline copy calls
+`set_transient_window_open(node, true)` + `set_transient_window_torn(node, true)`
+to bring it back out as a toplevel (the inline copy is hidden while the window
+is open). What the app cannot do: start a tear-off by DRAGGING the inline copy's
+grip - an inline grip is not a transient window, so its `-azul-app-region: drag`
+goes to the window manager (moves the whole window).
+
+**Engine design for the real thing: `dock="inline"` (~1.5 days).**
+
+1. **Graft at the child-collection choke point.** `solver3/layout_tree.rs`
+   collects children through `az_children(hierarchy)` at five sites (block, flex,
+   grid, inline, table). Replace those with one `layout_children(styled_dom, parent)`
+   helper that returns the DOM children PLUS the children of every
+   `<transient-window dock="inline">` docked onto `parent` (manager
+   `anchor_overrides`, passed into the layout pass like `forced_open` is today).
+   The transient node itself stays `display: none` in its own parent
+   (`get_display_type`). The grafted nodes are real nodes of the same DOM, so
+   hit-testing, callbacks, focus, text input and a11y work without any mailbox.
+2. **Cascade.** The grafted subtree inherited from its ORIGINAL parent. Either
+   accept (bake, like the popup does) or re-run inheritance for the grafted
+   subtree against the zone - the second is correct and costs one targeted
+   re-cascade per dock change.
+3. **Reconcile + caches.** The pre-cascade "fingerprints equal" fast path must
+   include the dock set in its fingerprint (a dock change with an identical DOM
+   is a structural change), and `NodeIdRemap` already follows `anchor_override`.
+   The layout cache's "dirty item promotes its container" rule needs the zone to
+   count as the container of the grafted items.
+4. **Tear-off from inline.** `DragStart` on a drag region whose ancestor chain
+   crosses a docked-inline transient node (the `drag_source_node` walk in
+   `dispatch_events_propagated` already resolves the PRESS point) starts a
+   tear-off in the PARENT's pipeline: on `DragEnd` outside the zone ->
+   `drop_transient_window` tears it off at the release point (toplevel); inside
+   another zone -> re-dock there. A ghost outline following the pointer during
+   the drag is phase 2: a plain popup of the panel's size (`<transient-window>`
+   opened programmatically) that the existing tear-drag moves.
+5. **Dock targets that show where the drop lands** (VS's guide diamonds) are
+   pure app DOM: the app styles `.dock:drag-over`-like state itself from
+   `DragEnter`/`DragLeave` on the zone nodes (already synthesised).
+
+**Risks.** DOM order != visual order for the grafted subtree (tab order, a11y
+reading order follow the DOM; fix by grafting in the a11y tree builder the same
+way); `display: contents`-like grafting interacts with anonymous box generation
+at the zone (block/inline mixing is handled by `process_block_children` once the
+children list is right); the web fallback has no equivalent (a docked-inline
+panel there is just a `div` the app places - the web `transient-window` is
+already a `div`).
+
+**Verdict.** Yes, it works - the re-anchoring half is done and tested; the inline
+half is a well-bounded engine change at one choke point, not a redesign. Not
+started in this PR (the user's order was: investigate, then non-rectangular
+windows).
