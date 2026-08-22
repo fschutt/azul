@@ -21,8 +21,93 @@ use crate::{
     callbacks::{CoreCallback, CoreCallbackType},
     refany::RefAny,
     resources::ImageRef,
-    window::{ContextMenuMouseButton, OptionVirtualKeyCodeCombo},
+    window::{
+        ContextMenuMouseButton, KeyboardState, OptionVirtualKeyCodeCombo, VirtualKeyCode,
+        VirtualKeyCodeCombo,
+    },
 };
+
+/// Does `combo` describe the chord the keyboard is in, with `pressed` as the
+/// key that just went down? THE shared accelerator rule, used by every
+/// platform that dispatches menu accelerators itself (Windows, X11, Wayland,
+/// headless; macOS's menu bar uses AppKit key equivalents, its context
+/// menus this).
+///
+/// * The combo names its modifiers with the modifier keys (`LControl`,
+///   `LShift`, `LAlt`, `LWin`; the right-hand twins are equivalent) and
+///   exactly ONE non-modifier key, which must be `pressed`.
+/// * `LWin` / `RWin` mean the platform's PRIMARY shortcut modifier — Cmd on
+///   macOS, Ctrl everywhere else — so `[LWin, S]` is Cmd+S on a Mac and
+///   Ctrl+S on Windows/Linux from one definition (the MWA-A2 rule behind
+///   `KeyboardState::primary_down`). `LControl` stays the Control key on
+///   every platform.
+/// * The match is EXACT: `Ctrl+S` does not fire while Shift is also held, so
+///   `Ctrl+S` and `Ctrl+Shift+S` can coexist in one menu.
+#[must_use]
+pub fn accelerator_matches(
+    combo: &VirtualKeyCodeCombo,
+    keyboard: &KeyboardState,
+    pressed: VirtualKeyCode,
+) -> bool {
+    let mut want_ctrl = false;
+    let mut want_shift = false;
+    let mut want_alt = false;
+    let mut want_primary = false;
+    let mut main_key: Option<VirtualKeyCode> = None;
+    for key in combo.keys.as_ref() {
+        match key {
+            VirtualKeyCode::LControl | VirtualKeyCode::RControl => want_ctrl = true,
+            VirtualKeyCode::LShift | VirtualKeyCode::RShift => want_shift = true,
+            VirtualKeyCode::LAlt | VirtualKeyCode::RAlt => want_alt = true,
+            VirtualKeyCode::LWin | VirtualKeyCode::RWin => want_primary = true,
+            other => {
+                if main_key.is_some() {
+                    // Two non-modifier keys: not a chord this rule can match.
+                    return false;
+                }
+                main_key = Some(*other);
+            }
+        }
+    }
+    if main_key != Some(pressed) {
+        return false;
+    }
+    if want_shift != keyboard.shift_down() || want_alt != keyboard.alt_down() {
+        return false;
+    }
+    if cfg!(target_os = "macos") {
+        want_ctrl == keyboard.ctrl_down() && want_primary == keyboard.super_down()
+    } else {
+        // Ctrl IS the primary modifier here; the Super/Windows key never
+        // takes part in an application chord.
+        (want_ctrl || want_primary) == keyboard.ctrl_down() && !keyboard.super_down()
+    }
+}
+
+/// Depth-first search of `items` for the first enabled entry whose
+/// accelerator matches the chord (see [`accelerator_matches`]).
+fn find_accelerated_in(
+    items: &[MenuItem],
+    keyboard: &KeyboardState,
+    pressed: VirtualKeyCode,
+) -> Option<&StringMenuItem> {
+    for item in items {
+        let MenuItem::String(s) = item else {
+            continue;
+        };
+        if s.menu_item_state == MenuItemState::Normal {
+            if let OptionVirtualKeyCodeCombo::Some(combo) = &s.accelerator {
+                if accelerator_matches(combo, keyboard, pressed) {
+                    return Some(s);
+                }
+            }
+        }
+        if let Some(found) = find_accelerated_in(s.children.as_ref(), keyboard, pressed) {
+            return Some(found);
+        }
+    }
+    None
+}
 
 /// Represents a menu (context menu, dropdown menu, or application menu).
 ///
@@ -51,6 +136,18 @@ impl_option!(
 );
 
 impl Menu {
+    /// The first enabled item anywhere in this menu whose accelerator
+    /// matches the chord the keyboard is in, `pressed` being the key that
+    /// just went down. Greyed / disabled items never match.
+    #[must_use]
+    pub fn find_accelerated_item(
+        &self,
+        keyboard: &KeyboardState,
+        pressed: VirtualKeyCode,
+    ) -> Option<&StringMenuItem> {
+        find_accelerated_in(self.items.as_ref(), keyboard, pressed)
+    }
+
     /// Creates a new menu with the given items.
     ///
     /// Uses default position (`AutoCursor`) and right mouse button for context menus.
@@ -299,6 +396,80 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
+
+#[cfg(test)]
+mod accelerator_contract {
+    use super::*;
+    use crate::window::{VirtualKeyCode as K, VirtualKeyCodeVec};
+
+    fn keyboard(down: &[K], pressed: K) -> KeyboardState {
+        let mut ks = KeyboardState::default();
+        ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(down.to_vec());
+        ks.current_virtual_keycode = Some(pressed).into();
+        ks
+    }
+    fn combo(keys: &[K]) -> VirtualKeyCodeCombo {
+        VirtualKeyCodeCombo {
+            keys: VirtualKeyCodeVec::from_vec(keys.to_vec()),
+        }
+    }
+    /// The modifier the platform treats as "primary" (`[LWin, x]` in a
+    /// combo): Cmd on macOS, Ctrl elsewhere.
+    fn primary() -> K {
+        if cfg!(target_os = "macos") {
+            K::LWin
+        } else {
+            K::LControl
+        }
+    }
+
+    #[test]
+    fn a_primary_chord_matches_the_platforms_primary_modifier_from_one_definition() {
+        let save = combo(&[K::LWin, K::S]);
+        assert!(accelerator_matches(&save, &keyboard(&[primary(), K::S], K::S), K::S));
+        // the bare key, or the wrong key, never
+        assert!(!accelerator_matches(&save, &keyboard(&[K::S], K::S), K::S));
+        assert!(!accelerator_matches(&save, &keyboard(&[primary(), K::O], K::O), K::O));
+    }
+
+    #[test]
+    fn the_match_is_exact_so_ctrl_s_and_ctrl_shift_s_coexist() {
+        let save = combo(&[K::LWin, K::S]);
+        let save_as = combo(&[K::LWin, K::LShift, K::S]);
+        let ctrl_shift_s = keyboard(&[primary(), K::LShift, K::S], K::S);
+        assert!(!accelerator_matches(&save, &ctrl_shift_s, K::S), "Shift held: not plain Ctrl+S");
+        assert!(accelerator_matches(&save_as, &ctrl_shift_s, K::S));
+        let ctrl_s = keyboard(&[primary(), K::S], K::S);
+        assert!(accelerator_matches(&save, &ctrl_s, K::S));
+        assert!(!accelerator_matches(&save_as, &ctrl_s, K::S), "Shift missing: not Ctrl+Shift+S");
+        // right-hand twins count
+        assert!(accelerator_matches(&combo(&[K::RShift, K::LWin, K::S]), &ctrl_shift_s, K::S));
+        // a combo naming two non-modifier keys is not a chord
+        assert!(!accelerator_matches(&combo(&[K::A, K::S]), &keyboard(&[K::A, K::S], K::S), K::S));
+    }
+
+    #[test]
+    fn find_accelerated_item_walks_submenus_and_skips_disabled_items() {
+        let mut greyed = StringMenuItem::create("Greyed".into());
+        greyed.accelerator = Some(combo(&[K::LWin, K::G])).into();
+        greyed.menu_item_state = MenuItemState::Greyed;
+        let mut save = StringMenuItem::create("Save".into());
+        save.accelerator = Some(combo(&[K::LWin, K::S])).into();
+        let file = StringMenuItem::create("File".into()).with_children(
+            alloc::vec![MenuItem::String(greyed), MenuItem::Separator, MenuItem::String(save)].into(),
+        );
+        let menu = Menu::create(alloc::vec![MenuItem::String(file)].into());
+        let hit = menu
+            .find_accelerated_item(&keyboard(&[primary(), K::S], K::S), K::S)
+            .expect("Save is nested under File");
+        assert_eq!(hit.label.as_str(), "Save");
+        assert!(
+            menu.find_accelerated_item(&keyboard(&[primary(), K::G], K::G), K::G).is_none(),
+            "a greyed item's accelerator is dead"
+        );
+        assert!(menu.find_accelerated_item(&keyboard(&[K::S], K::S), K::S).is_none());
+    }
+}
 
 #[cfg(test)]
 mod autotest_generated {

@@ -894,11 +894,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let action = |label: &str, cb: CallbackType| {
         MenuItem::string(StringMenuItem::create(label).with_callback(data.clone(), cb))
     };
-    // Keyboard accelerators. `[LWin, O]` is ⌘O on macOS: the native menu bar
-    // turns the chord into the item's key equivalent, so AppKit fires the
-    // item's callback on Cmd+O without the key ever reaching the view. The
-    // chord is display-only on Windows/Linux today (no shared accelerator
-    // dispatch in the engine yet).
+    // Keyboard accelerators. `[LWin, O]` is the PRIMARY chord: ⌘O on macOS
+    // (the native menu bar turns it into the item's key equivalent and
+    // AppKit runs the item) and Ctrl+O on Windows / Linux, where the engine's
+    // shared dispatch (`PlatformWindow::dispatch_menu_accelerators`) runs the
+    // item on the key-down — one definition, every platform.
     let action_with_accel = |label: &str, cb: CallbackType, keys: &[azul::dom::VirtualKeyCode]| {
         let mut item = StringMenuItem::create(label).with_callback(data.clone(), cb);
         item.accelerator = azul::option::OptionVirtualKeyCodeCombo::Some(

@@ -6852,6 +6852,157 @@ pub trait PlatformWindow {
     /// deliver the lifecycle events that pass produced — today that is
     /// `Resize` (`NodeResized`) for every subscribed node whose box changed.
     ///
+    /// Does this backend's MENU BAR fire its accelerators natively? AppKit
+    /// turns a menu item's chord into a key equivalent and runs the item
+    /// before the key ever reaches the view, so the shared dispatch must
+    /// leave the menu bar alone there (it would fire twice). Context menus
+    /// are never native-accelerated anywhere and always go through
+    /// [`Self::dispatch_menu_accelerators`]. Default: no.
+    fn native_menu_bar_accelerators(&self) -> bool {
+        false
+    }
+
+    /// SHARED MENU-ACCELERATOR DISPATCH. Called once per event pass: if a key
+    /// just went down (the keyboard state's `current_virtual_keycode` changed
+    /// from the previous pass), look for a menu item whose accelerator
+    /// matches the chord — the root DOM's menu bar (unless the backend's
+    /// menu bar is natively accelerated), then the context menus of the
+    /// focused node and its ancestors — and run its callback like a click
+    /// on it would. Returns what the callback asked for, so the pass result
+    /// carries it; `DoNothing` when nothing matched.
+    ///
+    /// Before this, a menu item's chord was display-only everywhere but the
+    /// macOS menu bar: AzPaint's Ctrl+O / Ctrl+S did nothing on Windows and
+    /// Linux. The chord rule itself is `azul_core::menu::accelerator_matches`
+    /// (`[LWin, S]` = Cmd+S on a Mac, Ctrl+S elsewhere, exact modifiers).
+    fn dispatch_menu_accelerators(&mut self) -> ProcessEventResult {
+        use azul_core::dom::{DomId, NodeId};
+
+        let pressed = {
+            let now = self
+                .get_current_window_state()
+                .keyboard_state
+                .current_virtual_keycode
+                .into_option();
+            let before = self
+                .get_previous_window_state()
+                .as_ref()
+                .and_then(|p| p.keyboard_state.current_virtual_keycode.into_option());
+            match now {
+                Some(key) if before != Some(key) => key,
+                _ => return ProcessEventResult::DoNothing,
+            }
+        };
+        let keyboard = self.get_current_window_state().keyboard_state.clone();
+        let native_bar = self.native_menu_bar_accelerators();
+
+        let callback = self.get_layout_window().and_then(|lw| {
+            let lr = lw.layout_results.get(&DomId::ROOT_ID)?;
+            let nodes = lr.styled_dom.node_data.as_container();
+            let from_bar = if native_bar {
+                None
+            } else {
+                nodes
+                    .get(NodeId::ZERO)
+                    .and_then(azul_core::dom::NodeData::get_menu_bar)
+                    .and_then(|menu| menu.find_accelerated_item(&keyboard, pressed))
+            };
+            let from_context = if from_bar.is_some() {
+                None
+            } else {
+                // The context menus a right-click on the focused node would
+                // open: the node's own, then its ancestors'.
+                let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+                let mut current = lw
+                    .focus_manager
+                    .get_focused_node()
+                    .filter(|f| f.dom == DomId::ROOT_ID)
+                    .and_then(|f| f.node.into_crate_internal());
+                let mut found = None;
+                while let Some(n) = current {
+                    found = nodes
+                        .get(n)
+                        .and_then(azul_core::dom::NodeData::get_context_menu)
+                        .and_then(|menu| menu.find_accelerated_item(&keyboard, pressed));
+                    if found.is_some() {
+                        break;
+                    }
+                    current = hierarchy.get(n).and_then(|h| h.parent_id());
+                }
+                found
+            };
+            from_bar
+                .or(from_context)
+                .and_then(|item| item.callback.as_ref().cloned())
+        });
+
+        match callback {
+            Some(cb) => self.invoke_menu_callback(cb, "menu.accelerator"),
+            None => ProcessEventResult::DoNothing,
+        }
+    }
+
+    /// Run a menu item's callback with a full `CallbackInfo` — exactly what
+    /// a click on the item does on every backend — and apply what it asked
+    /// for (window-state changes, a DOM rebuild). One implementation for the
+    /// native menu handlers (macOS tags, Win32 command ids, GNOME actions)
+    /// and the shared accelerator dispatch.
+    fn invoke_menu_callback(
+        &mut self,
+        callback: azul_core::menu::CoreMenuCallback,
+        site: &str,
+    ) -> ProcessEventResult {
+        use azul_core::callbacks::Update;
+        use azul_layout::callbacks::{Callback, MenuCallback};
+
+        let raw_handle = self.get_raw_window_handle();
+        let mut menu_callback = MenuCallback {
+            callback: Callback::from_core(callback.callback),
+            refany: callback.refany,
+        };
+        let (changes, update) = {
+            let common = self.get_common_mut();
+            let borrows = common.layout_borrows();
+            let Some(layout_window) = borrows.layout_window else {
+                return ProcessEventResult::DoNothing;
+            };
+            layout_window.invoke_single_callback(
+                &mut menu_callback.callback,
+                &mut menu_callback.refany,
+                &raw_handle,
+                borrows.gl_context_ptr,
+                borrows.system_style.clone(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                borrows.previous_window_state,
+                borrows.current_window_state,
+                borrows.renderer_resources,
+            )
+        };
+
+        self.snapshot_window_state_baseline(site);
+        let mut result = ProcessEventResult::DoNothing;
+        for change in &changes {
+            result = result.max(self.apply_user_change(change));
+        }
+        if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        // Window-state changes the callback made (title, size, close) reach
+        // the OS now, as after a native click.
+        self.sync_window_state();
+        if matches!(
+            result,
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                | ProcessEventResult::ShouldRegenerateDomAllWindows
+                | ProcessEventResult::ShouldIncrementalRelayout
+                | ProcessEventResult::UpdateHitTesterAndProcessAgain
+        ) {
+            self.get_common_mut()
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        }
+        result
+    }
+
     /// The relayout-only paths (restyle, runtime edit, the coalesced window
     /// resize) never reconciled, so nothing drained the lifecycle queue after
     /// them; a `NodeResized` callback would have run at the NEXT full
@@ -7285,8 +7436,14 @@ pub trait PlatformWindow {
             }
         }
 
+        // MENU ACCELERATORS: a key that just went down may be a menu item's
+        // chord (see `dispatch_menu_accelerators`). Runs before the DOM
+        // dispatch, like AppKit's key equivalents; the key still reaches the
+        // DOM afterwards (a chord never types a character).
+        let accelerator_result = self.dispatch_menu_accelerators();
+
         if synthetic_events.is_empty() {
-            return ProcessEventResult::DoNothing;
+            return accelerator_result;
         }
 
         // Tooltip-delay timer: on hover transitions onto (or off of) a node
@@ -8380,6 +8537,7 @@ pub trait PlatformWindow {
         if let Some(r) = drag_cancel_result {
             result = result.max(r);
         }
+        result = result.max(accelerator_result);
 
         // End-of-pass housekeeping (top-level pass only):
         // - MWA-A1: re-sync the pump timer — callbacks above may have added /

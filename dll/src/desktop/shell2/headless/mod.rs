@@ -5894,6 +5894,147 @@ mod tests {
         );
     }
 
+    // --- Menu accelerators fire on every backend ---------------------------
+    //
+    // REPORTED (AzPaint, 2026-08-21): the File menu's Ctrl+O / Ctrl+S chords
+    // did nothing outside the macOS menu bar — a menu item's accelerator was
+    // display-only everywhere else. The class: the chord -> item lookup and
+    // the item's invocation lived in AppKit alone. `PlatformWindow::
+    // dispatch_menu_accelerators` now runs in every event pass (the root
+    // menu bar unless the backend's bar is native, then the focused node's
+    // context menus), with `azul_core::menu::accelerator_matches` as the one
+    // chord rule. Headless has no native menus, so this exercises exactly the
+    // shared path Windows / X11 / Wayland use.
+
+    struct AccelLog {
+        saved: Arc<core::sync::atomic::AtomicUsize>,
+        deleted: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn accel_save(mut data: RefAny, _info: azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update {
+        if let Some(s) = data.downcast_ref::<AccelLog>() {
+            s.saved.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+    extern "C" fn accel_delete(mut data: RefAny, _info: azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update {
+        if let Some(s) = data.downcast_ref::<AccelLog>() {
+            s.deleted.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn accel_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::callbacks::CoreCallback;
+        use azul_core::dom::{IdOrClass, TabIndex};
+        use azul_core::menu::{Menu, MenuItem, StringMenuItem};
+        use azul_core::window::{VirtualKeyCode as K, VirtualKeyCodeCombo, VirtualKeyCodeVec};
+
+        let log = data.downcast_ref::<AccelLog>().map(|l| AccelLog {
+            saved: l.saved.clone(),
+            deleted: l.deleted.clone(),
+        });
+        let Some(log) = log else {
+            return Dom::create_body();
+        };
+        let state = RefAny::new(log);
+        let chord = |keys: &[K]| VirtualKeyCodeCombo {
+            keys: VirtualKeyCodeVec::from_vec(keys.to_vec()),
+        };
+        let item = |label: &str, cb: extern "C" fn(RefAny, azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update, keys: &[K]| {
+            let mut it = StringMenuItem::create(label.into()).with_callback(
+                state.clone(),
+                CoreCallback {
+                    cb: cb as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+            );
+            it.accelerator = Some(chord(keys)).into();
+            MenuItem::String(it)
+        };
+        // File > Save (primary+S) in the MENU BAR; Delete (Del) in the
+        // CONTEXT MENU of a focusable box.
+        let file = StringMenuItem::create("File".into())
+            .with_children(vec![item("Save", accel_save, &[K::LWin, K::S])].into());
+        let menu_bar = Menu::create(vec![MenuItem::String(file)].into());
+        let context = Menu::create(vec![item("Delete", accel_delete, &[K::Delete])].into());
+        Dom::create_body()
+            .with_menu_bar(menu_bar)
+            .with_css("width: 100%; height: 100%;")
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
+                    .with_tab_index(TabIndex::Auto)
+                    .with_context_menu(context)
+                    .with_css("width: 100px; height: 60px; background: #ddd;"),
+            )
+    }
+
+    #[test]
+    fn a_menu_accelerator_runs_the_items_callback_once_per_chord_on_the_shared_path() {
+        use azul_core::events::MouseButton;
+        use azul_core::window::VirtualKeyCode as K;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let log = AccelLog {
+            saved: Arc::new(AtomicUsize::new(0)),
+            deleted: Arc::new(AtomicUsize::new(0)),
+        };
+        let (saved, deleted) = (log.saved.clone(), log.deleted.clone());
+        let state = Arc::new(RefCell::new(RefAny::new(log)));
+        let mut window = make_window_sized(&state, accel_layout, 300.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        // The platform's primary modifier: Cmd on macOS, Ctrl elsewhere — the
+        // `[LWin, S]` combo means exactly that on each (one definition).
+        let primary = if cfg!(target_os = "macos") { K::LWin } else { K::LControl };
+
+        // Ctrl+S -> Save, once.
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: primary });
+        assert_eq!(saved.load(Ordering::SeqCst), 0, "a lone modifier is not a chord");
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        assert_eq!(saved.load(Ordering::SeqCst), 1, "Ctrl+S runs File > Save through the shared dispatch");
+        // A pass without a new key-down (a redraw, a timer tick) must not re-fire.
+        window.regenerate_layout().expect("an unrelated pass");
+        assert_eq!(saved.load(Ordering::SeqCst), 1, "the chord fires on the key-down, not on every pass");
+        // Release + press again = a second chord.
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        assert_eq!(saved.load(Ordering::SeqCst), 2);
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: primary });
+        // S alone is typing, not a chord; Shift+Ctrl+S is a DIFFERENT chord.
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::LShift });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: primary });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        assert_eq!(saved.load(Ordering::SeqCst), 2, "exact modifiers: Ctrl+Shift+S is not Ctrl+S");
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: primary });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::LShift });
+
+        // The context menu's Delete fires only while its node is focused.
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::Delete });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::Delete });
+        assert_eq!(deleted.load(Ordering::SeqCst), 0, "nothing focused: no context menu applies");
+        let boxes = rects_by_class(&window, "box");
+        assert_eq!(boxes.len(), 1, "{boxes:?}");
+        let (x, y) = (boxes[0].origin.x + 10.0, boxes[0].origin.y + 10.0);
+        step(&mut window, HeadlessEvent::MouseMove { x, y });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::Delete });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::Delete });
+        assert_eq!(
+            deleted.load(Ordering::SeqCst),
+            1,
+            "the focused node's context-menu accelerator runs its callback"
+        );
+        assert_eq!(saved.load(Ordering::SeqCst), 2, "…and nothing else fired");
+    }
+
     // --- An empty, focused editable shows a caret --------------------------
     //
     // REPORTED (AzWidgets, 2026-08-21): "TextInput not working" — clicking

@@ -3598,6 +3598,13 @@ impl event::PlatformWindow for MacOSWindow {
         }
     }
 
+    /// AppKit runs a menu item from its key equivalent before the key reaches
+    /// the view — the shared dispatch must not run the MENU BAR's items a
+    /// second time. Context menus are still dispatched by the shared path.
+    fn native_menu_bar_accelerators(&self) -> bool {
+        true
+    }
+
     fn sync_window_state(&mut self) {
         MacOSWindow::sync_window_state(self);
     }
@@ -5833,6 +5840,9 @@ impl MacOSWindow {
     }
 
     fn handle_menu_action(&mut self, tag: isize) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        use azul_core::events::ProcessEventResult;
+
         log_trace!(
             LogCategory::Callbacks,
             "[MacOSWindow] Handling menu action for tag: {}",
@@ -5858,86 +5868,13 @@ impl MacOSWindow {
             tag
         );
 
-        // Convert CoreMenuCallback to layout MenuCallback
-        use azul_layout::callbacks::{Callback, MenuCallback};
-
-        let layout_callback = Callback::from_core(callback.callback);
-        let mut menu_callback = MenuCallback {
-            callback: layout_callback,
-            refany: callback.refany,
-        };
-
-        // Get layout window to create callback info
-        let borrows = self.common.layout_borrows();
-        let layout_window = match borrows.layout_window {
-            Some(lw) => lw,
-            None => {
-                log_warn!(
-                    LogCategory::Callbacks,
-                    "[MacOSWindow] No layout window available"
-                );
-                return;
-            }
-        };
-
-        use std::ptr;
-
-        use azul_core::window::RawWindowHandle;
-
-        let raw_handle = RawWindowHandle::MacOS(azul_core::window::MacOSHandle {
-            ns_window: Retained::as_ptr(&self.window) as *mut _,
-            ns_view: ptr::null_mut(), // Not needed for menu callbacks
-        });
-
-        // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
-        let fc_cache_clone = (**borrows.fc_cache).clone();
-
-        // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
-        let (changes, update) = layout_window.invoke_single_callback(
-            &mut menu_callback.callback,
-            &mut menu_callback.refany,
-            &raw_handle,
-            borrows.gl_context_ptr,
-            borrows.system_style.clone(),
-            &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-            borrows.previous_window_state,
-            borrows.current_window_state,
-            borrows.renderer_resources,
-        );
-
-        // Process callback changes via apply_user_change
-        use crate::desktop::shell2::common::event::PlatformWindow;
-        self.snapshot_window_state_baseline("macos.handle_menu_action");
-        let mut event_result = ProcessEventResult::DoNothing;
-        for change in &changes {
-            let r = self.apply_user_change(change);
-            event_result = event_result.max(r);
-        }
-        // Sync window state to OS (handles close_requested, title, size, etc.)
-        self.sync_window_state();
-
-        // Handle the event result
-        use azul_core::events::ProcessEventResult;
-        match event_result {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow
-            | ProcessEventResult::ShouldRegenerateDomAllWindows
-            | ProcessEventResult::ShouldIncrementalRelayout
-            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
-                self.request_redraw();
-            }
-            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
-            | ProcessEventResult::ShouldReRenderCurrentWindow => {
-                // Both trigger a redraw. The difference is that
-                // ShouldUpdateDisplayListCurrentWindow may have queued
-                // pending_virtual_view_updates, which render_and_present will
-                // detect and handle by processing VirtualView callbacks and
-                // rebuilding display lists (without full DOM regeneration).
-                self.request_redraw();
-            }
-            ProcessEventResult::DoNothing => {
-                // No action needed
-            }
+        // ONE invocation path for a native click and a shared accelerator:
+        // `PlatformWindow::invoke_menu_callback` runs the callback with a
+        // full CallbackInfo, applies its changes, syncs the window state and
+        // requests a rebuild when asked. Only the redraw is ours.
+        match self.invoke_menu_callback(callback, "macos.handle_menu_action") {
+            ProcessEventResult::DoNothing => {}
+            _ => self.request_redraw(),
         }
     }
 
