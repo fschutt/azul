@@ -536,10 +536,45 @@ impl ComputedTransform3D {
             SkewX(skew_x) => Self::new_skew(skew_x.to_degrees(), 0.0),
             SkewY(skew_y) => Self::new_skew(0.0, skew_y.to_degrees()),
             Perspective(px) => {
-
-                Self::new_perspective(px.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+                // CSS applies the WHOLE transform list about the
+                // transform-origin, `perspective()` included: the vanishing
+                // point sits at the origin. Building it about (0, 0) skewed a
+                // `perspective() rotateX()` tilt towards the element's
+                // top-left corner instead of keeping the centre line
+                // vertical (the map's 3D tilt leaned sideways).
+                let origin_x = transform_origin
+                    .x
+                    .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+                let origin_y = transform_origin
+                    .y
+                    .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+                let d = px.to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+                Self::new_translation(-origin_x, -origin_y, 0.0)
+                    .then(&Self::new_perspective(d))
+                    .then(&Self::new_translation(origin_x, origin_y, 0.0))
             }
         }
+    }
+
+    /// The plane z = 0 of this transform as a 3x3 homography over
+    /// `(x, y, 1)` row vectors — `[x' y' w'] = [x y 1] * H`, row-major
+    /// `[m00 m01 m03; m10 m11 m13; m30 m31 m33]` — i.e. exactly what a 2D
+    /// compositor needs to place a flat layer: the affine part plus the
+    /// perspective row. `is_affine` tells whether the perspective row is
+    /// the trivial `[0 0 1]`.
+    #[must_use]
+    pub fn plane_homography(&self) -> [f32; 9] {
+        [
+            self.m[0][0], self.m[0][1], self.m[0][3],
+            self.m[1][0], self.m[1][1], self.m[1][3],
+            self.m[3][0], self.m[3][1], self.m[3][3],
+        ]
+    }
+
+    /// Does the z = 0 plane map affinely (no perspective foreshortening)?
+    #[must_use]
+    pub fn is_plane_affine(&self) -> bool {
+        self.m[0][3].abs() < 1e-7 && self.m[1][3].abs() < 1e-7 && (self.m[3][3] - 1.0).abs() < 1e-6
     }
 
     /// Creates a scaling matrix with independent scale factors per axis.
@@ -1356,6 +1391,37 @@ mod autotest_generated {
     }
 
     // ------------------------------------------- constructors: perspective / skew
+
+    #[test]
+    fn perspective_is_applied_about_the_transform_origin() {
+        // `perspective(500px) rotateX(60deg)` about the centre of a 200x100
+        // box: the centre is fixed, and the vertical centre line STAYS
+        // vertical (a perspective about (0,0) bends it sideways).
+        let origin = StyleTransformOrigin {
+            x: PixelValue::px(100.0),
+            y: PixelValue::px(50.0),
+        };
+        let m = ComputedTransform3D::from_style_transform_vec(
+            &[
+                StyleTransform::Perspective(PixelValue::px(500.0)),
+                StyleTransform::RotateX(AngleValue::deg(60.0)),
+            ],
+            &origin,
+            200.0,
+            100.0,
+            RotationMode::ForWebRender,
+        );
+        assert!(!m.is_plane_affine(), "a tilt under perspective is not affine");
+        let centre = m.transform_point2d(LogicalPosition::new(100.0, 50.0)).expect("in front of the eye");
+        assert!((centre.x - 100.0).abs() < 1e-3 && (centre.y - 50.0).abs() < 1e-3, "{centre:?}");
+        let below = m.transform_point2d(LogicalPosition::new(100.0, 90.0)).expect("in front of the eye");
+        let above = m.transform_point2d(LogicalPosition::new(100.0, 10.0)).expect("in front of the eye");
+        assert!((below.x - 100.0).abs() < 1e-3, "the centre line stays vertical below: {below:?}");
+        assert!((above.x - 100.0).abs() < 1e-3, "…and above: {above:?}");
+        // the homography row carries the foreshortening
+        let h = m.plane_homography();
+        assert!(h[5].abs() > 1e-6, "m13 carries the rotateX/perspective term: {h:?}");
+    }
 
     #[test]
     fn new_perspective_finite_distance() {

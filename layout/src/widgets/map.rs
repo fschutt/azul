@@ -263,9 +263,13 @@ impl Default for MapTileLayer {
     }
 }
 
-/// Centre + zoom + rotation state. The Leaflet shape
-/// (`map.setView([lat, lon], zoom)`). `bearing_deg` + `pitch_deg` are
-/// reserved for future 3D-camera work; most callers leave them at zero.
+/// Centre + zoom + camera state. The Leaflet shape
+/// (`map.setView([lat, lon], zoom)`) plus the MapLibre camera: `bearing_deg`
+/// rotates the map (clockwise, degrees), `pitch_deg` tilts it away from the
+/// viewer (0 = straight down, up to [`MAX_PITCH_DEG`]). Both render as a
+/// CSS `perspective() rotateX() rotate()` transform on the tile canvas —
+/// `MapWidget::with_pitch` / `with_bearing`, right-drag, or a rotate
+/// gesture drive them. Panning and tapping work in the un-tilted plane.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct MapViewport {
@@ -340,6 +344,21 @@ impl MapWidget {
     /// the window's light / dark theme.
     #[must_use] pub fn with_theme(mut self, theme: MapTheme) -> Self {
         self.layer = self.layer.with_theme(theme);
+        self
+    }
+
+    /// Tilt the camera: 0 looks straight down, [`MAX_PITCH_DEG`] is the
+    /// steepest 3D view (clamped). Rendered as a perspective transform on
+    /// the tile canvas; right-drag vertically changes it at runtime.
+    #[must_use] pub fn with_pitch(mut self, pitch_deg: f32) -> Self {
+        self.viewport.pitch_deg = clamp_pitch(pitch_deg);
+        self
+    }
+
+    /// Rotate the map (clockwise degrees, normalised to `-180..180`).
+    /// Right-drag horizontally or a rotate gesture changes it at runtime.
+    #[must_use] pub fn with_bearing(mut self, bearing_deg: f32) -> Self {
+        self.viewport.bearing_deg = normalize_bearing(bearing_deg);
         self
     }
 
@@ -623,6 +642,9 @@ pub struct MapTileCache {
     /// Pixel position of the last pointer-down (the original press point, not
     /// overwritten by pan moves). Used to tell a tap from a drag in pointer-up.
     pub press_origin: Option<azul_core::geom::LogicalPosition>,
+    /// Pixel position of the last right-button press while a camera drag
+    /// (tilt / rotate) is in flight; `None` between drags.
+    pub tilt_anchor: Option<azul_core::geom::LogicalPosition>,
     /// The RESOLVED theme the cached tiles were decoded with (see
     /// [`MapTheme::resolve`]). The render callback compares it with the
     /// window's current theme every frame; a mismatch re-queues every tile
@@ -644,6 +666,7 @@ impl MapTileCache {
             drag_anchor: None,
             pinch_anchor: None,
             press_origin: None,
+            tilt_anchor: None,
             decoded_theme: layer.theme,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
@@ -1063,6 +1086,26 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let Some(mut cache_guard) = data.downcast_mut::<MapTileCache>() else {
         return Update::DoNothing;
     };
+    // A camera drag (right button held) tilts / rotates instead of panning.
+    if let Some(tilt_anchor) = cache_guard.tilt_anchor {
+        let (ddx, ddy) = (pos.x - tilt_anchor.x, pos.y - tilt_anchor.y);
+        if ddx.abs() < 0.5 && ddy.abs() < 0.5 {
+            return Update::DoNothing;
+        }
+        let (bearing, pitch) = camera_drag(
+            cache_guard.viewport.bearing_deg,
+            cache_guard.viewport.pitch_deg,
+            ddx,
+            ddy,
+        );
+        cache_guard.viewport.bearing_deg = bearing;
+        cache_guard.viewport.pitch_deg = pitch;
+        cache_guard.tilt_anchor = Some(pos);
+        let hook = cache_guard.on_viewport_changed.clone();
+        let vp = cache_guard.viewport;
+        drop(cache_guard);
+        return finish_viewport_change(&hook, &mut info, vp);
+    }
     let Some(anchor) = cache_guard.drag_anchor else {
         return Update::DoNothing; // no active drag
     };
@@ -1090,6 +1133,62 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     finish_viewport_change(&hook, &mut info, vp)
 }
 
+/// A right-button drag moves the camera: horizontal pixels turn the
+/// bearing (0.5 deg/px, clockwise when dragging right), vertical pixels
+/// change the pitch (dragging UP tilts the view — MapLibre's direction),
+/// clamped to `0..=MAX_PITCH_DEG`. Pure, so the convention is pinned by a
+/// test and shared by every backend.
+#[must_use]
+pub fn camera_drag(bearing_deg: f32, pitch_deg: f32, dx_px: f32, dy_px: f32) -> (f32, f32) {
+    const DEG_PER_PX: f32 = 0.5;
+    (
+        normalize_bearing(bearing_deg + dx_px * DEG_PER_PX),
+        clamp_pitch(pitch_deg - dy_px * DEG_PER_PX),
+    )
+}
+
+/// Right button down on the canvas: start a camera drag (tilt / rotate).
+extern "C" fn map_on_tilt_down(mut data: RefAny, info: CallbackInfo) -> Update {
+    let pos = match info.get_cursor_relative_to_node().into_option() {
+        Some(p) => azul_core::geom::LogicalPosition::new(p.x, p.y),
+        None => return Update::DoNothing,
+    };
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        cache.tilt_anchor = Some(pos);
+        // a camera drag is not a pan and not a tap
+        cache.drag_anchor = None;
+        cache.press_origin = None;
+    }
+    Update::DoNothing
+}
+
+/// Right button up: end the camera drag.
+extern "C" fn map_on_tilt_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        cache.tilt_anchor = None;
+    }
+    Update::DoNothing
+}
+
+/// A two-finger rotate gesture turns the bearing by the detected angle.
+extern "C" fn map_on_rotate_gesture(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(rotation) = info.get_rotation().into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(mut cache_guard) = data.downcast_mut::<MapTileCache>() else {
+        return Update::DoNothing;
+    };
+    let delta = rotation.angle_radians.to_degrees();
+    if !delta.is_finite() || delta.abs() < 0.01 {
+        return Update::DoNothing;
+    }
+    cache_guard.viewport.bearing_deg = normalize_bearing(cache_guard.viewport.bearing_deg + delta);
+    let hook = cache_guard.on_viewport_changed.clone();
+    let vp = cache_guard.viewport;
+    drop(cache_guard);
+    finish_viewport_change(&hook, &mut info, vp)
+}
+
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
 /// can be in flight (and pinch supersedes pan in the move handler);
 /// clear both anchors on release.
@@ -1108,6 +1207,8 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
             cache.drag_anchor = None;
             cache.pinch_anchor = None;
             cache.press_origin = None;
+            // a pointer leaving the canvas ends a camera drag too
+            cache.tilt_anchor = None;
             out
         });
     // A press + release at ~the same point (no pan/pinch) is a tap: project it
@@ -1219,6 +1320,74 @@ fn wrap_lon(lon: f64) -> f64 {
 // exact inverses of each other and are the single source of truth for
 // the widget's projection — `map_widget_render` forward-projects the
 // viewport centre through them; tap-to-pin will inverse-project taps.
+
+/// The steepest tilt the camera allows (MapLibre's default maximum).
+pub const MAX_PITCH_DEG: f32 = 60.0;
+
+/// `pitch_deg` clamped to `0..=MAX_PITCH_DEG` (NaN -> 0).
+#[must_use]
+pub fn clamp_pitch(pitch_deg: f32) -> f32 {
+    if pitch_deg.is_finite() {
+        pitch_deg.clamp(0.0, MAX_PITCH_DEG)
+    } else {
+        0.0
+    }
+}
+
+/// `bearing_deg` wrapped into `-180..180` (NaN -> 0).
+#[must_use]
+pub fn normalize_bearing(bearing_deg: f32) -> f32 {
+    if !bearing_deg.is_finite() {
+        return 0.0;
+    }
+    let mut b = bearing_deg % 360.0;
+    if b >= 180.0 {
+        b -= 360.0;
+    } else if b < -180.0 {
+        b += 360.0;
+    }
+    b
+}
+
+/// The CSS transform that tilts / rotates the tile canvas for a viewport,
+/// `None` for the flat view (no transform, no layer promotion, no cost).
+/// `perspective()` is the camera distance — 1.5x the larger viewport side,
+/// a natural "standing above the map" look; `rotateX` leans the top edge
+/// away (MapLibre's pitch), `rotate` applies the bearing; all about the
+/// canvas centre.
+#[must_use]
+pub fn camera_transform_css(viewport: &MapViewport, width_px: f32, height_px: f32) -> Option<String> {
+    let pitch = clamp_pitch(viewport.pitch_deg);
+    let bearing = normalize_bearing(viewport.bearing_deg);
+    if pitch.abs() < 0.01 && bearing.abs() < 0.01 {
+        return None;
+    }
+    let distance = (width_px.max(height_px) * 1.5).max(100.0);
+    Some(format!(
+        "transform: perspective({distance:.0}px) rotateX({pitch:.2}deg) rotate({bearing:.2}deg); \
+         transform-origin: 50% 50%;"
+    ))
+}
+
+/// How much MORE of the flat plane a tilted / rotated camera can see than
+/// the straight-down one, as `(width, height)` multipliers for the tile
+/// range: a rotation's axis-aligned bounding box (`w|cos| + h|sin|`), and
+/// a pitch that shows the far ground at the top (up to 2x the rows at
+/// [`MAX_PITCH_DEG`]). `(1, 1)` for the flat view.
+#[must_use]
+pub fn camera_overscan(viewport: &MapViewport, width_px: f32, height_px: f32) -> (f32, f32) {
+    let pitch = clamp_pitch(viewport.pitch_deg);
+    let bearing = normalize_bearing(viewport.bearing_deg);
+    if pitch.abs() < 0.01 && bearing.abs() < 0.01 {
+        return (1.0, 1.0);
+    }
+    let (w, h) = (width_px.max(1.0), height_px.max(1.0));
+    let (s, c) = bearing.to_radians().sin_cos();
+    let rot_w = (w * c.abs() + h * s.abs()) / w;
+    let rot_h = (w * s.abs() + h * c.abs()) / h;
+    let tilt = 1.0 + pitch / MAX_PITCH_DEG;
+    (rot_w * (1.0 + pitch / (2.0 * MAX_PITCH_DEG)), rot_h * tilt)
+}
 
 /// Longitude (deg) → fractional tile-x at the given `tile_count`.
 fn lon_to_tile_x(lon_deg: f64, tile_count: f64) -> f64 {
@@ -1707,8 +1876,17 @@ extern "C" fn map_widget_render(
     // 256 is the Mercator tile pixel size at integer zoom; tile_px is also
     // used below to position each tile div.
     let tile_px = 256.0 * zoom_scale;
-    let (x_min, x_max, y_min, y_max) =
-        visible_tile_range(centre_x, centre_y, width_px, height_px, zoom_scale, tile_count);
+    // A tilted / rotated camera sees more of the flat plane than the
+    // straight-down one: fetch the tiles the transform will reveal.
+    let (over_w, over_h) = camera_overscan(&viewport, width_px, height_px);
+    let (x_min, x_max, y_min, y_max) = visible_tile_range(
+        centre_x,
+        centre_y,
+        width_px * over_w,
+        height_px * over_h,
+        zoom_scale,
+        tile_count,
+    );
 
     // Opt-in render trace (`AZ_MAP_DEBUG=1`): the VirtualView callback fires only
     // when the framework finds this node with real bounds — so seeing this line at
@@ -1763,9 +1941,19 @@ extern "C" fn map_widget_render(
     // Build the visible-tile grid. Each tile div is GPU-translated
     // into its screen position; the (CSS-driven) `transform` keeps
     // pan / zoom O(1) — no relayout per frame.
-    let mut grid = Dom::create_div().with_css(
-        "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;",
-    );
+    // THE CAMERA: pitch / bearing are one CSS transform on the tile canvas
+    // (`camera_transform_css`). The flat view carries no transform at all,
+    // so nothing changes for the default map; a tilt promotes the canvas to
+    // a reference frame the compositor projects (CPU: the projective blit;
+    // GPU: WebRender's 3D transforms).
+    let grid_css = match camera_transform_css(&viewport, width_px, height_px) {
+        Some(camera) => format!(
+            "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; {camera}"
+        ),
+        None => "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;"
+            .to_string(),
+    };
+    let mut grid = Dom::create_div().with_css(grid_css.as_str());
 
     // Pan / zoom handlers live HERE, on the VirtualView content — NOT on the
     // outer widget div. The VirtualView renders as a separate DomId painted on
@@ -1835,6 +2023,29 @@ extern "C" fn map_widget_render(
                 EventFilter::Hover(HoverEventFilter::PinchOut),
                 data.clone(),
                 Callback::from_ptr(map_on_pointer_move),
+            )
+            // THE CAMERA: right-drag tilts (vertical) and rotates
+            // (horizontal) — MapLibre's convention; a two-finger rotate
+            // gesture turns the bearing.
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::RightMouseDown),
+                data.clone(),
+                Callback::from_ptr(map_on_tilt_down),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::RightMouseUp),
+                data.clone(),
+                Callback::from_ptr(map_on_tilt_up),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::RotateClockwise),
+                data.clone(),
+                Callback::from_ptr(map_on_rotate_gesture),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::RotateCounterClockwise),
+                data.clone(),
+                Callback::from_ptr(map_on_rotate_gesture),
             );
     }
 
@@ -1929,6 +2140,66 @@ extern "C" fn map_widget_render(
         dom: OptionDom::Some(grid),
         materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
         virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+    }
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+
+    fn vp(pitch: f32, bearing: f32) -> MapViewport {
+        MapViewport {
+            pitch_deg: pitch,
+            bearing_deg: bearing,
+            ..MapViewport::default()
+        }
+    }
+
+    #[test]
+    fn the_flat_view_has_no_transform_and_no_overscan() {
+        assert_eq!(camera_transform_css(&vp(0.0, 0.0), 800.0, 600.0), None);
+        assert_eq!(camera_overscan(&vp(0.0, 0.0), 800.0, 600.0), (1.0, 1.0));
+        assert_eq!(camera_transform_css(&vp(0.001, -0.001), 800.0, 600.0), None, "sub-0.01deg is flat");
+    }
+
+    #[test]
+    fn pitch_and_bearing_become_one_perspective_transform_about_the_centre() {
+        let css = camera_transform_css(&vp(45.0, 30.0), 800.0, 600.0).expect("a tilt transforms");
+        assert!(css.contains("perspective(1200px)"), "{css}");
+        assert!(css.contains("rotateX(45.00deg)"), "{css}");
+        assert!(css.contains("rotate(30.00deg)"), "{css}");
+        assert!(css.contains("transform-origin: 50% 50%"), "{css}");
+        // the widget API clamps and normalises
+        let w = MapWidget::create(MapTileLayer::default()).with_pitch(95.0).with_bearing(370.0);
+        assert_eq!(w.viewport.pitch_deg, MAX_PITCH_DEG);
+        assert!((w.viewport.bearing_deg - 10.0).abs() < 1e-4);
+        assert_eq!(clamp_pitch(f32::NAN), 0.0);
+        assert_eq!(normalize_bearing(-190.0), 170.0);
+        assert_eq!(normalize_bearing(180.0), -180.0);
+    }
+
+    #[test]
+    fn a_tilted_camera_fetches_more_rows_and_a_rotated_one_a_bounding_box() {
+        let (w, h) = camera_overscan(&vp(60.0, 0.0), 800.0, 600.0);
+        assert!((h - 2.0).abs() < 1e-4, "max pitch doubles the rows: {h}");
+        assert!(w > 1.0 && w < 2.0, "{w}");
+        let (w, h) = camera_overscan(&vp(0.0, 90.0), 800.0, 600.0);
+        assert!((w - 600.0 / 800.0).abs() < 1e-4 && (h - 800.0 / 600.0).abs() < 1e-4, "a 90deg turn swaps the sides: {w} {h}");
+        let (w, h) = camera_overscan(&vp(0.0, 45.0), 800.0, 800.0);
+        assert!((w - core::f32::consts::SQRT_2).abs() < 1e-3 && (h - core::f32::consts::SQRT_2).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_right_drag_tilts_up_and_turns_clockwise_within_the_limits() {
+        let (b, p) = camera_drag(0.0, 0.0, 40.0, -20.0);
+        assert!((b - 20.0).abs() < 1e-4, "40 px right = +20deg bearing: {b}");
+        assert!((p - 10.0).abs() < 1e-4, "20 px up = +10deg pitch: {p}");
+        let (_, p) = camera_drag(0.0, 55.0, 0.0, -100.0);
+        assert_eq!(p, MAX_PITCH_DEG, "pitch is clamped");
+        let (_, p) = camera_drag(0.0, 5.0, 0.0, 100.0);
+        assert_eq!(p, 0.0, "…at both ends");
+        let (b, _) = camera_drag(170.0, 0.0, 40.0, 0.0);
+        assert!((b + 170.0).abs() < 1e-4, "bearing wraps: {b}");
     }
 }
 

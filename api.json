@@ -47068,6 +47068,43 @@
                                     "type": "MapWidget"
                                 },
                                 "fn_body": "object.with_theme(theme)"
+                            },
+                            "with_pitch": {
+                                "doc": [
+                                    "Tilt the camera: 0 looks straight down, [`MAX_PITCH_DEG`] is the",
+                                    "steepest 3D view (clamped). Rendered as a perspective transform on",
+                                    "the tile canvas; right-drag vertically changes it at runtime."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "pitch_deg": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_pitch(pitch_deg)"
+                            },
+                            "with_bearing": {
+                                "doc": [
+                                    "Rotate the map (clockwise degrees, normalised to `-180..180`).",
+                                    "Right-drag horizontally or a rotate gesture changes it at runtime."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "bearing_deg": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_bearing(bearing_deg)"
                             }
                         },
                         "repr": "C"

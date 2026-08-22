@@ -11,6 +11,47 @@ use agg_rust::blur::stack_blur_rgba32;
 use agg_rust::rendering_buffer::RowAccessor;
 use agg_rust::trans_affine::TransAffine;
 use crate::glyph_cache::GlyphCache;
+
+/// A row-major 3x3 matrix over column vectors `[x; y; 1]`:
+/// `x' = (m0 x + m1 y + m2) / w`, `y' = (m3 x + m4 y + m5) / w`,
+/// `w = m6 x + m7 y + m8`. The compositor's per-layer mapping, so a
+/// perspective (`w` depending on x / y) composes through the layer tree like
+/// any translation does.
+pub type Mat3 = [f64; 9];
+
+/// The identity mapping.
+pub const MAT3_IDENTITY: Mat3 = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+
+/// `a * b` (apply `b` first, then `a`).
+#[must_use]
+pub fn mat3_mul(a: &Mat3, b: &Mat3) -> Mat3 {
+    let mut out = [0.0; 9];
+    for r in 0..3 {
+        for c in 0..3 {
+            out[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+        }
+    }
+    out
+}
+
+/// A pure translation.
+#[must_use]
+pub const fn mat3_translation(tx: f64, ty: f64) -> Mat3 {
+    [1.0, 0.0, tx, 0.0, 1.0, ty, 0.0, 0.0, 1.0]
+}
+
+/// Is the third row the trivial `[0 0 1]` (no perspective)?
+#[must_use]
+pub fn mat3_is_affine(m: &Mat3) -> bool {
+    m[6].abs() < 1e-12 && m[7].abs() < 1e-12 && (m[8] - 1.0).abs() < 1e-9
+}
+
+/// The affine part as agg's `TransAffine` (exact when [`mat3_is_affine`]).
+#[must_use]
+pub fn mat3_affine_part(m: &Mat3) -> TransAffine {
+    // agg: x' = x*sx + y*shx + tx; y' = x*shy + y*sy + ty
+    TransAffine::new_custom(m[0], m[3], m[1], m[4], m[2], m[5])
+}
 use crate::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId};
 use crate::text3::cache::FontManager;
 
@@ -65,8 +106,15 @@ pub struct Layer {
     /// If true, `filters` apply to the backdrop (parent + earlier siblings
     /// already in `output`), not to this layer's own content.
     pub is_backdrop_filter: bool,
-    /// CSS transform for this layer.
+    /// CSS transform for this layer (the affine part, layer-local logical
+    /// units; the translation is scaled to device pixels at composite time).
     pub transform: TransAffine,
+    /// The PERSPECTIVE row of the layer's transform over its z = 0 plane
+    /// (`[m03, m13, m33]` of the 4x4, logical units): `w = p0 x + p1 y + p2`.
+    /// `[0, 0, 1]` for every affine transform. A `perspective() rotateX()`
+    /// tilt lives here — the CPU path used to drop it and composite the
+    /// affine part only (a tilted map rendered as a squashed rectangle).
+    pub perspective_row: [f32; 3],
     /// Range of display list items [start, end) that render into this layer.
     pub display_list_range: (usize, usize),
     /// If this layer is a scroll frame, the scroll ID.
@@ -349,6 +397,7 @@ impl CompositorState {
                             f64::from(m[3][0]),
                             f64::from(m[3][1]),
                         );
+                        layer.perspective_row = [m[0][3], m[1][3], m[3][3]];
                         let end =
                             find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
                         layer.display_list_range = (i + 1, end);
@@ -646,12 +695,7 @@ impl CompositorState {
     /// Composite all layers bottom-up into the final output pixmap.
     pub fn composite_frame(&self, output: &mut AzulPixmap, dpi_factor: f32) {
         // Start from root layer, with an identity device transform.
-        self.composite_layer_recursive(
-            self.root_layer,
-            output,
-            TransAffine::new(),
-            dpi_factor,
-        );
+        self.composite_layer_recursive(self.root_layer, output, MAT3_IDENTITY, dpi_factor);
     }
 
     /// `parent_m` maps the PARENT's local device-pixel space to output
@@ -678,39 +722,55 @@ impl CompositorState {
         &self,
         layer_id: LayerId,
         output: &mut AzulPixmap,
-        parent_m: TransAffine,
+        parent_h: Mat3,
         dpi_factor: f32,
     ) {
         let Some(layer) = self.layers.get(&layer_id) else {
             return;
         };
 
-        // this_m: layer-local device pixels -> output device pixels.
-        let this_m = if layer_id == self.root_layer {
+        // this_h: layer-local device pixels -> output device pixels, as a
+        // 3x3 homography over column vectors `[x; y; 1]` so a perspective
+        // parent carries its foreshortening into every descendant. Affine
+        // layers (all of them outside a 3D transform) keep a trivial third
+        // row and take the affine / integer-blit paths below unchanged.
+        let this_h = if layer_id == self.root_layer {
             // The root blits at the origin, untransformed — same special case
             // the offset-based recursion had.
-            parent_m
+            parent_h
         } else {
             let t = &layer.transform;
             let dpi = f64::from(dpi_factor);
             // The layer's live transform with its logical translation scaled
-            // to device pixels (linear part is unit-free)...
-            let mut m = TransAffine::new_custom(t.sx, t.shy, t.shx, t.sy, t.tx * dpi, t.ty * dpi);
-            // ...then placed at bounds.origin (agg multiply = "apply self,
-            // THEN the argument")...
-            m.multiply(&TransAffine::new_custom(1.0, 0.0, 0.0, 1.0,
+            // to device pixels (linear part is unit-free; the perspective
+            // coefficients multiply coordinates, so they scale by 1/dpi)...
+            let layer_h: Mat3 = [
+                t.sx,
+                t.shx,
+                t.tx * dpi,
+                t.shy,
+                t.sy,
+                t.ty * dpi,
+                f64::from(layer.perspective_row[0]) / dpi,
+                f64::from(layer.perspective_row[1]) / dpi,
+                f64::from(layer.perspective_row[2]),
+            ];
+            // ...then placed at bounds.origin, then through the parent chain
+            // (column-vector matrices: the rightmost factor applies first).
+            let place = mat3_translation(
                 f64::from(layer.bounds.origin.x) * dpi,
                 f64::from(layer.bounds.origin.y) * dpi,
-            ));
-            // ...then through the parent chain.
-            m.multiply(&parent_m);
-            m
+            );
+            mat3_mul(&parent_h, &mat3_mul(&place, &layer_h))
         };
+        let this_m = mat3_affine_part(&this_h);
+        let is_affine = mat3_is_affine(&this_h);
 
         // Pure-integer-translation fast path — bit-identical to the old
         // offset blit for every untransformed layer (which is all of them,
         // outside an active animation / drag).
-        let is_pure_translation = (this_m.sx - 1.0).abs() < IDENTITY_EPSILON_F64
+        let is_pure_translation = is_affine
+            && (this_m.sx - 1.0).abs() < IDENTITY_EPSILON_F64
             && this_m.shy.abs() < IDENTITY_EPSILON_F64
             && this_m.shx.abs() < IDENTITY_EPSILON_F64
             && (this_m.sy - 1.0).abs() < IDENTITY_EPSILON_F64
@@ -754,15 +814,17 @@ impl CompositorState {
             let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
             if is_pure_translation {
                 blit_pixmap(src_pixbuf, output, px_x, px_y, layer.opacity);
-            } else {
+            } else if is_affine {
                 blit_pixmap_affine(src_pixbuf, output, &this_m, layer.opacity);
+            } else {
+                super::pixmap::blit_pixmap_projective(src_pixbuf, output, &this_h, layer.opacity);
             }
         }
 
         // Composite children in z-order, inheriting this layer's mapping.
         let children: Vec<LayerId> = layer.children.clone();
         for child_id in &children {
-            self.composite_layer_recursive(*child_id, output, this_m, dpi_factor);
+            self.composite_layer_recursive(*child_id, output, this_h, dpi_factor);
         }
     }
 
@@ -878,6 +940,7 @@ impl Layer {
             filters: Vec::new(),
             is_backdrop_filter: false,
             transform: TransAffine::new(),
+            perspective_row: [0.0, 0.0, 1.0],
             display_list_range: (0, 0),
             scroll_id: None,
             composite_dirty: true,
