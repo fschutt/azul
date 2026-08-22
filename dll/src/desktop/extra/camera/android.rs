@@ -43,9 +43,10 @@ struct AndroidCam {
 
 /// Open camera `index` (default if out of range) at `width` x `height`,
 /// YUV_420_888. Returns a boxed handle, or `0` on failure (test-pattern fallback).
-pub fn open(index: u32, width: u32, height: u32) -> u64 {
-    let width = if width == 0 { 640 } else { width };
-    let height = if height == 0 { 480 } else { height };
+pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u64 {
+    let index = request.index;
+    let width = if request.width == 0 { 640 } else { request.width };
+    let height = if request.height == 0 { 480 } else { request.height };
     unsafe {
         let manager = ACameraManager_create();
         if manager.is_null() {
@@ -142,18 +143,23 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
     }
 }
 
-/// Acquire the latest image, convert YUV_420_888 -> RGBA into `out`. Returns
-/// `(width, height)`, or `(0, 0)` if no frame is ready yet (worker retries).
-pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
+/// Acquire the latest image, convert YUV_420_888 -> RGBA into `out`. `Frame`
+/// on success; `Idle` when no frame is ready yet (the worker polls again —
+/// this used to return the end-of-stream signal, which stopped the worker on
+/// the first early read), `Ended` on a broken image.
+pub fn read(handle: u64, out: &mut Vec<u8>) -> azul_layout::widgets::capture_common::CaptureRead {
+    use azul_layout::widgets::capture_common::CaptureRead;
     let cam = match unsafe { (handle as *mut AndroidCam).as_mut() } {
         Some(c) => c,
-        None => return (0, 0),
+        None => return CaptureRead::Ended,
     };
     unsafe {
         let mut image: *mut AImage = ptr::null_mut();
         AImageReader_acquireLatestImage(cam.reader, &mut image);
         if image.is_null() {
-            return (0, 0);
+            // Not ready: yield briefly so the worker does not spin.
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            return CaptureRead::Idle;
         }
         let (w, h) = (cam.width as usize, cam.height as usize);
         let mut y_ptr: *mut u8 = ptr::null_mut();
@@ -177,7 +183,7 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
         AImage_getPlanePixelStride(image, 2, &mut v_pix);
         if y_ptr.is_null() || u_ptr.is_null() || v_ptr.is_null() {
             AImage_delete(image);
-            return (0, 0);
+            return CaptureRead::Ended;
         }
         out.clear();
         out.resize(w * h * 4, 0);
@@ -196,7 +202,10 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
             }
         }
         AImage_delete(image);
-        (cam.width, cam.height)
+        CaptureRead::Frame {
+            width: cam.width,
+            height: cam.height,
+        }
     }
 }
 

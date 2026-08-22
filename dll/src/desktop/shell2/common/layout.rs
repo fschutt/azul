@@ -1327,6 +1327,9 @@ phases.mark("after_layout_and_dl");
     // Linux) so CameraWidget shows the real camera where available; guarded.
     crate::desktop::extra::camera::ensure_camera_backend();
     crate::desktop::extra::screencap::ensure_screen_backend();
+    // The platform frame scaler the capture fan-out uses (vImage on macOS;
+    // the portable scaler elsewhere) — same seam, same guard.
+    crate::desktop::extra::resample::ensure_frame_resampler();
     // Same seam for the async OS file picker: on iOS / Android
     // `FileDialog::open_file_async` dispatches to the dispatchers this
     // installs; the desktop answers the same call synchronously via tfd.

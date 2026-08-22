@@ -78,6 +78,45 @@ extern "C" fn on_video_frame(mut data: RefAny, _info: CallbackInfo, frame: Video
 
 The widget renders a GPU-texture preview itself; your hook is purely a data tap.
 
+### One capture, many sizes (consumers)
+
+The preview tile, a remote participant and a recorder rarely want the same
+size. Register each as a **consumer**: the device is opened ONCE at the
+smallest size that covers everyone (the tile's own device-pixel size, which
+the widget learns from layout, plus every consumer), and every captured frame
+is cut to each consumer's size off the main thread — so the camera never
+captures more than the largest consumer can use, and nothing is sent bigger
+than it was asked for.
+
+```rust
+// "Client Bob wants 500x200; the local preview is 100x200": the camera is
+// opened at 500x200 and each frame is sampled twice, from one capture.
+let camera = CameraWidget::create(CameraConfig::default())
+    .with_consumer(FrameConsumer::new(BOB, 500, 200))
+    .with_on_consumer_frame(state.clone(), on_consumer_frame)
+    .dom();
+
+extern "C" fn on_consumer_frame(mut data: RefAny, _info: CallbackInfo, cut: ConsumerFrame) -> Update {
+    // cut.consumer.id tells you who this is for; cut.frame is RGBA at
+    // cut.consumer.width x cut.consumer.height.
+    if cut.consumer.id == BOB {
+        send_to_bob(&cut.frame);
+    }
+    Update::DoNothing
+}
+```
+
+`on_frame` still receives the frame as captured (at the configured size or
+larger) when you set it; with consumers alone the full-size frame never
+leaves the capture thread. The same applies to `ScreenCaptureWidget`, whose
+request also honours `config.source` (display index / window id),
+`config.fps`, and leaves your own windows out of a shared desktop so a share
+that shows the meeting window does not loop.
+
+On macOS the per-consumer cut runs through Accelerate/vImage; elsewhere the
+portable scaler (`image_scale`) does the same work. Both are pure functions of
+the frame, so the cuts can run in parallel later without an API change.
+
 ## Capturing audio (microphone)
 
 `MicrophoneWidget` is the audio twin of the capture widgets - same shape, no GL.

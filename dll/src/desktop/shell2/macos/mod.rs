@@ -50,7 +50,7 @@ use objc2_app_kit::{
     NSAppKitVersionNumber, NSAppKitVersionNumber10_12, NSApplication,
     NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBitmapImageRep,
     NSColor, NSCompositingOperation, NSDragOperation, NSDraggingInfo, NSEvent, NSEventMask,
-    NSEventType, NSFilenamesPboardType, NSImage, NSMenu,
+    NSEventType, NSFilenamesPboardType, NSMenu,
     NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat, NSOpenGLPixelFormatAttribute, NSOpenGLView,
     NSResponder, NSScreen, NSTextInputClient, NSTrackingArea, NSTrackingAreaOptions, NSView,
     NSVisualEffectView, NSWindow, NSWindowDelegate, NSWindowStyleMask, NSWindowTitleVisibility,
@@ -1550,6 +1550,65 @@ pub struct CPUViewIvars {
     cached_bitmap: RefCell<Option<Retained<NSBitmapImageRep>>>,
     cached_bitmap_w: Cell<usize>,
     cached_bitmap_h: Cell<usize>,
+    /// `true` until the first full copy into a (re)allocated `cached_bitmap`:
+    /// after that only the dirty rows are copied per `drawRect` (see
+    /// `dirty_rows_to_copy`).
+    cached_bitmap_stale: Cell<bool>,
+}
+
+/// The framebuffer rows + columns a `drawRect` must copy into the cached
+/// bitmap, in TOP-DOWN pixel coordinates: `(x0, x1, y0, y1)`, half-open.
+///
+/// `dirty` is the dirty rect in BACKING pixels with the view's bottom-left
+/// origin (the CPU view is not `isFlipped`); `width` x `height` is the
+/// framebuffer. The whole framebuffer when `full` (a fresh bitmap has no
+/// previous rows to keep) or when the rect is degenerate.
+///
+/// Before this, every `drawRect` memcpy'd the WHOLE framebuffer into the
+/// bitmap and drew the whole bounds regardless of the dirty rect:
+/// 2200x1440x4 = 12.7 MB per presented frame for a 1100x720 Retina window,
+/// at 30 Hz while a capture tile was live — for a 300x200 tile.
+fn dirty_rows_to_copy(
+    full: bool,
+    dirty: (f64, f64, f64, f64),
+    width: usize,
+    height: usize,
+) -> (usize, usize, usize, usize) {
+    let (x, y, w, h) = dirty;
+    if full || !(w > 0.0 && h > 0.0) || width == 0 || height == 0 {
+        return (0, width, 0, height);
+    }
+    let fw = width as f64;
+    let fh = height as f64;
+    let x0 = x.floor().clamp(0.0, fw) as usize;
+    let x1 = (x + w).ceil().clamp(0.0, fw) as usize;
+    // bottom-left origin -> top-down rows
+    let y0 = (fh - (y + h)).floor().clamp(0.0, fh) as usize;
+    let y1 = (fh - y).ceil().clamp(0.0, fh) as usize;
+    (x0.min(x1), x1, y0.min(y1), y1)
+}
+
+#[cfg(test)]
+mod dirty_rows_tests {
+    use super::dirty_rows_to_copy;
+
+    #[test]
+    fn only_the_dirty_rows_are_copied_flipped_from_the_views_bottom_left_origin() {
+        // A 100x80 framebuffer; the dirty rect covers x 10..30, and y 20..50
+        // measured from the BOTTOM (view space) = rows 30..60 from the top.
+        assert_eq!(dirty_rows_to_copy(false, (10.0, 20.0, 20.0, 30.0), 100, 80), (10, 30, 30, 60));
+        // Fractional edges widen outward (floor/ceil), never inward.
+        assert_eq!(dirty_rows_to_copy(false, (10.5, 20.5, 19.0, 29.0), 100, 80), (10, 30, 30, 60));
+        // A rect beyond the framebuffer is clamped, not out-of-bounds.
+        assert_eq!(dirty_rows_to_copy(false, (90.0, -5.0, 50.0, 20.0), 100, 80), (90, 100, 65, 80));
+    }
+
+    #[test]
+    fn a_fresh_bitmap_or_an_empty_rect_copies_everything_once() {
+        assert_eq!(dirty_rows_to_copy(true, (10.0, 20.0, 20.0, 30.0), 100, 80), (0, 100, 0, 80));
+        assert_eq!(dirty_rows_to_copy(false, (0.0, 0.0, 0.0, 0.0), 100, 80), (0, 100, 0, 80));
+        assert_eq!(dirty_rows_to_copy(false, (0.0, 0.0, 5.0, 5.0), 0, 0), (0, 0, 0, 0));
+    }
 }
 
 define_class!(
@@ -1604,7 +1663,13 @@ define_class!(
                 }
             }
 
-            // Blit framebuffer to window, reusing cached NSBitmapImageRep
+            // Blit the DIRTY part of the framebuffer to the window, reusing
+            // the cached NSBitmapImageRep: copy only the dirty rows into it
+            // and draw only the dirty rect from it. `update_framebuffer`
+            // already invalidates just the damaged rects (in points), so the
+            // dirty rect AppKit hands us is the damage; the bitmap's other
+            // rows still hold the previous frame, which is exactly what the
+            // framebuffer holds there too.
             unsafe {
                 let framebuffer = ivars.framebuffer.borrow();
 
@@ -1629,20 +1694,59 @@ define_class!(
                     );
                     ivars.cached_bitmap_w.set(width);
                     ivars.cached_bitmap_h.set(height);
+                    ivars.cached_bitmap_stale.set(true);
                 }
 
                 if let Some(ref bitmap) = *cached {
-                    // Copy framebuffer data into the reused bitmap's pixel buffer
-                    std::ptr::copy_nonoverlapping(
-                        framebuffer.as_ptr(),
-                        bitmap.bitmapData(),
-                        framebuffer.len(),
+                    let dirty_px = self.convertRectToBacking(dirty_rect);
+                    let (x0, x1, y0, y1) = dirty_rows_to_copy(
+                        ivars.cached_bitmap_stale.get(),
+                        (
+                            dirty_px.origin.x,
+                            dirty_px.origin.y,
+                            dirty_px.size.width,
+                            dirty_px.size.height,
+                        ),
+                        width,
+                        height,
                     );
+                    ivars.cached_bitmap_stale.set(false);
 
-                    // Create lightweight NSImage wrapper and draw
-                    let image = NSImage::initWithSize(NSImage::alloc(), bounds.size);
-                    image.addRepresentation(bitmap);
-                    image.drawInRect(bounds);
+                    // Copy the dirty rows (or everything, once, after a
+                    // (re)allocation) into the bitmap's pixel buffer.
+                    let stride = width * 4;
+                    let dst = bitmap.bitmapData();
+                    let span = (x1 - x0) * 4;
+                    if !dst.is_null() && span > 0 {
+                        for row in y0..y1 {
+                            let off = row * stride + x0 * 4;
+                            if off + span <= framebuffer.len() {
+                                std::ptr::copy_nonoverlapping(
+                                    framebuffer.as_ptr().add(off),
+                                    dst.add(off),
+                                    span,
+                                );
+                            }
+                        }
+                    }
+
+                    // Draw just that region, 1:1. The rep's coordinate space
+                    // is bottom-left-origin pixels, like the view's backing
+                    // space, so the source rect is the copied span flipped
+                    // back, and the destination is its point-space twin.
+                    let from_px = NSRect::new(
+                        NSPoint::new(x0 as f64, (height - y1) as f64),
+                        NSSize::new((x1 - x0) as f64, (y1 - y0) as f64),
+                    );
+                    let to_pt = self.convertRectFromBacking(from_px);
+                    let _drawn: bool = bitmap.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
+                        to_pt,
+                        from_px,
+                        NSCompositingOperation::Copy,
+                        1.0,
+                        false,
+                        None,
+                    );
                 }
             }
         }
@@ -2019,6 +2123,7 @@ define_class!(
                 cached_bitmap: RefCell::new(None),
                 cached_bitmap_w: Cell::new(0),
                 cached_bitmap_h: Cell::new(0),
+            cached_bitmap_stale: Cell::new(true),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]

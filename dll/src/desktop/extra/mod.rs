@@ -42,6 +42,9 @@ pub mod screencap;
 /// The latest-frame mailbox the macOS capture backends hand frames through
 /// (buffer reuse + condvar). Plain std, unit-tested on every host.
 pub mod capture_slot;
+/// Platform-accelerated whole-frame scaler (Accelerate/vImage on macOS)
+/// behind the `capture_common::register_frame_resampler` seam.
+pub mod resample;
 /// WebTransport room transport (`WebTransport`) — typed media/chat/control to a
 /// coordination server; replaces the removed UDP transport for azul-meet.
 /// v1 = loopback stub engine;

@@ -109,6 +109,91 @@ impl VideoFrame {
 // FFI Option wrapper for a frame-pull hook / accessor. `copy = false` (U8Vec).
 impl_option!(VideoFrame, OptionVideoFrame, copy = false, [Clone, Debug]);
 
+/// One CONSUMER of a capture source's frames: a requested output size.
+///
+/// A camera or a screen share has many consumers of the same captured
+/// frame at once — the on-screen preview tile (sized by layout), a remote
+/// participant who asked for 500x200, a recorder at full size. The device
+/// captures ONCE, at the smallest size that covers every consumer
+/// (`azul_layout::image_scale::covering_size`), and every consumer gets its
+/// own resample of that one frame (`azul_layout::image_scale::fan_out`): the
+/// camera never captures more than the largest consumer needs, and nothing
+/// is ever sent bigger than the consumer asked for. Registered on a capture
+/// widget with `CameraWidget::with_consumer` /
+/// `ScreenCaptureWidget::with_consumer`; each cut frame is handed to the
+/// widget's `on_consumer_frame` hook as a [`ConsumerFrame`].
+///
+/// `id` is caller-chosen and handed back with every cut frame so one hook can
+/// serve many consumers ("client Bob" = 7, "the recorder" = 8). Id 0
+/// ([`FrameConsumer::PREVIEW_ID`]) is reserved for the widget's own on-screen
+/// tile, whose size follows layout.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct FrameConsumer {
+    /// Caller-chosen id, handed back with every cut frame. 0 is the preview.
+    pub id: u32,
+    /// Requested output width in px (0 = invalid, the consumer is skipped).
+    pub width: u32,
+    /// Requested output height in px (0 = invalid, the consumer is skipped).
+    pub height: u32,
+}
+
+impl FrameConsumer {
+    /// The id of the widget's own on-screen preview: its size follows the
+    /// laid-out node (device pixels), never the caller.
+    pub const PREVIEW_ID: u32 = 0;
+
+    /// A consumer `id` that wants `width` x `height` frames.
+    #[must_use]
+    pub const fn new(id: u32, width: u32, height: u32) -> Self {
+        Self { id, width, height }
+    }
+
+    /// `false` for a zero-sized request (skipped by the fan-out) or the
+    /// reserved preview id.
+    #[must_use]
+    pub const fn is_valid(&self) -> bool {
+        self.id != Self::PREVIEW_ID && self.width > 0 && self.height > 0
+    }
+}
+
+impl_vec!(FrameConsumer, FrameConsumerVec, FrameConsumerVecDestructor, FrameConsumerVecDestructorType, FrameConsumerVecSlice, OptionFrameConsumer);
+impl_vec_debug!(FrameConsumer, FrameConsumerVec);
+impl_vec_clone!(FrameConsumer, FrameConsumerVec, FrameConsumerVecDestructor);
+impl_vec_partialeq!(FrameConsumer, FrameConsumerVec);
+impl_vec_eq!(FrameConsumer, FrameConsumerVec);
+impl_vec_partialord!(FrameConsumer, FrameConsumerVec);
+impl_vec_ord!(FrameConsumer, FrameConsumerVec);
+impl_vec_hash!(FrameConsumer, FrameConsumerVec);
+
+impl_option!(
+    FrameConsumer,
+    OptionFrameConsumer,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+/// A frame cut to one consumer's requested size: the [`FrameConsumer`] it
+/// was cut for (so one hook can route by `consumer.id`) and the resampled
+/// RGBA8 pixels (`consumer.width * consumer.height * 4`).
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumerFrame {
+    /// Which consumer this frame was cut for.
+    pub consumer: FrameConsumer,
+    /// The frame at the consumer's size.
+    pub frame: VideoFrame,
+}
+
+impl ConsumerFrame {
+    /// Pair a cut frame with the consumer it was cut for.
+    #[must_use]
+    pub const fn new(consumer: FrameConsumer, frame: VideoFrame) -> Self {
+        Self { consumer, frame }
+    }
+}
+
+impl_option!(ConsumerFrame, OptionConsumerFrame, copy = false, [Clone, Debug]);
+
 // FFI `Vec<VideoFrame>` wrapper — the list a batch decode (`DecodedVideo`,
 // `dll::desktop::extra::video_codec::pipeline`) hands back across the C ABI.
 // `VideoFrame` derives Debug + Clone + PartialEq, so mirror exactly those Vec
@@ -117,6 +202,34 @@ impl_vec!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor, VideoFrameVecDestr
 impl_vec_debug!(VideoFrame, VideoFrameVec);
 impl_vec_clone!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor);
 impl_vec_partialeq!(VideoFrame, VideoFrameVec);
+
+#[cfg(test)]
+mod frame_consumer_contract {
+    use super::*;
+
+    #[test]
+    fn the_preview_id_is_reserved_and_zero_sizes_are_invalid() {
+        assert_eq!(FrameConsumer::PREVIEW_ID, 0);
+        assert!(!FrameConsumer::new(0, 100, 100).is_valid(), "id 0 is the preview");
+        assert!(!FrameConsumer::new(7, 0, 100).is_valid());
+        assert!(!FrameConsumer::new(7, 100, 0).is_valid());
+        assert!(FrameConsumer::new(7, 500, 200).is_valid());
+        assert_eq!(FrameConsumer::default(), FrameConsumer::new(0, 0, 0));
+    }
+
+    #[test]
+    fn consumers_round_trip_through_the_ffi_vec() {
+        let bob = FrameConsumer::new(7, 500, 200);
+        let rec = FrameConsumer::new(8, 1280, 720);
+        let v: FrameConsumerVec = alloc::vec![bob, rec].into();
+        assert_eq!(v.as_ref(), &[bob, rec]);
+        let cloned = v.clone();
+        assert_eq!(cloned, v);
+        let cut = ConsumerFrame::new(bob, VideoFrame::new(500, 200, U8Vec::from_vec(alloc::vec![0; 500 * 200 * 4])));
+        assert_eq!(cut.consumer.id, 7);
+        assert_eq!(cut.frame.bytes.as_ref().len(), 500 * 200 * 4);
+    }
+}
 
 #[cfg(test)]
 mod autotest_generated {

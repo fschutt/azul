@@ -15509,6 +15509,26 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OnConsumerFrameCallbackType": {
+                        "external": "azul_layout::widgets::capture_common::OnConsumerFrameCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "ConsumerFrame"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -25383,6 +25403,38 @@
                                     "type": "UpdateCheckCallbackType"
                                 },
                                 "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OnConsumerFrameCallback": {
+                        "external": "azul_layout::widgets::capture_common::OnConsumerFrameCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnConsumerFrameCallbackType"
+                                },
+                                "callable": {
                                     "type": "OptionRefAny"
                                 }
                             }
@@ -50678,6 +50730,12 @@
                                 },
                                 "on_frame": {
                                     "type": "OptionOnVideoFrame"
+                                },
+                                "consumers": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "on_consumer_frame": {
+                                    "type": "OptionOnConsumerFrame"
                                 }
                             }
                         ],
@@ -50748,6 +50806,82 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_frame(data, on_frame)"
+                            },
+                            "add_consumer": {
+                                "doc": [
+                                    "Register a consumer of the captured frames: every frame is cut to",
+                                    "`consumer`'s size (off the main thread) and handed to the",
+                                    "`on_consumer_frame` hook with `consumer.id`. The camera is opened at",
+                                    "the smallest size covering every consumer and the tile, so \"client",
+                                    "Bob wants 500x200 while the local preview is 100x200\" captures ONE",
+                                    "500x200 frame and samples it twice - nothing larger is captured, and",
+                                    "nothing larger than asked is sent. A consumer with a zero size or the",
+                                    "reserved preview id 0 is ignored."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    }
+                                ],
+                                "fn_body": "object.add_consumer(consumer)"
+                            },
+                            "with_consumer": {
+                                "doc": [
+                                    "Builder form of [`add_consumer`](Self::add_consumer)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CameraWidget"
+                                },
+                                "fn_body": "object.with_consumer(consumer)"
+                            },
+                            "set_on_consumer_frame": {
+                                "doc": [
+                                    "Set the hook that receives every consumer's cut of every captured",
+                                    "frame (route on `frame.consumer.id`; send Bob his, record the other)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_consumer_frame": "OnConsumerFrameCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_consumer_frame(data, on_consumer_frame)"
+                            },
+                            "with_on_consumer_frame": {
+                                "doc": [
+                                    "Builder form of [`set_on_consumer_frame`](Self::set_on_consumer_frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_consumer_frame": "OnConsumerFrameCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CameraWidget"
+                                },
+                                "fn_body": "object.with_on_consumer_frame(data, on_consumer_frame)"
                             }
                         },
                         "repr": "C"
@@ -50764,6 +50898,12 @@
                                 },
                                 "on_frame": {
                                     "type": "OptionOnVideoFrame"
+                                },
+                                "consumers": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "on_consumer_frame": {
+                                    "type": "OptionOnConsumerFrame"
                                 }
                             }
                         ],
@@ -50834,6 +50974,77 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_frame(data, on_frame)"
+                            },
+                            "add_consumer": {
+                                "doc": [
+                                    "Register a consumer of the captured frames (see",
+                                    "`CameraWidget::add_consumer` - identical semantics: one capture at",
+                                    "the covering size, one cut per consumer, same-id replaces)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    }
+                                ],
+                                "fn_body": "object.add_consumer(consumer)"
+                            },
+                            "with_consumer": {
+                                "doc": [
+                                    "Builder form of [`add_consumer`](Self::add_consumer)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScreenCaptureWidget"
+                                },
+                                "fn_body": "object.with_consumer(consumer)"
+                            },
+                            "set_on_consumer_frame": {
+                                "doc": [
+                                    "Set the hook that receives every consumer's cut of every captured",
+                                    "frame (route on `frame.consumer.id`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_consumer_frame": "OnConsumerFrameCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_consumer_frame(data, on_consumer_frame)"
+                            },
+                            "with_on_consumer_frame": {
+                                "doc": [
+                                    "Builder form of [`set_on_consumer_frame`](Self::set_on_consumer_frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_consumer_frame": "OnConsumerFrameCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScreenCaptureWidget"
+                                },
+                                "fn_body": "object.with_on_consumer_frame(data, on_consumer_frame)"
                             }
                         },
                         "repr": "C"
@@ -58057,6 +58268,164 @@
                             {
                                 "ptr": {
                                     "type": "Keyframes",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ConsumerFrame": {
+                        "external": "azul_core::video::ConsumerFrame",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "consumer": {
+                                    "type": "FrameConsumer"
+                                },
+                                "frame": {
+                                    "type": "VideoFrame"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Pair a cut frame with the consumer it was cut for."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    },
+                                    {
+                                        "frame": "VideoFrame"
+                                    }
+                                ],
+                                "fn_body": "azul_core::video::ConsumerFrame::new(consumer, frame)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "OnConsumerFrame": {
+                        "external": "azul_layout::widgets::capture_common::OnConsumerFrame",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnConsumerFrameCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FrameConsumer": {
+                        "external": "azul_core::video::FrameConsumer",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "u32"
+                                },
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "A consumer `id` that wants `width` x `height` frames."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "id": "u32"
+                                    },
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_core::video::FrameConsumer::new(id, width, height)"
+                            }
+                        },
+                        "functions": {
+                            "is_valid": {
+                                "doc": [
+                                    "`false` for a zero-sized request (skipped by the fan-out) or the",
+                                    "reserved preview id."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_valid()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FrameConsumerVecSlice": {
+                        "external": "azul_core::video::FrameConsumerVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FrameConsumer",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -98834,6 +99203,219 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "FrameConsumerVec": {
+                        "external": "azul_core::video::FrameConsumerVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FrameConsumer",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "FrameConsumerVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `FrameConsumerVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `FrameConsumerVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "frame_consumer_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "frame_consumer_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "frame_consumer_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `FrameConsumerVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "FrameConsumer"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `FrameConsumerVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const FrameConsumer"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFrameConsumer"
+                                },
+                                "fn_body": "frame_consumer_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `FrameConsumerVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVecSlice"
+                                },
+                                "fn_body": "frame_consumer_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVecSlice"
+                                },
+                                "fn_body": "frame_consumer_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FrameConsumerVecDestructor": {
+                        "external": "azul_core::video::FrameConsumerVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "FrameConsumerVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FrameConsumerVecDestructorType": {
+                        "external": "azul_core::video::FrameConsumerVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "FrameConsumerVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -104244,6 +104826,65 @@
                                 "None": {},
                                 "Some": {
                                     "type": "EmailAddress"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionOnConsumerFrame": {
+                        "external": "azul_layout::widgets::capture_common::OptionOnConsumerFrame",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnConsumerFrame"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFrameConsumer": {
+                        "external": "azul_core::video::OptionFrameConsumer",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "FrameConsumer",
+                                    "doc": [
+                                        "Some value of type FrameConsumer"
+                                    ]
                                 }
                             }
                         ],

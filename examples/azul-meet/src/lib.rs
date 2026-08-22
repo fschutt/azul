@@ -17,10 +17,13 @@ use azul::audio::AudioConfig;
 use azul::camera::CameraConfig;
 use azul::screen::ScreenCaptureConfig;
 use azul::prelude::*;
-use azul::widgets::{AudioFrame, CameraWidget, MicrophoneWidget, ProgressBar, ScreenCaptureWidget};
+use azul::widgets::{
+    AudioFrame, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar,
+    ScreenCaptureWidget,
+};
 use azul::audio::AudioDeviceList;
 use azul::css::{CssProperty, LayoutWidth, LogicalSize, PixelValue};
-use azul::dom::{DomNodeId, OnAudioFrameCallback};
+use azul::dom::{DomNodeId, OnAudioFrameCallback, OnConsumerFrameCallback};
 use azul::option::OptionRefAny;
 use azul::str::String as AzString;
 
@@ -42,7 +45,20 @@ struct MeetState {
     /// Enumerated audio devices (shown in the settings strip).
     mics: Vec<String>,
     speakers: Vec<String>,
+    /// What the remote participants' cut of our camera would have cost on
+    /// the wire: frames and bytes handed to `camera_frame_for_remote`.
+    remote_frames: u64,
+    remote_bytes: u64,
 }
+
+/// The remote participants' view of our camera. ONE capture serves two
+/// sizes: the self tile gets a cut at its own device size, and this consumer
+/// gets 320x180 - what a meeting would encode and send, cut off the main
+/// thread from the same frame (`CameraWidget::with_consumer`). The camera is
+/// opened at the size covering both, never at its 1080p default.
+const REMOTE_VIEW_ID: u32 = 1;
+const REMOTE_VIEW_W: u32 = 320;
+const REMOTE_VIEW_H: u32 = 180;
 
 /// The quietest level the meter shows, in dBFS. Speech into a laptop mic
 /// sits around −30…−15 dBFS; −60 is the room's noise floor. A linear RMS
@@ -101,7 +117,7 @@ fn device_col(title: &str, devices: &[String]) -> Dom {
 }
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (link, mic, cam, screen, mic_level, mics, speakers) = match data.downcast_ref::<MeetState>() {
+    let (link, mic, cam, screen, mic_level, mics, speakers, remote) = match data.downcast_ref::<MeetState>() {
         Some(s) => (
             s.link.clone(),
             s.mic_on,
@@ -110,6 +126,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             s.mic_level,
             s.mics.clone(),
             s.speakers.clone(),
+            (s.remote_frames, s.remote_bytes),
         ),
         None => return Dom::create_body(),
     };
@@ -118,6 +135,16 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let self_tile = if cam {
         Dom::create_div().with_css(TILE).with_child(
             CameraWidget::create(CameraConfig::default())
+                // "Client Bob wants 320x180": a second consumer of the same
+                // capture, cut per frame off the main thread.
+                .with_consumer(FrameConsumer::new(REMOTE_VIEW_ID, REMOTE_VIEW_W, REMOTE_VIEW_H))
+                .with_on_consumer_frame(
+                    data.clone(),
+                    OnConsumerFrameCallback {
+                        cb: camera_frame_for_remote,
+                        callable: OptionRefAny::None,
+                    },
+                )
                 .dom()
                 .with_css("width: 100%; height: 100%;"),
         )
@@ -186,7 +213,17 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
              background: #0e0e14; border-top: 1px solid #222;",
         )
         .with_child(device_col("Microphones", &mics))
-        .with_child(device_col("Speakers", &speakers));
+        .with_child(device_col("Speakers", &speakers))
+        .with_child(device_col(
+            "Outgoing video",
+            &[format!(
+                "{}x{} · {} frames · {:.1} MB (camera on)",
+                REMOTE_VIEW_W,
+                REMOTE_VIEW_H,
+                remote.0,
+                remote.1 as f64 / 1_048_576.0
+            )],
+        ));
 
     let mut body = Dom::create_body().with_css(
         "display: flex; flex-direction: column; height: 100%; margin: 0; \
@@ -277,6 +314,21 @@ extern "C" fn meter_unmounted(mut data: RefAny, _info: CallbackInfo) -> Update {
 /// (container → bar + remaining). The container is also what carries the
 /// accessibility value, so a screen reader hears the level a sighted user
 /// sees, updated at the same moment.
+/// The remote participants' cut of every camera frame (320x180, RGBA8). A
+/// meeting encodes and sends it here; the demo only accounts for it - the
+/// settings strip shows the tally on its next rebuild (no per-frame DOM
+/// churn: `DoNothing`).
+extern "C" fn camera_frame_for_remote(mut data: RefAny, _info: CallbackInfo, frame: ConsumerFrame) -> Update {
+    if frame.consumer.id != REMOTE_VIEW_ID {
+        return Update::DoNothing;
+    }
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.remote_frames += 1;
+        s.remote_bytes += frame.frame.bytes.as_ref().len() as u64;
+    }
+    Update::DoNothing
+}
+
 extern "C" fn mic_on_frame(mut data: RefAny, mut info: CallbackInfo, frame: AudioFrame) -> Update {
     let level = mic_level_percent(frame.samples.as_ref()).round();
     let bar = {
@@ -369,6 +421,8 @@ pub fn start() {
         screen_on: false,
         mics,
         speakers,
+        remote_frames: 0,
+        remote_bytes: 0,
     });
     let config = AppConfig::create();
     let app = App::create(data, config);

@@ -5788,6 +5788,112 @@ mod tests {
         assert_eq!(log.last_width.load(Ordering::SeqCst), 400);
     }
 
+    // --- A capture tile tells its worker its DEVICE size ---------------------
+    //
+    // REPORTED (AzMeet CPU, 2026-08-22): the camera captured at the device's
+    // 1080p default for a 300x200 tile, and nothing ever told the worker the
+    // tile's size. The class: a capture widget's size must come from LAYOUT
+    // (device pixels: the laid-out size times the hidpi factor), at mount and
+    // on every resize, so the worker captures at the covering size and cuts
+    // the preview to exactly the tile. This drives a CameraWidget (no backend
+    // in the test binary -> the test pattern, through the same loop) through
+    // mount + a resize + a DPI change and reads the size the widget recorded
+    // for its worker.
+
+    extern "C" fn camera_tile_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::camera::CameraWidget;
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: row; width: 100%; height: 100%;")
+            .with_child(
+                CameraWidget::create(azul_core::camera::CameraConfig::default())
+                    .dom()
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("cam".into())].into(),
+                    )
+                    .with_css("width: 50%; height: 90px; flex-grow: 0; flex-shrink: 0;"),
+            )
+    }
+
+    /// The `(preview, has_thread)` the camera widget's state holds.
+    fn camera_state_of(window: &HeadlessWindow) -> (Option<(u32, u32)>, bool) {
+        use azul_core::dom::DomId;
+        use azul_layout::widgets::camera::CameraWidgetState;
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            panic!("layout window");
+        };
+        let Some(dom) = lw.layout_results.get(&DomId { inner: 0 }) else {
+            panic!("root dom");
+        };
+        for data in dom.styled_dom.node_data.as_container().internal.iter() {
+            let Some(ds) = data.get_dataset().as_ref() else {
+                continue;
+            };
+            let mut ds = ds.clone();
+            if let Some(s) = ds.downcast_ref::<CameraWidgetState>() {
+                return (s.preview, s.thread_id.is_some());
+            }
+        }
+        panic!("no CameraWidgetState in the DOM");
+    }
+
+    #[test]
+    fn a_capture_tile_reports_its_device_size_to_its_worker() {
+        use crate::desktop::shell2::common::event::{IncrementalRelayout, PlatformWindow};
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, camera_tile_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let tile = rects_by_class(&window, "cam");
+        assert_eq!(tile.len(), 1, "{tile:?}");
+        assert!((tile[0].size.width - 200.0).abs() < 1.0, "50% of 400: {tile:?}");
+
+        let (preview, has_thread) = camera_state_of(&window);
+        assert!(has_thread, "AfterMount starts the capture worker");
+        assert_eq!(
+            preview,
+            Some((200, 90)),
+            "AT MOUNT the widget already knows its laid-out size (AfterMount has the \
+             hit node), so the camera is opened at the tile's size, not a 1080p default"
+        );
+
+        // Widen the window through the resize fast path: the tile grows to
+        // 300 px and NodeResized must hand the worker the new size.
+        window.snapshot_window_state_baseline("headless.test.capture_tile_size");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 600.0;
+            });
+        let mut debug_messages = None;
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize fast path");
+        assert_eq!(camera_state_of(&window).0, Some((300, 90)), "NodeResized re-targets the worker");
+
+        // A Retina display: the same 300x90 LOGICAL tile is 600x180 DEVICE
+        // pixels — the size the preview must be cut at (logical px undersized
+        // a Retina preview by 2x before).
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dpi = 192;
+            });
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        window.regenerate_layout().expect("full regeneration at 2x");
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize at 2x");
+        assert_eq!(
+            camera_state_of(&window).0,
+            Some((600, 180)),
+            "the worker is told DEVICE pixels: logical 300x90 at 2x is 600x180"
+        );
+    }
+
     // --- An empty, focused editable shows a caret --------------------------
     //
     // REPORTED (AzWidgets, 2026-08-21): "TextInput not working" — clicking

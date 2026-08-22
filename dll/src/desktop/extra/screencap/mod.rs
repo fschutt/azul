@@ -31,6 +31,7 @@ pub fn ensure_screen_backend() {
                     open: linux::open,
                     read: linux::read,
                     close: linux::close,
+                    reconfigure: None,
                 },
             );
         });
@@ -47,6 +48,7 @@ pub fn ensure_screen_backend() {
                     open: macos::open,
                     read: macos::read,
                     close: macos::close,
+                    reconfigure: Some(macos::reconfigure),
                 },
             );
         });

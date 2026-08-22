@@ -843,6 +843,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // One rect per NodeResized subscriber (a handful of widgets), not
         // the document.
         resize_watch: _,
+        resize_watch_dpi: _,
         #[cfg(feature = "icu")]
         icu_localizer: _,
     } = w;
@@ -1272,6 +1273,9 @@ pub struct LayoutWindow {
     /// with the managers on a rebuild, so a subscriber that keeps its identity
     /// across a DOM regeneration keeps its baseline too.
     pub resize_watch: BTreeMap<(DomId, NodeId), LogicalRect>,
+    /// The hidpi factor the last `resize_watch` was taken at: a change fires
+    /// `NodeResized` for every watched node (physical size changed).
+    pub resize_watch_dpi: f32,
     /// Resolved `BeforeUnmount` invocations queued for dispatch.
     ///
     /// Unmount events target OLD `NodeIds` that disappear once the new layout
@@ -1660,6 +1664,7 @@ impl LayoutWindow {
             pending_virtual_view_updates: BTreeMap::new(),
             pending_lifecycle_events: Vec::new(),
             resize_watch: BTreeMap::new(),
+            resize_watch_dpi: 1.0,
             pending_unmount_invocations: Vec::new(),
             system_style: None,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
@@ -1890,7 +1895,8 @@ impl LayoutWindow {
         // window-resize fast path — so this is the one place `NodeResized`
         // can be derived from what the solve actually produced.
         if result.is_ok() {
-            self.queue_resize_events_after_layout(system_callbacks);
+            let dpi = window_state.size.get_hidpi_factor().inner.get();
+            self.queue_resize_events_after_layout(system_callbacks, dpi);
         }
 
         // Developer warning pass: raw text nodes used without a containing
@@ -14229,8 +14235,17 @@ impl LayoutWindow {
     pub fn queue_resize_events_after_layout(
         &mut self,
         system_callbacks: &ExternalSystemCallbacks,
+        hidpi_factor: f32,
     ) {
         use azul_core::dom::{ComponentEventFilter, EventFilter};
+
+        // A DPI change (the window moved to a Retina display, the user
+        // changed scaling) keeps every LOGICAL box and changes every PHYSICAL
+        // one — a subscriber sizing a texture / a capture / a canvas in device
+        // pixels must hear about it. Compare against a rect no node can have,
+        // so every watched node fires exactly once.
+        let dpi_changed = (self.resize_watch_dpi - hidpi_factor).abs() > f32::EPSILON;
+        self.resize_watch_dpi = hidpi_factor;
 
         let mut current: BTreeMap<(DomId, NodeId), LogicalRect> = BTreeMap::new();
         for (dom_id, lr) in &self.layout_results {
@@ -14271,8 +14286,16 @@ impl LayoutWindow {
             let now = (system_callbacks.get_system_time_fn.cb)();
             for ((dom_id, node_id), new_rect) in &current {
                 if let Some(old_rect) = self.resize_watch.get(&(*dom_id, *node_id)) {
+                    let old_rect = if dpi_changed {
+                        LogicalRect::new(
+                            old_rect.origin,
+                            LogicalSize::new(-1.0, -1.0),
+                        )
+                    } else {
+                        *old_rect
+                    };
                     if let Some(ev) = azul_core::events::resize_event_for_bounds(
-                        *dom_id, *node_id, *old_rect, *new_rect, &now,
+                        *dom_id, *node_id, old_rect, *new_rect, &now,
                     ) {
                         self.pending_lifecycle_events.push(ev);
                     }

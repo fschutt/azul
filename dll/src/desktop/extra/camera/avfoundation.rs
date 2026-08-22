@@ -19,8 +19,11 @@ use objc2_av_foundation::{
     AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaType,
     AVMediaTypeVideo,
     AVCaptureSessionPreset1280x720, AVCaptureSessionPreset640x480, AVCaptureSessionPreset960x540,
+    AVCaptureSessionPresetHigh,
 };
-use objc2_core_media::CMSampleBuffer;
+use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeFlags};
+
+use azul_layout::widgets::capture_common::{CaptureRead, CaptureRequest};
 use objc2_core_video::{
     kCVPixelBufferPixelFormatTypeKey, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
     CVPixelBufferGetHeight, CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress,
@@ -87,9 +90,65 @@ impl FrameDelegate {
 /// Live capture state behind the seam's `u64` handle (worker-thread-local).
 struct AvfCam {
     session: Retained<AVCaptureSession>,
+    /// Kept for `reconfigure` (frame rate lives on the device).
+    device: Retained<AVCaptureDevice>,
     _delegate: Retained<FrameDelegate>,
     slot: Arc<CaptureSlot>,
     last_seq: u64,
+}
+
+/// The smallest session preset that covers `width` x `height`: the presets
+/// are extern NSString statics present since 10.7. `None` for a zero size
+/// (leave the session's default). Larger than 720p -> `High` (the device's
+/// best).
+fn preset_for(width: u32, height: u32) -> Option<&'static NSString> {
+    if width == 0 || height == 0 {
+        None
+    } else if width <= 640 && height <= 480 {
+        Some(AVCaptureSessionPreset640x480)
+    } else if width <= 960 && height <= 540 {
+        Some(AVCaptureSessionPreset960x540)
+    } else if width <= 1280 && height <= 720 {
+        Some(AVCaptureSessionPreset1280x720)
+    } else {
+        Some(AVCaptureSessionPresetHigh)
+    }
+}
+
+/// Apply `fps` to the device (0 = leave its default). The active format's
+/// supported ranges are checked FIRST: `setActiveVideoMinFrameDuration`
+/// throws `NSInvalidArgumentException` for an unsupported value, which would
+/// abort the process. Call with the session running, because a preset
+/// change may swap the active format and reset the durations.
+unsafe fn apply_fps(device: &AVCaptureDevice, fps: u32) {
+    if fps == 0 {
+        return;
+    }
+    let wanted = f64::from(fps);
+    let format = device.activeFormat();
+    let ranges = format.videoSupportedFrameRateRanges();
+    let supported = ranges
+        .iter()
+        .any(|r| r.minFrameRate() - 0.01 <= wanted && wanted <= r.maxFrameRate() + 0.01);
+    if !supported {
+        crate::plog_info!(
+            "[camera] avfoundation: {} fps is outside the active format's ranges — keeping the default rate",
+            fps
+        );
+        return;
+    }
+    if device.lockForConfiguration().is_err() {
+        return;
+    }
+    let duration = CMTime {
+        value: 1,
+        timescale: fps as i32,
+        flags: CMTimeFlags::Valid,
+        epoch: 0,
+    };
+    device.setActiveVideoMinFrameDuration(duration);
+    device.setActiveVideoMaxFrameDuration(duration);
+    device.unlockForConfiguration();
 }
 
 /// Read a possibly-NULL `AVCaptureDeviceType` extern static. Device-type
@@ -184,9 +243,12 @@ unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCa
     AVCaptureDevice::defaultDeviceWithMediaType(media)
 }
 
-/// Open the video device at `index`, request BGRA frames, start the session.
-/// Returns a boxed handle, or `0` on failure (worker uses the test pattern).
-pub fn open(index: u32, width: u32, height: u32) -> u64 {
+/// Open the video device at `request.index`, request BGRA frames at the
+/// smallest preset covering the requested size and the requested fps, start
+/// the session. Returns a boxed handle, or `0` on failure (worker uses the
+/// test pattern).
+pub fn open(request: &CaptureRequest) -> u64 {
+    let (index, width, height) = (request.index, request.width, request.height);
     // TCC gate first: without authorization the session runs but vends only
     // black frames. Blocking (≤60 s prompt wait) is fine on this worker thread.
     if !super::avf_auth::ensure_camera_access() {
@@ -213,17 +275,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         // covers the request wins; the presets are extern NSString statics
         // present since 10.7, and `canSetSessionPreset` guards a device
         // that cannot do one.
-        let preset: Option<&NSString> = if width == 0 || height == 0 {
-            None
-        } else if width <= 640 && height <= 480 {
-            Some(AVCaptureSessionPreset640x480)
-        } else if width <= 960 && height <= 540 {
-            Some(AVCaptureSessionPreset960x540)
-        } else if width <= 1280 && height <= 720 {
-            Some(AVCaptureSessionPreset1280x720)
-        } else {
-            None
-        };
+        let preset: Option<&NSString> = preset_for(width, height);
         if !session.canAddInput(&input) {
             return 0;
         }
@@ -255,9 +307,12 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         }
         session.addOutput(&output);
         session.startRunning();
+        // After startRunning: the preset has settled the active format.
+        apply_fps(&device, request.fps);
 
         let cam = AvfCam {
             session,
+            device,
             _delegate: delegate,
             slot,
             last_seq: 0,
@@ -274,16 +329,50 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
 }
 
 /// Drain the newest frame into `out` (RGBA8). Waits (on the slot's condvar,
-/// bounded at ~1 s) for a frame newer than the last one returned. Returns
-/// `(width, height)`, or `(0, 0)` on error / timeout.
-pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
+/// bounded at ~1 s) for a frame newer than the last one returned. A timeout
+/// is `Idle` — a stalled camera (sleep/wake, a Continuity camera
+/// reconnecting) used to be reported as end-of-stream, which killed the
+/// worker and froze the tile for good.
+pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
     let cam = match unsafe { (handle as *mut AvfCam).as_mut() } {
         Some(c) => c,
-        None => return (0, 0),
+        None => return CaptureRead::Ended,
     };
-    cam.slot
+    match cam
+        .slot
         .read_newer(&mut cam.last_seq, out, std::time::Duration::from_millis(1000))
-        .unwrap_or((0, 0))
+    {
+        Some((width, height)) => CaptureRead::Frame { width, height },
+        None => CaptureRead::Idle,
+    }
+}
+
+/// Switch a RUNNING session to the preset covering the new size + the new
+/// fps, without tearing the capture down (`beginConfiguration` /
+/// `commitConfiguration` is the documented live path). `false` only for a
+/// dead handle, in which case the worker reopens.
+pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
+    let cam = match unsafe { (handle as *mut AvfCam).as_mut() } {
+        Some(c) => c,
+        None => return false,
+    };
+    unsafe {
+        if let Some(preset) = preset_for(request.width, request.height) {
+            cam.session.beginConfiguration();
+            if cam.session.canSetSessionPreset(preset) {
+                cam.session.setSessionPreset(preset);
+            }
+            cam.session.commitConfiguration();
+        }
+        apply_fps(&cam.device, request.fps);
+    }
+    crate::plog_info!(
+        "[camera] avfoundation: reconfigured to {}x{} @ {} fps (live preset switch)",
+        request.width,
+        request.height,
+        request.fps
+    );
+    true
 }
 
 /// Stop the session + free the capture (drops the boxed `AvfCam`).

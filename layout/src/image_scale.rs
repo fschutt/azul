@@ -27,6 +27,7 @@
 use alloc::vec::Vec;
 
 use azul_core::resources::RawImageFormat;
+use azul_core::video::{ConsumerFrame, FrameConsumer, VideoFrame};
 
 /// The most taps taken along ONE axis of a destination pixel's footprint.
 /// Caps area-averaging cost at `MAX_TAPS²` reads per output pixel regardless
@@ -201,12 +202,120 @@ pub fn resample_rgba(src: &SrcImage<'_>, dst_w: u32, dst_h: u32) -> Vec<u8> {
     out
 }
 
+/// A whole-frame scaler: `(source, dst_w, dst_h) -> tightly-packed RGBA8`
+/// (`dst_w * dst_h * 4` bytes, or empty on failure). [`resample_rgba`] is
+/// the portable one; the dll may register a platform-accelerated one
+/// (Accelerate/vImage on macOS) with the same signature — see
+/// `widgets::capture_common::register_frame_resampler`. Every implementation
+/// must be a pure function of its inputs so the fan-out can run per consumer
+/// on any thread.
+pub type ResampleFn = fn(&SrcImage<'_>, u32, u32) -> Vec<u8>;
+
+/// The smallest capture size that covers every requested size: the per-axis
+/// maximum. Zero-sized entries are ignored; `None` when nothing is left.
+///
+/// "Client Bob wants 500x200, the local preview is 100x200" -> capture at
+/// 500x200: every consumer is then a DOWNscale of the captured frame (never
+/// an upscale, which would only invent pixels) and the device is never asked
+/// for more than the largest consumer can use.
+#[must_use]
+pub fn covering_size<I: IntoIterator<Item = (u32, u32)>>(sizes: I) -> Option<(u32, u32)> {
+    sizes
+        .into_iter()
+        .filter(|&(w, h)| w > 0 && h > 0)
+        .reduce(|(aw, ah), (w, h)| (aw.max(w), ah.max(h)))
+}
+
+/// Cut `src` to `width x height` RGBA8 with `resample`. A same-size RGBA8
+/// source is copied, not resampled (the common "the camera already captures
+/// at the largest consumer's size" case costs one memcpy).
+#[must_use]
+pub fn cut(src: &SrcImage<'_>, width: u32, height: u32, resample: ResampleFn) -> Vec<u8> {
+    if width == 0 || height == 0 || !src.is_sampleable() {
+        return Vec::new();
+    }
+    if src.width == width && src.height == height && src.format == RawImageFormat::RGBA8 {
+        return src.bytes.to_vec();
+    }
+    resample(src, width, height)
+}
+
+/// Cut ONE captured frame to every consumer's requested size.
+///
+/// Each element is independent of the others (a pure function of `src` and
+/// its own consumer), so this serial loop can become a parallel map without
+/// touching the callers. Invalid consumers (zero size, the reserved preview
+/// id) and failed cuts are skipped, so the result may be shorter than the
+/// input; match results to requests by `ConsumerFrame::consumer.id`.
+#[must_use]
+pub fn fan_out(
+    src: &SrcImage<'_>,
+    consumers: &[FrameConsumer],
+    resample: ResampleFn,
+) -> Vec<ConsumerFrame> {
+    consumers
+        .iter()
+        .filter(|c| c.is_valid())
+        .filter_map(|c| {
+            let rgba = cut(src, c.width, c.height, resample);
+            (!rgba.is_empty())
+                .then(|| ConsumerFrame::new(*c, VideoFrame::new(c.width, c.height, rgba.into())))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn rgba(bytes: &[u8], w: u32, h: u32) -> SrcImage<'_> {
         SrcImage { bytes, format: RawImageFormat::RGBA8, width: w, height: h }
+    }
+
+    // --- consumers ---------------------------------------------------------
+
+    #[test]
+    fn the_covering_size_is_the_per_axis_max_ignoring_zero_entries() {
+        // Bob 500x200 + a 100x200 preview -> 500x200 captured, once.
+        assert_eq!(covering_size([(500, 200), (100, 200)]), Some((500, 200)));
+        // A tall and a wide consumer cover each other's axis.
+        assert_eq!(covering_size([(100, 900), (800, 50)]), Some((800, 900)));
+        assert_eq!(covering_size([(0, 0), (0, 480)]), None, "zero sizes are not requests");
+        assert_eq!(covering_size([]), None);
+    }
+
+    #[test]
+    fn fan_out_cuts_one_frame_to_every_valid_consumer() {
+        // a 4x2 solid-green frame
+        let bytes = [0u8, 200, 0, 255].repeat(8);
+        let src = rgba(&bytes, 4, 2);
+        let consumers = [
+            FrameConsumer::new(7, 2, 1),   // Bob, a downscale
+            FrameConsumer::new(8, 4, 2),   // the recorder at the captured size -> copy
+            FrameConsumer::new(0, 4, 2),   // the preview id is NOT a fan-out consumer
+            FrameConsumer::new(9, 0, 10),  // a zero size is skipped
+        ];
+        let cuts = fan_out(&src, &consumers, resample_rgba);
+        let ids: Vec<u32> = cuts.iter().map(|c| c.consumer.id).collect();
+        assert_eq!(ids, vec![7, 8], "only the valid consumers get a frame: {ids:?}");
+        assert_eq!(cuts[0].frame.width, 2);
+        assert_eq!(cuts[0].frame.height, 1);
+        assert_eq!(cuts[0].frame.bytes.as_ref(), &[0, 200, 0, 255, 0, 200, 0, 255]);
+        assert_eq!(
+            cuts[1].frame.bytes.as_ref(),
+            &bytes[..],
+            "a same-size RGBA8 consumer is a copy of the captured frame"
+        );
+    }
+
+    #[test]
+    fn a_cut_never_upscales_past_what_was_asked_and_rejects_bad_input() {
+        let bytes = [9u8; 4 * 1 * 1];
+        let src = rgba(&bytes, 1, 1);
+        assert_eq!(cut(&src, 3, 2, resample_rgba).len(), 3 * 2 * 4);
+        assert!(cut(&src, 0, 2, resample_rgba).is_empty());
+        let truncated = SrcImage { bytes: &bytes[..2], ..src };
+        assert!(cut(&truncated, 1, 1, resample_rgba).is_empty(), "an unsampleable source cuts nothing");
     }
 
     #[test]

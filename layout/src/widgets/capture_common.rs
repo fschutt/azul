@@ -12,6 +12,9 @@
 //! NOTE: GL code - compile-verified here; the actual texture rendering must be
 //! verified on a machine with a window + GPU.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use azul_core::resources::UpdateImageType;
 use azul_core::callbacks::Update;
 use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
@@ -19,11 +22,16 @@ use azul_core::gl::{GlContextPtr, OptionU8VecRef, U8VecRef};
 use azul_core::geom::PhysicalSizeU32;
 use azul_core::refany::RefAny;
 use azul_core::resources::ImageRef;
-use azul_core::video::VideoFrame;
+use azul_core::task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg};
+use azul_core::video::{ConsumerFrame, FrameConsumer, VideoFrame};
 use azul_css::impl_option_inner; // brought into scope for impl_widget_callback!'s impl_option!
 use azul_css::props::basic::ColorU;
 
 use crate::callbacks::CallbackInfo;
+use crate::image_scale::{self, ResampleFn, SrcImage};
+use crate::thread::{
+    ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback, WriteBackCallbackType,
+};
 
 /// User hook fired once per captured/decoded frame - the backreference
 /// dependency-injection pattern (see `architecture.md`).
@@ -54,6 +62,46 @@ azul_core::impl_managed_callback! {
     setter_fn:      AzApp_setOnVideoFrameCallbackInvoker,
     from_handle_fn: AzOnVideoFrameCallback_createFromHostHandle,
     extra_args:     [ frame: VideoFrame ],
+}
+
+/// User hook fired once per CONSUMER per captured frame with that consumer's
+/// cut ([`ConsumerFrame`]: the [`FrameConsumer`] it was cut for + the frame
+/// at its size). Register consumers with `CameraWidget::with_consumer` /
+/// `ScreenCaptureWidget::with_consumer`; route on `frame.consumer.id`
+/// ("client Bob" gets his 500x200, the recorder its 1280x720, from ONE
+/// capture). Returns `Update` like any callback.
+pub type OnConsumerFrameCallbackType = extern "C" fn(RefAny, CallbackInfo, ConsumerFrame) -> Update;
+impl_widget_callback!(
+    OnConsumerFrame,
+    OptionOnConsumerFrame,
+    OnConsumerFrameCallback,
+    OnConsumerFrameCallbackType
+);
+
+azul_core::impl_managed_callback! {
+    wrapper:        OnConsumerFrameCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: ON_CONSUMER_FRAME_INVOKER,
+    invoker_ty:     AzOnConsumerFrameCallbackInvoker,
+    thunk_fn:       az_on_consumer_frame_callback_thunk,
+    setter_fn:      AzApp_setOnConsumerFrameCallbackInvoker,
+    from_handle_fn: AzOnConsumerFrameCallback_createFromHostHandle,
+    extra_args:     [ frame: ConsumerFrame ],
+}
+
+/// Invoke a capture widget's optional `on_consumer_frame` hook with one
+/// consumer's cut, returning the user's `Update` (`DoNothing` when unset).
+pub fn invoke_on_consumer_frame(
+    hook: &OptionOnConsumerFrame,
+    info: &mut CallbackInfo,
+    frame: ConsumerFrame,
+) -> Update {
+    match hook {
+        OptionOnConsumerFrame::Some(h) => (h.callback.cb)(h.refany.clone(), *info, frame),
+        OptionOnConsumerFrame::None => Update::DoNothing,
+    }
 }
 
 /// Invoke a capture widget's optional `on_frame` hook with `frame`, returning
@@ -148,6 +196,92 @@ pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
     );
 }
 
+/// What a capture backend is asked to open: the source, the size the frames
+/// should have, the frame rate, and (screens) whether to leave the app's own
+/// windows out of the picture.
+///
+/// `width` x `height` is the size the WIDGET needs — the covering size of
+/// every consumer ([`required_capture_size`]) — not a constant. A backend
+/// delivers the smallest size it can that covers the request (the camera's
+/// next session preset up, the screen stream scaled down by the OS) and
+/// reports the actual size with every frame; it never delivers less than it
+/// can and is never asked for more than someone will look at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CaptureRequest {
+    /// Camera device index / display index (0 = default).
+    pub index: u32,
+    /// A specific window to capture by platform id (`0` = the whole source).
+    /// Screens only; cameras ignore it.
+    pub window: u64,
+    /// Wanted frame width in px (`0` = the backend's default).
+    pub width: u32,
+    /// Wanted frame height in px (`0` = the backend's default).
+    pub height: u32,
+    /// Wanted frame rate (`0` = the backend's default, 30 on every backend
+    /// that has one). A 300x200 tile does not need 30 fps.
+    pub fps: u32,
+    /// Screens: exclude this process's own windows from the capture. Without
+    /// it a shared desktop that shows the sharing app loops: every tile
+    /// repaint is a screen change, which emits a frame, which repaints the
+    /// tile, ... — a steady 30 fps on an idle desktop.
+    pub exclude_self: bool,
+}
+
+impl CaptureRequest {
+    /// `index` at `width` x `height`, everything else default.
+    #[must_use]
+    pub const fn new(index: u32, width: u32, height: u32) -> Self {
+        Self {
+            index,
+            window: 0,
+            width,
+            height,
+            fps: 0,
+            exclude_self: true,
+        }
+    }
+
+    /// The same request at another size.
+    #[must_use]
+    pub const fn with_size(self, width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            ..self
+        }
+    }
+
+    /// `fps`, or the backend default when the request says 0.
+    #[must_use]
+    pub const fn fps_or(&self, default: u32) -> u32 {
+        if self.fps > 0 {
+            self.fps
+        } else {
+            default
+        }
+    }
+}
+
+/// What one blocking read of a capture source produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureRead {
+    /// A new frame: tightly-packed RGBA8 of this size is in `out`.
+    Frame {
+        /// Delivered width in px.
+        width: u32,
+        /// Delivered height in px.
+        height: u32,
+    },
+    /// Nothing new within the backend's wait: an idle screen, a camera that
+    /// stalled (sleep/wake, a Continuity camera reconnecting). NOT the end of
+    /// the stream — the worker keeps polling, and presents nothing, so an
+    /// unchanged picture costs no repaint.
+    Idle,
+    /// The source is gone (device unplugged, stream stopped, error): the
+    /// worker closes and exits.
+    Ended,
+}
+
 /// A platform frame-capture backend (camera / screen), registered by the dll at
 /// startup so the cross-platform capture widgets can pull **real** frames
 /// instead of their built-in test pattern.
@@ -159,20 +293,45 @@ pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
 /// call, no `extern "C"`/trait-object dance.
 #[derive(Debug, Clone, Copy)]
 pub struct CaptureVTable {
-    /// Open source `index` (camera device / display index) at the requested
-    /// `width` x `height`. Returns an opaque handle, or `0` on failure (the
-    /// worker then falls back to the test pattern).
-    pub open: fn(index: u32, width: u32, height: u32) -> u64,
-    /// Block for the next frame, writing tightly-packed RGBA8 into `out`
-    /// (resized as needed). Returns the actual frame `(width, height)`, or
-    /// `(0, 0)` on end-of-stream / error (the worker then stops + closes).
-    pub read: fn(handle: u64, out: &mut Vec<u8>) -> (u32, u32),
+    /// Open the source described by the request. Returns an opaque handle,
+    /// or `0` on failure (the worker then falls back to the test pattern).
+    pub open: fn(request: &CaptureRequest) -> u64,
+    /// Block (bounded, ~1 s) for the next frame, writing tightly-packed RGBA8
+    /// into `out` (resized as needed). See [`CaptureRead`] for the three
+    /// outcomes — a timeout is `Idle`, never `Ended`.
+    pub read: fn(handle: u64, out: &mut Vec<u8>) -> CaptureRead,
     /// Close + free the source.
     pub close: fn(handle: u64),
+    /// Change the delivered size / fps of a RUNNING source without a
+    /// close + open (macOS: a live session-preset switch, an SCStream
+    /// `updateConfiguration`). `None`, or a `false` return, makes the worker
+    /// reopen instead — the universal fallback, so a backend without it is
+    /// merely slower to follow a resize, never wrong.
+    pub reconfigure: Option<fn(handle: u64, request: &CaptureRequest) -> bool>,
 }
 
 static CAMERA_BACKEND: std::sync::OnceLock<CaptureVTable> = std::sync::OnceLock::new();
 static SCREEN_BACKEND: std::sync::OnceLock<CaptureVTable> = std::sync::OnceLock::new();
+static FRAME_RESAMPLER: std::sync::OnceLock<ResampleFn> = std::sync::OnceLock::new();
+
+/// Register a platform-accelerated whole-frame scaler (the dll registers
+/// Accelerate/vImage on macOS). It must be a pure function with
+/// [`image_scale::resample_rgba`]'s contract — same inputs, same output
+/// within rounding — because the fan-out may run it per consumer on any
+/// thread. First registration wins; without one the portable scaler is used.
+pub fn register_frame_resampler(resample: ResampleFn) {
+    let _ = FRAME_RESAMPLER.set(resample);
+}
+
+/// The whole-frame scaler the capture fan-out uses: the registered
+/// platform one, else [`image_scale::resample_rgba`].
+#[must_use]
+pub fn frame_resampler() -> ResampleFn {
+    FRAME_RESAMPLER
+        .get()
+        .copied()
+        .unwrap_or(image_scale::resample_rgba)
+}
 
 /// Register the platform **camera** capture backend (called once by the dll at
 /// startup; the first registration wins). Without it, `CameraWidget` shows its
@@ -251,14 +410,476 @@ pub fn mic_backend() -> Option<AudioCaptureVTable> {
 /// commands, and leaving them queued would hide a `TerminateThread` sent behind
 /// them.
 #[must_use]
-pub fn terminate_requested(recv: &mut azul_core::task::ThreadReceiver) -> bool {
-    use azul_core::task::{OptionThreadSendMsg, ThreadSendMsg};
+pub fn terminate_requested(recv: &mut ThreadReceiver) -> bool {
     loop {
         match recv.recv() {
             OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) => return true,
             OptionThreadSendMsg::Some(_) => {}
             OptionThreadSendMsg::None => return false,
         }
+    }
+}
+
+// ============================================================================
+// The shared capture loop: one capture, many consumers
+// ============================================================================
+
+/// Who wants frames of which size — the main thread's view, sent to the
+/// worker as `ThreadSendMsg::Custom(RefAny::new(CaptureTargets))` whenever it
+/// changes (the node was laid out / resized, the app registered a consumer).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CaptureTargets {
+    /// The on-screen tile's size in DEVICE pixels (logical size x hidpi), once
+    /// layout has produced one. `None` before the first layout: the captured
+    /// frame is shown as-is.
+    pub preview: Option<(u32, u32)>,
+    /// Every registered consumer (see [`FrameConsumer`]).
+    pub consumers: Vec<FrameConsumer>,
+    /// The widget has an `on_frame` hook, which receives the frame AS
+    /// CAPTURED — so the capture may not shrink below the configured size
+    /// and the source frame must travel to the main thread.
+    pub wants_source: bool,
+}
+
+/// Drain the main->worker channel into `targets`; `true` if the worker was
+/// asked to stop. The generalisation of [`terminate_requested`] for the
+/// video workers: a `Custom` message carrying [`CaptureTargets`] replaces the
+/// current targets (the LAST one wins, so a burst of resizes costs one
+/// reconfigure), a terminate is reported, anything else is ignored.
+#[must_use]
+pub fn poll_capture_control(recv: &mut ThreadReceiver, targets: &mut CaptureTargets) -> bool {
+    loop {
+        match recv.recv() {
+            OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) => return true,
+            OptionThreadSendMsg::Some(ThreadSendMsg::Custom(mut payload)) => {
+                if let Some(t) = payload.downcast_ref::<CaptureTargets>() {
+                    *targets = t.clone();
+                }
+            }
+            OptionThreadSendMsg::Some(ThreadSendMsg::Tick) => {}
+            OptionThreadSendMsg::None => return false,
+        }
+    }
+}
+
+/// The size the device should capture at: the covering size of everything
+/// that wants frames.
+///
+/// * `floor` — the configured size when the app set one explicitly, or the
+///   widget's default when an `on_frame` hook wants the source frame (the
+///   hook sees what the config promised, so the capture never shrinks below
+///   it);
+/// * the preview tile (device px) and every consumer;
+/// * `fallback` when none of the above is known yet (before the first
+///   layout, no hook, no consumers).
+///
+/// "Client Bob wants 500x200, the preview is 100x200, no hook" -> 500x200.
+/// "Only a 300x200 preview" -> 300x200: the camera is told to capture a
+/// small frame instead of 1080p that is then thrown away.
+#[must_use]
+pub fn required_capture_size(
+    floor: Option<(u32, u32)>,
+    targets: &CaptureTargets,
+    fallback: (u32, u32),
+) -> (u32, u32) {
+    let sizes = floor
+        .into_iter()
+        .chain(targets.preview)
+        .chain(targets.consumers.iter().map(|c| (c.width, c.height)));
+    image_scale::covering_size(sizes).unwrap_or(fallback)
+}
+
+/// Should a running source be reconfigured / reopened for `required`?
+///
+/// * `requested` — the size the source was last opened / reconfigured for;
+/// * `delivered` — the size its frames actually have (backends snap up to a
+///   preset, so this is often larger than `requested`);
+/// * `required` — [`required_capture_size`] now.
+///
+/// Reopen when the consumers need MORE than the source delivers (quality), or
+/// when they need so much less than was requested (both axes at most half)
+/// that the device is doing 4x the work anyone looks at (cost). Comparing the
+/// shrink case against `requested` rather than `delivered` is what makes a
+/// 300x200 tile fed by the 640x480 minimum preset NOT reopen forever: the
+/// request is already as small as it can be.
+#[must_use]
+pub const fn needs_reopen(
+    requested: (u32, u32),
+    delivered: (u32, u32),
+    required: (u32, u32),
+) -> bool {
+    let more = (required.0 > delivered.0 || required.1 > delivered.1)
+        && (required.0 > requested.0 || required.1 > requested.1);
+    let much_less = required.0 * 2 <= requested.0 && required.1 * 2 <= requested.1;
+    more || much_less
+}
+
+/// The worker's choice of preview cut: `Some(size)` when the tile's device
+/// size is known AND differs from the captured frame (a same-size preview is
+/// the source frame itself, shown without a copy).
+#[must_use]
+pub fn preview_cut_size(targets: &CaptureTargets, captured: (u32, u32)) -> Option<(u32, u32)> {
+    targets
+        .preview
+        .filter(|&(w, h)| w > 0 && h > 0 && (w, h) != captured)
+}
+
+/// What one captured frame became after the worker's fan-out — the payload
+/// of every capture writeback. Built off the main thread; the writeback
+/// ([`present_captured`]) only hands things out.
+#[derive(Debug)]
+pub struct CapturedFrames {
+    /// The frame as captured: present when the `on_frame` hook wants it, or
+    /// when there is no preview cut (then it IS what goes on screen).
+    pub source: Option<VideoFrame>,
+    /// The on-screen tile's cut (consumer 0), at the tile's device size.
+    pub preview: Option<VideoFrame>,
+    /// Every registered consumer's cut.
+    pub consumers: Vec<ConsumerFrame>,
+    /// Back-pressure latch: set by the worker when it queues this payload,
+    /// cleared by the writeback. While it is set the worker DROPS new frames
+    /// instead of queueing them, so at most one frame is ever in flight — a
+    /// busy main thread sees the newest frame late, never a growing backlog.
+    pub in_flight: Arc<AtomicBool>,
+}
+
+/// The writeback core shared by the camera and screen widgets: release the
+/// back-pressure latch, run the user hooks, put the preview (else the source
+/// frame) on the widget's node. Returns the strongest `Update` a hook asked
+/// for.
+pub fn present_captured(
+    info: &mut CallbackInfo,
+    dataset: RefAny,
+    on_frame: &OptionOnVideoFrame,
+    on_consumer_frame: &OptionOnConsumerFrame,
+    captured: &mut CapturedFrames,
+) -> Update {
+    captured.in_flight.store(false, Ordering::Release);
+    let mut update = Update::DoNothing;
+    if let Some(source) = captured.source.as_ref() {
+        update.max_self(invoke_on_frame(on_frame, info, source));
+    }
+    for cut in core::mem::take(&mut captured.consumers) {
+        update.max_self(invoke_on_consumer_frame(on_consumer_frame, info, cut));
+    }
+    let shown = captured.preview.take().or_else(|| captured.source.take());
+    if let Some(frame) = shown {
+        let _texture_id: Option<u32> =
+            present_frame_pixels(info, dataset, None, frame.bytes, frame.width, frame.height);
+    }
+    update
+}
+
+/// The on-screen tile's size in DEVICE pixels for the callback's hit node:
+/// the laid-out logical size times the window's hidpi factor. `None` before
+/// layout. Logical pixels would undersize a Retina preview by 2x.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+pub fn preview_size_for_node(info: &CallbackInfo) -> Option<(u32, u32)> {
+    let size = info.get_node_size(info.get_hit_node())?;
+    let dpi = info
+        .get_current_window_state()
+        .size
+        .get_hidpi_factor()
+        .inner
+        .get()
+        .max(0.5);
+    let w = (size.width * dpi).round().max(1.0) as u32;
+    let h = (size.height * dpi).round().max(1.0) as u32;
+    Some((w, h))
+}
+
+/// Send `targets` to the capture worker `thread_id`. Best effort: a worker
+/// that already exited has nothing to resize, and a merge that changes the
+/// consumer list resends through the state's cloned sender.
+pub fn send_capture_targets(info: &CallbackInfo, thread_id: ThreadId, targets: CaptureTargets) {
+    if let Some(thread) = info.get_thread(&thread_id) {
+        let _delivered: bool = thread.send_message(ThreadSendMsg::Custom(RefAny::new(targets)));
+    }
+}
+
+/// Everything a widget's worker needs to run [`run_capture_loop`].
+#[derive(Debug, Clone, Copy)]
+pub struct CaptureSession {
+    /// The platform backend, if the dll registered one.
+    pub backend: Option<CaptureVTable>,
+    /// The built-in generator shown when there is no backend or it fails to
+    /// open (so a widget is never blank).
+    pub test_pattern: CaptureVTable,
+    /// Source / fps / exclusion; the size is filled in per reopen.
+    pub request: CaptureRequest,
+    /// See [`required_capture_size`].
+    pub floor: Option<(u32, u32)>,
+    /// See [`required_capture_size`].
+    pub fallback: (u32, u32),
+    /// The widget's writeback (its `extern "C"` wrapper around
+    /// [`present_captured`]).
+    pub writeback: WriteBackCallbackType,
+    /// The scaler for the fan-out ([`frame_resampler`]).
+    pub resample: ResampleFn,
+    /// Minimum time between two reopens ([`REOPEN_COOLDOWN`] for the
+    /// widgets; tests set zero).
+    pub reopen_cooldown: std::time::Duration,
+}
+
+/// How long the worker waits for layout to report a preview size before it
+/// opens the device at the fallback size. Layout runs right after mount, so
+/// this is normally a few ms; it bounds the wait when a tile is never laid
+/// out (display: none).
+const PREVIEW_SIZE_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
+/// Minimum time between two reopens, so a window-edge drag (hundreds of
+/// `NodeResized`s) costs at most one device restart per second.
+pub const REOPEN_COOLDOWN: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// THE capture worker: one loop for the camera and the screen widgets.
+///
+/// 1. Learn the targets (wait briefly for the first preview size so the
+///    device is opened at the size the tile needs, not at a default that is
+///    reopened a frame later).
+/// 2. Open the backend at [`required_capture_size`]; on failure the test
+///    pattern.
+/// 3. Per frame: poll the control channel (new targets / terminate),
+///    reconfigure or reopen when [`needs_reopen`] says so (rate-limited), read
+///    a frame, drop it if the previous one is still in flight, else cut the
+///    preview and every consumer from it OFF the main thread
+///    ([`image_scale::fan_out`]) and queue one [`CapturedFrames`] writeback.
+/// 4. `Ended` / a dead main thread / terminate -> close + return.
+#[allow(clippy::too_many_lines)] // one loop, documented step by step above
+pub fn run_capture_loop(
+    session: CaptureSession,
+    mut targets: CaptureTargets,
+    sender: &mut ThreadSender,
+    recv: &mut ThreadReceiver,
+) {
+    // 1. Wait (briefly) for the preview size if we do not have one.
+    if targets.preview.is_none() {
+        let deadline = std::time::Instant::now() + PREVIEW_SIZE_GRACE;
+        while targets.preview.is_none() && std::time::Instant::now() < deadline {
+            if poll_capture_control(recv, &mut targets) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    // 2. Open.
+    let mut required = required_capture_size(session.floor, &targets, session.fallback);
+    let mut request = session.request.with_size(required.0, required.1);
+    let (mut backend, mut handle) = open_with_fallback(&session, &request);
+    if handle == 0 {
+        return;
+    }
+    let mut requested = required;
+    let mut delivered: Option<(u32, u32)> = None;
+    let mut last_open = std::time::Instant::now();
+    let in_flight = Arc::new(AtomicBool::new(false));
+    let mut buf: Vec<u8> = Vec::new();
+
+    // 3. Frames.
+    loop {
+        if poll_capture_control(recv, &mut targets) {
+            break;
+        }
+        required = required_capture_size(session.floor, &targets, session.fallback);
+        if needs_reopen(requested, delivered.unwrap_or(requested), required)
+            && last_open.elapsed() >= session.reopen_cooldown
+        {
+            request = request.with_size(required.0, required.1);
+            let reconfigured = backend
+                .reconfigure
+                .is_some_and(|reconfigure| reconfigure(handle, &request));
+            if !reconfigured {
+                (backend.close)(handle);
+                let (b, h) = open_with_fallback(&session, &request);
+                if h == 0 {
+                    return;
+                }
+                backend = b;
+                handle = h;
+            }
+            requested = required;
+            delivered = None;
+            last_open = std::time::Instant::now();
+        }
+
+        let (fw, fh) = match (backend.read)(handle, &mut buf) {
+            CaptureRead::Frame { width, height } if width > 0 && height > 0 => (width, height),
+            CaptureRead::Frame { .. } | CaptureRead::Ended => break,
+            CaptureRead::Idle => continue,
+        };
+        delivered = Some((fw, fh));
+        if in_flight.load(Ordering::Acquire) {
+            // The main thread has not presented the previous frame yet: drop
+            // this one (the next read brings a newer one) rather than queue it.
+            continue;
+        }
+        let captured = cut_frame(&targets, &mut buf, fw, fh, session.resample, &in_flight);
+        in_flight.store(true, Ordering::Release);
+        let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
+            WriteBackCallback::new(session.writeback),
+            RefAny::new(captured),
+        )));
+        if !sent {
+            break;
+        }
+    }
+
+    // 4. Done.
+    (backend.close)(handle);
+}
+
+/// Open the platform backend, else the test pattern. `(vtable, handle)`;
+/// handle `0` if even the test pattern refuses (a zero-sized request).
+fn open_with_fallback(session: &CaptureSession, request: &CaptureRequest) -> (CaptureVTable, u64) {
+    if let Some(backend) = session.backend {
+        let handle = (backend.open)(request);
+        if handle != 0 {
+            return (backend, handle);
+        }
+    }
+    let pattern = session.test_pattern;
+    let handle = (pattern.open)(request);
+    (pattern, handle)
+}
+
+/// Cut the preview and every consumer from the captured frame in `buf`
+/// (RGBA8 `fw` x `fh`), moving the pixels out only when the source frame
+/// itself must travel (hook wants it, or no preview cut).
+fn cut_frame(
+    targets: &CaptureTargets,
+    buf: &mut Vec<u8>,
+    fw: u32,
+    fh: u32,
+    resample: ResampleFn,
+    in_flight: &Arc<AtomicBool>,
+) -> CapturedFrames {
+    let src = SrcImage {
+        bytes: buf.as_slice(),
+        format: azul_core::resources::RawImageFormat::RGBA8,
+        width: fw,
+        height: fh,
+    };
+    let preview = preview_cut_size(targets, (fw, fh)).and_then(|(pw, ph)| {
+        let rgba = image_scale::cut(&src, pw, ph, resample);
+        (!rgba.is_empty()).then(|| VideoFrame::new(pw, ph, rgba.into()))
+    });
+    let consumers = image_scale::fan_out(&src, &targets.consumers, resample);
+    let source = (targets.wants_source || preview.is_none())
+        .then(|| VideoFrame::new(fw, fh, core::mem::take(buf).into()));
+    CapturedFrames {
+        source,
+        preview,
+        consumers,
+        in_flight: in_flight.clone(),
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Test patterns: the built-in generators behind the same vtable, so the
+// worker has ONE loop whether or not a platform backend exists.
+// ----------------------------------------------------------------------------
+
+/// Which built-in pattern a capture widget shows without a backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestPattern {
+    /// A solid frame whose colour cycles per frame (the camera widget's).
+    ColourCycle,
+    /// A light band scrolling down a dark frame (the screen widget's).
+    MovingBand,
+}
+
+struct TestPatternState {
+    kind: TestPattern,
+    width: u32,
+    height: u32,
+    tick: u32,
+}
+
+/// Interval between two test-pattern frames (~30 fps).
+const TEST_PATTERN_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
+
+fn test_pattern_open(request: &CaptureRequest, kind: TestPattern) -> u64 {
+    if request.width == 0 || request.height == 0 {
+        return 0;
+    }
+    Box::into_raw(Box::new(TestPatternState {
+        kind,
+        width: request.width,
+        height: request.height,
+        tick: 0,
+    })) as u64
+}
+
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
+fn test_pattern_read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
+    // SAFETY: `handle` is a `Box<TestPatternState>` from `test_pattern_open`,
+    // alive until `test_pattern_close`; the worker never reads after close.
+    let Some(state) = (unsafe { (handle as *mut TestPatternState).as_mut() }) else {
+        return CaptureRead::Ended;
+    };
+    if state.tick > 0 {
+        std::thread::sleep(TEST_PATTERN_FRAME);
+    }
+    let (w, h) = (state.width as usize, state.height as usize);
+    out.clear();
+    out.reserve(w * h * 4);
+    match state.kind {
+        TestPattern::ColourCycle => {
+            let tick = state.tick;
+            let color = [
+                (tick % 256) as u8,
+                (tick.wrapping_mul(2) % 256) as u8,
+                (tick.wrapping_mul(3) % 256) as u8,
+                255u8,
+            ];
+            for _ in 0..w * h {
+                out.extend_from_slice(&color);
+            }
+            state.tick = state.tick.wrapping_add(8);
+        }
+        TestPattern::MovingBand => {
+            let band = (state.tick as usize) % h.max(1);
+            for y in 0..h {
+                let v = if y.abs_diff(band) < 8 { 235u8 } else { 28u8 };
+                for _ in 0..w {
+                    out.extend_from_slice(&[v, v, v, 255]);
+                }
+            }
+            state.tick = state.tick.wrapping_add(12);
+        }
+    }
+    CaptureRead::Frame {
+        width: state.width,
+        height: state.height,
+    }
+}
+
+fn test_pattern_close(handle: u64) {
+    if handle != 0 {
+        // SAFETY: the handle came from `Box::into_raw` in `test_pattern_open`
+        // and is closed exactly once by the worker.
+        drop(unsafe { Box::from_raw(handle as *mut TestPatternState) });
+    }
+}
+
+fn colour_cycle_open(request: &CaptureRequest) -> u64 {
+    test_pattern_open(request, TestPattern::ColourCycle)
+}
+fn moving_band_open(request: &CaptureRequest) -> u64 {
+    test_pattern_open(request, TestPattern::MovingBand)
+}
+
+/// The vtable of a built-in test pattern.
+#[must_use]
+pub const fn test_pattern_vtable(kind: TestPattern) -> CaptureVTable {
+    CaptureVTable {
+        open: match kind {
+            TestPattern::ColourCycle => colour_cycle_open,
+            TestPattern::MovingBand => moving_band_open,
+        },
+        read: test_pattern_read,
+        close: test_pattern_close,
+        reconfigure: None,
     }
 }
 
@@ -1182,6 +1803,294 @@ mod autotest_generated {
     }
 
     // ==================================================================
+    // One capture, many consumers: the policy functions
+    // ==================================================================
+
+    fn targets(preview: Option<(u32, u32)>, consumers: &[(u32, u32, u32)], wants_source: bool) -> CaptureTargets {
+        CaptureTargets {
+            preview,
+            consumers: consumers.iter().map(|&(id, w, h)| FrameConsumer::new(id, w, h)).collect(),
+            wants_source,
+        }
+    }
+
+    #[test]
+    fn the_required_capture_size_covers_the_preview_every_consumer_and_the_floor() {
+        // "client Bob wants 500x200, the local preview is 100x200" -> 500x200
+        let t = targets(Some((100, 200)), &[(7, 500, 200)], false);
+        assert_eq!(required_capture_size(None, &t, (640, 480)), (500, 200));
+        // an explicit config size is a floor the capture never drops below
+        assert_eq!(required_capture_size(Some((640, 480)), &t, (1, 1)), (640, 480));
+        // only a small preview -> capture SMALL (not the 1080p default)
+        let t = targets(Some((300, 200)), &[], false);
+        assert_eq!(required_capture_size(None, &t, (1920, 1080)), (300, 200));
+        // nothing known yet -> the fallback
+        assert_eq!(required_capture_size(None, &CaptureTargets::default(), (640, 480)), (640, 480));
+    }
+
+    #[test]
+    fn needs_reopen_follows_quality_and_cost_but_never_loops_on_a_preset_snap() {
+        // Steady state: a 300x200 tile fed by the 640x480 minimum preset.
+        // The request is as small as it gets — this must NOT reopen forever.
+        assert!(!needs_reopen((300, 200), (640, 480), (300, 200)));
+        // A consumer that fits inside what is delivered needs nothing.
+        assert!(!needs_reopen((300, 200), (640, 480), (500, 200)));
+        // More than delivered AND more than requested -> reopen (quality).
+        assert!(needs_reopen((300, 200), (640, 480), (800, 200)));
+        assert!(needs_reopen((300, 200), (640, 480), (300, 600)));
+        // Far less than requested on BOTH axes -> reopen (cost).
+        assert!(needs_reopen((1280, 720), (1280, 720), (300, 200)));
+        // A modest shrink is hysteresis, not a reopen.
+        assert!(!needs_reopen((640, 480), (640, 480), (400, 300)));
+        assert!(!needs_reopen((640, 480), (640, 480), (320, 300)), "one axis halved is not enough");
+    }
+
+    #[test]
+    fn the_preview_is_cut_only_when_its_size_differs_from_the_captured_frame() {
+        let same = targets(Some((640, 480)), &[], false);
+        assert_eq!(preview_cut_size(&same, (640, 480)), None, "same size = show the source, no copy");
+        let smaller = targets(Some((320, 240)), &[], false);
+        assert_eq!(preview_cut_size(&smaller, (640, 480)), Some((320, 240)));
+        assert_eq!(preview_cut_size(&targets(Some((0, 240)), &[], false), (640, 480)), None);
+        assert_eq!(preview_cut_size(&targets(None, &[], false), (640, 480)), None);
+    }
+
+    // ==================================================================
+    // The shared capture loop over a FAKE backend (no device, no display):
+    // the covering size reaches `open`, one frame is fanned out per
+    // consumer, back-pressure drops frames, a bigger consumer reopens.
+    // ==================================================================
+
+    use std::sync::mpsc::{channel, Receiver, Sender};
+
+    use azul_core::task::{
+        ThreadReceiverDestructorCallback, ThreadReceiverInner, ThreadRecvCallback,
+    };
+
+    use crate::thread::{ThreadSendCallback, ThreadSenderDestructorCallback, ThreadSenderInner};
+
+    /// The fake backend's diary: every `open` request size, the close count,
+    /// and how many frames to deliver before `Ended`. One loop test at a time
+    /// (`LOOP_GATE`), because the vtable fns are plain fn pointers with
+    /// nowhere else to keep state.
+    struct FakeBackend {
+        opens: Vec<(u32, u32)>,
+        closes: u32,
+        frames_left: u32,
+        /// Sent into the worker's control channel by the Nth read (1-based).
+        inject_on_read: Option<(u32, CaptureTargets)>,
+        reads: u32,
+        control_tx: Option<Sender<ThreadSendMsg>>,
+    }
+    static FAKE: Mutex<Option<FakeBackend>> = Mutex::new(None);
+    static LOOP_GATE: Mutex<()> = Mutex::new(());
+
+    fn fake_open(r: &CaptureRequest) -> u64 {
+        let mut g = FAKE.lock().unwrap_or_else(PoisonError::into_inner);
+        let fake = g.as_mut().expect("fake backend installed");
+        fake.opens.push((r.width, r.height));
+        u64::from(fake.opens.len() as u32) // never 0
+    }
+    fn fake_read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
+        let mut g = FAKE.lock().unwrap_or_else(PoisonError::into_inner);
+        let fake = g.as_mut().expect("fake backend installed");
+        fake.reads += 1;
+        if let Some((n, t)) = fake.inject_on_read.as_ref() {
+            if *n == fake.reads {
+                if let Some(tx) = fake.control_tx.as_ref() {
+                    drop(tx.send(ThreadSendMsg::Custom(RefAny::new(t.clone()))));
+                }
+            }
+        }
+        if fake.frames_left == 0 {
+            return CaptureRead::Ended;
+        }
+        fake.frames_left -= 1;
+        // The backend "snaps" to what was last opened: deliver that size,
+        // solid blue.
+        let (w, h) = fake.opens.last().copied().unwrap_or((1, 1));
+        let _ = handle;
+        out.clear();
+        out.extend((0..w * h).flat_map(|_| [10u8, 20, 200, 255]));
+        CaptureRead::Frame { width: w, height: h }
+    }
+    fn fake_close(_handle: u64) {
+        let mut g = FAKE.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(fake) = g.as_mut() {
+            fake.closes += 1;
+        }
+    }
+    const FAKE_VTABLE: CaptureVTable = CaptureVTable {
+        open: fake_open,
+        read: fake_read,
+        close: fake_close,
+        reconfigure: None,
+    };
+
+    extern "C" fn loop_writeback(_: RefAny, _: RefAny, _: CallbackInfo) -> Update {
+        Update::DoNothing
+    }
+
+    // Real channels behind the FFI sender/receiver (the framework's own
+    // default callbacks are private; these are their bodies).
+    extern "C" fn chan_send(sender: *const core::ffi::c_void, msg: ThreadReceiveMsg) -> bool {
+        unsafe { &*sender.cast::<Sender<ThreadReceiveMsg>>() }
+            .send(msg)
+            .is_ok()
+    }
+    extern "C" fn chan_recv(receiver: *const core::ffi::c_void) -> OptionThreadSendMsg {
+        unsafe { &*receiver.cast::<Receiver<ThreadSendMsg>>() }
+            .try_recv()
+            .ok()
+            .into()
+    }
+    extern "C" fn sender_noop_drop(_: *mut ThreadSenderInner) {}
+    extern "C" fn receiver_noop_drop(_: *mut ThreadReceiverInner) {}
+
+    /// Run the shared loop over the fake backend. Returns every payload the
+    /// worker queued (as `(preview, source, consumer cuts)` summaries) plus
+    /// the backend diary.
+    fn run_fake_loop(
+        initial: CaptureTargets,
+        frames: u32,
+        inject_on_read: Option<(u32, CaptureTargets)>,
+        floor: Option<(u32, u32)>,
+    ) -> (Vec<(Option<(u32, u32)>, Option<(u32, u32)>, Vec<(u32, u32, u32)>)>, Vec<(u32, u32)>, u32) {
+        let _gate = LOOP_GATE.lock().unwrap_or_else(PoisonError::into_inner);
+        let (wb_tx, wb_rx) = channel::<ThreadReceiveMsg>();
+        let (ctl_tx, ctl_rx) = channel::<ThreadSendMsg>();
+        *FAKE.lock().unwrap_or_else(PoisonError::into_inner) = Some(FakeBackend {
+            opens: Vec::new(),
+            closes: 0,
+            frames_left: frames,
+            inject_on_read,
+            reads: 0,
+            control_tx: Some(ctl_tx.clone()),
+        });
+        let mut sender = ThreadSender::new(ThreadSenderInner {
+            ptr: Box::new(wb_tx),
+            send_fn: ThreadSendCallback { cb: chan_send },
+            destructor: ThreadSenderDestructorCallback { cb: sender_noop_drop },
+        });
+        let mut receiver = ThreadReceiver::new(ThreadReceiverInner {
+            ptr: Box::new(ctl_rx),
+            recv_fn: ThreadRecvCallback { cb: chan_recv },
+            destructor: ThreadReceiverDestructorCallback { cb: receiver_noop_drop },
+        });
+        let session = CaptureSession {
+            backend: Some(FAKE_VTABLE),
+            test_pattern: test_pattern_vtable(TestPattern::ColourCycle),
+            request: CaptureRequest::new(0, 0, 0),
+            floor,
+            fallback: (640, 480),
+            writeback: loop_writeback,
+            resample: image_scale::resample_rgba,
+            reopen_cooldown: std::time::Duration::ZERO,
+        };
+        run_capture_loop(session, initial, &mut sender, &mut receiver);
+
+        let mut queued = Vec::new();
+        while let Ok(ThreadReceiveMsg::WriteBack(mut wb)) = wb_rx.try_recv() {
+            let Some(mut c) = wb.refany.downcast_mut::<CapturedFrames>() else {
+                panic!("every capture writeback carries CapturedFrames");
+            };
+            let preview = c.preview.as_ref().map(|f| (f.width, f.height));
+            let source = c.source.as_ref().map(|f| (f.width, f.height));
+            let cuts = c.consumers.iter().map(|x| (x.consumer.id, x.frame.width, x.frame.height)).collect();
+            // Release the latch the way the real writeback does — the NEXT
+            // test's loop must not see a stale `true`.
+            c.in_flight.store(false, Ordering::Release);
+            queued.push((preview, source, cuts));
+        }
+        let fake = FAKE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+            .expect("fake backend still installed");
+        drop(ctl_tx);
+        (queued, fake.opens, fake.closes)
+    }
+
+    #[test]
+    fn the_loop_opens_at_the_covering_size_and_fans_one_frame_out_per_consumer() {
+        // Preview 4x3 + Bob 2x3 -> the device is opened at 4x3 (not 640x480),
+        // and the ONE frame read becomes: a preview at 4x3 (= the captured
+        // size -> shown as the source, no cut), Bob's 2x3 cut, no separate
+        // source (no on_frame hook).
+        let initial = targets(Some((4, 3)), &[(7, 2, 3)], false);
+        let (queued, opens, closes) = run_fake_loop(initial, 1, None, None);
+        assert_eq!(opens, vec![(4, 3)], "opened ONCE at the covering size of every consumer");
+        assert_eq!(closes, 1, "closed exactly once on Ended");
+        assert_eq!(queued.len(), 1);
+        let (preview, source, cuts) = &queued[0];
+        assert_eq!(*preview, None, "a same-size preview is the source frame itself");
+        assert_eq!(*source, Some((4, 3)), "…so the source travels to be shown");
+        assert_eq!(cuts, &vec![(7, 2, 3)], "Bob gets his 2x3 from the same frame");
+    }
+
+    #[test]
+    fn the_loop_cuts_a_smaller_preview_and_keeps_the_source_only_for_the_hook() {
+        // A 1280x720 floor (an on_frame hook wants the configured frame) with
+        // a 160x90 tile: the device is opened at the floor, the preview is a
+        // CUT, and the source travels for the hook.
+        let initial = targets(Some((160, 90)), &[], true);
+        let (queued, opens, _) = run_fake_loop(initial, 1, None, Some((1280, 720)));
+        assert_eq!(opens, vec![(1280, 720)]);
+        let (preview, source, cuts) = &queued[0];
+        assert_eq!(*preview, Some((160, 90)), "the tile gets a frame at ITS device size");
+        assert_eq!(*source, Some((1280, 720)), "the hook gets the frame as captured");
+        assert!(cuts.is_empty());
+
+        // Without the hook the source stays on the worker side.
+        let initial = targets(Some((160, 90)), &[], false);
+        let (queued, _, _) = run_fake_loop(initial, 1, None, Some((1280, 720)));
+        let (preview, source, _) = &queued[0];
+        assert_eq!(*preview, Some((160, 90)));
+        assert_eq!(*source, None, "no hook, a preview cut -> the 3.7 MB source never crosses threads");
+    }
+
+    #[test]
+    fn back_pressure_keeps_at_most_one_frame_in_flight() {
+        // Nothing presents the frames in this test (no main thread), so the
+        // latch stays set after the first send: 5 frames are read, ONE is
+        // queued, the rest are dropped instead of piling up in the channel.
+        let initial = targets(Some((4, 3)), &[], false);
+        let (queued, _, closes) = run_fake_loop(initial, 5, None, None);
+        assert_eq!(queued.len(), 1, "frames read while one is in flight are dropped, not queued");
+        assert_eq!(closes, 1);
+    }
+
+    #[test]
+    fn a_bigger_consumer_reopens_the_source_at_the_new_covering_size() {
+        // Opened for a 4x3 preview; the 2nd read injects "Bob wants 16x12":
+        // the next iteration reopens at 16x12 (more than delivered AND more
+        // than requested) — exactly one close + open.
+        let initial = targets(Some((4, 3)), &[], false);
+        let bigger = targets(Some((4, 3)), &[(7, 16, 12)], false);
+        let (_, opens, closes) = run_fake_loop(initial, 3, Some((2, bigger)), None);
+        assert_eq!(opens, vec![(4, 3), (16, 12)], "reopened once, at the new covering size");
+        assert_eq!(closes, 2, "the first source was closed before the reopen, the second on Ended");
+    }
+
+    #[test]
+    fn a_test_pattern_refuses_a_zero_size_and_cycles_its_colour() {
+        let vt = test_pattern_vtable(TestPattern::ColourCycle);
+        assert_eq!((vt.open)(&CaptureRequest::new(0, 0, 0)), 0, "a zero-sized pattern is not a frame");
+        let h = (vt.open)(&CaptureRequest::new(0, 2, 3));
+        assert_ne!(h, 0);
+        let mut out = Vec::new();
+        assert_eq!((vt.read)(h, &mut out), CaptureRead::Frame { width: 2, height: 3 });
+        assert_eq!(out.len(), 2 * 3 * 4);
+        assert!(out.chunks_exact(4).all(|px| px == [0, 0, 0, 255]), "tick 0 is opaque black");
+        (vt.close)(h);
+        let vt = test_pattern_vtable(TestPattern::MovingBand);
+        let h = (vt.open)(&CaptureRequest::new(0, 3, 20));
+        assert_eq!((vt.read)(h, &mut out), CaptureRead::Frame { width: 3, height: 20 });
+        assert_eq!(out.len(), 3 * 20 * 4);
+        (vt.close)(h);
+    }
+
+    // ==================================================================
     // Backend registries (CaptureVTable / AudioCaptureVTable)
     //
     // The three registries are process-global `OnceLock`s, so each is exercised
@@ -1190,22 +2099,25 @@ mod autotest_generated {
     // address and make the identity assertions vacuous.
     // ==================================================================
 
-    fn open_a(index: u32, width: u32, height: u32) -> u64 {
-        u64::from(index) + u64::from(width) * 3 + u64::from(height)
+    fn open_a(r: &CaptureRequest) -> u64 {
+        u64::from(r.index) + u64::from(r.width) * 3 + u64::from(r.height)
     }
-    fn read_a(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
+    fn read_a(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
         out.clear();
         out.extend_from_slice(&[1, 2, 3, 4]);
-        (handle as u32, 1)
+        CaptureRead::Frame {
+            width: handle as u32,
+            height: 1,
+        }
     }
     fn close_a(_handle: u64) {}
 
-    fn open_b(index: u32, width: u32, height: u32) -> u64 {
-        u64::from(index) * 7 + u64::from(width) + u64::from(height) * 11
+    fn open_b(r: &CaptureRequest) -> u64 {
+        u64::from(r.index) * 7 + u64::from(r.width) + u64::from(r.height) * 11
     }
-    fn read_b(_handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
+    fn read_b(_handle: u64, out: &mut Vec<u8>) -> CaptureRead {
         out.push(9);
-        (0, 0)
+        CaptureRead::Ended
     }
     fn close_b(_handle: u64) {
         // distinct body: the linker must not fold this onto close_a
@@ -1217,6 +2129,7 @@ mod autotest_generated {
             open: open_a,
             read: read_a,
             close: close_a,
+            reconfigure: None,
         }
     }
     fn vtable_b() -> CaptureVTable {
@@ -1224,6 +2137,7 @@ mod autotest_generated {
             open: open_b,
             read: read_b,
             close: close_b,
+            reconfigure: None,
         }
     }
 
@@ -1261,10 +2175,18 @@ mod autotest_generated {
                 "camera_backend() must hand back exactly the vtable that was registered"
             );
             // The registered fn pointers must actually be callable through the vtable.
-            assert_eq!((after.open)(1, 2, 3), open_a(1, 2, 3));
-            assert_eq!((after.open)(u32::MAX, u32::MAX, u32::MAX), open_a(u32::MAX, u32::MAX, u32::MAX));
+            let r = CaptureRequest::new(1, 2, 3);
+            assert_eq!((after.open)(&r), open_a(&r));
+            let r = CaptureRequest::new(u32::MAX, u32::MAX, u32::MAX);
+            assert_eq!((after.open)(&r), open_a(&r));
             let mut buf = vec![0_u8; 8];
-            assert_eq!((after.read)(u64::from(u32::MAX), &mut buf), (u32::MAX, 1));
+            assert_eq!(
+                (after.read)(u64::from(u32::MAX), &mut buf),
+                CaptureRead::Frame {
+                    width: u32::MAX,
+                    height: 1
+                }
+            );
             assert_eq!(buf, vec![1, 2, 3, 4], "read must be able to resize `out`");
             (after.close)(0);
             (after.close)(u64::MAX);
@@ -1292,9 +2214,9 @@ mod autotest_generated {
                     "the camera registry must not pick up the screen vtable"
                 );
             }
-            // `(0, 0)` is the documented end-of-stream signal.
+            // `Ended` is the documented end-of-stream signal.
             let mut buf = Vec::new();
-            assert_eq!((after.read)(0, &mut buf), (0, 0));
+            assert_eq!((after.read)(0, &mut buf), CaptureRead::Ended);
         }
     }
 
