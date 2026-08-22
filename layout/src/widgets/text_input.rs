@@ -88,7 +88,6 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec =
 
 // -- container style
 
-#[cfg(target_os = "windows")]
 /// Minimum height of the field (border box), every platform: one line of the
 /// 11 px UI font plus the chrome. With no text the value `<p>` has no line box
 /// and the placeholder is positioned out of flow, so without this an EMPTY
@@ -96,6 +95,7 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec =
 /// by the UA `<p>` margin that `widget_p` now resets.
 const TEXT_INPUT_MIN_HEIGHT_PX: isize = 22;
 
+#[cfg(target_os = "windows")]
 static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),

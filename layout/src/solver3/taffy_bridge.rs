@@ -1323,7 +1323,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
         let px = |d: Dimension| -> Option<f32> {
             let raw = d.into_raw();
-            (raw.tag() == taffy::CompactLength::LENGTH_TAG && raw.value().is_finite())
+            (raw.tag() == CompactLength::LENGTH_TAG && raw.value().is_finite())
                 .then(|| raw.value() + extra)
         };
         (px(style.min_size.height), px(style.max_size.height))
