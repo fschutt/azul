@@ -541,7 +541,9 @@ mod ua_paragraph_margin {
     }
 
     // An explicit inline margin wins over the reset: checked at compile time.
-    const _: () = assert!(rule_priority::AUTHOR < rule_priority::INLINE);
+    const _: () = assert!(
+        azul_css::css::rule_priority::AUTHOR < azul_css::css::rule_priority::INLINE
+    );
 }
 
 #[cfg(test)]
