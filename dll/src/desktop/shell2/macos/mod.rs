@@ -1620,7 +1620,7 @@ define_class!(
 
     impl CPUView {
         #[unsafe(method(drawRect:))]
-        fn draw_rect(&self, _dirty_rect: NSRect) {
+        fn draw_rect(&self, dirty_rect: NSRect) {
             let bounds = unsafe { self.bounds() };
             // Convert to backing pixels (2x on Retina)
             let backing = unsafe { self.convertRectToBacking(bounds) };

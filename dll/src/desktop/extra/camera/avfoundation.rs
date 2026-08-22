@@ -102,16 +102,20 @@ struct AvfCam {
 /// (leave the session's default). Larger than 720p -> `High` (the device's
 /// best).
 fn preset_for(width: u32, height: u32) -> Option<&'static NSString> {
-    if width == 0 || height == 0 {
-        None
-    } else if width <= 640 && height <= 480 {
-        Some(AVCaptureSessionPreset640x480)
-    } else if width <= 960 && height <= 540 {
-        Some(AVCaptureSessionPreset960x540)
-    } else if width <= 1280 && height <= 720 {
-        Some(AVCaptureSessionPreset1280x720)
-    } else {
-        Some(AVCaptureSessionPresetHigh)
+    // SAFETY: the preset names are extern NSString statics AVFoundation
+    // defines since 10.7; reading them is how every caller uses them.
+    unsafe {
+        if width == 0 || height == 0 {
+            None
+        } else if width <= 640 && height <= 480 {
+            Some(AVCaptureSessionPreset640x480)
+        } else if width <= 960 && height <= 540 {
+            Some(AVCaptureSessionPreset960x540)
+        } else if width <= 1280 && height <= 720 {
+            Some(AVCaptureSessionPreset1280x720)
+        } else {
+            Some(AVCaptureSessionPresetHigh)
+        }
     }
 }
 
@@ -125,30 +129,36 @@ unsafe fn apply_fps(device: &AVCaptureDevice, fps: u32) {
         return;
     }
     let wanted = f64::from(fps);
-    let format = device.activeFormat();
-    let ranges = format.videoSupportedFrameRateRanges();
-    let supported = ranges
-        .iter()
-        .any(|r| r.minFrameRate() - 0.01 <= wanted && wanted <= r.maxFrameRate() + 0.01);
-    if !supported {
-        crate::plog_info!(
-            "[camera] avfoundation: {} fps is outside the active format's ranges — keeping the default rate",
-            fps
-        );
-        return;
+    // SAFETY: `device` is a live AVCaptureDevice owned by the running
+    // session; the frame-rate setters are only called after
+    // `lockForConfiguration` succeeded and with a rate the active format's
+    // ranges include (an unsupported rate would throw).
+    unsafe {
+        let format = device.activeFormat();
+        let ranges = format.videoSupportedFrameRateRanges();
+        let supported = ranges
+            .iter()
+            .any(|r| r.minFrameRate() - 0.01 <= wanted && wanted <= r.maxFrameRate() + 0.01);
+        if !supported {
+            crate::plog_info!(
+                "[camera] avfoundation: {} fps is outside the active format's ranges — keeping the default rate",
+                fps
+            );
+            return;
+        }
+        if device.lockForConfiguration().is_err() {
+            return;
+        }
+        let duration = CMTime {
+            value: 1,
+            timescale: fps as i32,
+            flags: CMTimeFlags::Valid,
+            epoch: 0,
+        };
+        device.setActiveVideoMinFrameDuration(duration);
+        device.setActiveVideoMaxFrameDuration(duration);
+        device.unlockForConfiguration();
     }
-    if device.lockForConfiguration().is_err() {
-        return;
-    }
-    let duration = CMTime {
-        value: 1,
-        timescale: fps as i32,
-        flags: CMTimeFlags::Valid,
-        epoch: 0,
-    };
-    device.setActiveVideoMinFrameDuration(duration);
-    device.setActiveVideoMaxFrameDuration(duration);
-    device.unlockForConfiguration();
 }
 
 /// Read a possibly-NULL `AVCaptureDeviceType` extern static. Device-type
