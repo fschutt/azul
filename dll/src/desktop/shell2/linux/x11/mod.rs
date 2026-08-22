@@ -5829,6 +5829,20 @@ impl PlatformWindow for X11Window {
         }
     }
 
+    fn request_regeneration_all_windows(&mut self) {
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.window as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
+                    w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    w.request_redraw();
+                }
+            }
+        }
+    }
+
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }

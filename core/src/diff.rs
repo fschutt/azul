@@ -769,6 +769,33 @@ fn create_lifecycle_event(
     }
 }
 
+/// The event a `<transient-window>` receives when the USER closed it — an
+/// outside click, or Escape — as opposed to the app flipping `open`.
+///
+/// Built here, next to the other lifecycle events, so it carries the same
+/// `EventSource::Lifecycle` / `EventPhase::Target` shape the dispatcher
+/// expects for a `ComponentEventFilter`. `bounds` is the popup's anchor
+/// rect in the parent, the closest thing to "where it was".
+#[must_use]
+pub fn create_dismiss_event(
+    node_id: NodeId,
+    dom_id: DomId,
+    timestamp: &Instant,
+    bounds: LogicalRect,
+) -> SyntheticEvent {
+    create_lifecycle_event(
+        EventType::Dismiss,
+        node_id,
+        dom_id,
+        timestamp,
+        LifecycleEventData {
+            reason: LifecycleReason::Dismiss,
+            previous_bounds: None,
+            current_bounds: bounds,
+        },
+    )
+}
+
 /// Check if the node has an `AfterMount` callback registered.
 fn has_mount_callback(node: &NodeData) -> bool {
     node.get_callbacks().iter().any(|cb| {

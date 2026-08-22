@@ -3543,6 +3543,18 @@ impl event::PlatformWindow for MacOSWindow {
         }
     }
 
+    fn request_regeneration_all_windows(&mut self) {
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            w.request_redraw();
+        }
+    }
+
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }
