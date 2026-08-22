@@ -5144,6 +5144,120 @@ mod tests {
         assert_eq!(slider_dragging(&window), Some(false), "released");
     }
 
+    // --- A text selection survives a relayout ---------------------------
+    //
+    // REPORTED (demo test 2026-08-21): selecting from the heading into the
+    // subtitle "flickers" the subtitle but nothing stays selected. The
+    // selection was computed correctly; only the DISPLAY-LIST-ONLY rebuild
+    // painted `SelectionRect`s, while the layout path handed
+    // `layout_document` an empty selection map — so every relayout (a
+    // resize, a restyle, an app's RefreshDom, a css patch) erased the band
+    // until the next drag move repainted it, and the first relayout after the
+    // release erased it for good. The class: two builders of the same
+    // display list fed different inputs. This drags a selection across two
+    // paragraphs, forces the LAYOUT path with a resize, and expects the band
+    // to still be there.
+
+    extern "C" fn selection_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body()
+            .with_child(
+                Dom::create_p_with_text("Azul Widget Showcase")
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("h".into())].into())
+                    .with_css("font-size: 24px; margin: 10px;"),
+            )
+            .with_child(
+                Dom::create_p_with_text("Every built-in widget (callbacks fired so far: 0)")
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("sub".into())].into())
+                    .with_css("font-size: 14px; margin: 10px;"),
+            )
+    }
+
+    fn selection_rect_count(window: &HeadlessWindow) -> usize {
+        use azul_core::dom::DomId;
+        let Some(lw) = window.common.layout_window.as_ref() else { return 0 };
+        let Some(lr) = lw.layout_results.get(&DomId { inner: 0 }) else { return 0 };
+        lr.display_list
+            .items
+            .iter()
+            .filter(|it| matches!(it, DisplayListItem::SelectionRect { .. }))
+            .count()
+    }
+
+    #[test]
+    fn a_text_selection_survives_a_relayout() {
+        use azul_core::events::MouseButton;
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, selection_layout, 500.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let heading = rects_by_class(&window, "h");
+        let subtitle = rects_by_class(&window, "sub");
+        assert_eq!(heading.len(), 1, "{heading:?}");
+        assert_eq!(subtitle.len(), 1, "{subtitle:?}");
+        let (h, sub) = (heading[0], subtitle[0]);
+
+        // Press inside the heading's first glyphs, drag into the subtitle.
+        let start = (h.origin.x + 6.0, h.origin.y + h.size.height / 2.0);
+        let end = (sub.origin.x + sub.size.width * 0.5, sub.origin.y + sub.size.height / 2.0);
+        step(&mut window, HeadlessEvent::MouseMove { x: start.0, y: start.1 });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        for i in 1..=6 {
+            let t = i as f32 / 6.0;
+            step(
+                &mut window,
+                HeadlessEvent::MouseMove {
+                    x: start.0 + (end.0 - start.0) * t,
+                    y: start.1 + (end.1 - start.1) * t,
+                },
+            );
+        }
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+
+        let cross_block = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.text_edit_manager.get_cross_block_selection().cloned());
+        assert!(
+            cross_block.is_some(),
+            "dragging from the heading into the subtitle must produce a cross-block selection"
+        );
+        let before = selection_rect_count(&window);
+        assert!(before > 0, "the selection must be painted after the drag");
+
+        // Force the LAYOUT path: a resize is a relayout with the same DOM.
+        window.snapshot_window_state_baseline("headless.test.selection_resize");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 560.0;
+            });
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        let _ = window.process_window_events(0);
+        window.regenerate_layout().expect("relayout after resize");
+
+        let after = selection_rect_count(&window);
+        assert!(
+            after > 0,
+            "the selection band vanished on relayout ({before} SelectionRect(s) before, {after} after): \
+             the layout path must paint the live selection, not an empty map"
+        );
+        assert!(
+            window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.text_edit_manager.get_cross_block_selection())
+                .is_some(),
+            "the selection state itself must survive the relayout"
+        );
+    }
+
     // --- Indicator marks are centred ------------------------------------
     //
     // REPORTED (demo test 2026-08-21): "CheckBox not centered" — the 8 px mark

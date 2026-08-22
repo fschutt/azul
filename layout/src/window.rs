@@ -3815,6 +3815,14 @@ impl LayoutWindow {
         let cursor_is_visible = self.text_edit_manager.should_draw_cursor()
             || self.text_edit_manager.tween.is_active();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
+        // The live selection goes through the LAYOUT path too. Only the
+        // display-list-only path (`regenerate_display_list_for_dom`) painted
+        // `SelectionRect`s; this one handed `layout_document` an empty map,
+        // so every relayout — a resize, a restyle, an app's RefreshDom, a
+        // set_css_property patch — erased the highlight until the next drag
+        // move repainted it (the "selection flickers and is gone on release"
+        // report, 2026-08-21).
+        let text_selections_map = self.text_edit_manager.build_text_selections_map();
 
         // Consume the CSS diff staged by `begin_reconciliation` — exactly one
         // pass eats it, and only for the DOM it was computed against.
@@ -3835,7 +3843,7 @@ impl LayoutWindow {
                 viewport,
                 &self.font_manager,
                 &scroll_offsets,
-                &BTreeMap::new(),
+                &text_selections_map,
                 debug_messages,
                 Some(&gpu_cache),
                 &self.renderer_resources,
