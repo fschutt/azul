@@ -304,6 +304,46 @@ extern "C" fn on_focus_lost(
     }
 }
 
+/// Is `s` a PREFIX of some string `<f32 as FromStr>` accepts — i.e. can it
+/// still become a number with more characters? Grammar:
+/// `[+-]? digits* ('.' digits*)? ([eE] [+-]? digits*)?`, with the exponent
+/// allowed only after at least one mantissa digit (`e`, `.e` can never
+/// become numbers, `1e` can). The empty buffer is a prefix of everything.
+/// Deliberately NOT `str::parse` (which rejects every prefix) and
+/// deliberately not accepting `inf` / `nan`, which the widget never wants.
+fn is_float_prefix(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut i = 0;
+    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+        i += 1;
+    }
+    let mut mantissa_digits = 0usize;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+        mantissa_digits += 1;
+    }
+    if i < b.len() && b[i] == b'.' {
+        i += 1;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+            mantissa_digits += 1;
+        }
+    }
+    if i < b.len() && (b[i] == b'e' || b[i] == b'E') {
+        if mantissa_digits == 0 {
+            return false;
+        }
+        i += 1;
+        if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+            i += 1;
+        }
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+    }
+    i == b.len()
+}
+
 /// Clamps `value` into `[min, max]`, tolerating the degenerate bounds that
 /// `f32::clamp` panics on: an inverted range (`min > max`) is swapped and a NaN
 /// bound is dropped (both NaN → value untouched). `min`/`max` are `pub` fields on
@@ -340,6 +380,20 @@ extern "C" fn validate_text_input(
         .collect();
 
     let Ok(validated_f32) = validated_input.parse::<f32>() else {
+        // A buffer that is not a number YET but can become one — `-`, `.`,
+        // `-.`, `1e-`, the empty buffer — must be allowed to exist in the
+        // field: a number is typed one character at a time, and `-5` or `.5`
+        // starts with a character that does not parse. Vetoing those
+        // keystrokes made it impossible to enter a negative or fractional
+        // number from scratch. The value stays what it was; the hook waits
+        // for a complete number. A buffer that can never become a number
+        // (`abc`, `1.2.3`, ` 1`) is still vetoed.
+        if is_float_prefix(&validated_input) {
+            return OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            };
+        }
         // do not re-layout the entire screen,
         // but don't handle the character
         return OnTextInputReturn {
@@ -433,10 +487,11 @@ mod autotest_generated {
         ]
     }
 
-    /// Strings `<f32 as FromStr>` rejects outright. None of them contains a comma, so
-    /// the widget's `,` -> `.` rewrite cannot rescue any of them either.
-    const MALFORMED: [&str; 26] = [
-        "",             // the empty buffer: select-all + delete
+    /// Strings `<f32 as FromStr>` rejects outright AND that can never become a
+    /// number however the user continues typing. None of them contains a
+    /// comma, so the widget's `,` -> `.` rewrite cannot rescue any of them
+    /// either. (Buffers that are merely incomplete live in `TRANSIENT_PREFIXES`.)
+    const MALFORMED: [&str; 20] = [
         " ",            // `from_str` does not trim
         " 1",
         "1 ",
@@ -446,14 +501,9 @@ mod autotest_generated {
         "e",
         "e5",
         "E",
-        "+",
-        "-",
-        ".",
         "..",
         "--1",
         "1.2.3",
-        "1e",
-        "1e+",
         "0x10",         // hex is not float syntax
         "0b1",
         "1_000",        // Rust *literal* syntax is not *parse* syntax
@@ -462,6 +512,26 @@ mod autotest_generated {
         "½",            // vulgar fraction
         "∞",            // the symbol is not the word "inf"
         "1\u{200b}0",   // zero-width space wedged between two digits
+    ];
+
+    /// Buffers `from_str` rejects that are PREFIXES of a number: the states a
+    /// field passes through while `-5`, `.5`, `1e-3` or a replacement are
+    /// typed. The widget must let them exist (keystroke accepted, value
+    /// unchanged, hook silent) or a negative / fractional number can never be
+    /// entered from scratch.
+    const TRANSIENT_PREFIXES: [&str; 12] = [
+        "",             // the empty buffer: select-all + delete, then type
+        "+",
+        "-",
+        ".",
+        "-.",
+        "+.",
+        "1.",
+        "-1.",
+        "1e",
+        "1e+",
+        "1e-",
+        "1.5e-",
     ];
 
     /// Digits that are digits to a human but not to `from_str`.
@@ -1305,6 +1375,48 @@ mod autotest_generated {
                 );
             }
         });
+    }
+
+    #[test]
+    fn validate_lets_a_transient_prefix_exist_without_touching_the_value() {
+        let state = RefAny::new(wrapper(7.5, -100.0, 100.0));
+        with_info(|info| {
+            for text in TRANSIENT_PREFIXES {
+                assert!(is_float_prefix(text), "{text:?} is a prefix of a number");
+                let r = validate_text_input(state.clone(), info, text_state(text));
+                assert_eq!(
+                    r.valid,
+                    TextInputValid::Yes,
+                    "{text:?} must be allowed to exist in the field — `-5` starts with `-`",
+                );
+                assert_eq!(r.update, Update::DoNothing, "{text:?}: nothing to relayout yet");
+                let after = read(&state);
+                assert!(same(after.number, 7.5), "{text:?} changed the value to {}", after.number);
+                assert!(same(after.previous, 0.0), "{text:?} touched `previous`");
+            }
+            for text in MALFORMED {
+                assert!(!is_float_prefix(text), "{text:?} can never become a number");
+            }
+            // And the prefix completes into the number it was heading for.
+            let r = validate_text_input(state.clone(), info, text_state("-5"));
+            assert_eq!(r.valid, TextInputValid::Yes);
+            assert!(same(read(&state).number, -5.0));
+            let r = validate_text_input(state.clone(), info, text_state(".5"));
+            assert_eq!(r.valid, TextInputValid::Yes);
+            assert!(same(read(&state).number, 0.5));
+        });
+    }
+
+    #[test]
+    fn a_transient_prefix_does_not_reach_the_users_hook() {
+        let recorder = RefAny::new(Recorder::new(Update::RefreshDom));
+        let state = RefAny::new(wrapper_with_value_hook(1.0, f32::MIN, f32::MAX, &recorder));
+        with_info(|info| {
+            for text in TRANSIENT_PREFIXES {
+                let _ = validate_text_input(state.clone(), info, text_state(text));
+            }
+        });
+        assert!(recorded(&recorder).is_empty(), "an incomplete number is not a value change");
     }
 
     #[test]

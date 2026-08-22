@@ -5790,6 +5790,83 @@ mod tests {
         assert_eq!(log.last_width.load(Ordering::SeqCst), 400);
     }
 
+    // --- An empty, focused editable shows a caret --------------------------
+    //
+    // REPORTED (AzWidgets, 2026-08-21): "TextInput not working" — clicking
+    // the field hid the placeholder and painted no caret, so the focused
+    // field was a blank box. The class: the caret builder anchored the caret
+    // to a text cluster, and an editable with NO text has none; with the
+    // placeholder hidden on focus there was nothing to see at all. The empty
+    // editable now gets the strut caret (content-box origin, one line tall)
+    // and the placeholder stays until the first character. This clicks the
+    // real widget and looks for the caret item.
+
+    extern "C" fn empty_text_input_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::text_input::TextInput;
+        Dom::create_body()
+            .with_css("padding: 20px;")
+            .with_child(TextInput::create().with_placeholder("Type something...".into()).dom())
+    }
+
+    fn caret_items(window: &HeadlessWindow) -> Vec<azul_core::geom::LogicalRect> {
+        use azul_core::dom::DomId;
+        let Some(lw) = window.common.layout_window.as_ref() else { return Vec::new() };
+        let Some(lr) = lw.layout_results.get(&DomId { inner: 0 }) else { return Vec::new() };
+        lr.display_list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayListItem::CursorRect { bounds, .. } => Some(*bounds.inner()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_empty_focused_text_input_shows_a_caret() {
+        use azul_core::events::MouseButton;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, empty_text_input_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        assert!(caret_items(&window).is_empty(), "no caret before focus");
+
+        let containers = rects_by_class(&window, "__azul-native-text-input-container");
+        assert_eq!(containers.len(), 1, "{containers:?}");
+        let c = containers[0];
+        assert!(c.size.height > 8.0, "an empty field must still have a line: {c:?}");
+
+        // Click into the empty field.
+        let (x, y) = (c.origin.x + c.size.width * 0.5, c.origin.y + c.size.height * 0.5);
+        step(&mut window, HeadlessEvent::MouseMove { x, y });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        window.regenerate_layout().expect("layout after focus");
+
+        let carets = caret_items(&window);
+        assert!(
+            !carets.is_empty(),
+            "a focused EMPTY editable must paint a caret (the strut caret), got none"
+        );
+        let caret = carets[carets.len() - 1];
+        assert!(
+            caret.size.height >= 8.0 && caret.size.height <= c.size.height + 1.0,
+            "the strut caret is one line tall: {caret:?} in {c:?}"
+        );
+        assert!(
+            caret.origin.x >= c.origin.x && caret.origin.x <= c.origin.x + c.size.width,
+            "the caret stands inside the field: {caret:?} in {c:?}"
+        );
+        // The placeholder is still there: it hides on the first character,
+        // not on focus.
+        let placeholder = rects_by_class(&window, "__azul-native-text-input-placeholder");
+        assert!(
+            placeholder.first().is_some_and(|r| r.size.height > 0.0),
+            "the placeholder stays visible while the focused field is empty: {placeholder:?}"
+        );
+    }
+
     // --- Indicator marks are centred ------------------------------------
     //
     // REPORTED (demo test 2026-08-21): "CheckBox not centered" — the 8 px mark

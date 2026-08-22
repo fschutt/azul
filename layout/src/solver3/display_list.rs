@@ -1307,6 +1307,21 @@ pub enum DisplayListItem {
 /// deliberately the CLIP and not an empty rect: a non-overlapping result
 /// means the extent was computed wrongly, and in that case damaging too
 /// much is recoverable while damaging nothing leaves stale pixels.
+/// The caret of an editable that has no text yet, in the node's CONTENT-BOX
+/// space: at the origin, one line-height tall (`font-size × line-height`,
+/// the `normal` 1.2 when unset), one pixel wide — the line box the first
+/// character will create. Height is floored at 1 px so a zero font never
+/// produces an invisible caret.
+#[must_use]
+pub fn empty_editable_caret_rect(font_size_px: f32, line_height: f32) -> LogicalRect {
+    let height = (font_size_px * line_height).max(1.0);
+    let height = if height.is_finite() { height } else { 1.0 };
+    LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: LogicalSize { width: 1.0, height },
+    }
+}
+
 fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
     let x0 = a.origin.x.max(b.origin.x);
     let y0 = a.origin.y.max(b.origin.y);
@@ -3357,6 +3372,8 @@ where
 
     /// Emits drawing commands for all text cursors (carets).
     /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
+    /// An editable with NO text gets the strut caret of
+    /// [`empty_editable_caret_rect`].
     /// Preedit underline is only rendered for the primary (last) cursor.
     #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn paint_cursor(
@@ -3441,10 +3458,30 @@ where
                 continue;
             }
 
-            // Get cursor rect from text layout
-            let Some(mut rect) = layout.get_cursor_rect(cursor) else {
-                continue;
+            // Get cursor rect from text layout — or, for an EMPTY editable,
+            // the strut caret. `get_cursor_rect` anchors the caret to a
+            // cluster, and an editable with no text has none, so nothing was
+            // painted: a focused, empty TextInput showed no caret at all
+            // (and, with the placeholder hidden on focus, nothing else
+            // either — the field looked dead). The first character will
+            // create a line box at the content-box origin one line-height
+            // tall; the caret stands where that line will be.
+            let rect = match layout.get_cursor_rect(cursor) {
+                Some(rect) => rect,
+                None if layout.items.is_empty() => {
+                    let font_size = super::getters::get_element_font_size(
+                        self.ctx.styled_dom,
+                        dom_id,
+                        node_state,
+                    );
+                    let line_height =
+                        super::getters::get_line_height_value(self.ctx.styled_dom, dom_id, node_state)
+                            .map_or(1.2, |lh| lh.inner.normalized());
+                    empty_editable_caret_rect(font_size, line_height)
+                }
+                None => continue,
             };
+            let mut rect = rect;
 
             rect.origin.x += content_box_offset_x;
             rect.origin.y += content_box_offset_y;

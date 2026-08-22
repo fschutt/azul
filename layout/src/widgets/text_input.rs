@@ -1136,17 +1136,21 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
 
     let text_input = &mut *text_input;
 
-    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+    // A text input always has its placeholder as the first child; a hit node
+    // without one is not a text input.
+    let Some(_placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
         return Update::DoNothing;
     };
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_input.inner, &info, container);
 
-    // hide the placeholder text
-    if text_input.inner.text.is_empty() {
-        set_placeholder_visible(&mut info, placeholder_text_node_id, false);
-    }
+    // The placeholder STAYS while the field is focused and empty — browser
+    // behaviour. The insert path hides it on the first accepted character and
+    // delete-to-empty shows it again. Hiding it on focus left a focused empty
+    // field completely blank (no placeholder, and before the empty-editable
+    // caret no caret either), which is what "the TextInput is not working"
+    // looked like.
 
     // The engine seeds the caret at the end of the value when focus lands on a
     // contenteditable host; the mirror follows it.
@@ -2724,16 +2728,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn focus_received_hides_the_placeholder_only_while_the_buffer_is_empty() {
+    fn focus_received_keeps_the_placeholder_while_the_buffer_is_empty() {
+        // Browser behaviour: the placeholder stays until the first character
+        // lands (`text_input_mirrors_the_insertion_and_hides_the_placeholder`).
+        // Hiding it on focus left a focused empty field blank.
         let (styled_dom, state) = rendered(TextInput::create());
-        let (update, changes, nodes) = run(Env::new(styled_dom), |info| {
+        let (update, changes, _) = run(Env::new(styled_dom), |info| {
             default_on_focus_received(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            pushed_opacities(&changes),
-            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 0.0)],
-            "focusing an empty input did not hide its placeholder",
+        assert!(
+            pushed_opacities(&changes).is_empty(),
+            "focusing an empty input must leave its placeholder visible: {changes:?}",
         );
 
         let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
