@@ -500,23 +500,35 @@ extern "C" fn on_dropdown(mut data: RefAny, _: CallbackInfo, choice: usize) -> U
 }
 
 // High-level widgets — wrapper-struct callbacks (third arg is the widget State).
-extern "C" fn on_switch(mut data: RefAny, _: CallbackInfo, _: SwitchState) -> Update {
+//
+// THE CONTROLLED-WIDGET RULE: a widget reports its new state through the
+// callback, the app STORES it, and the `RefreshDom` rebuilds the widget from
+// the stored value. A callback that only counts and refreshes rebuilds the
+// widget at the OLD value — which is what made the Switch look like it did
+// not respond to clicks, and the slider leave a thumb at 40 under the
+// pointer (demo test 2026-08-21). Every stateful widget below stores first.
+extern "C" fn on_switch(mut data: RefAny, _: CallbackInfo, state: SwitchState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.switch_on = state.checked;
+    }
     bump(&mut data)
 }
 extern "C" fn on_slider(mut data: RefAny, _: CallbackInfo, state: SliderState) -> Update {
-    // A controlled widget: the slider reports the value, the app STORES it,
-    // the refresh rebuilds the slider at that value. Counting the callback
-    // and refreshing without storing rebuilt the thumb at the old 40.0 under
-    // the pointer on every move — the "thumb trail" report.
     if let Some(mut s) = data.downcast_mut::<Showcase>() {
         s.slider_value = state.value;
     }
     bump(&mut data)
 }
-extern "C" fn on_segmented(mut data: RefAny, _: CallbackInfo, _: SegmentedState) -> Update {
+extern "C" fn on_segmented(mut data: RefAny, _: CallbackInfo, state: SegmentedState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.selected_segment = state.selected_index;
+    }
     bump(&mut data)
 }
-extern "C" fn on_radio(mut data: RefAny, _: CallbackInfo, _: RadioGroupState) -> Update {
+extern "C" fn on_radio(mut data: RefAny, _: CallbackInfo, state: RadioGroupState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.selected_radio = state.selected_index;
+    }
     bump(&mut data)
 }
 extern "C" fn on_textarea_focus_lost(mut data: RefAny, _: CallbackInfo, _: TextAreaState) -> Update {
@@ -543,10 +555,16 @@ extern "C" fn on_accordion(mut data: RefAny, _: CallbackInfo, _: usize) -> Updat
 extern "C" fn on_breadcrumb(mut data: RefAny, _: CallbackInfo, _: BreadcrumbState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_pagination(mut data: RefAny, _: CallbackInfo, _: PaginationState) -> Update {
+extern "C" fn on_pagination(mut data: RefAny, _: CallbackInfo, state: PaginationState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.current_page = state.current_page;
+    }
     bump(&mut data)
 }
-extern "C" fn on_stepper(mut data: RefAny, _: CallbackInfo, _: StepperState) -> Update {
+extern "C" fn on_stepper(mut data: RefAny, _: CallbackInfo, state: StepperState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.current_step = state.current_step;
+    }
     bump(&mut data)
 }
 extern "C" fn on_popover(mut data: RefAny, _: CallbackInfo, _: PopoverState) -> Update {
