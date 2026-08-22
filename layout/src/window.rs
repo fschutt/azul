@@ -799,6 +799,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         hover_manager: _,
         virtual_view_manager: _,
         transient_windows: _,
+        laid_out_dock_generation: _,
+        inline_tear: _,
         pointer_capture: _,
         pending_transient_diff: _,
         gpu_state_manager: _,
@@ -984,6 +986,18 @@ const SCROLL_ANCESTOR_WALK_LIMIT: usize = 256;
 
 
 #[allow(clippy::struct_excessive_bools)]
+/// A tear-off drag of an inline-docked `<transient-window>`, running in
+/// the PARENT window (the panel has no window of its own to drag).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InlineTear {
+    /// The `<transient-window>` node being dragged.
+    pub node: NodeId,
+    /// Where the grip was pressed (parent logical coordinates).
+    pub press: LogicalPosition,
+    /// The panel box's top-left at the press (parent logical coordinates).
+    pub origin: LogicalPosition,
+}
+
 #[derive(Debug)]
 pub struct LayoutWindow {
     /// E2E `mount` override for this window (debug-server `mount` / `unmount`).
@@ -1153,6 +1167,14 @@ pub struct LayoutWindow {
     pub hover_manager: crate::managers::hover::HoverManager,
     /// `VirtualView` manager for all nodes across all DOMs
     pub virtual_view_manager: VirtualViewManager,
+    /// `TransientWindowManager::dock_generation` at the last ROOT layout:
+    /// a differing value means the docking changed since (a drop, a
+    /// tear-off) and an identical DOM must still be laid out again.
+    pub laid_out_dock_generation: u64,
+    /// A tear-off drag of an INLINE-docked transient window running in this
+    /// (parent) window: the panel being dragged, where it was pressed, and
+    /// where its box was then (parent coordinates). Ends with the release.
+    pub inline_tear: Option<InlineTear>,
     /// Open `<transient-window>`s: which nodes are materialised as popups,
     /// and under which `DomId` each one's content is laid out. See
     /// `crate::transient`.
@@ -1648,6 +1670,8 @@ impl LayoutWindow {
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
             virtual_view_manager: VirtualViewManager::new(),
+            laid_out_dock_generation: 0,
+            inline_tear: None,
             transient_windows: crate::transient::TransientWindowManager::new(),
             pointer_capture: None,
             pending_transient_diff: crate::transient::TransientDiff::default(),
@@ -3579,6 +3603,78 @@ impl LayoutWindow {
         Some(closed)
     }
 
+    /// Has the docking of inline transient windows changed since the root
+    /// dom was last laid out? The layout fast path (identical DOM -> keep
+    /// the retained layout) must not skip a pass that has to re-graft.
+    #[must_use]
+    pub fn transient_docks_changed(&self) -> bool {
+        self.transient_windows.dock_generation() != self.laid_out_dock_generation
+    }
+
+    /// The inline-docked `<transient-window>` that `node` (a pressed drag
+    /// region) belongs to, walking up the DOM: the panel a grip drag tears
+    /// off. `None` if the press was not inside an inline-docked panel.
+    #[must_use]
+    pub fn inline_docked_panel_of(&self, node: NodeId) -> Option<NodeId> {
+        use azul_core::dom::NodeType;
+        let root = self.layout_results.get(&DomId::ROOT_ID)?;
+        let nodes = root.styled_dom.node_data.as_container();
+        let hierarchy = root.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node);
+        for _ in 0..256 {
+            let n = current?;
+            if matches!(nodes.get(n).map(azul_core::dom::NodeData::get_node_type), Some(NodeType::TransientWindow(_))) {
+                let inline = self
+                    .transient_windows
+                    .open_windows()
+                    .iter()
+                    .any(|w| w.source_node == n && w.is_inline());
+                return inline.then_some(n);
+            }
+            current = hierarchy.get(n).and_then(|h| h.parent_id());
+        }
+        None
+    }
+
+    /// A grip inside an inline-docked panel was pressed and dragged past the
+    /// threshold: remember the panel, the press and where its box was.
+    pub fn begin_inline_tear(&mut self, panel: NodeId, press: LogicalPosition) -> bool {
+        let Some(origin) = self
+            .get_node_rect_in_viewport(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(panel)),
+            })
+            .map(|r| r.origin)
+        else {
+            return false;
+        };
+        self.inline_tear = Some(InlineTear { node: panel, press, origin });
+        true
+    }
+
+    /// The inline tear-off drag ended with the pointer at `cursor`: the
+    /// panel is dropped where it would be had it followed the pointer
+    /// (its box moved by the drag's delta). Same decision as a window drop:
+    /// its own container -> nothing, another zone -> grafted there, the
+    /// open -> torn off into a toplevel there. Returns whether anything changed.
+    pub fn end_inline_tear(&mut self, cursor: LogicalPosition) -> bool {
+        let Some(tear) = self.inline_tear.take() else {
+            return false;
+        };
+        let origin = LogicalPosition::new(
+            tear.origin.x + (cursor.x - tear.press.x),
+            tear.origin.y + (cursor.y - tear.press.y),
+        );
+        // Torn off, the panel keeps the size it has inline right now.
+        if let Some(rect) = self.get_node_rect_in_viewport(DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(tear.node)),
+        }) {
+            self.transient_windows.set_content_size(tear.node, rect.size);
+        }
+        self.drop_transient_window(tear.node, origin, cursor)
+    }
+
     /// The user's tear-off drag of the window at `source_node` ended with the
     /// window's top-left at `window_origin` and the pointer at `cursor`, both
     /// in this (parent) window's logical coordinates. Decides what that means
@@ -3654,6 +3750,12 @@ impl LayoutWindow {
     }
 
     fn apply_transient_drop(&mut self, source_node: NodeId, drop: crate::transient::TearDrop) -> bool {
+        let zone_before = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == source_node)
+            .and_then(|w| w.anchor_override);
         let Some((diff, changed)) = self.transient_windows.apply_drop(source_node, drop) else {
             return false;
         };
@@ -3669,7 +3771,10 @@ impl LayoutWindow {
         else {
             return changed;
         };
-        if changed {
+        // The node hears about a change of KIND (torn <-> docked) and about a
+        // change of ZONE (dropped onto another dock area): both are "docked".
+        let zone_changed = w.torn.is_none() && w.anchor_override != zone_before;
+        if changed || zone_changed {
             let bounds = match w.torn {
                 Some(origin) => LogicalRect::new(origin, w.content_size),
                 None => w.placement.anchor_rect,
@@ -4193,30 +4298,63 @@ impl LayoutWindow {
                 _ => Vec::new(),
             };
 
+        // Inline-docked `<transient-window>`s: which nodes lay out inline and
+        // onto which zone each is grafted, for this pass (the ROOT dom hangs
+        // them; a child dom's set is empty). Recorded so the fast path knows
+        // what docking the retained layout reflects.
+        let docks = if dom_id == DomId::ROOT_ID {
+            if self.transient_docks_changed() && self.layout_cache.tree.is_some() {
+                // A panel moved between zones / was torn off / docked: the
+                // layout TREE's structure changed under an unchanged DOM.
+                // The incremental reconcile keys everything by DOM id and
+                // keeps the moved subtree's children as "clean", which
+                // leaves them stacked at their old relative offsets. A dock
+                // change is a rare, user-driven event: lay the root out
+                // cold this once (the shaping cache is separate and kept).
+                let build_seq = self.layout_cache.build_seq;
+                self.layout_cache = solver3::cache::LayoutCache::default();
+                self.layout_cache.build_seq = build_seq;
+            }
+            self.laid_out_dock_generation = self.transient_windows.dock_generation();
+            self.transient_windows.layout_docks()
+        } else {
+            crate::transient::TransientDocks::default()
+        };
         let mut display_list = {
             let _p = crate::probe::Probe::span("solver3_layout_document");
-            solver3::layout_document(
-                &mut self.layout_cache,
-                &mut self.text_cache,
-                &styled_dom,
-                viewport,
-                &self.font_manager,
-                &scroll_offsets,
-                &text_selections_map,
-                debug_messages,
-                Some(&gpu_cache),
-                &self.renderer_resources,
-                self.id_namespace,
-                dom_id,
-                cursor_is_visible,
-                cursor_locations,
-                self.text_edit_manager.preedit_text.clone(),
-                &self.image_cache,
-                Some(&self.content_overlay),
-                self.system_style.clone(),
-                system_callbacks.get_system_time_fn,
-                &css_dirty_for_this_pass,
-            )?
+            let layout_cache = &mut self.layout_cache;
+            let text_cache = &mut self.text_cache;
+            let font_manager = &self.font_manager;
+            let renderer_resources = &self.renderer_resources;
+            let image_cache = &self.image_cache;
+            let content_overlay = &self.content_overlay;
+            let system_style = self.system_style.clone();
+            let preedit = self.text_edit_manager.preedit_text.clone();
+            let id_namespace = self.id_namespace;
+            solver3::layout_tree::with_transient_docks(docks, || {
+                solver3::layout_document(
+                    layout_cache,
+                    text_cache,
+                    &styled_dom,
+                    viewport,
+                    font_manager,
+                    &scroll_offsets,
+                    &text_selections_map,
+                    debug_messages,
+                    Some(&gpu_cache),
+                    renderer_resources,
+                    id_namespace,
+                    dom_id,
+                    cursor_is_visible,
+                    cursor_locations,
+                    preedit,
+                    image_cache,
+                    Some(content_overlay),
+                    system_style,
+                    system_callbacks.get_system_time_fn,
+                    &css_dirty_for_this_pass,
+                )
+            })?
         };
 
         // Hint the allocator to return freed pages after the layout pass
@@ -14951,6 +15089,8 @@ impl LayoutWindow {
             hover_manager,
             virtual_view_manager,
             transient_windows,
+            laid_out_dock_generation: _,
+            inline_tear,
             gpu_state_manager,
             text_input_manager,
             undo_redo_manager,
@@ -15169,6 +15309,15 @@ impl LayoutWindow {
             })
             .collect();
 
+        // An inline tear-off drag follows its panel; an unmounted panel ends it.
+        if dom == DomId::ROOT_ID {
+            if let Some(tear) = inline_tear.as_mut() {
+                match map.resolve(tear.node) {
+                    Some(n) => tear.node = n,
+                    None => *inline_tear = None,
+                }
+            }
+        }
         // A pointer capture follows its node; an unmounted node releases it.
         if let Some(captured) = *pointer_capture {
             if captured.dom == dom {

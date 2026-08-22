@@ -110,6 +110,35 @@ impl TransientTearoff {
     }
 }
 
+/// Where a transient window lives while it is NOT torn off.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum TransientDock {
+    /// A popup window anchored to an edge of its parent (or of the drop
+    /// zone it was dropped on). The default: menus, pickers, tooltips.
+    #[default]
+    Popup,
+    /// Laid out INLINE as ordinary content of its parent - or of the drop
+    /// zone it was dropped on, where it then scrolls, clips and reflows
+    /// with that zone's layout. The Visual-Studio tool-window model: drag
+    /// the grip out to float it (`tearoff`), drop it on another zone to move
+    /// it there, and the app's DOM never changes - the engine re-parents
+    /// the subtree in the layout tree.
+    Inline,
+}
+
+impl TransientDock {
+    /// `"inline"` -> `Inline`, anything else -> `Popup`.
+    #[must_use]
+    pub fn parse(value: &str) -> Self {
+        if value.trim() == "inline" {
+            Self::Inline
+        } else {
+            Self::Popup
+        }
+    }
+}
+
 /// The inline configuration of a `NodeType::TransientWindow`.
 ///
 /// `Copy` and small on purpose: it rides inside `NodeType` the way
@@ -135,6 +164,10 @@ pub struct TransientWindowConfig {
     /// Whether the user may drag the window OUT of its anchor into a free
     /// toplevel that is still the same DOM subtree (see [`TransientTearoff`]).
     pub tearoff: TransientTearoff,
+    /// Popup at an anchor edge (the default), or inline content of its
+    /// parent / drop zone that can be torn off and dropped elsewhere
+    /// (`dock="inline"`, see [`TransientDock`]).
+    pub dock: TransientDock,
     /// The popup window's background material (`material="transparent"`):
     /// `Transparent` gives the window per-pixel alpha, and its shape follows
     /// what the content paints - rounded corners are real corners, a
@@ -164,6 +197,7 @@ impl Default for TransientWindowConfig {
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
             tearoff: TransientTearoff::None,
+            dock: TransientDock::Popup,
             material: crate::window::WindowBackgroundMaterial::Opaque,
             torn: false,
         }
@@ -180,6 +214,7 @@ impl TransientWindowConfig {
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
             tearoff: TransientTearoff::None,
+            dock: TransientDock::Popup,
             material: crate::window::WindowBackgroundMaterial::Opaque,
             torn: false,
         }
@@ -226,6 +261,12 @@ impl TransientWindowConfig {
         self.material = material;
         self
     }
+
+    #[must_use]
+    pub const fn with_dock(mut self, dock: TransientDock) -> Self {
+        self.dock = dock;
+        self
+    }
 }
 
 impl TransientWindowConfig {
@@ -255,6 +296,10 @@ impl TransientWindowConfig {
             }
             "torn" => {
                 self.torn = matches!(value.trim(), "true" | "1" | "");
+                true
+            }
+            "dock" => {
+                self.dock = TransientDock::parse(value);
                 true
             }
             "material" => {
@@ -381,6 +426,7 @@ mod tests {
         assert!(c.apply_attr("tearoff", "true"));
         assert!(c.apply_attr("torn", "true"));
         assert!(c.apply_attr("material", "transparent"));
+        assert!(c.apply_attr("dock", "inline"));
         assert!(!c.apply_attr("class", "x"), "not ours - the caller keeps it");
 
         assert!(c.open);
@@ -390,6 +436,9 @@ mod tests {
         assert_eq!(c.tearoff, TransientTearoff::Free);
         assert!(c.torn);
         assert_eq!(c.material, crate::window::WindowBackgroundMaterial::Transparent);
+        assert_eq!(c.dock, TransientDock::Inline);
+        c.apply_attr("dock", "popup");
+        assert_eq!(c.dock, TransientDock::Popup);
         c.apply_attr("material", "opaque");
         assert_eq!(c.material, crate::window::WindowBackgroundMaterial::Opaque);
         c.apply_attr("tearoff", "zone:.sidebar");

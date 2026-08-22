@@ -1014,7 +1014,11 @@ fn a_drop_on_a_zone_re_anchors_and_the_torn_attribute_is_followed() {
         "placed below the zone, slid in from the right edge: {:?}",
         m.origin
     );
-    assert!(events.lock().unwrap().is_empty(), "popup to popup: no tear-off event");
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec!["docked-on-zone"],
+        "a drop onto a zone is a dock: the node hears `Docked` with the zone readable"
+    );
     {
         let lw = parent.get_layout_window().unwrap();
         assert_eq!(lw.transient_windows.anchor_overrides().len(), 1);
@@ -1031,7 +1035,7 @@ fn a_drop_on_a_zone_re_anchors_and_the_torn_attribute_is_followed() {
     let top_opts = take_queued_popup(&mut parent);
     assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal);
     assert_eq!(top_opts.window_state.title.as_str(), "Tools");
-    assert_eq!(*events.lock().unwrap(), vec!["torn-off"]);
+    assert_eq!(*events.lock().unwrap(), vec!["docked-on-zone", "torn-off"]);
 
     // 3. The app sets `torn="false"`: docked (onto the zone it last had).
     set_torn_attr(&parent, true); // matches reality first: no change...
@@ -1045,7 +1049,7 @@ fn a_drop_on_a_zone_re_anchors_and_the_torn_attribute_is_followed() {
     assert!((mailbox(&docked.window_state).placement.anchor_rect.origin.x - 680.0).abs() < 1.0, "still the zone");
     assert_eq!(
         *events.lock().unwrap(),
-        vec!["torn-off", "docked-on-zone"],
+        vec!["docked-on-zone", "torn-off", "docked-on-zone"],
         "the Docked handler can read which zone it landed on"
     );
 }
@@ -1349,4 +1353,197 @@ fn a_clip_mask_on_the_node_is_the_popups_shape() {
     assert_eq!(alpha_at(w - 10, h / 2), 0, "outside the mask: nothing");
     let shape = popup.cpu_backend.last_shape.clone().expect("shape");
     assert!(shape.iter().all(|r| r.x + r.width <= w / 2 + 1), "the shape stops at the mask's edge: {shape:?}");
+}
+
+// ---------------------------------------------------------------------------
+// dock="inline": a panel that is CONTENT of its zone, torn off and re-docked
+// ---------------------------------------------------------------------------
+
+/// A workspace: a home column holding the panel, two dock zones, all three
+/// matching `.dock`. The panel is `dock="inline" tearoff="zone:.dock"`.
+extern "C" fn workspace_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+    use azul_core::dom::{AttributeNameValue, AttributeType, IdOrClass::Class};
+    let (open, torn) = data
+        .downcast_ref::<TearState>()
+        .map_or((true, false), |s| (s.open, s.torn_attr));
+    let cfg = if open { TransientWindowConfig::opened() } else { TransientWindowConfig::closed() }
+        .with_tearoff(TransientTearoff::Zone)
+        .with_dock(azul_core::transient::TransientDock::Inline)
+        .with_torn(torn);
+    let mut node = NodeData::create_node(NodeType::TransientWindow(cfg));
+    node.set_attributes(
+        vec![
+            AttributeType::Title("Tools".into()),
+            AttributeType::Custom(AttributeNameValue { attr_name: "tearoff-zone".into(), value: ".dock".into() }),
+        ]
+        .into(),
+    );
+    node.add_callback(
+        EventFilter::Component(ComponentEventFilter::TornOff),
+        data.clone(),
+        Callback { cb: on_torn_off, ctx: azul_core::refany::OptionRefAny::None }.to_core(),
+    );
+    node.add_callback(
+        EventFilter::Component(ComponentEventFilter::Docked),
+        data.clone(),
+        Callback { cb: on_docked, ctx: azul_core::refany::OptionRefAny::None }.to_core(),
+    );
+    let panel = Dom::create_from_data(node)
+        .with_ids_and_classes(vec![Class("panel".into())].into())
+        .with_css("width: 100%; height: 120px; background: #dde;".into())
+        .with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![Class("grip".into())].into())
+                .with_css("height: 16px; background: #99a; -azul-app-region: drag;".into()),
+        )
+        .with_child(Dom::create_div().with_css("height: 100px;".into()));
+    let column = |left: f32, class: &str, child: Option<Dom>| {
+        let mut d = Dom::create_div()
+            .with_ids_and_classes(vec![Class("dock".into()), Class(class.into())].into())
+            .with_css(&format!(
+                "position: absolute; left: {left}px; top: 20px; width: 200px; height: 500px; background: #eee;"
+            ));
+        if let Some(c) = child {
+            d = d.with_child(c);
+        }
+        d
+    };
+    Dom::create_body()
+        .with_child(column(0.0, "home", Some(panel)))
+        .with_child(column(300.0, "zone-b", None))
+        .with_child(column(600.0, "zone-c", None))
+}
+
+fn rect_of(window: &HeadlessWindow, class: &str) -> Option<azul_core::geom::LogicalRect> {
+    let lw = window.get_layout_window().unwrap();
+    let root = lw.layout_results.get(&DomId::ROOT_ID).unwrap();
+    let nodes = root.styled_dom.node_data.as_container();
+    let n = nodes
+        .linear_iter()
+        .find(|n| nodes.get(*n).is_some_and(|nd| format!("{:?}", nd.get_ids_and_classes()).contains(&format!("\"{class}\""))))?;
+    lw.get_node_layout_rect(azul_core::dom::DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+    })
+}
+
+fn inside(inner: azul_core::geom::LogicalRect, outer: azul_core::geom::LogicalRect) -> bool {
+    inner.origin.x >= outer.origin.x - 0.5
+        && inner.origin.y >= outer.origin.y - 0.5
+        && inner.max_x() <= outer.max_x() + 0.5
+        && inner.max_y() <= outer.max_y() + 0.5
+}
+
+/// `dock="inline"`: the panel is laid out as content of its column on the
+/// very first frame (no popup window); dragging its grip into the open
+/// tears it off into a toplevel and removes it from the flow; dragging
+/// the toplevel's grip onto zone B docks it INLINE in B (grafted - the
+/// app's DOM still has it under the home column); dragging its grip from
+/// B to C moves it to C; each dock fires `Docked`.
+#[test]
+fn an_inline_docked_panel_is_content_of_its_zone_and_moves_between_zones() {
+    use azul_core::window::WindowType;
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let app_data = Arc::new(RefCell::new(RefAny::new(TearState {
+        open: true,
+        torn_attr: false,
+        tearoff: TransientTearoff::Zone,
+        events: events.clone(),
+    })));
+    let mut options = WindowCreateOptions::default();
+    options.window_state.size.dimensions = LogicalSize { width: 900.0, height: 600.0 };
+    let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = workspace_layout;
+    options.window_state.layout_callback = LayoutCallback::create(cb);
+    let mut parent = headless(options, app_data.clone());
+    parent.regenerate_layout().expect("layout");
+
+    // 1. Inline at home, first frame, nothing queued.
+    let home = rect_of(&parent, "home").expect("home column");
+    let zone_b = rect_of(&parent, "zone-b").expect("zone b");
+    let zone_c = rect_of(&parent, "zone-c").expect("zone c");
+    let panel = rect_of(&parent, "panel").expect("the panel is laid out on the first frame");
+    assert!(inside(panel, home), "inline in its home column: {panel:?} in {home:?}");
+    assert!((panel.size.width - 200.0).abs() < 1.0, "fills the column: {panel:?}");
+    assert!(parent.pending_window_creates.is_empty(), "no popup for an inline panel");
+    assert_eq!(parent.get_layout_window().unwrap().transient_windows.open_windows().len(), 1);
+    assert!(parent.get_layout_window().unwrap().transient_windows.open_windows()[0].is_inline());
+
+    // 2. Drag the grip into the open (between the columns, below them).
+    let grip = rect_of(&parent, "grip").expect("grip");
+    let grip_mid = LogicalPosition::new(grip.origin.x + 100.0, grip.origin.y + 8.0);
+    drag_by(&mut parent, grip_mid, LogicalPosition::new(150.0, 540.0)); // to (250, 568): no zone there
+    assert!(parent.get_layout_window().unwrap().inline_tear.is_none(), "the drag ended");
+    parent.regenerate_layout().expect("re-layout after the drop");
+    let top_opts = take_queued_popup(&mut parent);
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal, "torn off into a toplevel");
+    assert_eq!(top_opts.window_state.title.as_str(), "Tools");
+    assert!(rect_of(&parent, "panel").is_none(), "torn off: no longer in the parent's flow");
+    assert_eq!(*events.lock().unwrap(), vec!["torn-off"]);
+    let top_origin = mailbox(&top_opts.window_state).origin;
+    assert!(
+        (top_origin.x - (home.origin.x + 150.0)).abs() < 1.0 && (top_origin.y - (panel.origin.y + 540.0)).abs() < 1.0,
+        "the toplevel opens where the panel's box was dragged to: {top_origin:?}"
+    );
+
+    // 3. The toplevel's grip dragged onto zone B: docked INLINE in B.
+    let mut top = headless(top_opts.clone(), app_data.clone());
+    top.regenerate_layout().expect("toplevel layout");
+    let tgrip = rect_of(&top, "grip").expect("grip in the toplevel");
+    let tgrip_mid = LogicalPosition::new(tgrip.origin.x + 100.0, tgrip.origin.y + 8.0);
+    let pointer_now = LogicalPosition::new(top_origin.x + tgrip_mid.x, top_origin.y + tgrip_mid.y);
+    let b_centre = LogicalPosition::new(zone_b.origin.x + 100.0, zone_b.origin.y + 250.0);
+    drag_by(&mut top, tgrip_mid, LogicalPosition::new(b_centre.x - pointer_now.x, b_centre.y - pointer_now.y));
+    assert!(mailbox(&top_opts.window_state).drop.is_some(), "the drop was reported");
+    relayout(&mut parent);
+    assert!(mailbox(&top_opts.window_state).closed, "the toplevel closes");
+    assert!(parent.pending_window_creates.is_empty(), "no popup: inline again");
+    let panel = rect_of(&parent, "panel").expect("back in the flow");
+    assert!(inside(panel, zone_b), "grafted into zone B: {panel:?} in {zone_b:?}");
+    assert!(!inside(panel, home), "and not at home");
+    assert_eq!(*events.lock().unwrap(), vec!["torn-off", "docked-on-zone"]);
+    {
+        let lw = parent.get_layout_window().unwrap();
+        let w = &lw.transient_windows.open_windows()[0];
+        assert!(w.is_inline() && w.anchor_override.is_some());
+    }
+
+    // 3b. Content, not a popup: a press elsewhere in the parent and Escape
+    //     dismiss nothing (the demo lost its panel to the first press).
+    click_at(&mut parent, LogicalPosition::new(100.0, 400.0));
+    parent.snapshot_window_state_baseline("t.escape");
+    parent.common.keyboard_state_mut().pressed_virtual_keycodes = vec![VirtualKeyCode::Escape].into();
+    let _ = parent.process_window_events(0);
+    parent.snapshot_window_state_baseline("t.escape_up");
+    parent.common.keyboard_state_mut().pressed_virtual_keycodes = vec![].into();
+    let _ = parent.process_window_events(0);
+    parent.regenerate_layout().expect("re-layout");
+    let panel = rect_of(&parent, "panel").expect("an inline panel is not light-dismissed");
+    assert!(inside(panel, zone_b), "still in B after a press + Escape in the parent");
+
+    // 4. From B to C, inline to inline: grafted into C, `Docked` again.
+    let grip = rect_of(&parent, "grip").expect("grip in B");
+    let grip_mid = LogicalPosition::new(grip.origin.x + 100.0, grip.origin.y + 8.0);
+    let c_centre = LogicalPosition::new(zone_c.origin.x + 100.0, zone_c.origin.y + 250.0);
+    drag_by(&mut parent, grip_mid, LogicalPosition::new(c_centre.x - grip_mid.x, c_centre.y - grip_mid.y));
+    parent.regenerate_layout().expect("re-layout after the move");
+    let panel = rect_of(&parent, "panel").expect("still inline");
+    assert!(inside(panel, zone_c), "moved to zone C: {panel:?} in {zone_c:?}");
+    assert!(parent.pending_window_creates.is_empty());
+    assert_eq!(*events.lock().unwrap(), vec!["torn-off", "docked-on-zone", "docked-on-zone"]);
+
+    // 5. A drag released inside its own zone changes nothing.
+    let grip = rect_of(&parent, "grip").expect("grip in C");
+    let grip_mid = LogicalPosition::new(grip.origin.x + 100.0, grip.origin.y + 8.0);
+    drag_by(&mut parent, grip_mid, LogicalPosition::new(0.0, 200.0));
+    parent.regenerate_layout().expect("re-layout");
+    let panel2 = rect_of(&parent, "panel").expect("still inline");
+    assert_eq!(panel2, panel, "a drop inside the same zone is a no-op");
+    assert_eq!(events.lock().unwrap().len(), 3);
+
+    // 6. An identical rebuild keeps the graft (the fast path must not
+    //    forget it): still in C after a RefreshDom with no DOM change.
+    relayout(&mut parent);
+    relayout(&mut parent);
+    let panel3 = rect_of(&parent, "panel").expect("still inline");
+    assert!(inside(panel3, zone_c), "the graft survives identical rebuilds");
 }

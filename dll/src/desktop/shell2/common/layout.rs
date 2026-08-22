@@ -494,7 +494,11 @@ phases.mark("after_callback");
             .map(|n| &n.styled_node_state)
             .ne(states_before.iter());
 
-        if !window_size_changed_precheck && !states_changed {
+        // An identical DOM whose inline docking changed (a panel dropped on
+        // another zone, torn off, docked back) still has to re-graft: the
+        // retained layout reflects the OLD docking.
+        let docks_changed = layout_window.transient_docks_changed();
+        if !window_size_changed_precheck && !states_changed && !docks_changed {
             // Put the retained result back untouched.
             old_result.styled_dom = retained;
             layout_window

@@ -3021,7 +3021,14 @@ pub trait PlatformWindow {
             // Popups first: a dismissal queues its `Dismissed` lifecycle event,
             // which the drain below then delivers in this same call.
             self.sync_transient_windows();
-            if !self.dispatch_pending_lifecycle_events() {
+            // An inline-docked panel dropped onto another zone (or torn off /
+            // docked back) re-grafts the layout tree: that is a layout change
+            // of its own, whether or not its `Docked` handler asked for one.
+            let docks_changed = self
+                .get_layout_window()
+                .is_some_and(|lw| lw.transient_docks_changed());
+            let lifecycle_wants_pass = self.dispatch_pending_lifecycle_events();
+            if !lifecycle_wants_pass && !docks_changed {
                 self.refill_a11y_tree_after_regeneration();
                 self.flush_a11y_tree_update();
                 _span.note(format_args!(
@@ -6365,12 +6372,9 @@ pub trait PlatformWindow {
     fn drag_source_node(&mut self) -> Option<azul_core::dom::DomNodeId> {
         let start = self.drag_press_position()?;
         let hit = self.get_common_mut().perform_hit_test(start);
-        hit.hovered_nodes.iter().rev().find_map(|(dom, h)| {
-            h.regular_hit_test_nodes.keys().last().map(|n| azul_core::dom::DomNodeId {
-                dom: *dom,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(*n)),
-            })
-        })
+        // The front-most hit (by hit depth, not by NodeId: a grafted
+        // inline-docked panel sits under a zone with a higher id).
+        azul_layout::managers::hover::deepest_node_across_doms(&hit)
     }
 
     /// Where the current drag gesture was pressed (window-local).
@@ -6466,6 +6470,36 @@ pub trait PlatformWindow {
         // window manager to hand the gesture to.
         for ev in events {
             use azul_core::events::EventType;
+            // An INLINE-docked panel's grip being dragged in this (parent)
+            // window: the panel has no window to move, so the drag only
+            // decides on release - same container: nothing; another zone:
+            // grafted there; the open: torn off into a toplevel there.
+            let inline_tear_active = self.get_layout_window().is_some_and(|lw| lw.inline_tear.is_some());
+            if inline_tear_active {
+                match ev.event_type {
+                    EventType::Drag => continue,
+                    EventType::DragEnd => {
+                        let cursor = self
+                            .get_current_window_state()
+                            .mouse_state
+                            .cursor_position
+                            .get_position()
+                            .unwrap_or(azul_core::geom::LogicalPosition::zero());
+                        let changed = self
+                            .get_layout_window_mut()
+                            .is_some_and(|lw| lw.end_inline_tear(cursor));
+                        if changed {
+                            log_debug!(
+                                super::debug_server::LogCategory::Window,
+                                "[transient] inline panel dropped at {cursor:?}: re-laying out"
+                            );
+                            self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
             match ev.event_type {
                 EventType::Drag if super::transient::tear_drag_active(self.get_current_window_state()) => {
                     let follows = self.window_follows_position_changes();
@@ -6525,6 +6559,25 @@ pub trait PlatformWindow {
                 }
                 if super::transient::mailbox_of(self.get_current_window_state()).is_some() {
                     continue; // a popup without tearoff: the strip does nothing
+                }
+                // A grip inside an inline-docked panel: tear THAT off, not
+                // the window it is docked in.
+                let panel = target
+                    .node
+                    .into_crate_internal()
+                    .filter(|_| target.dom == azul_core::dom::DomId::ROOT_ID)
+                    .and_then(|n| self.get_layout_window().and_then(|lw| lw.inline_docked_panel_of(n)));
+                if let (Some(panel), Some(press)) = (panel, press) {
+                    let began = self
+                        .get_layout_window_mut()
+                        .is_some_and(|lw| lw.begin_inline_tear(panel, press));
+                    if began {
+                        log_debug!(
+                            super::debug_server::LogCategory::Window,
+                            "[transient] inline panel {panel:?} tear-off drag begins"
+                        );
+                        continue;
+                    }
                 }
                 self.handle_begin_interactive_move();
             } else {

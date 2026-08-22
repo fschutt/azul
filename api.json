@@ -6259,6 +6259,9 @@
                                 "tearoff": {
                                     "type": "TransientTearoff"
                                 },
+                                "dock": {
+                                    "type": "TransientDock"
+                                },
                                 "material": {
                                     "type": "WindowBackgroundMaterial"
                                 },
@@ -6370,6 +6373,20 @@
                                     "type": "TransientWindowConfig"
                                 },
                                 "fn_body": "object.with_material(material)"
+                            },
+                            "with_dock": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "dock": "TransientDock"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TransientWindowConfig"
+                                },
+                                "fn_body": "object.with_dock(dock)"
                             },
                             "apply_attr": {
                                 "doc": [
@@ -13379,9 +13396,9 @@
                             "get_transient_window_zone": {
                                 "doc": [
                                     "The drop zone the `tearoff=\"zone:...\"` window at `node` is docked onto, if any: the node",
-                                    "matching the zone selector the user last dropped it on. `None` while it hangs off its own",
-                                    "parent (or is torn off / not open). Read it in a `Docked` handler to move the panel's content",
-                                    "into that zone on the next layout - the app-side way to recombine torn-off panels."
+                                    "matching the zone selector the user last dropped it on. `None` while it sits in its own parent",
+                                    "(or is torn off / not open). Informational: with `dock=\"inline\"` the engine already lays the",
+                                    "panel out inside that zone; read it in a `Docked` handler to persist a workspace layout."
                                 ],
                                 "fn_args": [
                                     {
@@ -46610,13 +46627,13 @@
                     },
                     "StyleAppRegionValue": {
                         "external": "azul_css::props::property::StyleAppRegionValue",
+                        "repr": "C",
                         "type_alias": {
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "StyleAppRegion"
                             ]
-                        },
-                        "repr": "C"
+                        }
                     },
                     "StyleAppRegion": {
                         "external": "azul_css::props::style::transform::StyleAppRegion",
@@ -113611,6 +113628,27 @@
                                 "None": {},
                                 "Free": {},
                                 "Zone": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TransientDock": {
+                        "external": "azul_core::transient::TransientDock",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Popup": {},
+                                "Inline": {}
                             }
                         ],
                         "repr": "C"

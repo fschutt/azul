@@ -484,6 +484,12 @@ pub fn sync_parent(
     let root = lw.layout_results.get(&DomId::ROOT_ID).map(|r| r.styled_dom.clone());
     let open: Vec<OpenTransientWindow> = lw.transient_windows.open_windows().to_vec();
     for w in open {
+        if w.is_inline() {
+            // Inline content of its parent / zone: laid out by the parent's
+            // own pass, no surface of its own. (Its torn-off form is a
+            // toplevel like any other, created below once `torn` is set.)
+            continue;
+        }
         let Some(styled) = root.as_ref() else { break };
         let Some(content) = azul_core::transient::extract_subtree_as_dom(styled, w.source_node)
         else {
@@ -847,6 +853,7 @@ pub fn dismiss_on_escape(
         .transient_windows
         .open_windows()
         .iter()
+        .filter(|w| !w.is_inline() && w.torn.is_none())
         .filter(|w| w.placement.dismiss != TransientDismiss::None)
         .map(|w| w.source_node)
         .collect();
@@ -898,6 +905,10 @@ pub fn dismiss_outside_on_press(
         .transient_windows
         .open_windows()
         .iter()
+        // Light-dismiss is a POPUP's behaviour: an inline-docked panel is
+        // content, a torn-off palette is a window of its own - a press in
+        // the parent is not "outside" either.
+        .filter(|w| !w.is_inline() && w.torn.is_none())
         .filter(|w| w.placement.dismiss == TransientDismiss::Outside && !on_anchor(w))
         .map(|w| w.source_node)
         .collect();

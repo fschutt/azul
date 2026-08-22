@@ -21,7 +21,7 @@ use azul_core::{
     id::NodeId,
     refany::OptionRefAny,
     styled_dom::StyledDom,
-    transient::{TransientAnchor, TransientDismiss, TransientTearoff, TransientWindowConfig},
+    transient::{TransientAnchor, TransientDismiss, TransientDock, TransientTearoff, TransientWindowConfig},
 };
 
 /// Everything a backend needs to materialise one open transient window.
@@ -54,6 +54,8 @@ pub struct TransientPlacement {
     /// The popup window's background material (a clip mask on the node
     /// implies `Transparent`, see `collect_open_transient_windows`).
     pub material: azul_core::window::WindowBackgroundMaterial,
+    /// Popup at the anchor, or inline content of it (`dock="inline"`).
+    pub dock: TransientDock,
 }
 
 impl TransientPlacement {
@@ -191,6 +193,7 @@ pub const fn placement_for(node: NodeId, anchor_rect: LogicalRect, cfg: &Transie
         tearoff: cfg.tearoff,
         torn: cfg.torn,
         material: cfg.material,
+        dock: cfg.dock,
     }
 }
 
@@ -339,6 +342,7 @@ mod tests {
             tearoff: TransientTearoff::None,
             torn: false,
             material: azul_core::window::WindowBackgroundMaterial::Opaque,
+            dock: TransientDock::Popup,
         };
         let size = LogicalSize::new(200.0, 150.0);
         let bounds = rect(0.0, 0.0, 800.0, 600.0);
@@ -374,6 +378,7 @@ mod tests {
             tearoff: TransientTearoff::None,
             torn: false,
             material: azul_core::window::WindowBackgroundMaterial::Opaque,
+            dock: TransientDock::Popup,
         };
         let popup = LogicalSize::new(300.0, 150.0);
 
@@ -445,6 +450,72 @@ pub struct OpenTransientWindow {
     pub attr_torn: bool,
 }
 
+impl OpenTransientWindow {
+    /// Laid out INLINE (`dock="inline"`, not torn off): no surface of its
+    /// own; the subtree is content of its parent or of the zone it was
+    /// dropped on (see [`TransientDocks`]).
+    #[must_use]
+    pub fn is_inline(&self) -> bool {
+        self.placement.dock == TransientDock::Inline && self.torn.is_none()
+    }
+}
+
+/// The docking state of one layout pass: which `<transient-window
+/// dock="inline">` nodes are laid out inline, and onto which zone each is
+/// grafted. Built by [`TransientWindowManager::layout_docks`] and handed to
+/// the layout-tree builder for the duration of the pass
+/// (`solver3::layout_tree::with_transient_docks`).
+///
+/// A node the manager does not know yet (its first layout, before the
+/// reconcile that opens it) falls back to its config: inline if the config
+/// says `dock="inline"`, `open`, and not `torn` - so a freshly mounted panel
+/// is inline on its very first frame instead of one frame late.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TransientDocks {
+    /// Inline nodes -> the zone they are grafted onto (`None` = laid out in
+    /// place, as a child of their own DOM parent).
+    pub inline: alloc::collections::BTreeMap<NodeId, Option<NodeId>>,
+    /// Every transient node the manager has an opinion about (open ones).
+    /// A node not in here is judged by its config alone.
+    pub known: alloc::collections::BTreeSet<NodeId>,
+}
+
+impl TransientDocks {
+    /// Is `node` (whose config is `cfg`) laid out inline this pass?
+    #[must_use]
+    pub fn is_inline(&self, node: NodeId, cfg: &TransientWindowConfig) -> bool {
+        if self.known.contains(&node) {
+            self.inline.contains_key(&node)
+        } else {
+            cfg.dock == TransientDock::Inline && cfg.open && !cfg.torn
+        }
+    }
+
+    /// Is `node` an inline transient node grafted onto a zone OTHER than
+    /// `parent` (its DOM parent) - i.e. must `parent` skip it?
+    #[must_use]
+    pub fn moved_away_from(&self, node: NodeId, parent: NodeId) -> bool {
+        matches!(self.inline.get(&node), Some(Some(zone)) if *zone != parent)
+    }
+
+    /// The inline transient nodes grafted onto `zone` that are not already
+    /// its DOM children (in dom order, stable across passes).
+    pub fn grafted_onto<'a>(
+        &'a self,
+        zone: NodeId,
+        styled_dom: &'a StyledDom,
+    ) -> impl Iterator<Item = NodeId> + 'a {
+        let hierarchy = styled_dom.node_hierarchy.as_container();
+        self.inline.iter().filter_map(move |(node, z)| {
+            if *z != Some(zone) {
+                return None;
+            }
+            let dom_parent = hierarchy.get(*node).and_then(|h| h.parent_id());
+            (dom_parent != Some(zone)).then_some(*node)
+        })
+    }
+}
+
 /// Tracks the open transient windows across parent layouts.
 ///
 /// The hard part is CONTINUITY. The parent may rebuild its DOM sixty times a
@@ -478,6 +549,11 @@ pub struct TransientWindowManager {
     /// through its state and layout callback. Cleared by
     /// `set_transient_window_open(node, false)` or by a user dismissal.
     forced_open: Vec<NodeId>,
+    /// Bumped whenever the set of inline-docked nodes or their zones may
+    /// have changed (a drop, a tear-off, a window opening or closing). The
+    /// layout fast path compares it with the generation it last laid out:
+    /// an identical DOM whose docking changed must still re-layout.
+    dock_generation: u64,
 }
 
 /// What changed between two parent layouts, so the backend knows which
@@ -548,6 +624,7 @@ impl TransientWindowManager {
             dismissed: Vec::new(),
             closed_surfaces: Vec::new(),
             forced_open: Vec::new(),
+            dock_generation: 0,
         }
     }
 
@@ -582,6 +659,7 @@ impl TransientWindowManager {
             self.dismissed.push(source_node);
         }
         let i = self.open.iter().position(|w| w.source_node == source_node)?;
+        self.dock_generation += 1;
         Some(self.open.remove(i))
     }
 
@@ -670,7 +748,12 @@ impl TransientWindowManager {
                 let existing = &mut self.open[i];
                 let moved = existing.placement != *p;
                 existing.placement = *p;
-                if let Some(sz) = content_size_of(existing.content_dom, p) {
+                // A popup follows its content's measure. A torn-off toplevel
+                // keeps the size it was torn off at (its content reflows
+                // inside; a `width: 100%` panel measures to nothing on its
+                // own), and an inline panel is sized by its zone's layout.
+                let remeasure = existing.torn.is_none() && !existing.is_inline();
+                if let Some(sz) = if remeasure { content_size_of(existing.content_dom, p) } else { None } {
                     if moved || sz != existing.content_size {
                         existing.content_size = sz;
                         diff.moved.push(existing.content_dom);
@@ -719,6 +802,9 @@ impl TransientWindowManager {
             diff.opened.push(content_dom);
         }
 
+        if !diff.is_empty() {
+            self.dock_generation += 1;
+        }
         diff
     }
 
@@ -735,6 +821,35 @@ impl TransientWindowManager {
         let surface = core::mem::replace(&mut w.surface, OptionRefAny::None);
         self.closed_surfaces.push(surface);
         (old, new)
+    }
+
+    /// The size the window at `source_node` has on screen right now - set
+    /// by the engine from an INLINE panel's laid-out box before it is torn
+    /// off, so the toplevel opens at that size instead of a shrink-to-fit
+    /// measure that means nothing for a `width: 100%` panel.
+    pub fn set_content_size(&mut self, source_node: NodeId, size: LogicalSize) {
+        if let Some(w) = self.open.iter_mut().find(|w| w.source_node == source_node) {
+            w.content_size = size;
+        }
+    }
+
+    /// The docking state for the next layout pass (see [`TransientDocks`]).
+    #[must_use]
+    pub fn layout_docks(&self) -> TransientDocks {
+        let mut docks = TransientDocks::default();
+        for w in &self.open {
+            docks.known.insert(w.source_node);
+            if w.is_inline() {
+                docks.inline.insert(w.source_node, w.anchor_override);
+            }
+        }
+        docks
+    }
+
+    /// See the `dock_generation` field.
+    #[must_use]
+    pub const fn dock_generation(&self) -> u64 {
+        self.dock_generation
     }
 
     /// `(transient node, zone node)` for every window docked onto a drop
@@ -759,6 +874,7 @@ impl TransientWindowManager {
             return None;
         }
         let mut diff = TransientDiff::default();
+        self.dock_generation += 1;
         let was_torn = self.open[i].torn.is_some();
         match drop {
             TearDrop::TearOff(origin) => {
@@ -798,6 +914,7 @@ impl TransientWindowManager {
 
     /// Close everything — the parent window is going away.
     pub fn close_all(&mut self) -> Vec<DomId> {
+        self.dock_generation += 1;
         core::mem::take(&mut self.open)
             .into_iter()
             .map(|w| {
@@ -856,6 +973,7 @@ mod manager_tests {
             tearoff: TransientTearoff::None,
             torn: false,
             material: azul_core::window::WindowBackgroundMaterial::Opaque,
+            dock: TransientDock::Popup,
         }
     }
     fn sized(_: DomId, _: &TransientPlacement) -> Option<LogicalSize> {

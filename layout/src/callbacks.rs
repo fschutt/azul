@@ -2262,11 +2262,10 @@ impl CallbackInfo {
 
     /// The drop zone the `tearoff="zone:..."` window at `node` is docked
     /// onto, if any - the node matching the zone selector that the user
-    /// last dropped it on. `None` while it hangs off its own parent (or is
-    /// torn off / not open). Read it in a `Docked` handler to move the
-    /// panel's content INTO that zone on the next layout and close the
-    /// window: the app-side way to recombine torn-off panels into a new
-    /// layout (see the plan's docking notes).
+    /// last dropped it on. `None` while it sits in its own parent (or is
+    /// torn off / not open). Informational: with `dock="inline"` the engine
+    /// already lays the panel out inside that zone; an app reads this in a
+    /// `Docked` handler to persist its workspace layout.
     #[must_use]
     pub fn get_transient_window_zone(&self, node: DomNodeId) -> azul_core::dom::OptionDomNodeId {
         let Some(n) = node.node.into_crate_internal() else {

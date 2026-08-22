@@ -2046,7 +2046,7 @@ impl LayoutTreeBuilder {
             }
             // Process children as if they belong to the parent (or root if no parent)
             let effective_parent = parent_idx.unwrap_or(node_idx);
-            for child_dom_id in dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+            for child_dom_id in layout_children(styled_dom, dom_id) {
                 self.process_node(styled_dom, child_dom_id, Some(effective_parent), debug_messages)?;
             }
             return Ok(node_idx);
@@ -2081,7 +2081,7 @@ impl LayoutTreeBuilder {
             LayoutDisplay::TableColumnGroup => {
                 // CSS 2.2 §17.2.1: "If a child C of a 'table-column-group' parent is not
                 // a 'table-column' box, then it is treated as if it had 'display: none'."
-                for child_dom_id in dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+                for child_dom_id in layout_children(styled_dom, dom_id) {
                     let child_display = get_display_type(styled_dom, child_dom_id);
                     if child_display == LayoutDisplay::TableColumn {
                         self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
@@ -2100,8 +2100,8 @@ impl LayoutTreeBuilder {
                 // +spec:display-property:d1600a - display:none suppresses box generation; visibility:hidden boxes still affect layout
                 // ALSO filter out whitespace-only text nodes for Flex/Grid/etc containers
                 // to prevent them from becoming unwanted anonymous items.
-                let children: Vec<NodeId> = dom_id
-                    .az_children(&styled_dom.node_hierarchy.as_container())
+                let children: Vec<NodeId> = layout_children(styled_dom, dom_id)
+                    .into_iter()
                     // +spec:display-property:9f02c6 - display:none elements generate no boxes
                     .filter(|&child_id| {
                         // +spec:display-property:3b507e - display:none excludes subtree from box tree
@@ -2171,8 +2171,8 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         // Filter out display: none children - they don't participate in layout
-        let children: Vec<NodeId> = parent_dom_id
-            .az_children(&styled_dom.node_hierarchy.as_container())
+        let children: Vec<NodeId> = layout_children(styled_dom, parent_dom_id)
+            .into_iter()
             .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
             .collect();
 
@@ -2269,7 +2269,7 @@ impl LayoutTreeBuilder {
         let parent_display = get_display_type(styled_dom, parent_dom_id);
         let mut non_matching_children = Vec::new();
 
-        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+        for child_id in layout_children(styled_dom, parent_dom_id) {
             if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
                 continue;
             }
@@ -3885,23 +3885,96 @@ const fn is_proper_table_child(display: LayoutDisplay) -> bool {
 #[must_use] pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     use crate::solver3::getters::get_display_property;
 
-    // A `<transient-window>` never takes part in its PARENT's layout, open or
-    // closed. Closed, it is nothing. Open, its subtree is laid out as the root
-    // of its OWN window (see `transient::collect_open_transient_windows`) —
-    // putting it in the parent's flow as well would render the popup's content
-    // twice: once inline, once in the popup. `display: none` here is the one
-    // choke point every child-collection in this file already honours, which
-    // is why it is done here and not in each of them.
-    if styled_dom
+    // A `<transient-window>` takes part in its PARENT's layout only while it
+    // is docked INLINE (`dock="inline"`, not torn off - see
+    // `transient::TransientDocks`). Otherwise it is nothing here: closed, it
+    // is nothing at all; open as a popup or torn off, its subtree is laid out
+    // as the root of its OWN window, and laying it out here as well would
+    // render the content twice. `display: none` is the one choke point every
+    // child-collection honours, which is why it is decided here and not in
+    // each of them.
+    if let Some(NodeType::TransientWindow(cfg)) = styled_dom
         .node_data
         .as_container()
         .get(node_id)
-        .is_some_and(|nd| matches!(nd.get_node_type(), NodeType::TransientWindow(_)))
+        .map(NodeData::get_node_type)
     {
-        return LayoutDisplay::None;
+        if !transient_node_is_inline(node_id, cfg) {
+            return LayoutDisplay::None;
+        }
     }
 
     get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
+}
+
+// ---------------------------------------------------------------------------
+// Inline-docked transient windows: the per-pass dock set
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    /// The docking state of the layout pass running on this thread (set by
+    /// [`with_transient_docks`] for exactly the duration of a solver call).
+    /// `None` outside a pass: nodes are then judged by their config alone.
+    static TRANSIENT_DOCKS: core::cell::RefCell<Option<crate::transient::TransientDocks>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+/// Run `f` with `docks` as the current pass's docking state. Every solver
+/// entry (`LayoutWindow`'s `layout_document` call) wraps itself in this so
+/// the 25 `get_display_type` call sites and the five child-collection sites
+/// agree on which `<transient-window>` is inline and where it is grafted.
+/// Nests safely (the previous value is restored) and is per thread, so
+/// parallel headless layouts do not see each other's docks.
+pub fn with_transient_docks<R>(docks: crate::transient::TransientDocks, f: impl FnOnce() -> R) -> R {
+    let previous = TRANSIENT_DOCKS.with(|d| d.replace(Some(docks)));
+    struct Restore(Option<crate::transient::TransientDocks>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let prev = self.0.take();
+            TRANSIENT_DOCKS.with(|d| *d.borrow_mut() = prev);
+        }
+    }
+    let _restore = Restore(previous);
+    f()
+}
+
+/// Is the `<transient-window>` `node` laid out inline this pass?
+fn transient_node_is_inline(node: NodeId, cfg: &azul_core::transient::TransientWindowConfig) -> bool {
+    TRANSIENT_DOCKS.with(|d| match d.borrow().as_ref() {
+        Some(docks) => docks.is_inline(node, cfg),
+        None => {
+            cfg.dock == azul_core::transient::TransientDock::Inline && cfg.open && !cfg.torn
+        }
+    })
+}
+
+/// The children `parent` lays out, in order: its DOM children, minus any
+/// inline transient window that was dropped onto another zone, plus the
+/// inline transient windows dropped onto `parent` itself (appended last).
+/// THE child-collection helper: every site that used to iterate
+/// `az_children` directly goes through here, so a grafted panel is a child
+/// of its zone for block, flex, grid, table and `display: contents`
+/// processing alike.
+#[must_use]
+pub fn layout_children(styled_dom: &StyledDom, parent: NodeId) -> Vec<NodeId> {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    if hierarchy.get(parent).is_none() {
+        return Vec::new(); // an id past the arena: no children, no panic
+    }
+    TRANSIENT_DOCKS.with(|d| {
+        let borrow = d.borrow();
+        match borrow.as_ref() {
+            Some(docks) if !docks.inline.is_empty() => {
+                let mut out: Vec<NodeId> = parent
+                    .az_children(&hierarchy)
+                    .filter(|c| !docks.moved_away_from(*c, parent))
+                    .collect();
+                out.extend(docks.grafted_onto(parent, styled_dom));
+                out
+            }
+            _ => parent.az_children(&hierarchy).collect(),
+        }
+    })
 }
 
 // +spec:display-contents:95faa5 - blockification has no effect on none/contents (other => other)

@@ -21,6 +21,7 @@ use azul::widgets::*;
 // `azul::dom`. (The existing widgets — Button/CheckBox/DropDown — instead take
 // a bare fn type, so they need nothing from here.)
 use azul::dom::{
+    AttributeNameValue, AttributeType, IdOrClass, NodeType,
     AccordionOnToggleCallback, AlertOnDismissCallback, BreadcrumbOnNavigateCallback,
     ChipOnRemoveCallback, ComboBoxOnSelectCallback, DatePickerOnChangeCallback,
     ModalOnCloseCallback, PaginationOnChangeCallback, PopoverOnToggleCallback,
@@ -28,6 +29,9 @@ use azul::dom::{
     SplitPaneOnResizeCallback, StepperOnStepChangeCallback, SwitchOnToggleCallback,
     TextAreaOnFocusLostCallback, TimePickerOnChangeCallback, ToastOnDismissCallback,
 };
+
+use azul::misc::{TransientDock, TransientTearoff};
+use azul::window::TransientWindowConfig;
 
 // ───────────────────────── Model (source of truth) ─────────────────────────
 
@@ -94,6 +98,59 @@ fn section(title: &str, items: Vec<Dom>) -> Dom {
         col = col.with_child(it);
     }
     col
+}
+
+/// Two dock zones side by side, the panel starting in the left one.
+fn dock_zones() -> Dom {
+    let zone = |name: &str, child: Option<Dom>| {
+        let mut z = Dom::create_div()
+            .with_attributes(vec![AttributeType::custom(AttributeNameValue {
+                attr_name: "id".into(),
+                value: name.into(),
+            })])
+            .with_ids_and_classes(vec![IdOrClass::class("dock-zone")])
+            .with_css(
+                "flex: 1; min-height: 160px; border: 1px dashed #98a2b3; border-radius: 8px; \
+                 padding: 6px; background-color: #f9fafb;",
+            );
+        if let Some(c) = child {
+            z = z.with_child(c);
+        }
+        z
+    };
+    let panel = Dom::create_node(NodeType::transient_window(
+        TransientWindowConfig::opened()
+            .with_dock(TransientDock::inline())
+            .with_tearoff(TransientTearoff::zone()),
+    ))
+    .with_attributes(vec![
+        AttributeType::title("Tools"),
+        AttributeType::custom(AttributeNameValue { attr_name: "tearoff-zone".into(), value: ".dock-zone".into() }),
+    ])
+    .with_css(
+        "display: flex; flex-direction: column; background-color: #ffffff; border: 1px solid #d0d5dd; \
+         border-radius: 6px; box-shadow: 0px 1px 3px rgba(16, 24, 40, 0.1);",
+    )
+    .with_child(
+        Dom::create_div()
+            .with_css(
+                "display: flex; flex-direction: row; align-items: center; justify-content: center; \
+                 height: 18px; background-color: #eaecf0; border-radius: 6px 6px 0px 0px; cursor: grab; \
+                 -azul-app-region: drag;",
+            )
+            .with_child(Dom::create_div().with_css("width: 36px; height: 4px; border-radius: 2px; background-color: #98a2b3;")),
+    )
+    .with_child(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: column; gap: 6px; padding: 10px;")
+            .with_child(Dom::create_span_with_text("Tools").with_css("font-weight: bold; color: #1d2939;"))
+            .with_child(Dom::create_span_with_text("Drag the grip bar.").with_css("font-size: 12px; color: #475467;"))
+            .with_child(Button::create("A tool button").dom()),
+    );
+    Dom::create_div()
+        .with_css("display: flex; flex-direction: row; gap: 12px;")
+        .with_child(zone("dock-left", Some(panel)))
+        .with_child(zone("dock-right", None))
 }
 
 // ──────────────────────────── Layout callback ──────────────────────────────
@@ -315,6 +372,16 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         ],
     );
 
+    // ── Docking ─────────────────────────────────────────────────────────
+    // A tool panel that is CONTENT of whichever dock zone it sits in
+    // (`dock="inline"`): drag its grip out of the window to float it, drop
+    // the floating palette on the other zone to move it there. The app's
+    // DOM never changes - the engine re-parents the subtree in the layout.
+    let docking = section(
+        "Docking",
+        vec![labelled("Dockable panel (drag the grip out; drop it on the other zone)", dock_zones())],
+    );
+
     // ── Navigation ──────────────────────────────────────────────────────
     let navigation = section(
         "Navigation",
@@ -455,6 +522,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_child(selection)
                 .with_child(display)
                 .with_child(feedback)
+                .with_child(docking)
                 .with_child(navigation)
                 .with_child(overlays)
                 .with_child(datetime),

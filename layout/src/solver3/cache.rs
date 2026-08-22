@@ -864,37 +864,17 @@ const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
 /// Children with `display: none` are filtered out since they generate no boxes.
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 #[must_use] pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -> Vec<NodeId> {
-    let hierarchy_container = styled_dom.node_hierarchy.as_container();
-    let mut children = Vec::new();
-
-    let Some(hierarchy_item) = hierarchy_container.get(parent_dom_id) else {
-        return children;
-    };
-
-    let Some(mut child_id) = hierarchy_item.first_child_id(parent_dom_id) else {
-        // DEBUG (2026-06-02 children-None): first_child_id returned None for this
-        // parent → 0xC0000000 marker @0x40540+parent*4. REVERT before commit.
-        unsafe {
-            let pi = parent_dom_id.index();
-            if pi < 8 { crate::az_mark((0x40540 + pi * 4) as u32, (0xC000_0000u32)); }
-        }
-        return children;
-    };
-
+    // The same child list the tree builder lays out (`layout_children`:
+    // DOM children, minus inline transient windows grafted elsewhere, plus
+    // the ones grafted onto this parent) - so a panel dropped onto another
+    // zone reads as a STRUCTURAL change here and its old position is not
+    // kept. Then the display:none filter.
     // +spec:display-property:9f02c6 - display:none elements generate no boxes
     // +spec:display-property:3b507e - display:none excludes subtree from box tree
-    if get_display_type(styled_dom, child_id) != LayoutDisplay::None {
-        children.push(child_id);
-    }
-    while let Some(hierarchy_item) = hierarchy_container.get(child_id) {
-        let Some(next) = hierarchy_item.next_sibling_id() else {
-            break;
-        };
-        if get_display_type(styled_dom, next) != LayoutDisplay::None {
-            children.push(next);
-        }
-        child_id = next;
-    }
+    let children: Vec<NodeId> = crate::solver3::layout_tree::layout_children(styled_dom, parent_dom_id)
+        .into_iter()
+        .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
+        .collect();
 
     // DEBUG (2026-06-02 children-None): record collected child count per parent
     // @0x40540+parent*4 (0xCC00_00NN). N=0 with first_child Some ⇒ get_display_type
