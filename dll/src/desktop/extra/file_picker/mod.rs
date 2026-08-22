@@ -9,10 +9,13 @@
 //!
 //! The pattern this module implements:
 //!
-//! 1. The user-facing `FileDialog::open_file_async(...)` (added in a
-//!    follow-up tick to `layout/src/desktop/dialogs.rs`) returns a
-//!    [`FilePickerHandle`]. The handle holds an `Arc<Mutex<…>>` slot the
-//!    OS callback writes into when the picker dismisses.
+//! 1. The user-facing `FileDialog::open_file_async(...)` in
+//!    `layout/src/desktop/dialogs.rs` returns a [`FilePickerHandle`]. The
+//!    handle holds an `Arc<Mutex<…>>` slot the OS callback writes into when
+//!    the picker dismisses. azul-layout cannot call into this crate, so the
+//!    dispatchers below are REGISTERED with it at startup
+//!    ([`ensure_file_picker_backend`]), the way the camera and microphone
+//!    capture backends are.
 //!
 //! 2. The user's layout / event callbacks poll the handle each frame via
 //!    [`FilePickerHandle::poll`]. The first frame after the user picks /
@@ -23,105 +26,44 @@
 //!    `Intent.ACTION_OPEN_DOCUMENT` round-trip via the JNI bridge) writes
 //!    into the handle's slot when its delegate fires.
 //!
-//! This module owns the cross-platform handle type and the
-//! `apply_open_file` / `apply_save_file` / `apply_open_directory`
-//! dispatchers. Each platform submodule owns the actual OS plumbing.
+//! This module owns the `apply_open_file` / `apply_save_file` /
+//! `apply_open_directory` dispatchers and their registration. Each platform
+//! submodule owns the actual OS plumbing; the handle type is azul-layout's.
 
-use alloc::sync::Arc;
-use std::sync::Mutex;
+use azul_css::{corety::OptionString, AzString, OptionStringVec};
 
-use azul_css::{corety::OptionString, AzString, OptionStringVec, StringVec};
+// The handle and status types live in azul-layout (`desktop::dialogs`) so
+// `FileDialog::open_file_async` — the user-facing entry point, which sits
+// below this crate — can return them. Re-exported here so the platform
+// submodules keep their `super::{FilePickerHandle, FilePickerStatus}`.
+pub use azul_layout::desktop::dialogs::{FilePickerHandle, FilePickerStatus};
 
 #[cfg(target_os = "android")]
 pub mod android;
 #[cfg(target_os = "ios")]
 pub mod ios;
 
-/// Result of polling a [`FilePickerHandle`]. Mirrors the W3C
-/// `showOpenFilePicker()` promise shape so the future web backend lands
-/// without API churn.
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C, u8)]
-pub enum FilePickerStatus {
-    /// Picker is still on-screen; no user action yet.
-    Pending,
-    /// User dismissed the picker without selecting anything. Maps to the
-    /// W3C `<input type="file">` cancel semantics (an empty selection).
-    Cancelled,
-    /// Single-file picker resolved. `OptionString::None` is impossible
-    /// here — present for FFI shape parity with the desktop `open_file`
-    /// return.
-    Selected { path: OptionString },
-    /// Multi-file picker resolved. Empty vec means the user dismissed
-    /// without picking — equivalent to `Cancelled`.
-    SelectedMultiple { paths: StringVec },
-    /// Platform-level error (sandbox denial, intent failure, …). The
-    /// message is user-presentable, the caller is expected to surface it.
-    Error { message: AzString },
-}
-
-/// Shared state behind [`FilePickerHandle`]. Held in an `Arc<Mutex<…>>` so
-/// the OS delegate / activity-result handler can write into it from the
-/// UI thread while the layout callback reads from the engine thread.
-#[derive(Debug)]
-struct FilePickerInner {
-    status: FilePickerStatus,
-}
-
-impl FilePickerInner {
-    fn new() -> Self {
-        Self {
-            status: FilePickerStatus::Pending,
-        }
-    }
-}
-
-/// Opaque handle the user holds across event-loop ticks.
-///
-/// `#[repr(C)]` so the FFI surface sees a stable layout. The underlying
-/// `Arc<Mutex<…>>` is reference-counted so cloning the handle is cheap;
-/// every clone observes the same status updates.
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct FilePickerHandle {
-    inner: ArcMutexFilePickerInner,
-}
-
-/// Helper newtype around `Arc<Mutex<FilePickerInner>>`. Lives behind one
-/// indirection so the public [`FilePickerHandle`] layout stays `repr(C)`
-/// while the implementation can grow without breaking the wire ABI.
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-struct ArcMutexFilePickerInner(Arc<Mutex<FilePickerInner>>);
-
-impl FilePickerHandle {
-    /// Construct a fresh handle in `Pending` state. The platform backend
-    /// retains a clone, fills in the status on user dismissal, and drops
-    /// its clone — at which point only the user-side handle remains.
-    pub fn new_pending() -> Self {
-        Self {
-            inner: ArcMutexFilePickerInner(Arc::new(Mutex::new(FilePickerInner::new()))),
-        }
-    }
-
-    /// Sync read of the current status. Returns a clone so the caller can
-    /// destructure without holding the mutex.
-    pub fn poll(&self) -> FilePickerStatus {
-        match self.inner.0.lock() {
-            Ok(g) => g.status.clone(),
-            Err(_) => FilePickerStatus::Error {
-                message: AzString::from("file picker mutex poisoned"),
-            },
-        }
-    }
-
-    /// Platform-backend write path. Replaces the slot with the latest
-    /// status. Idempotent — repeated writes from a flaky delegate keep
-    /// the most recent value.
-    pub fn set_status(&self, next: FilePickerStatus) {
-        if let Ok(mut g) = self.inner.0.lock() {
-            g.status = next;
-        }
+/// Install this module's dispatchers as azul-layout's async file-picker
+/// backend, once. Mobile only: on the desktop `FileDialog::open_file_async`
+/// answers synchronously through `tfd` and must NOT be routed here (the
+/// non-mobile arms of the dispatchers below answer `Cancelled` without
+/// showing anything). Called from the shared per-frame layout pass, like
+/// `camera::ensure_camera_backend`, so it is in place before the first
+/// callback that could ask for a picker.
+pub fn ensure_file_picker_backend() {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            crate::plog_info!("[file_picker] registering the async OS picker backend");
+            azul_layout::desktop::dialogs::register_file_picker_backend(
+                azul_layout::desktop::dialogs::FilePickerBackend {
+                    open_file: apply_open_file,
+                    save_file: apply_save_file,
+                    open_directory: apply_open_directory,
+                },
+            );
+        });
     }
 }
 

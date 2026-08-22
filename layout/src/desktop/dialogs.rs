@@ -383,6 +383,268 @@ impl FileDialog {
     }
 }
 
+// ============================================================================
+// Async file picker
+// ============================================================================
+//
+// `FileDialog::open_file` above BLOCKS until the user answers. That is fine
+// on the desktop (tfd runs a nested modal loop) and fatal on mobile: the iOS
+// document picker is sheet-modal and reports through a delegate on the main
+// thread, Android's is an `Intent` whose result arrives at
+// `onActivityResult` — blocking the UI thread waiting for either deadlocks
+// the app. So the mobile shape is a HANDLE the caller polls from its normal
+// callbacks, and the desktop answers the same handle synchronously so one
+// application code path works everywhere.
+//
+// The OS plumbing lives in the dll (`desktop/extra/file_picker/{ios,android}`)
+// and cannot be called from here — azul-layout sits below azul-dll — so it is
+// REGISTERED, the same way the camera and microphone capture backends are:
+// the dll installs a [`FilePickerBackend`] at startup, and
+// [`FileDialog::open_file_async`] dispatches to it when one is present.
+
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// Result of polling a [`FilePickerHandle`]. Mirrors the W3C
+/// `showOpenFilePicker()` promise shape so a web backend lands without API
+/// churn.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum FilePickerStatus {
+    /// Picker is still on-screen; no user action yet.
+    Pending,
+    /// User dismissed the picker without selecting anything. Maps to the
+    /// W3C `<input type="file">` cancel semantics (an empty selection).
+    Cancelled,
+    /// Single-file picker resolved. `OptionString::None` is impossible
+    /// here — present for FFI shape parity with the desktop `open_file`
+    /// return.
+    Selected { path: OptionString },
+    /// Multi-file picker resolved. Empty vec means the user dismissed
+    /// without picking — equivalent to `Cancelled`.
+    SelectedMultiple { paths: StringVec },
+    /// Platform-level error (sandbox denial, intent failure, no backend on
+    /// this platform, …). The message is user-presentable; the caller is
+    /// expected to surface it.
+    Error { message: AzString },
+}
+
+/// Shared state behind [`FilePickerHandle`]. Held in an `Arc<Mutex<…>>` so
+/// the OS delegate / activity-result handler can write into it from the UI
+/// thread while the layout callback reads it from the engine thread.
+#[derive(Debug)]
+struct FilePickerInner {
+    status: FilePickerStatus,
+}
+
+/// Opaque handle the user holds across event-loop ticks.
+///
+/// `#[repr(C)]` so the FFI surface sees a stable layout. The underlying
+/// `Arc<Mutex<…>>` is reference-counted, so cloning the handle is cheap and
+/// every clone observes the same status updates.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct FilePickerHandle {
+    inner: ArcMutexFilePickerInner,
+}
+
+/// Newtype around `Arc<Mutex<FilePickerInner>>`. Lives behind one
+/// indirection so the public [`FilePickerHandle`] layout stays `repr(C)`
+/// while the implementation can grow without breaking the wire ABI.
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+struct ArcMutexFilePickerInner(Arc<Mutex<FilePickerInner>>);
+
+impl FilePickerHandle {
+    /// A fresh handle in `Pending` state. The platform backend retains a
+    /// clone, fills in the status on user dismissal, and drops its clone — at
+    /// which point only the user-side handle remains.
+    #[must_use]
+    pub fn new_pending() -> Self {
+        Self::with_status(FilePickerStatus::Pending)
+    }
+
+    /// A handle that is ALREADY answered — what the desktop returns after its
+    /// synchronous dialog, and what a platform with no picker returns with an
+    /// `Error`. The first `poll` sees the answer.
+    #[must_use]
+    pub fn with_status(status: FilePickerStatus) -> Self {
+        Self {
+            inner: ArcMutexFilePickerInner(Arc::new(Mutex::new(FilePickerInner { status }))),
+        }
+    }
+
+    /// Sync read of the current status. Returns a clone so the caller can
+    /// destructure without holding the mutex.
+    #[must_use]
+    pub fn poll(&self) -> FilePickerStatus {
+        match self.inner.0.lock() {
+            Ok(g) => g.status.clone(),
+            Err(_) => FilePickerStatus::Error {
+                message: AzString::from("file picker mutex poisoned"),
+            },
+        }
+    }
+
+    /// `true` once the picker has been answered (anything but `Pending`).
+    #[must_use]
+    pub fn is_done(&self) -> bool {
+        !matches!(self.poll(), FilePickerStatus::Pending)
+    }
+
+    /// Platform-backend write path. Replaces the slot with the latest
+    /// status. Idempotent — repeated writes from a flaky delegate keep the
+    /// most recent value.
+    pub fn set_status(&self, next: FilePickerStatus) {
+        if let Ok(mut g) = self.inner.0.lock() {
+            g.status = next;
+        }
+    }
+}
+
+/// The OS file-picker plumbing a platform shell installs at startup — the
+/// async equivalent of the `tfd` calls above. Each function must return
+/// IMMEDIATELY with a `Pending` handle it later resolves from the OS callback.
+#[derive(Debug, Clone, Copy)]
+pub struct FilePickerBackend {
+    /// `(title, default_path, filter patterns, allow_multiple)`.
+    pub open_file: fn(AzString, OptionString, OptionStringVec, bool) -> FilePickerHandle,
+    /// `(title, default_path)`.
+    pub save_file: fn(AzString, OptionString) -> FilePickerHandle,
+    /// `(title, default_path)`.
+    pub open_directory: fn(AzString, OptionString) -> FilePickerHandle,
+}
+
+static FILE_PICKER_BACKEND: OnceLock<FilePickerBackend> = OnceLock::new();
+
+/// Install the platform's async file picker. The first registration wins;
+/// returns `false` when one was already installed (the shells register from
+/// a `OnceLock`-guarded site, so that is a programming error, not a race to
+/// paper over).
+pub fn register_file_picker_backend(backend: FilePickerBackend) -> bool {
+    FILE_PICKER_BACKEND.set(backend).is_ok()
+}
+
+/// Whether an async backend has been installed (i.e. whether the `*_async`
+/// calls will go to the OS picker or answer synchronously / with an error).
+#[must_use]
+pub fn has_file_picker_backend() -> bool {
+    FILE_PICKER_BACKEND.get().is_some()
+}
+
+/// The filter patterns of a [`FileTypeList`], in the shape the async
+/// backends take: the descriptor is desktop-dialog chrome that neither
+/// mobile picker displays.
+fn filter_patterns(filter_list: OptionFileTypeList) -> OptionStringVec {
+    filter_list.into_option().map(|f| f.document_types).into()
+}
+
+impl FileDialog {
+    /// Open a file WITHOUT blocking: returns a [`FilePickerHandle`] to poll
+    /// from a later callback (a timer, the next event, the layout callback).
+    ///
+    /// - iOS / Android: the OS picker is presented and the handle resolves
+    ///   when its delegate / activity result fires.
+    /// - Desktop: the synchronous dialog runs here (it is modal anyway) and
+    ///   the handle comes back already answered, so the same polling code
+    ///   sees `Selected` / `Cancelled` on its first `poll`.
+    /// - A mobile build whose shell never registered a backend: `Error`,
+    ///   immediately — never a handle that stays `Pending` forever.
+    ///
+    /// `allow_multiple` resolves to `SelectedMultiple` instead of `Selected`.
+    #[must_use]
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn open_file_async(
+        title: AzString,
+        default_path: OptionString,
+        filter_list: OptionFileTypeList,
+        allow_multiple: bool,
+    ) -> FilePickerHandle {
+        if let Some(backend) = FILE_PICKER_BACKEND.get() {
+            return (backend.open_file)(title, default_path, filter_patterns(filter_list), allow_multiple);
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let status = if allow_multiple {
+                match Self::open_multiple_files(title, default_path, filter_list).into_option() {
+                    Some(paths) => FilePickerStatus::SelectedMultiple { paths },
+                    None => FilePickerStatus::Cancelled,
+                }
+            } else {
+                match Self::open_file(title, default_path, filter_list).into_option() {
+                    Some(path) => FilePickerStatus::Selected { path: OptionString::Some(path) },
+                    None => FilePickerStatus::Cancelled,
+                }
+            };
+            FilePickerHandle::with_status(status)
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, default_path, filter_list, allow_multiple);
+            FilePickerHandle::with_status(no_backend_error())
+        }
+    }
+
+    /// Save-file counterpart of [`Self::open_file_async`]; resolves to
+    /// `Selected` with the chosen path.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn save_file_async(title: AzString, default_path: OptionString) -> FilePickerHandle {
+        if let Some(backend) = FILE_PICKER_BACKEND.get() {
+            return (backend.save_file)(title, default_path);
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let status = match Self::save_file(title, default_path).into_option() {
+                Some(path) => FilePickerStatus::Selected { path: OptionString::Some(path) },
+                None => FilePickerStatus::Cancelled,
+            };
+            FilePickerHandle::with_status(status)
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, default_path);
+            FilePickerHandle::with_status(no_backend_error())
+        }
+    }
+
+    /// Directory counterpart of [`Self::open_file_async`]; resolves to
+    /// `Selected` with the chosen directory.
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn open_directory_async(title: AzString, default_path: OptionString) -> FilePickerHandle {
+        if let Some(backend) = FILE_PICKER_BACKEND.get() {
+            return (backend.open_directory)(title, default_path);
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let status = match Self::open_directory(title, default_path).into_option() {
+                Some(path) => FilePickerStatus::Selected { path: OptionString::Some(path) },
+                None => FilePickerStatus::Cancelled,
+            };
+            FilePickerHandle::with_status(status)
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            let _ = (title, default_path);
+            FilePickerHandle::with_status(no_backend_error())
+        }
+    }
+}
+
+/// The answer on a platform with no synchronous dialog and no registered
+/// async backend. An explicit error rather than `Cancelled`: a picker the
+/// user never saw must not read as "the user declined".
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn no_backend_error() -> FilePickerStatus {
+    FilePickerStatus::Error {
+        message: AzString::from(
+            "no file picker backend is registered on this platform (the shell must call \
+             register_file_picker_backend at startup)",
+        ),
+    }
+}
+
 /// Convenience shim: show a default "Info" message box.
 pub fn msg_box(content: &str) {
     MsgBox::info(AzString::from(content));
@@ -777,6 +1039,55 @@ mod autotest_generated {
             FileDialog::open_multiple_files;
         let _save_file: fn(AzString, OptionString) -> OptionString = FileDialog::save_file;
         let _msg_box: fn(&str) = msg_box;
+        let _open_file_async: fn(AzString, OptionString, OptionFileTypeList, bool) -> FilePickerHandle =
+            FileDialog::open_file_async;
+        let _save_file_async: fn(AzString, OptionString) -> FilePickerHandle = FileDialog::save_file_async;
+        let _open_dir_async: fn(AzString, OptionString) -> FilePickerHandle = FileDialog::open_directory_async;
+    }
+
+    // ---------------------------------------------------------------------
+    // Async picker handle: the part that never touches a native dialog
+    // ---------------------------------------------------------------------
+
+    /// A fresh handle is `Pending`; a backend's `set_status` is what every
+    /// clone sees; a pre-answered handle is done on its first poll.
+    #[test]
+    fn picker_handle_is_shared_between_its_clones_and_answers_once_set() {
+        let user_side = FilePickerHandle::new_pending();
+        let backend_side = user_side.clone();
+        assert_eq!(user_side.poll(), FilePickerStatus::Pending);
+        assert!(!user_side.is_done());
+
+        backend_side.set_status(FilePickerStatus::Selected {
+            path: OptionString::Some(s("/tmp/a.txt")),
+        });
+        drop(backend_side); // the backend drops its clone after answering
+        assert!(user_side.is_done());
+        assert_eq!(
+            user_side.poll(),
+            FilePickerStatus::Selected { path: OptionString::Some(s("/tmp/a.txt")) }
+        );
+
+        // A flaky delegate that fires twice keeps the LATEST answer.
+        user_side.set_status(FilePickerStatus::Cancelled);
+        assert_eq!(user_side.poll(), FilePickerStatus::Cancelled);
+
+        let answered = FilePickerHandle::with_status(FilePickerStatus::SelectedMultiple {
+            paths: StringVec::from_vec(vec![s("a"), s("b")]),
+        });
+        assert!(answered.is_done(), "a pre-answered handle is done on its first poll");
+    }
+
+    /// Without a registered backend nothing here may block, and the filter
+    /// conversion hands the backends exactly the patterns, not the descriptor.
+    #[test]
+    fn filter_patterns_keep_the_types_and_drop_the_descriptor() {
+        let list = file_type_list(&["*.png", "*.jpg"], "Images");
+        let patterns = filter_patterns(OptionFileTypeList::Some(list));
+        let v = patterns.into_option().expect("patterns present").into_library_owned_vec();
+        let got: Vec<&str> = v.iter().map(AzString::as_str).collect();
+        assert_eq!(got, vec!["*.png", "*.jpg"]);
+        assert!(filter_patterns(OptionFileTypeList::None).into_option().is_none());
     }
 
     // ---------------------------------------------------------------------

@@ -1276,6 +1276,10 @@ phases.mark("after_layout_and_dl");
     // Linux) so CameraWidget shows the real camera where available; guarded.
     crate::desktop::extra::camera::ensure_camera_backend();
     crate::desktop::extra::screencap::ensure_screen_backend();
+    // Same seam for the async OS file picker: on iOS / Android
+    // `FileDialog::open_file_async` dispatches to the dispatchers this
+    // installs; the desktop answers the same call synchronously via tfd.
+    crate::desktop::extra::file_picker::ensure_file_picker_backend();
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
