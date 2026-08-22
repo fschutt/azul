@@ -111,7 +111,16 @@ static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    // A flex box that CENTRES the mark, like the RadioGroup's ring. As a
+    // `display: block` the 8 px mark sat in the top-left of the 14 px content
+    // box (demo test 2026-08-21: "CheckBox not centered").
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(14))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(14))),
     // padding: 2px

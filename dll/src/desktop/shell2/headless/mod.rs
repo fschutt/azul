@@ -5144,6 +5144,69 @@ mod tests {
         assert_eq!(slider_dragging(&window), Some(false), "released");
     }
 
+    // --- Indicator marks are centred ------------------------------------
+    //
+    // REPORTED (demo test 2026-08-21): "CheckBox not centered" — the 8 px mark
+    // sat in the top-left of the box. The class: an indicator widget (check
+    // box, radio dot, switch knob) positions its mark with its CONTAINER's
+    // layout, and a container that is not a centring flex box parks the mark
+    // at its content origin. This lays the indicator widgets out for real
+    // and measures, so a container style edit that drops the centring fails
+    // here rather than in a screenshot.
+
+    extern "C" fn indicator_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::{check_box::CheckBox, radio_group::RadioGroup, switch::Switch};
+        let options: azul_css::StringVec =
+            vec![azul_css::AzString::from("a"), azul_css::AzString::from("b")].into();
+        Dom::create_body()
+            .with_child(CheckBox::create(true).dom())
+            .with_child(RadioGroup::create(options).dom())
+            .with_child(Switch::create(true).dom())
+    }
+
+    #[test]
+    fn indicator_marks_are_centred_in_their_boxes() {
+        fn centre(r: &azul_core::geom::LogicalRect) -> (f32, f32) {
+            (r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)
+        }
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, indicator_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        // (widget, container class, mark class, horizontally centred too?)
+        // A switch knob sits at one END of its track by design; only its
+        // vertical centring is a layout invariant.
+        for (widget, container, mark, both_axes) in [
+            ("CheckBox", "__azul-native-checkbox-container", "__azul-native-checkbox-content", true),
+            ("RadioGroup", "__azul-native-radio-group-circle", "__azul-native-radio-group-dot", true),
+            ("Switch", "__azul-native-switch", "__azul-native-switch-knob", false),
+        ] {
+            let boxes = rects_by_class(&window, container);
+            let marks = rects_by_class(&window, mark);
+            assert!(
+                !boxes.is_empty() && boxes.len() == marks.len(),
+                "{widget}: {} boxes vs {} marks ({boxes:?} / {marks:?})",
+                boxes.len(),
+                marks.len()
+            );
+            for (b, m) in boxes.iter().zip(marks.iter()) {
+                let (bx, by) = centre(b);
+                let (mx, my) = centre(m);
+                assert!(
+                    (by - my).abs() <= 0.5,
+                    "{widget}: mark {m:?} is not vertically centred in its box {b:?}"
+                );
+                if both_axes {
+                    assert!(
+                        (bx - mx).abs() <= 0.5,
+                        "{widget}: mark {m:?} is not horizontally centred in its box {b:?}"
+                    );
+                }
+            }
+        }
+    }
+
     // --- Ribbon tab switching -------------------------------------------
     //
     // REPORTED: "clicking on various tabs causes repaint / damage rect
