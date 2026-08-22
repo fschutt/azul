@@ -436,10 +436,18 @@ pub extern "C" fn scroll_physics_timer_callback(
             continue;
         };
 
+        // The displacement this tick commits, per axis. `None` means plain
+        // momentum: `velocity · dt`. A spring (seek or rubber band) on an
+        // axis sets it to the EXACT position change of its closed-form step
+        // — see `critically_damped_step` for why the spring must not go
+        // through `v += F·dt; x += v·dt`.
+        let mut spring_disp_x: Option<f32> = None;
+        let mut spring_disp_y: Option<f32> = None;
+
         // Target-seeking spring (scroll_to_animated): a critically-damped
-        // pull toward the absolute target — the same F = -k*x - c*v the
-        // rubber-band uses, with x measured from the TARGET instead of the
-        // boundary. Close enough + slow enough snaps EXACTLY onto the
+        // pull toward the absolute target — the same spring the rubber band
+        // uses, with the displacement measured from the TARGET instead of
+        // the boundary. Close enough + slow enough snaps EXACTLY onto the
         // target and retires it (no asymptotic crawl).
         let seek_target = animate_targets.get(&(*dom_id, *node_id)).copied();
         if let Some((target, seek_device)) = seek_target {
@@ -463,10 +471,14 @@ pub extern "C" fn scroll_physics_timer_callback(
                 }
                 _ => bounce_back_duration_ms,
             };
-            let spring_k = spring_constant_from_bounce_duration(seek_duration_ms);
-            let damping = 2.0 * spring_k.sqrt();
-            node_physics.velocity.x += (-spring_k * err_x - damping * node_physics.velocity.x) * dt;
-            node_physics.velocity.y += (-spring_k * err_y - damping * node_physics.velocity.y) * dt;
+            let omega = spring_constant_from_bounce_duration(seek_duration_ms).sqrt();
+            let (err_x_after, vx) =
+                critically_damped_step(err_x, node_physics.velocity.x, omega, dt);
+            let (err_y_after, vy) =
+                critically_damped_step(err_y, node_physics.velocity.y, omega, dt);
+            node_physics.velocity = LogicalPosition { x: vx, y: vy };
+            spring_disp_x = Some(err_x_after - err_x);
+            spring_disp_y = Some(err_y_after - err_y);
         }
 
         // Determine if this node allows rubber-banding
@@ -480,20 +492,25 @@ pub extern "C" fn scroll_physics_timer_callback(
         let is_overshooting_x = overshoot_x.abs() > 0.01;
         let is_overshooting_y = overshoot_y.abs() > 0.01;
 
-        // If we're in a rubber-band overshoot, apply critically-damped spring force.
-        // F = -k*x - c*v  where c = 2*sqrt(k) for critical damping (no oscillation).
+        // If we're in a rubber-band overshoot, run the critically-damped
+        // spring-back: the overshoot IS the displacement, and one exact step
+        // gives both the new overshoot and the new velocity (no oscillation
+        // at any tick length — the Euler form rang at the Windows preset's
+        // 200 ms bounce and diverged at the 50 ms floor).
         if is_overshooting_x && rubber_band_x {
-            let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
-            let damping = 2.0 * spring_k.sqrt(); // critical damping coefficient
-            let spring_force_x = -spring_k * overshoot_x - damping * node_physics.velocity.x;
-            node_physics.velocity.x += spring_force_x * dt;
+            let omega = spring_constant_from_bounce_duration(bounce_back_duration_ms).sqrt();
+            let (overshoot_after, vx) =
+                critically_damped_step(overshoot_x, node_physics.velocity.x, omega, dt);
+            node_physics.velocity.x = vx;
+            spring_disp_x = Some(overshoot_after - overshoot_x);
             node_physics.is_rubber_banding = true;
         }
         if is_overshooting_y && rubber_band_y {
-            let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
-            let damping = 2.0 * spring_k.sqrt(); // critical damping coefficient
-            let spring_force_y = -spring_k * overshoot_y - damping * node_physics.velocity.y;
-            node_physics.velocity.y += spring_force_y * dt;
+            let omega = spring_constant_from_bounce_duration(bounce_back_duration_ms).sqrt();
+            let (overshoot_after, vy) =
+                critically_damped_step(overshoot_y, node_physics.velocity.y, omega, dt);
+            node_physics.velocity.y = vy;
+            spring_disp_y = Some(overshoot_after - overshoot_y);
             node_physics.is_rubber_banding = true;
         }
 
@@ -507,10 +524,11 @@ pub extern "C" fn scroll_physics_timer_callback(
             continue;
         }
 
-        // Apply velocity to position
+        // Apply velocity to position. A spring axis commits its exact step;
+        // a free-momentum axis integrates `v · dt`.
         let displacement = LogicalPosition {
-            x: node_physics.velocity.x * dt,
-            y: node_physics.velocity.y * dt,
+            x: spring_disp_x.unwrap_or(node_physics.velocity.x * dt),
+            y: spring_disp_y.unwrap_or(node_physics.velocity.y * dt),
         };
 
         let raw_new_x = info.current_offset.x + displacement.x;
@@ -609,20 +627,34 @@ pub extern "C" fn scroll_physics_timer_callback(
         velocity_updates.push(((*dom_id, *node_id), new_pos));
     }
 
-    // Clean up nodes with zero velocity and not rubber-banding
-    physics
-        .node_velocities
-        .retain(|_, v| v.velocity.x.abs() > 0.0 || v.velocity.y.abs() > 0.0 || v.is_rubber_banding);
+    // Retire converged AnimateTo targets (snapped exactly this tick).
+    for key in converged_targets {
+        physics.animate_targets.remove(&key);
+    }
+
+    // Clean up nodes with zero velocity that are neither rubber-banding nor
+    // still SEEKING a target. The seek spring is integrated from the
+    // `node_velocities` entry, so evicting a seeking node the moment its
+    // velocity dips under the threshold froze the glide short of its target
+    // (119.2 of 120 px) with the target still armed: `is_active()` kept the
+    // timer ticking against a node the loop no longer visited, and the next
+    // wheel click extended a target the view never reached. The Euler
+    // integrator's ringing kept |v| large until arrival and hid this; a
+    // proper critically-damped tail is slow, and lands in exactly this gap.
+    let seeking: alloc::collections::BTreeSet<(DomId, NodeId)> =
+        physics.animate_targets.keys().copied().collect();
+    physics.node_velocities.retain(|key, v| {
+        v.velocity.x.abs() > 0.0
+            || v.velocity.y.abs() > 0.0
+            || v.is_rubber_banding
+            || seeking.contains(key)
+    });
 
     // MWA-C-scroll: transfer residual momentum up the scroll chain — walk the
     // scroll-parent chain to the nearest ancestor that can still consume in
     // the fling's direction and seed it with the leftover velocity (picked up
     // by the integration loop on the next tick; is_active() keeps the timer
     // alive because the entry lands in node_velocities).
-    // Retire converged AnimateTo targets (snapped exactly this tick).
-    for key in converged_targets {
-        physics.animate_targets.remove(&key);
-    }
 
     for ((dom_id, node_id), vel) in momentum_handoffs {
         let mut cur = node_id;
@@ -835,6 +867,38 @@ fn spring_constant_from_bounce_duration(duration_ms: u32) -> f32 {
     let duration_s = duration_ms.max(50) as f32 / 1000.0;
     let omega = core::f32::consts::TAU / duration_s;
     omega * omega
+}
+
+/// One EXACT step of a critically-damped spring pulling a displacement back
+/// to zero.
+///
+/// `x` is the displacement from the rest position (the overshoot past an
+/// edge, or the distance left to an animate-to target), `v` the velocity,
+/// `omega` the spring's natural frequency (`sqrt(k)`), `dt` the step. Returns
+/// `(x, v)` at the end of the step, from the closed-form solution of
+/// `x'' + 2ω·x' + ω²·x = 0`:
+///
+/// ```text
+/// x(t) = (x₀ + (v₀ + ω·x₀)·t) · e^(−ωt)
+/// v(t) = (v₀ − (v₀ + ω·x₀)·ω·t) · e^(−ωt)
+/// ```
+///
+/// WHY NOT `v += (−k·x − c·v)·dt; x += v·dt`: explicit Euler on this spring
+/// is stable only for `c·dt < 2` and monotone only for `c·dt < 1`. The wheel
+/// glide (120 ms spring, `ω ≈ 52/s`, `c = 2ω`) at the 16 ms tick sits at
+/// `c·dt ≈ 1.68`, so `v ← v·(1 − c·dt)` FLIPPED the velocity's sign on every
+/// tick: a 120 px wheel flick went 0 → 84 → 55 → 119 → 78 → 134 → 88 → …
+/// ringing around its target instead of landing on it — the "smooths, then
+/// jumps back and forward" reported on X11/Wayland, where a physical wheel
+/// is the everyday device (a trackpad never enters the spring, which is why
+/// macOS looked fine). The 50 ms minimum duration is worse still
+/// (`c·dt = 4`, divergent). The closed form is exact for any `dt` and any
+/// stiffness, and its cost is one `exp`.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma
+fn critically_damped_step(x: f32, v: f32, omega: f32, dt: f32) -> (f32, f32) {
+    let decay = (-omega * dt).exp();
+    let a = v + omega * x;
+    ((x + a * dt) * decay, (v - a * omega * dt) * decay)
 }
 
 // ============================================================================
@@ -2722,5 +2786,145 @@ mod autotest_generated {
             "the rubber band must pull the view back to max_scroll_y=100, \
              it stayed at {settled}"
         );
+    }
+
+    /// REGRESSION: a physical wheel click glides to its target WITHOUT ever
+    /// moving backwards, and lands on it.
+    ///
+    /// Reported on X11/Wayland as "wheel scroll smooths, then jumps back and
+    /// forward, damping toward the middle". The glide is a critically-damped
+    /// spring, which in continuous time cannot oscillate — but it was
+    /// integrated with explicit Euler (`v += (-k·e - c·v)·dt; x += v·dt`) at
+    /// the 16 ms tick, where the wheel spring's damping step is
+    /// `c·dt = 2ω·dt ≈ 1.68`. `v ← v·(1 - c·dt)` then FLIPS the velocity's
+    /// sign every tick: three 40 px notches went 0 → 84 → 55 → 119 → 78 →
+    /// 134 → 88 → … and never settled (run the old integrator through this
+    /// test to see it). It showed on Linux because that is where a physical
+    /// wheel is the everyday device; a trackpad never enters the spring.
+    /// The closed-form integrator (`critically_damped_step`) is exact at any
+    /// `dt`, so the same trace is now monotone and converges.
+    #[test]
+    fn a_wheel_click_glides_to_its_target_without_ever_moving_backwards() {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 2000.0));
+        let queue = layout_window.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(
+            queue.clone(),
+            ScrollPhysics::default(),
+        ));
+
+        // Three notches of a 40 px wheel, queued before the first tick — a
+        // quick flick. The target is their sum: 120 px.
+        for _ in 0..3 {
+            queue.push(input_dev(
+                1,
+                (0.0, 40.0),
+                ScrollInputSource::WheelDiscrete,
+                ScrollInputDevice::MouseWheel,
+            ));
+        }
+
+        let mut trace = Vec::new();
+        for _ in 0..60 {
+            let _ = closed_loop_tick(&mut layout_window, &data);
+            trace.push(offset_of(&layout_window, 1).y);
+        }
+
+        for (i, w) in trace.windows(2).enumerate() {
+            assert!(
+                w[1] >= w[0] - 1e-3,
+                "the glide moved BACKWARDS at tick {}: {} -> {} (trace: {trace:?})",
+                i + 1,
+                w[0],
+                w[1]
+            );
+        }
+        assert!(
+            trace.iter().all(|y| *y <= 120.0 + 0.01),
+            "the glide overshot its 120 px target: {trace:?}"
+        );
+        let settled = trace[trace.len() - 1];
+        assert!(
+            (settled - 120.0).abs() < 0.5,
+            "three 40 px notches must land on 120 px within a second, landed on \
+             {settled} (trace: {trace:?})"
+        );
+        // The timer must not keep ticking against a retired target.
+        let mut data = data;
+        with_state(&mut data, |st| {
+            assert!(
+                st.animate_targets.is_empty(),
+                "the target is retired once reached: {:?}",
+                st.animate_targets
+            );
+        });
+    }
+
+    /// REGRESSION: the rubber band's spring-back must be monotone too — it is
+    /// the same spring, with the overshoot as the displacement. The Windows
+    /// preset's 200 ms bounce sits right at `c·dt ≈ 1.0` under explicit Euler,
+    /// where each tick flipped the velocity and the edge "vibrated".
+    #[test]
+    fn a_rubber_band_spring_back_is_monotone_at_every_preset() {
+        // (`default` and `windows` have elasticity 0: they hard-clamp and never
+        // overshoot, so there is no spring-back to check there.)
+        for (name, physics) in [
+            ("macos", ScrollPhysics::macos()),
+            ("ios", ScrollPhysics::ios()),
+            ("android", ScrollPhysics::android()),
+            (
+                "windows+elastic",
+                ScrollPhysics {
+                    overscroll_elasticity: 0.5,
+                    max_overscroll_distance: 100.0,
+                    ..ScrollPhysics::windows()
+                },
+            ),
+        ] {
+            let mut layout_window =
+                LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+            register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 200.0));
+            let queue = layout_window.scroll_manager.get_input_queue();
+            let data = RefAny::new(ScrollPhysicsState::new(queue.clone(), physics));
+
+            queue.push(input_dev(
+                1,
+                (0.0, 150.0),
+                ScrollInputSource::TrackpadContinuous,
+                ScrollInputDevice::Touchpad,
+            ));
+            queue.push(input_dev(
+                1,
+                (0.0, 0.0),
+                ScrollInputSource::TrackpadEnd,
+                ScrollInputDevice::Touchpad,
+            ));
+            let _ = closed_loop_tick(&mut layout_window, &data);
+            let start = offset_of(&layout_window, 1).y;
+            assert!(start > 100.0, "[{name}] the gesture overshoots first: {start}");
+
+            let mut trace = vec![start];
+            for _ in 0..240 {
+                let _ = closed_loop_tick(&mut layout_window, &data);
+                trace.push(offset_of(&layout_window, 1).y);
+            }
+            for (i, w) in trace.windows(2).enumerate() {
+                assert!(
+                    w[1] <= w[0] + 1e-3,
+                    "[{name}] the spring-back moved AWAY from the edge at tick {}: \
+                     {} -> {} (trace head: {:?})",
+                    i + 1,
+                    w[0],
+                    w[1],
+                    &trace[..trace.len().min(12)]
+                );
+            }
+            let settled = trace[trace.len() - 1];
+            assert!(
+                (settled - 100.0).abs() < 1.0,
+                "[{name}] must settle on max_scroll_y=100, settled at {settled}"
+            );
+        }
     }
 }
