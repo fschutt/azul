@@ -28,10 +28,11 @@ use crate::{
 };
 
 /// Does `combo` describe the chord the keyboard is in, with `pressed` as the
-/// key that just went down? THE shared accelerator rule, used by every
-/// platform that dispatches menu accelerators itself (Windows, X11, Wayland,
-/// headless; macOS's menu bar uses AppKit key equivalents, its context
-/// menus this).
+/// key that just went down?
+///
+/// THE shared accelerator rule, used by every platform that dispatches menu
+/// accelerators itself (Windows, X11, Wayland, headless; macOS's menu bar
+/// uses `AppKit` key equivalents, its context menus this).
 ///
 /// * The combo names its modifiers with the modifier keys (`LControl`,
 ///   `LShift`, `LAlt`, `LWin`; the right-hand twins are equivalent) and
@@ -403,10 +404,11 @@ mod accelerator_contract {
     use crate::window::{VirtualKeyCode as K, VirtualKeyCodeVec};
 
     fn keyboard(down: &[K], pressed: K) -> KeyboardState {
-        let mut ks = KeyboardState::default();
-        ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(down.to_vec());
-        ks.current_virtual_keycode = Some(pressed).into();
-        ks
+        KeyboardState {
+            pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(down.to_vec()),
+            current_virtual_keycode: Some(pressed).into(),
+            ..KeyboardState::default()
+        }
     }
     fn combo(keys: &[K]) -> VirtualKeyCodeCombo {
         VirtualKeyCodeCombo {

@@ -658,6 +658,7 @@ pub struct MapTileCache {
 
 impl MapTileCache {
     #[must_use] pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
+        let decoded_theme = layer.theme;
         Self {
             layer,
             viewport,
@@ -667,7 +668,7 @@ impl MapTileCache {
             pinch_anchor: None,
             press_origin: None,
             tilt_anchor: None,
-            decoded_theme: layer.theme,
+            decoded_theme,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
         }

@@ -14691,6 +14691,7 @@ impl LayoutWindow {
             structural_history_suppression: _,
             // A document-space Y, no NodeIds.
             pagination_dirty_from: _,
+            resize_watch_dpi: _,
         } = self;
 
         if let Some(rejected) = pending_document_edit.take() {

@@ -817,7 +817,7 @@ impl CompositorState {
             } else if is_affine {
                 blit_pixmap_affine(src_pixbuf, output, &this_m, layer.opacity);
             } else {
-                super::pixmap::blit_pixmap_projective(src_pixbuf, output, &this_h, layer.opacity);
+                blit_pixmap_projective(src_pixbuf, output, &this_h, layer.opacity);
             }
         }
 

@@ -556,12 +556,13 @@ impl ComputedTransform3D {
         }
     }
 
-    /// The plane z = 0 of this transform as a 3x3 homography over
-    /// `(x, y, 1)` row vectors — `[x' y' w'] = [x y 1] * H`, row-major
+    /// The plane z = 0 of this transform as a 3x3 homography.
+    ///
+    /// Over `(x, y, 1)` row vectors — `[x' y' w'] = [x y 1] * H`, row-major
     /// `[m00 m01 m03; m10 m11 m13; m30 m31 m33]` — i.e. exactly what a 2D
     /// compositor needs to place a flat layer: the affine part plus the
-    /// perspective row. `is_affine` tells whether the perspective row is
-    /// the trivial `[0 0 1]`.
+    /// perspective row. [`Self::is_plane_affine`] tells whether the
+    /// perspective row is the trivial `[0 0 1]`.
     #[must_use]
     pub const fn plane_homography(&self) -> [f32; 9] {
         [

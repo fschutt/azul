@@ -3615,9 +3615,9 @@ fn layout_ifc<T: ParsedFontTrait>(
         if let Some(strut_height) = editing_host_strut_height(ctx, tree, node_index) {
             if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                 warm_node.inline_layout_result = Some(Box::new(CachedInlineLayout::new(
-                    Arc::new(crate::text3::cache::UnifiedLayout {
+                    Arc::new(text3::cache::UnifiedLayout {
                         items: Vec::new(),
-                        overflow: crate::text3::cache::OverflowInfo::default(),
+                        overflow: text3::cache::OverflowInfo::default(),
                     }),
                     constraints.available_width_type,
                     false,
