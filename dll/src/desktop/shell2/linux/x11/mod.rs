@@ -2962,17 +2962,12 @@ impl X11Window {
                     // Re-run layout on the existing StyledDom (restyle / runtime
                     // edit) instead of a full regenerate_layout(). Mirrors the
                     // macOS backend's ShouldIncrementalRelayout arm.
-                    let borrows = self.common.layout_borrows();
-                    if let Some(layout_window) = borrows.layout_window {
-                        let mut debug_messages = None;
-                        if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                            layout_window,
-                            borrows.current_window_state,
-                            borrows.renderer_resources,
-                            &mut debug_messages,
-                        ) {
-                            log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                        }
+                    let mut debug_messages = None;
+                    if let Err(e) = self.common.incremental_relayout(
+                        crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                        &mut debug_messages,
+                    ) {
+                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                     }
                     // Same call as the main handle_event arm. It raises the
                     // relayout-only request AND the ordinary one: without the
@@ -3959,17 +3954,12 @@ impl X11Window {
         // the relayout-only fast path (skip regenerate_layout, rebuild + send the
         // transaction). The redraw is posted by the != DoNothing block below.
         if result == ProcessEventResult::ShouldIncrementalRelayout {
-            let borrows = self.common.layout_borrows();
-            if let Some(layout_window) = borrows.layout_window {
-                let mut debug_messages = None;
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                    layout_window,
-                    borrows.current_window_state,
-                    borrows.renderer_resources,
-                    &mut debug_messages,
-                ) {
-                    log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                }
+            let mut debug_messages = None;
+            if let Err(e) = self.common.incremental_relayout(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                &mut debug_messages,
+            ) {
+                log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
             }
             self.common.request_relayout_only();
         }
@@ -4551,12 +4541,7 @@ impl X11Window {
         // drag-select / wheel-scroll / focus (#46). GPU mode has
         // cpu_hit_tester == None and uses the WebRender tester instead, so the
         // is_some() guard naturally restricts this to the CPU path.
-        if let (Some(cpu_ht), Some(lw)) = (
-            self.common.cpu_hit_tester.as_mut(),
-            self.common.layout_window.as_ref(),
-        ) {
-            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-        }
+        self.common.rebuild_cpu_hit_tester();
 
         // Drain lifecycle events (Mount / AfterMount / Unmount / Resize) produced
         // by this layout's DOM reconciliation and dispatch them through the normal
@@ -4639,21 +4624,16 @@ impl X11Window {
         // the new size anyway), so the latch is consumed and dropped.
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
-            let borrows = self.common.layout_borrows();
-            if let Some(layout_window) = borrows.layout_window {
-                let mut debug_messages = None;
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
-                    layout_window,
-                    borrows.current_window_state,
-                    borrows.renderer_resources,
-                    &mut debug_messages,
-                ) {
-                    log_warn!(
-                        LogCategory::Layout,
-                        "[X11] resize fast-path relayout failed: {e} — falling back to a full                          regeneration"
-                    );
-                    resize_relayout_failed = true;
-                }
+            let mut debug_messages = None;
+            if let Err(e) = self.common.incremental_relayout(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
+                &mut debug_messages,
+            ) {
+                log_warn!(
+                    LogCategory::Layout,
+                    "[X11] resize fast-path relayout failed: {e} — falling back to a full                          regeneration"
+                );
+                resize_relayout_failed = true;
             }
             if resize_relayout_failed {
                 self.common
@@ -4795,12 +4775,7 @@ impl X11Window {
                     // rects — rebuild it now, or the next pointer move hit-tests
                     // stale NodeIds (cursor panic / events on the wrong node).
                     if vviews_rebuilt {
-                        if let (Some(cpu_ht), Some(lw)) = (
-                            self.common.cpu_hit_tester.as_mut(),
-                            self.common.layout_window.as_ref(),
-                        ) {
-                            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                        }
+                        self.common.rebuild_cpu_hit_tester();
                     }
 
                     // Shared per-frame content preparation (journal clock, image

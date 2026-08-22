@@ -1406,7 +1406,11 @@ phases.mark("end");
 /// an identity mapping. Restyle/scroll-driven incremental relayouts MUST keep
 /// calling [`incremental_relayout`] — they need reconcile's fingerprint diff
 /// for paint-dirty classification.
-pub fn incremental_relayout_for_resize(
+/// PRIVATE TO `common` — backends call
+/// [`CommonWindowState::incremental_relayout`](super::event::CommonWindowState::incremental_relayout)
+/// with `IncrementalRelayout::Resize`, which runs this AND the finalize tail
+/// (the CPU hit-tester rebuild) that the macOS/X11 resize fast path forgot.
+pub(super) fn incremental_relayout_for_resize(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
@@ -1421,7 +1425,13 @@ pub fn incremental_relayout_for_resize(
     )
 }
 
-pub fn incremental_relayout(
+/// PRIVATE TO `common` — backends call
+/// [`CommonWindowState::incremental_relayout`](super::event::CommonWindowState::incremental_relayout),
+/// which runs this AND the finalize tail (the CPU hit-tester rebuild). A
+/// relayout whose results the hit-tester never sees sends every click over a
+/// moved node to whatever used to be there; that is why the bare function is
+/// not reachable from a backend any more.
+pub(super) fn incremental_relayout(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,

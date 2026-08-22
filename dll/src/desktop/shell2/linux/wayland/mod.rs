@@ -2721,17 +2721,12 @@ impl WaylandWindow {
                     // of a full regenerate_layout(). Mirrors the macOS arm.
                     // The relayout-only request then makes generate_frame_if_needed() skip
                     // regenerate_layout() and only rebuild + send the transaction.
-                    let borrows = self.common.layout_borrows();
-                    if let Some(layout_window) = borrows.layout_window {
-                        let mut debug_messages = None;
-                        if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                            layout_window,
-                            borrows.current_window_state,
-                            borrows.renderer_resources,
-                            &mut debug_messages,
-                        ) {
-                            log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                        }
+                    let mut debug_messages = None;
+                    if let Err(e) = self.common.incremental_relayout(
+                        crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                        &mut debug_messages,
+                    ) {
+                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                     }
                     self.common.request_relayout_only();
                     self.request_redraw();
@@ -3030,17 +3025,12 @@ impl WaylandWindow {
                 // (relayout-only): skip regenerate_layout, but still rebuild the
                 // CPU hit-tester + build & send the full WebRender transaction + present
                 // (an incremental relayout does NOT send the transaction itself).
-                let borrows = self.common.layout_borrows();
-                if let Some(layout_window) = borrows.layout_window {
-                    let mut debug_messages = None;
-                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                        layout_window,
-                        borrows.current_window_state,
-                        borrows.renderer_resources,
-                        &mut debug_messages,
-                    ) {
-                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                    }
+                let mut debug_messages = None;
+                if let Err(e) = self.common.incremental_relayout(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                 }
                 self.common.request_relayout_only();
                 self.request_redraw();
@@ -5038,22 +5028,17 @@ impl WaylandWindow {
         // dropped rather than left to fire a redundant relayout afterwards.
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
-            let borrows = self.common.layout_borrows();
-            if let Some(layout_window) = borrows.layout_window {
-                let mut debug_messages = None;
-                let _span = crate::log_span!(LogCategory::Window, "resize_incremental_relayout");
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
-                    layout_window,
-                    borrows.current_window_state,
-                    borrows.renderer_resources,
-                    &mut debug_messages,
-                ) {
-                    log_warn!(
-                        LogCategory::Layout,
-                        "[Wayland] resize fast-path relayout failed: {e} — falling back to a                          full regeneration"
-                    );
-                    resize_relayout_failed = true;
-                }
+            let mut debug_messages = None;
+            let _span = crate::log_span!(LogCategory::Window, "resize_incremental_relayout");
+            if let Err(e) = self.common.incremental_relayout(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
+                &mut debug_messages,
+            ) {
+                log_warn!(
+                    LogCategory::Layout,
+                    "[Wayland] resize fast-path relayout failed: {e} — falling back to a                          full regeneration"
+                );
+                resize_relayout_failed = true;
             }
             if resize_relayout_failed {
                 self.common
@@ -5105,12 +5090,7 @@ impl WaylandWindow {
             // WebRender hit-tester (render_api is None), and without this rebuild every
             // hit test returns nothing -> dead mouse hover / click / text selection /
             // focus. (GPU mode has cpu_hit_tester == None and uses the WebRender tester.)
-            if let (Some(cpu_ht), Some(lw)) = (
-                self.common.cpu_hit_tester.as_mut(),
-                self.common.layout_window.as_ref(),
-            ) {
-                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-            }
+            self.common.rebuild_cpu_hit_tester();
 
             // Send the full transaction (regenerate_layout only re-runs layout, doesn't
             // build/send the WebRender transaction on Wayland)
@@ -5456,12 +5436,7 @@ impl WaylandWindow {
                     // rects — rebuild it now, or the next pointer move hit-tests
                     // stale NodeIds (cursor panic / events on the wrong node).
                     if vviews_rebuilt {
-                        if let (Some(cpu_ht), Some(lw)) = (
-                            self.common.cpu_hit_tester.as_mut(),
-                            self.common.layout_window.as_ref(),
-                        ) {
-                            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                        }
+                        self.common.rebuild_cpu_hit_tester();
                     }
 
                     // Shared per-frame content preparation (journal clock, image

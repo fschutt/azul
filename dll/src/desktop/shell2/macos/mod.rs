@@ -4792,11 +4792,7 @@ impl MacOSWindow {
 
         // Rebuild CPU hit tester from new layout results (CPU mode only)
         if self.backend == RenderBackend::CPU {
-            if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
-                if let Some(lw) = self.common.layout_window.as_ref() {
-                    cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                }
-            }
+            self.common.rebuild_cpu_hit_tester();
         }
 
         // Mark accessibility tree for update after layout
@@ -5312,17 +5308,12 @@ impl MacOSWindow {
                 }
             }
             azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
-                let borrows = self.common.layout_borrows();
-                if let Some(layout_window) = borrows.layout_window {
-                    let mut debug_messages = None;
-                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                        layout_window,
-                        borrows.current_window_state,
-                        borrows.renderer_resources,
-                        &mut debug_messages,
-                    ) {
-                        log_warn!(LogCategory::Layout, "[process_close_event] Incremental relayout failed: {}", e);
-                    }
+                let mut debug_messages = None;
+                if let Err(e) = self.common.incremental_relayout(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(LogCategory::Layout, "[process_close_event] Incremental relayout failed: {}", e);
                 }
                 self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             }
@@ -5357,17 +5348,12 @@ impl MacOSWindow {
     /// from the layout `incremental_relayout()` already updated.
     /// `request_redraw()` schedules the drawRect.
     pub(crate) fn apply_incremental_relayout_result(&mut self) {
-        let borrows = self.common.layout_borrows();
-        if let Some(layout_window) = borrows.layout_window {
-            let mut debug_messages = None;
-            if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                layout_window,
-                borrows.current_window_state,
-                borrows.renderer_resources,
-                &mut debug_messages,
-            ) {
-                log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-            }
+        let mut debug_messages = None;
+        if let Err(e) = self.common.incremental_relayout(
+            crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+            &mut debug_messages,
+        ) {
+            log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
         }
         self.common.request_relayout_only();
         self.request_redraw();
@@ -6546,22 +6532,17 @@ impl MacOSWindow {
         // supersedes it (it lays out at the new size anyway).
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
-            let borrows = self.common.layout_borrows();
-            if let Some(layout_window) = borrows.layout_window {
-                let mut debug_messages = None;
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
-                    layout_window,
-                    borrows.current_window_state,
-                    borrows.renderer_resources,
-                    &mut debug_messages,
-                ) {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[macOS] resize fast-path relayout failed: {e} — falling back to a \
-                         full regeneration"
-                    );
-                    resize_relayout_failed = true;
-                }
+            let mut debug_messages = None;
+            if let Err(e) = self.common.incremental_relayout(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
+                &mut debug_messages,
+            ) {
+                log_error!(
+                    LogCategory::Layout,
+                    "[macOS] resize fast-path relayout failed: {e} — falling back to a \
+                     full regeneration"
+                );
+                resize_relayout_failed = true;
             }
             if resize_relayout_failed {
                 self.common

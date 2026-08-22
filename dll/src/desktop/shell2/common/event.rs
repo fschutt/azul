@@ -1932,6 +1932,21 @@ impl RegenerationState {
     }
 }
 
+/// Which incremental relayout a backend asks
+/// [`CommonWindowState::incremental_relayout`] for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncrementalRelayout {
+    /// A restyle / runtime edit / scroll-driven pass on the existing
+    /// StyledDom: solver3's reconcile diffs the node fingerprints, which is
+    /// what classifies paint-dirt for the partial present.
+    Restyle,
+    /// The coalesced window-resize pass: the StyledDom is by construction the
+    /// same object with zero DOM/style dirt, so solver3 may keep its retained
+    /// tree as-is (`resize_only_hint`) instead of re-walking every node to
+    /// rediscover full reuse. ONLY for the `take_resize_relayout()` branches.
+    Resize,
+}
+
 pub struct CommonWindowState {
     /// LayoutWindow integration (for UI callbacks and display list)
     pub layout_window: Option<LayoutWindow>,
@@ -2313,6 +2328,71 @@ impl CommonWindowState {
             fc_cache: &self.fc_cache,
             system_style: &self.system_style,
             app_data: &self.app_data,
+        }
+    }
+
+    /// Re-run layout on the EXISTING StyledDom — no DOM rebuild, the user's
+    /// layout callback is NOT invoked — and then run the finalize tail that
+    /// no relayout may skip.
+    ///
+    /// THE TAIL IS THE POINT. Layout results the hit-tester does not know
+    /// about are worse than no relayout: the window *looks* right, but every
+    /// click and wheel over a node that moved goes to whatever used to be
+    /// there. That was the "scroll area is dead after a resize until I click
+    /// a widget" and the AzMap "+" bug: the coalesced resize fast path on
+    /// macOS and X11 called the bare layout function and nothing rebuilt the
+    /// CPU hit-tester until the next FULL `regenerate_layout()`. Windows,
+    /// Wayland and headless happened to rebuild it themselves — so the bug
+    /// only existed on the platforms the tests do not run on.
+    ///
+    /// The bare functions (`common::layout::incremental_relayout` and
+    /// `_for_resize`) are now `pub(super)`: a backend cannot reach them, so
+    /// an incremental relayout without this tail does not compile.
+    ///
+    /// A window without a layout window (still initialising) is a no-op,
+    /// like the call sites this replaced.
+    pub fn incremental_relayout(
+        &mut self,
+        kind: IncrementalRelayout,
+        debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
+    ) -> Result<(), String> {
+        {
+            let borrows = self.layout_borrows();
+            let Some(layout_window) = borrows.layout_window else {
+                return Ok(());
+            };
+            match kind {
+                IncrementalRelayout::Restyle => super::layout::incremental_relayout(
+                    layout_window,
+                    borrows.current_window_state,
+                    borrows.renderer_resources,
+                    debug_messages,
+                )?,
+                IncrementalRelayout::Resize => super::layout::incremental_relayout_for_resize(
+                    layout_window,
+                    borrows.current_window_state,
+                    borrows.renderer_resources,
+                    debug_messages,
+                )?,
+            }
+        }
+        self.rebuild_cpu_hit_tester();
+        Ok(())
+    }
+
+    /// Rebuild the CPU hit-tester from the current layout results.
+    ///
+    /// CPU backend only: under WebRender the field is `None` and the
+    /// WebRender hit-tester is refreshed by the next display-list
+    /// transaction. Called by [`Self::incremental_relayout`] and by every
+    /// backend's full `regenerate_layout()` tail — the hit-tester is a CACHE
+    /// of `layout_results`, and a cache that outlives the layout it was
+    /// built from sends input to nodes that are no longer there.
+    pub fn rebuild_cpu_hit_tester(&mut self) {
+        if let (Some(cpu_ht), Some(lw)) =
+            (self.cpu_hit_tester.as_mut(), self.layout_window.as_ref())
+        {
+            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
     }
 

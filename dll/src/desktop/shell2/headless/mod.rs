@@ -1491,11 +1491,7 @@ impl HeadlessWindow {
         // through `common.cpu_hit_tester`. Without this rebuild that tester stays
         // empty, so every click hit-tests to nothing and widget callbacks (e.g. a
         // button's on_click) never fire — clicks silently do nothing in headless.
-        if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
-            if let Some(lw) = self.common.layout_window.as_ref() {
-                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-            }
-        }
+        self.common.rebuild_cpu_hit_tester();
 
         // Drain any lifecycle events produced by reconciliation (Mount/Unmount/
         // Update/Resize) and dispatch them through the normal callback pipeline.
@@ -1637,16 +1633,12 @@ impl HeadlessWindow {
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
         let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
 
-        {
-            let borrows = self.common.layout_borrows();
-            let layout_window = borrows.layout_window.ok_or("No layout window")?;
-            crate::desktop::shell2::common::layout::incremental_relayout(
-                layout_window,
-                borrows.current_window_state,
-                borrows.renderer_resources,
-                &mut debug_messages,
-            )?;
-        }
+        // The common method owns the finalize tail (the CPU hit-tester
+        // rebuild) — see `CommonWindowState::incremental_relayout`.
+        self.common.incremental_relayout(
+            crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+            &mut debug_messages,
+        )?;
 
         if let Some(msgs) = debug_messages {
             for msg in msgs {
@@ -1659,14 +1651,11 @@ impl HeadlessWindow {
             }
         }
 
-        // Same finalize tail as regenerate_layout: hit-testers, CPU frame, damage.
+        // Same finalize tail as regenerate_layout: the backend's own
+        // hit-tester (common's was rebuilt inside `incremental_relayout`),
+        // CPU frame, damage.
         if let Some(lw) = self.common.layout_window.as_ref() {
             self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-        }
-        if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
-            if let Some(lw) = self.common.layout_window.as_ref() {
-                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-            }
         }
 
         #[cfg(feature = "cpurender")]
@@ -5255,6 +5244,138 @@ mod tests {
                 .and_then(|lw| lw.text_edit_manager.get_cross_block_selection())
                 .is_some(),
             "the selection state itself must survive the relayout"
+        );
+    }
+
+    // --- A relayout-only pass keeps the hit-tester in sync ----------------
+    //
+    // REPORTED (demo test 2026-08-21): AzWidgets' scroll area stopped reacting
+    // to the wheel after a window resize and AzMap's "+" went dead, both
+    // "healing" on the next widget click. The class: a RELAYOUT-ONLY pass
+    // (the coalesced resize fast path, a restyle, a runtime edit) re-runs
+    // layout on the existing StyledDom, but the CPU hit-tester is a CACHE of
+    // that layout and was rebuilt only by the full `regenerate_layout()`. On
+    // macOS and X11 nothing else rebuilt it, so input over a node that had
+    // moved went to whatever used to be there. `CommonWindowState::
+    // incremental_relayout` now owns that finalize tail (and the bare layout
+    // function is private to `common`); this drives the resize path through
+    // it and asks the hit-tester where a right-aligned box went.
+
+    extern "C" fn right_aligned_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body()
+            .with_css(
+                "display: flex; flex-direction: row; justify-content: flex-end; \
+                 width: 100%; height: 100%;",
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("target".into())].into(),
+                    )
+                    .with_css(
+                        "width: 40px; height: 40px; flex-grow: 0; flex-shrink: 0; \
+                         background: red;",
+                    ),
+            )
+    }
+
+    /// Does the window's CPU hit-tester report a `.target` node at (x, y)?
+    fn cpu_hit_tester_hits_class(window: &HeadlessWindow, class: &str, x: f32, y: f32) -> bool {
+        use azul_core::dom::IdOrClass;
+        use azul_core::geom::LogicalPosition;
+
+        let Some(ht) = window.common.cpu_hit_tester.as_ref() else {
+            panic!("the headless window must own a CPU hit-tester");
+        };
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return false;
+        };
+        ht.hit_test(LogicalPosition::new(x, y))
+            .into_iter()
+            .any(|(dom, node)| {
+                lw.layout_results
+                    .get(&dom)
+                    .and_then(|lr| {
+                        lr.styled_dom
+                            .node_data
+                            .as_container()
+                            .internal
+                            .get(node.index())
+                            .map(|data| {
+                                data.get_ids_and_classes().iter().any(|c| match c {
+                                    IdOrClass::Class(s) => s.as_str() == class,
+                                    IdOrClass::Id(_) => false,
+                                })
+                            })
+                    })
+                    .unwrap_or(false)
+            })
+    }
+
+    #[test]
+    fn a_relayout_only_pass_rebuilds_the_hit_tester() {
+        use crate::desktop::shell2::common::event::{IncrementalRelayout, PlatformWindow};
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, right_aligned_layout, 300.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let before = rects_by_class(&window, "target");
+        assert_eq!(before.len(), 1, "{before:?}");
+        assert!(
+            (before[0].origin.x - 260.0).abs() < 1.0,
+            "a 40 px box right-aligned in a 300 px window starts at x = 260: {before:?}"
+        );
+        assert!(
+            cpu_hit_tester_hits_class(&window, "target", 280.0, 20.0),
+            "after the full layout the hit-tester must find the box at its position"
+        );
+
+        // Widen the window through the RELAYOUT-ONLY path: the coalesced
+        // resize fast path, no DOM rebuild — exactly what a live window does
+        // on every drag of the window edge.
+        window.snapshot_window_state_baseline("headless.test.relayout_only_hit_tester");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 500.0;
+            });
+        let mut debug_messages = None;
+        window
+            .common
+            .incremental_relayout(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize fast path");
+
+        let after = rects_by_class(&window, "target");
+        assert_eq!(after.len(), 1, "{after:?}");
+        assert!(
+            (after[0].origin.x - 460.0).abs() < 1.0,
+            "layout itself must have moved the box to x = 460: {after:?}"
+        );
+        assert!(
+            cpu_hit_tester_hits_class(&window, "target", 480.0, 20.0),
+            "STALE HIT-TESTER: layout moved the box to x = 460 but the hit-tester still \
+             answers for the 300 px window — the relayout-only path skipped the rebuild"
+        );
+        assert!(
+            !cpu_hit_tester_hits_class(&window, "target", 280.0, 20.0),
+            "the box's OLD position must no longer hit it"
+        );
+
+        // The restyle flavour takes the same tail.
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 400.0;
+            });
+        window
+            .common
+            .incremental_relayout(IncrementalRelayout::Restyle, &mut debug_messages)
+            .expect("restyle relayout");
+        assert!(
+            cpu_hit_tester_hits_class(&window, "target", 380.0, 20.0),
+            "the restyle relayout must rebuild the hit-tester too"
         );
     }
 

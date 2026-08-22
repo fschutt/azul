@@ -997,12 +997,7 @@ impl Win32Window {
                 // rebuild it now, or the next pointer move hit-tests stale
                 // NodeIds (cursor panic / events on the wrong node).
                 if vviews_rebuilt {
-                    if let (Some(cpu_ht), Some(lw)) = (
-                        self.common.cpu_hit_tester.as_mut(),
-                        self.common.layout_window.as_ref(),
-                    ) {
-                        cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                    }
+                    self.common.rebuild_cpu_hit_tester();
                 }
 
                 // Shared per-frame content preparation (journal clock, image
@@ -1709,11 +1704,7 @@ impl Win32Window {
         // this, clicks in the CPU-render fallback hit nothing and widget callbacks
         // (e.g. a button's on_click) never fire.
         if !matches!(self.render_mode, RenderMode::Gpu { .. }) {
-            if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
-                if let Some(lw) = self.common.layout_window.as_ref() {
-                    cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                }
-            }
+            self.common.rebuild_cpu_hit_tester();
         }
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
@@ -1777,11 +1768,7 @@ impl Win32Window {
         // events resolve to the correct node after a restyle changes node rects.
         // GPU mode uses WebRender's async hit-tester instead.
         if !matches!(self.render_mode, RenderMode::Gpu { .. }) {
-            if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
-                if let Some(lw) = self.common.layout_window.as_ref() {
-                    cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                }
-            }
+            self.common.rebuild_cpu_hit_tester();
         }
     }
 
@@ -1823,19 +1810,12 @@ impl Win32Window {
                 // + the WM_COMMAND menu arm. The relayout-only request then makes WM_PAINT
                 // skip regenerate_layout and only rebuild + send the WebRender
                 // transaction.
-                let borrows = self.common.layout_borrows();
-                if let Some(layout_window) = borrows.layout_window {
-                    let mut debug_messages = None;
-                    if let Err(e) =
-                        crate::desktop::shell2::common::layout::incremental_relayout(
-                            layout_window,
-                            borrows.current_window_state,
-                            borrows.renderer_resources,
-                            &mut debug_messages,
-                        )
-                    {
-                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                    }
+                let mut debug_messages = None;
+                if let Err(e) = self.common.incremental_relayout(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                 }
                 self.common.request_relayout_only();
                 unsafe {
@@ -3752,22 +3732,17 @@ unsafe extern "system" fn window_proc(
             // request supersedes it (it lays out at the new size anyway).
             if window.common.take_resize_relayout() && !window.common.regeneration_pending() {
                 let mut resize_relayout_failed = false;
-                let borrows = window.common.layout_borrows();
-                if let Some(layout_window) = borrows.layout_window {
-                    let mut debug_messages = None;
-                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
-                        layout_window,
-                        borrows.current_window_state,
-                        borrows.renderer_resources,
-                        &mut debug_messages,
-                    ) {
-                        log_error!(
-                            LogCategory::Layout,
-                            "[Win32] resize fast-path relayout failed: {e} — falling back to a \
-                             full regeneration"
-                        );
-                        resize_relayout_failed = true;
-                    }
+                let mut debug_messages = None;
+                if let Err(e) = window.common.incremental_relayout(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
+                    &mut debug_messages,
+                ) {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Win32] resize fast-path relayout failed: {e} — falling back to a \
+                         full regeneration"
+                    );
+                    resize_relayout_failed = true;
                 }
                 if resize_relayout_failed {
                     window
@@ -5236,17 +5211,12 @@ unsafe extern "system" fn window_proc(
                 // composition-START rect while the preedit grew and wrapped —
                 // a long Japanese phrase ended up with its candidate list
                 // lines away from the text it belonged to.
-                let borrows = window.common.layout_borrows();
-                if let Some(layout_window) = borrows.layout_window {
-                    let mut debug_messages = None;
-                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                        layout_window,
-                        borrows.current_window_state,
-                        borrows.renderer_resources,
-                        &mut debug_messages,
-                    ) {
-                        log_warn!(LogCategory::Layout, "IME preedit relayout failed: {}", e);
-                    }
+                let mut debug_messages = None;
+                if let Err(e) = window.common.incremental_relayout(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(LogCategory::Layout, "IME preedit relayout failed: {}", e);
                 }
                 window.common.request_relayout_only();
                 window.update_ime_position_from_cursor();
@@ -5583,23 +5553,16 @@ unsafe extern "system" fn window_proc(
                             // ShouldIncrementalRelayout arm. The relayout-only request then
                             // makes WM_PAINT skip regenerate_layout and only rebuild +
                             // send the WebRender transaction.
-                            let borrows = window.common.layout_borrows();
-                            if let Some(layout_window) = borrows.layout_window {
-                                let mut debug_messages = None;
-                                if let Err(e) =
-                                    crate::desktop::shell2::common::layout::incremental_relayout(
-                                        layout_window,
-                                        borrows.current_window_state,
-                                        borrows.renderer_resources,
-                                        &mut debug_messages,
-                                    )
-                                {
-                                    log_warn!(
-                                        LogCategory::Layout,
-                                        "Incremental relayout failed: {}",
-                                        e
-                                    );
-                                }
+                            let mut debug_messages = None;
+                            if let Err(e) = window.common.incremental_relayout(
+                                crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                                &mut debug_messages,
+                            ) {
+                                log_warn!(
+                                    LogCategory::Layout,
+                                    "Incremental relayout failed: {}",
+                                    e
+                                );
                             }
                             window.common.request_relayout_only();
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
