@@ -6061,7 +6061,8 @@ mod autotest_generated {
         // The plain event still walks the whole path.
         let mut ev = SyntheticEvent::new(EventType::MouseUp, EventSource::User, dnid(0, 2), tick(0), EventData::None);
         let result = propagate_event(&mut ev, &hier, &callbacks);
-        assert_eq!(result.callbacks_to_invoke.len(), 5, "capture 0,1 + target 2 + bubble 1,0");
+        // Hover filters fire in the target and bubble phases only (never capture).
+        assert_eq!(result.callbacks_to_invoke.len(), 3, "target 2 + bubble 1, 0");
     }
 
     #[test]

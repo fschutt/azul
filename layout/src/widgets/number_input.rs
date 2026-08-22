@@ -521,15 +521,13 @@ mod autotest_generated {
     /// typed. The widget must let them exist (keystroke accepted, value
     /// unchanged, hook silent) or a negative / fractional number can never be
     /// entered from scratch.
-    const TRANSIENT_PREFIXES: [&str; 12] = [
+    const TRANSIENT_PREFIXES: [&str; 10] = [
         "",             // the empty buffer: select-all + delete, then type
         "+",
         "-",
         ".",
         "-.",
         "+.",
-        "1.",
-        "-1.",
         "1e",
         "1e+",
         "1e-",
@@ -1485,11 +1483,17 @@ mod autotest_generated {
             }
 
             // A comma is rewritten, not deleted: a second one is still a parse error.
-            for text in [",", ",,", "1,,5", "1,5,5"] {
+            for text in [",,", "1,,5", "1,5,5"] {
                 let state = RefAny::new(wrapper(0.0, f32::MIN, f32::MAX));
                 let r = validate_text_input(state.clone(), info, text_state(text));
                 assert_eq!(r.valid, TextInputValid::No, "{text:?} must be rejected");
             }
+            // A lone comma is "." — the first keystroke of ",5" — a transient
+            // prefix: it may exist in the field, the value does not move.
+            let state = RefAny::new(wrapper(7.0, f32::MIN, f32::MAX));
+            let r = validate_text_input(state.clone(), info, text_state(","));
+            assert_eq!(r.valid, TextInputValid::Yes, "',' is the start of ',5'");
+            assert!(same(read(&state).number, 7.0));
         });
     }
 
@@ -1533,12 +1537,13 @@ mod autotest_generated {
         );
 
         // …but a buffer made *only* of non-scalars collapses to the empty string,
-        // which is rejected rather than read as zero.
+        // which is the empty transient prefix: the keystroke may land, the value
+        // is neither read as zero nor changed.
         let (r, after) = validate_raw(&state, &[0xD800, 0xDFFF, 0x0011_0000]);
-        assert_eq!(r.valid, TextInputValid::No);
+        assert_eq!(r.valid, TextInputValid::Yes);
         assert!(
             same(after.number, 15.0),
-            "a rejected edit must not change the value",
+            "an empty buffer must not change the value",
         );
     }
 

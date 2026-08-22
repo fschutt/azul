@@ -2058,7 +2058,7 @@
                     "displayName": "Lua",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace — arm64 is the verified path)",
+                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace - arm64 is the verified path)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2100,7 +2100,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace — arm64 is the verified path)",
+                            "description": "Download the prebuilt DLL, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace - arm64 is the verified path)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2782,7 +2782,7 @@
                     "displayName": "Python",
                     "platforms": {
                         "linux": {
-                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index - a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2799,7 +2799,7 @@
                             ]
                         },
                         "macos": {
-                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index - a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2816,7 +2816,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index - a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3069,7 +3069,7 @@
                     "displayName": "Scala",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3102,7 +3102,7 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3135,7 +3135,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6869,7 +6869,7 @@
                                     "  the handle comes back already answered, so the same polling code",
                                     "  sees `Selected` / `Cancelled` on its first `poll`.",
                                     "- A mobile build whose shell never registered a backend: `Error`,",
-                                    "  immediately — never a handle that stays `Pending` forever.",
+                                    "  immediately - never a handle that stays `Pending` forever.",
                                     "",
                                     "`allow_multiple` resolves to `SelectedMultiple` instead of `Selected`."
                                 ],
@@ -12981,7 +12981,7 @@
                             },
                             "set_accessibility_value": {
                                 "doc": [
-                                    "Update a node's accessibility VALUE without rebuilding — a slider's",
+                                    "Update a node's accessibility VALUE without rebuilding - a slider's",
                                     "position, a progress bar's percentage, a field's contents."
                                 ],
                                 "fn_args": [
@@ -13002,7 +13002,7 @@
                                     "Update a node's accessibility STATE and/or VALUE without rebuilding.",
                                     "",
                                     "Use it wherever a control changes what it announces but not its",
-                                    "structure — a toggle flipping checked, a section expanding, a slider",
+                                    "structure - a toggle flipping checked, a section expanding, a slider",
                                     "moving. Publishing only at build time leaves the accessibility tree",
                                     "describing a state the widget left behind, and a screen-reader user has",
                                     "no way to notice.",
@@ -13034,8 +13034,8 @@
                                     "",
                                     "Goes to the same place every engine lint goes: the installed diagnostic",
                                     "sink (stderr by default, so it shows in a terminal), the in-process ring",
-                                    "that `assert_stderr` reads in e2e, and — once",
-                                    "`telemetry::install_diagnostics_bridge()` is called — the OTLP pipeline",
+                                    "that `assert_stderr` reads in e2e, and - once",
+                                    "`telemetry::install_diagnostics_bridge()` is called - the OTLP pipeline",
                                     "behind Loki and Grafana, tagged with the running e2e scenario.",
                                     "",
                                     "Use it where a widget can SEE that it has been used wrongly and the",
@@ -18670,8 +18670,8 @@
                                     "declares.",
                                     "",
                                     "This is the override an application needs and `with_accessibility_info`",
-                                    "cannot give it. A widget fills in what it knows — a slider's role and",
-                                    "live value, a checkbox's checked state — and it CANNOT know what the",
+                                    "cannot give it. A widget fills in what it knows - a slider's role and",
+                                    "live value, a checkbox's checked state - and it CANNOT know what the",
                                     "control is called: only the app does. Replacing the whole struct to add",
                                     "a name would discard the role and the value with it, so the control",
                                     "would gain a name and stop reporting its position.",
@@ -18732,7 +18732,7 @@
                                     "```",
                                     "",
                                     "See [`AccessibilityInfo::assign`] for exactly which fields count as",
-                                    "\"set\" — `None`, an empty vec and `Unknown` all mean \"not specified\"."
+                                    "\"set\" - `None`, an empty vec and `Unknown` all mean \"not specified\"."
                                 ],
                                 "fn_args": [
                                     {
@@ -19836,7 +19836,7 @@
                         "functions": {
                             "with_value": {
                                 "doc": [
-                                    "Attach a live value — a slider's position, a progress percentage."
+                                    "Attach a live value - a slider's position, a progress percentage."
                                 ],
                                 "fn_args": [
                                     {
@@ -19854,7 +19854,7 @@
                             "assign": {
                                 "doc": [
                                     "Overlay `patch` onto `self`, taking only the fields `patch` actually",
-                                    "SETS — the accessibility equivalent of a struct assign/merge.",
+                                    "SETS - the accessibility equivalent of a struct assign/merge.",
                                     "",
                                     "The problem it solves: a widget declares what it knows (role, live",
                                     "value, checked state) and an application knows the one thing the widget",
@@ -19874,7 +19874,7 @@
                                     "\"Actually sets\" is defined per field, and deliberately: `None` and an",
                                     "EMPTY vec mean \"not specified\", `AccessibilityRole::Unknown` means \"not",
                                     "specified\" (which is exactly why Default uses it), and `is_live_region`",
-                                    "is only ever turned ON by a patch — a `false` in a partial struct is",
+                                    "is only ever turned ON by a patch - a `false` in a partial struct is",
                                     "indistinguishable from an unset field, so it must not clear a `true`",
                                     "that the widget set on purpose."
                                 ],

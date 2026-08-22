@@ -5341,8 +5341,7 @@ mod tests {
             });
         let mut debug_messages = None;
         window
-            .common
-            .incremental_relayout(IncrementalRelayout::Resize, &mut debug_messages)
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
             .expect("resize fast path");
 
         let after = rects_by_class(&window, "target");
@@ -5368,8 +5367,7 @@ mod tests {
                 ws.size.dimensions.width = 400.0;
             });
         window
-            .common
-            .incremental_relayout(IncrementalRelayout::Restyle, &mut debug_messages)
+            .incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
             .expect("restyle relayout");
         assert!(
             cpu_hit_tester_hits_class(&window, "target", 380.0, 20.0),

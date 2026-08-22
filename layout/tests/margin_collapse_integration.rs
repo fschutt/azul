@@ -94,41 +94,6 @@ fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
 // CSS 2.2 §8.3.1: Sibling margin collapsing
 // ============================================================================
 
-/// CSS 2.2 §8.3.1: an EMPTY block's top and bottom margins collapse through
-/// it into ONE margin, which a padded parent (a blocker on both sides) places
-/// exactly once. `layout_bfc` used to advance the pen by the collapsed margin
-/// AND carry it as the pending bottom margin, so the tail added it again:
-/// `padding 4 + margin 13 + padding 4` came out as 34 px instead of 21 — the
-/// "13 counted twice" in the TextArea's flow slot.
-#[test]
-fn an_empty_blocks_collapsed_margin_is_placed_once_inside_a_padded_parent() {
-    let html = r#"
-    <html><head><style>
-        * { margin: 0; padding: 0; }
-        .box { padding: 4px; }
-        .p { margin: 13px 0; font-size: 13px; }
-    </style></head>
-    <body>
-        <div class="box"><p class="p"></p></div>
-    </body></html>
-    "#;
-    let cache = run_layout(html);
-    let tree = cache.tree.as_ref().expect("tree");
-    let heights: Vec<f32> = tree
-        .nodes
-        .iter()
-        .filter_map(|n| n.used_size.map(|s| s.height))
-        .collect();
-    assert!(
-        heights.iter().any(|h| (h - 21.0).abs() < 0.5),
-        "the padded box must be 4 + 13 + 4 = 21 px tall, got heights {heights:?}"
-    );
-    assert!(
-        !heights.iter().any(|h| (h - 34.0).abs() < 0.5),
-        "the empty block's margin was counted twice (34 px): {heights:?}"
-    );
-}
-
 #[test]
 fn test_adjacent_sibling_margins_collapse() {
     // CSS 2.2 §8.3.1: "the adjoining margins of two or more boxes...

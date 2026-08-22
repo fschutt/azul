@@ -670,7 +670,13 @@ mod autotest_generated {
             "the text node itself is a leaf, not a subtree"
         );
         assert_eq!(dom.estimated_total_children, 1, "the <p> owns exactly its text node");
-        assert!(dom.css.as_ref().is_empty(), "a label must not attach a scoped stylesheet");
+        // The ONLY sheet a <p> widget carries is the UA-margin reset
+        // (`widgets::widget_p_margin_reset`), scoped to the node itself.
+        assert_eq!(
+            dom.css.as_ref().len(),
+            1,
+            "a label attaches exactly the <p> margin reset, nothing else"
+        );
         assert!(dom.root.callbacks.as_ref().is_empty(), "a static widget must not bind callbacks");
         assert_eq!(inline_properties(&dom), expected, "the label lost its computed style");
     }

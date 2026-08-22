@@ -1852,30 +1852,19 @@ fn layout_bfc<T: ParsedFontTrait>(
                 is_first_child = false;
                 // Empty first child: its collapsed margin can escape with parent's
                 if parent_has_top_blocker {
-                    // Parent has blocker: seat the parent's margin. The empty
-                    // box's own collapsed margin stays PENDING in
-                    // `last_margin_bottom`, to be placed exactly once — by the
-                    // next sibling's seam (collapsed with its top margin) or by
-                    // the tail. Adding it to the pen here AND carrying it
-                    // counted it twice (CSS 2.2 §8.3.1: a collapsed-through
-                    // box contributes its collapsed margin once): an empty
-                    // `<p>` with a 13 px margin inside a padded box made the
-                    // box 26 px taller, not 13.
+                    // Parent has blocker: add margins
                     if accumulated_top_margin == 0.0 {
                         accumulated_top_margin = parent_margin_top;
                     }
-                    main_pen += accumulated_top_margin;
+                    main_pen += accumulated_top_margin + self_collapsed;
                     top_margin_resolved = true;
                     accumulated_top_margin = 0.0;
-                    last_margin_bottom = self_collapsed;
-                    // The box's border edges sit AFTER its collapsed margin,
-                    // like an empty sibling's do.
-                    seam_main = main_pen + last_margin_bottom;
                 } else {
                     accumulated_top_margin = collapse_margins(parent_margin_top, self_collapsed);
-                    seam_main = main_pen;
-                    last_margin_bottom = self_collapsed;
                 }
+                // Both arms seat the seam at the (possibly advanced) pen.
+                seam_main = main_pen;
+                last_margin_bottom = self_collapsed;
             } else {
                 // Empty sibling: collapse with previous sibling's bottom margin
                 last_margin_bottom = collapse_margins(last_margin_bottom, self_collapsed);

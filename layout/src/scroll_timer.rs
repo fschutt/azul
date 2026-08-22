@@ -764,11 +764,15 @@ pub extern "C" fn scroll_physics_timer_callback(
             node_physics.is_rubber_banding = false;
         }
 
-        // Snap to zero if below threshold after decay
-        if node_physics.velocity.x.abs() < velocity_threshold {
+        // Snap to zero if below threshold after decay — FREE MOMENTUM ONLY.
+        // A spring's velocity is meaningful all the way down to its landing:
+        // zeroing it once it dropped under the threshold restarted the
+        // closed form from rest on every tick, and the last ~2 px of a
+        // spring-back became a 50-tick crawl (`commit_spring_back` lands it).
+        if spring_back_x.is_none() && node_physics.velocity.x.abs() < velocity_threshold {
             node_physics.velocity.x = 0.0;
         }
-        if node_physics.velocity.y.abs() < velocity_threshold {
+        if spring_back_y.is_none() && node_physics.velocity.y.abs() < velocity_threshold {
             node_physics.velocity.y = 0.0;
         }
 
