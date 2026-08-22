@@ -1418,16 +1418,29 @@ impl WaylandWindow {
         // A new menu replaces any currently-open one.
         self.dismiss_active_popup();
 
-        let mut anchor_rect = match &options.window_state.layout_callback.ctx {
+        // The anchor: a menu stashes its trigger rect in `MenuLayoutData`; a
+        // `<transient-window>` carries its placement in the shared mailbox
+        // (`common::transient::TransientWindowData`) — anchor rect AND the edge
+        // to open on. Both are parent-surface-relative, which is all a Wayland
+        // client can say; the compositor's positioner does the placing.
+        let (mailbox_anchor, edge) = match &options.window_state.layout_callback.ctx {
             azul_core::refany::OptionRefAny::Some(refany) => {
-                let mut refany = refany.clone();
-                refany
-                    .downcast_ref::<self::menu::MenuLayoutData>()
-                    .map(|d| d.trigger_rect)
+                let mut r = refany.clone();
+                let menu = r.downcast_ref::<self::menu::MenuLayoutData>().map(|d| d.trigger_rect);
+                let mut r2 = refany.clone();
+                let transient = r2
+                    .downcast_ref::<crate::desktop::shell2::common::transient::TransientWindowData>()
+                    .map(|d| (d.placement.anchor_rect, d.placement.anchor));
+                match (menu, transient) {
+                    (Some(rect), _) => (Some(rect), azul_core::transient::TransientAnchor::Cursor),
+                    (None, Some((rect, edge))) => (Some(rect), edge),
+                    (None, None) => (None, azul_core::transient::TransientAnchor::Cursor),
+                }
             }
-            azul_core::refany::OptionRefAny::None => None,
-        }
-        .unwrap_or_else(|| LogicalRect::new(azul_core::geom::LogicalPosition::zero(), LogicalSize::zero()));
+            azul_core::refany::OptionRefAny::None => (None, azul_core::transient::TransientAnchor::Cursor),
+        };
+        let mut anchor_rect = mailbox_anchor
+            .unwrap_or_else(|| LogicalRect::new(azul_core::geom::LogicalPosition::zero(), LogicalSize::zero()));
 
         // A zero-sized anchor rect is rejected by some compositors — clamp >= 1x1.
         anchor_rect.size.width = anchor_rect.size.width.max(1.0);
@@ -1443,7 +1456,7 @@ impl WaylandWindow {
             anchor_rect.size.width, anchor_rect.size.height,
             popup_size.width, popup_size.height
         );
-        let popup = WaylandPopup::new(self, anchor_rect, popup_size, options)?;
+        let popup = WaylandPopup::new(self, anchor_rect, popup_size, edge, options)?;
         self.active_popup = Some(Box::new(popup));
         crate::plog_info!("[wayland-popup] xdg_popup created + grab requested, awaiting configure");
 
@@ -7020,6 +7033,7 @@ impl WaylandPopup {
         parent: &WaylandWindow,
         anchor_rect: azul_core::geom::LogicalRect,
         popup_size: azul_core::geom::LogicalSize,
+        edge: azul_core::transient::TransientAnchor,
         options: WindowCreateOptions,
     ) -> Result<Self, String> {
         use crate::desktop::shell2::linux::wayland::defines::*;
@@ -7052,11 +7066,19 @@ impl WaylandPopup {
                 anchor_rect.size.height as i32,
             );
 
-            // Anchor to bottom-right corner of anchor rect
-            (wayland.xdg_positioner_set_anchor)(positioner, XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT);
-
-            // Popup grows down and right from anchor point
-            (wayland.xdg_positioner_set_gravity)(positioner, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT);
+            // Which corner/edge of the anchor rect the popup hangs off, and
+            // which way it grows from there. A `<transient-window anchor=…>`
+            // says so; a menu opens at its trigger's bottom-right like before.
+            use azul_core::transient::TransientAnchor;
+            let (anchor, gravity) = match edge {
+                TransientAnchor::Bottom => (XDG_POSITIONER_ANCHOR_BOTTOM_LEFT, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT),
+                TransientAnchor::Top => (XDG_POSITIONER_ANCHOR_TOP_LEFT, XDG_POSITIONER_GRAVITY_TOP_RIGHT),
+                TransientAnchor::Left => (XDG_POSITIONER_ANCHOR_TOP_LEFT, XDG_POSITIONER_GRAVITY_BOTTOM_LEFT),
+                TransientAnchor::Right => (XDG_POSITIONER_ANCHOR_TOP_RIGHT, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT),
+                TransientAnchor::Cursor => (XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT),
+            };
+            (wayland.xdg_positioner_set_anchor)(positioner, anchor);
+            (wayland.xdg_positioner_set_gravity)(positioner, gravity);
 
             // Allow compositor to flip/slide if popup would overflow screen
             (wayland.xdg_positioner_set_constraint_adjustment)(

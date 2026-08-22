@@ -799,6 +799,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         hover_manager: _,
         virtual_view_manager: _,
         transient_windows: _,
+        pointer_capture: _,
         pending_transient_diff: _,
         gpu_state_manager: _,
         a11y_manager: _,
@@ -1155,6 +1156,12 @@ pub struct LayoutWindow {
     /// and under which `DomId` each one's content is laid out. See
     /// `crate::transient`.
     pub transient_windows: crate::transient::TransientWindowManager,
+    /// The node that captured the pointer (`CallbackInfo::capture_pointer`):
+    /// while set, mouse moves and the release are delivered to THIS node no
+    /// matter what is under the cursor — W3C `setPointerCapture`. A slider
+    /// or colour plane that only listened for `MouseOver` on itself lost the
+    /// drag the instant the cursor slipped off it. Released on mouse-up.
+    pub pointer_capture: Option<DomNodeId>,
     /// What layout has done to the set of open popups since the backend last
     /// looked — accumulated across passes (see `TransientDiff::merge`), taken
     /// with [`Self::take_transient_diff`] to create/move/destroy surfaces.
@@ -1638,6 +1645,7 @@ impl LayoutWindow {
             hover_manager: crate::managers::hover::HoverManager::new(),
             virtual_view_manager: VirtualViewManager::new(),
             transient_windows: crate::transient::TransientWindowManager::new(),
+            pointer_capture: None,
             pending_transient_diff: crate::transient::TransientDiff::default(),
             gpu_state_manager: GpuStateManager::new(
                 default_duration_500ms(),
@@ -8931,20 +8939,14 @@ impl LayoutWindow {
         let Some(used_size) = layout_node.used_size else { { let _ = (0xE5_0000FDu32); } return None; };
         { let _ = (0xE5_000004u32); }
 
-        // Convert size to logical coordinates
-        let hidpi_factor = self
-            .current_window_state
-            .size
-            .get_hidpi_factor()
-            .inner
-            .get();
-
+        // `used_size` is LOGICAL already (the same value `get_node_size`
+        // returns untouched). This used to divide it by the HiDPI factor, so
+        // on a Retina display every rect came back at half its size: a 14px
+        // swatch reported 14x7 and its popup hung from the swatch's midline,
+        // and a11y click centres / e2e rects were off the same way.
         Some(LogicalRect::new(
             LogicalPosition::new(calc_pos.x, calc_pos.y),
-            LogicalSize::new(
-                used_size.width / hidpi_factor,
-                used_size.height / hidpi_factor,
-            ),
+            used_size,
         ))
     }
 
@@ -10522,16 +10524,26 @@ impl LayoutWindow {
         // callback needing a node-local cursor (map pan/drag, custom hit
         // logic) silently bailed. Falls back to `None` when the node isn't in
         // the current hit test (e.g. non-pointer events).
+        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
         let cursor_relative_to_item = match hit_dom_node.node.into_crate_internal() {
             Some(node_id) => self
                 .hover_manager
                 .get_current(&crate::managers::hover::InputPointId::Mouse)
                 .and_then(|ht| ht.hovered_nodes.get(&hit_dom_node.dom))
                 .and_then(|hit| hit.regular_hit_test_nodes.get(&node_id))
-                .map_or(OptionLogicalPosition::None, |item| OptionLogicalPosition::Some(item.point_relative_to_item)),
+                .map(|item| item.point_relative_to_item)
+                // Not under the cursor — a node that CAPTURED the pointer and
+                // is being dragged past its edge: measure against its rect
+                // instead, so the node-local cursor keeps reading (and may
+                // run negative / past the size, which is what a drag wants).
+                .or_else(|| {
+                    let rect = self.get_node_rect_in_viewport(hit_dom_node)?;
+                    let c = cursor_in_viewport.into_option()?;
+                    Some(LogicalPosition::new(c.x - rect.origin.x, c.y - rect.origin.y))
+                })
+                .map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some),
             None => OptionLogicalPosition::None,
         };
-        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
 
         // Create changes container for callback transaction system
         let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -14827,6 +14839,7 @@ impl LayoutWindow {
             pending_virtual_view_updates,
             gl_texture_cache,
             currently_dragging_thumb,
+            pointer_capture,
             content_overlay,
             content_journal,
 
@@ -15032,6 +15045,16 @@ impl LayoutWindow {
             })
             .collect();
 
+        // A pointer capture follows its node; an unmounted node releases it.
+        if let Some(captured) = *pointer_capture {
+            if captured.dom == dom {
+                *pointer_capture = captured
+                    .node
+                    .into_crate_internal()
+                    .and_then(|n| map.resolve(n))
+                    .map(|n| DomNodeId { dom, node: NodeHierarchyItemId::from_crate_internal(Some(n)) });
+            }
+        }
         // An in-flight scrollbar-thumb drag holds the NodeId of its scroll
         // container; if that node is gone the drag must end, not retarget.
         if let Some(drag) = currently_dragging_thumb.as_ref() {

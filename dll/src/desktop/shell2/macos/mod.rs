@@ -154,6 +154,33 @@ pub enum RenderBackend {
 /// MWA-B9: height of the PRIMARY screen (Cocoa's global-coordinate anchor:
 /// its bottom-left is the origin for ALL window frame coordinates). Every
 /// top-down↔bottom-up flip must use this, never the current screen's height.
+define_class!(
+    // A borderless `NSWindow` answers NO to `canBecomeKeyWindow`, so a popup
+    // (colour picker, menu) made from a plain NSWindow never takes keyboard
+    // focus: Escape went to the parent, text fields inside could not be
+    // typed into, and the engine's focus-loss dismiss never saw an edge.
+    // This subclass is what every parent-owned popup is made of: it can be
+    // key, never main (the parent stays the main window), and it is attached
+    // to its parent with `addChildWindow`, so it orders with the parent
+    // instead of floating above every other app.
+    #[unsafe(super(NSWindow, NSResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "AzulPopupWindow"]
+    pub struct PopupWindow;
+
+    impl PopupWindow {
+        #[unsafe(method(canBecomeKeyWindow))]
+        fn can_become_key_window(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(canBecomeMainWindow))]
+        fn can_become_main_window(&self) -> bool {
+            false
+        }
+    }
+);
+
 /// What a `CVDisplayLink` callback is handed for a window: the `NSWindow`
 /// behind a liveness flag, with a lock around the retain.
 ///
@@ -2716,6 +2743,10 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    // AppKit is about to release this NSWindow; the display
+                    // link must not retain it from its own thread any more
+                    // (see DisplayLinkTarget). Idempotent after close_window().
+                    macos_window.retire_display_link();
                     let ns_window = macos_window.get_ns_window_ptr();
 
                     // Unregister from the global registry and PARK the box for
@@ -3241,6 +3272,9 @@ pub struct MacOSWindow {
     cpu_backend: crate::desktop::shell2::headless::CpuBackend,
     /// Window is open flag
     is_open: bool,
+    /// The parent this window was attached to with `addChildWindow` (its
+    /// registry key), so `close_window` can detach it again. 0 = none.
+    child_of: u64,
     /// Main thread marker (required for AppKit)
     mtm: MainThreadMarker,
     /// Menu state (for hash-based diff updates)
@@ -4178,16 +4212,43 @@ impl MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::new] Allocating NSWindow..."
         );
-        let window = unsafe {
-            NSWindow::initWithContentRect_styleMask_backing_defer(
-                mtm.alloc(),
-                content_rect,
-                style_mask,
-                NSBackingStoreType::Buffered,
-                false,
-            )
+        let is_popup_child = options.window_state.flags.window_type == azul_core::window::WindowType::Menu
+            && options.parent_window_id != 0;
+        let window: Retained<NSWindow> = if is_popup_child {
+            let popup: Option<Retained<PopupWindow>> = unsafe {
+                msg_send_id![
+                    mtm.alloc::<PopupWindow>(),
+                    initWithContentRect: content_rect,
+                    styleMask: style_mask,
+                    backing: NSBackingStoreType::Buffered,
+                    defer: false,
+                ]
+            };
+            Retained::into_super(popup.ok_or_else(|| {
+                WindowError::PlatformError("AzulPopupWindow init failed".into())
+            })?)
+        } else {
+            unsafe {
+                NSWindow::initWithContentRect_styleMask_backing_defer(
+                    mtm.alloc(),
+                    content_rect,
+                    style_mask,
+                    NSBackingStoreType::Buffered,
+                    false,
+                )
+            }
         };
         log_trace!(LogCategory::Window, "[MacOSWindow::new] NSWindow created");
+        // We hold the window in a `Retained` (+1) and release it in `Drop`.
+        // NSWindow's default `releasedWhenClosed = YES` makes `close()` release
+        // it TOO — for a window that is closed and then dropped (every popup
+        // and menu; the main window exits the app first, which hid this) that
+        // is a double release: `objc_release` on a dead isa from
+        // `drain_closed_windows`. Apple's rule for an owner that keeps its own
+        // strong reference is exactly this flag.
+        unsafe {
+            window.setReleasedWhenClosed(false);
+        }
 
         // Set window title
         log_trace!(
@@ -4279,6 +4340,20 @@ impl MacOSWindow {
             );
         }
         log_trace!(LogCategory::Window, "[MacOSWindow::new] Window positioned");
+
+        // A parent-owned popup orders WITH its parent: above it, moving with
+        // it, behind any other app that comes to the front — not at the
+        // floating level, which kept the colour picker on top of every other
+        // application after its parent was sent to the background.
+        if is_popup_child {
+            if let Some(parent) = unsafe {
+                registry::get_window(options.parent_window_id as usize as *mut objc2::runtime::AnyObject)
+            } {
+                unsafe {
+                    (*parent).window.addChildWindow_ordered(&window, objc2_app_kit::NSWindowOrderingMode::Above);
+                }
+            }
+        }
 
         // Apply initial window state based on options.window_state.flags.frame
         // Note: These will be applied before window is visible
@@ -4696,6 +4771,7 @@ impl MacOSWindow {
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             is_open: true,
+            child_of: if is_popup_child { options.parent_window_id } else { 0 },
             mtm,
             menu_state: menu::MenuState::new(), // TODO: build initial menu state from layout_window
             common,
@@ -5204,8 +5280,9 @@ impl MacOSWindow {
             }
         }
 
-        // Always-on-top
-        if self.common.current_window_state().flags.is_always_on_top {
+        // Always-on-top — except for a parent-owned popup, which is a child
+        // window and stays with its parent instead of floating over everything.
+        if self.common.current_window_state().flags.is_always_on_top && self.child_of == 0 {
             unsafe {
                 self.window.setLevel(objc2_app_kit::NSFloatingWindowLevel);
             }
@@ -5610,6 +5687,23 @@ impl MacOSWindow {
     }
 
     /// Actually close the window
+    /// Detach a child popup from the parent it was added to, if that parent
+    /// is still around. AppKit keeps child windows ordered with the parent;
+    /// a closed child must leave that list first.
+    fn detach_from_parent(&mut self) {
+        if self.child_of == 0 {
+            return;
+        }
+        let parent_key = core::mem::replace(&mut self.child_of, 0);
+        if let Some(parent) = unsafe {
+            registry::get_window(parent_key as usize as *mut objc2::runtime::AnyObject)
+        } {
+            unsafe {
+                (*parent).window.removeChildWindow(&self.window);
+            }
+        }
+    }
+
     /// Stop the display link and mark its target dead, BEFORE the NSWindow
     /// is closed or released. Idempotent; called from `close_window` and
     /// `Drop`. See `DisplayLinkTarget` for the crash this prevents.
@@ -5633,6 +5727,7 @@ impl MacOSWindow {
         // The display link must be dead before the NSWindow goes: its callback
         // retains the window on another thread.
         self.retire_display_link();
+        self.detach_from_parent();
         // Unregister from the global registry before closing, and park the box
         // for deferred drop — we cannot drop `self` from behind `&mut self`.
         // `self.window.close()` below re-enters windowWillClose:, whose
