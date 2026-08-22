@@ -299,6 +299,27 @@ impl ComputedTransform3D {
         // OS-enabled bit. That detection lives in `gpu.rs` (out of scope for
         // this edit); consumers here rely on it having gated the flags. Prefer
         // migrating the `gpu.rs` probe to `is_x86_feature_detected!`.
+        // CSS Transforms Level 1 §9 ("The Transform Rendering Model"):
+        //
+        //   1. The functions are MULTIPLIED left to right, so the LAST listed
+        //      function is the first one applied to a point: `translate(100px)
+        //      scale(2)` scales first, then translates - a point at (1, 0)
+        //      lands at (102, 0), not (202, 0). `a.then(b)` applies `a` first,
+        //      so each function is composed BEFORE the accumulated rest.
+        //      (This used to fold left to right - the reverse - so every
+        //      multi-function transform rendered differently than in a
+        //      browser, and `perspective() rotateX()` projected the
+        //      un-rotated plane, i.e. did nothing.)
+        //   2. The WHOLE product is applied about `transform-origin`:
+        //      `translate(origin) * M * translate(-origin)`. Wrapping happens
+        //      ONCE, here - not per component - so `scale()` and `skew()`
+        //      pivot at the origin exactly like `rotate()` does.
+        use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+        use azul_css::props::basic::PixelValue;
+        let no_origin = StyleTransformOrigin {
+            x: PixelValue::const_px(0),
+            y: PixelValue::const_px(0),
+        };
         let mut matrix = Self::IDENTITY;
         let use_avx =
             INITIALIZED.load(AtomicOrdering::Relaxed) && USE_AVX.load(AtomicOrdering::Relaxed);
@@ -308,50 +329,66 @@ impl ComputedTransform3D {
 
         if use_avx {
             for t in t_vec {
+                let component = Self::from_style_transform(
+                    t,
+                    &no_origin,
+                    percent_resolve_x,
+                    percent_resolve_y,
+                    rotation_mode,
+                );
                 // SAFETY: `use_avx` is only set when the AVX feature flag was
                 // detected (see AUDIT-TODO above), so calling the AVX intrinsics
                 // in `then_avx8` is legal on this CPU.
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
-                    matrix = matrix.then_avx8(&Self::from_style_transform(
-                        t,
-                        transform_origin,
-                        percent_resolve_x,
-                        percent_resolve_y,
-                        rotation_mode,
-                    ));
+                    matrix = component.then_avx8(&matrix);
                 }
             }
         } else if use_sse {
             for t in t_vec {
+                let component = Self::from_style_transform(
+                    t,
+                    &no_origin,
+                    percent_resolve_x,
+                    percent_resolve_y,
+                    rotation_mode,
+                );
                 // SAFETY: `use_sse` is only set when the SSE feature flag was
                 // detected (see AUDIT-TODO above), so calling the SSE intrinsics
                 // in `then_sse` is legal on this CPU.
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
-                    matrix = matrix.then_sse(&Self::from_style_transform(
-                        t,
-                        transform_origin,
-                        percent_resolve_x,
-                        percent_resolve_y,
-                        rotation_mode,
-                    ));
+                    matrix = component.then_sse(&matrix);
                 }
             }
         } else {
             // fallback for everything else
             for t in t_vec {
-                matrix = matrix.then(&Self::from_style_transform(
+                let component = Self::from_style_transform(
                     t,
-                    transform_origin,
+                    &no_origin,
                     percent_resolve_x,
                     percent_resolve_y,
                     rotation_mode,
-                ));
+                );
+                matrix = component.then(&matrix);
             }
         }
 
-        matrix
+        // Percentages in `transform-origin` resolve against the element's
+        // own border box (the caller passes its size as the percent basis).
+        let origin_x = transform_origin
+            .x
+            .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+        let origin_y = transform_origin
+            .y
+            .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+        if origin_x == 0.0 && origin_y == 0.0 {
+            return matrix;
+        }
+        Self::new_translation(-origin_x, -origin_y, 0.0)
+            .then(&matrix)
+            .then(&Self::new_translation(origin_x, origin_y, 0.0))
     }
 
     /// Creates a new transform from a style transform using the
@@ -1395,20 +1432,55 @@ mod autotest_generated {
     // ------------------------------------------- constructors: perspective / skew
 
     #[test]
+    fn a_transform_list_composes_like_css_last_function_first() {
+        // CSS: `translate(100px) scale(2)` SCALES first, then translates:
+        // (1, 0) -> (2, 0) -> (102, 0). The reversed fold gave (202, 0).
+        let list = [
+            StyleTransform::Translate(StyleTransformTranslate2D {
+                x: PixelValue::px(100.0),
+                y: PixelValue::px(0.0),
+            }),
+            StyleTransform::Scale(StyleTransformScale2D {
+                x: FloatValue::new(2.0),
+                y: FloatValue::new(2.0),
+            }),
+        ];
+        let zero = StyleTransformOrigin {
+            x: PixelValue::px(0.0),
+            y: PixelValue::px(0.0),
+        };
+        let m = ComputedTransform3D::from_style_transform_vec(&list, &zero, 0.0, 0.0, RotationMode::ForHitTesting);
+        let p = m.transform_point2d(LogicalPosition::new(1.0, 0.0)).expect("affine");
+        assert!((p.x - 102.0).abs() < 1e-3 && p.y.abs() < 1e-3, "CSS order: scale then translate, got {p:?}");
+
+        // The origin wraps the WHOLE list once: `scale(2)` about the centre
+        // of a 100x100 box keeps the centre fixed and doubles distances from
+        // it - (25, 25) -> (0, 0).
+        let centre = StyleTransformOrigin {
+            x: PixelValue::const_percent(50),
+            y: PixelValue::const_percent(50),
+        };
+        let m = ComputedTransform3D::from_style_transform_vec(&list[1..], &centre, 100.0, 100.0, RotationMode::ForHitTesting);
+        let c = m.transform_point2d(LogicalPosition::new(50.0, 50.0)).expect("affine");
+        assert!((c.x - 50.0).abs() < 1e-3 && (c.y - 50.0).abs() < 1e-3, "the origin is fixed: {c:?}");
+        let q = m.transform_point2d(LogicalPosition::new(25.0, 25.0)).expect("affine");
+        assert!(q.x.abs() < 1e-3 && q.y.abs() < 1e-3, "scale about the centre: {q:?}");
+    }
+
+    #[test]
     fn perspective_is_applied_about_the_transform_origin() {
-        // A tilt about the centre of a 200x100 box — `rotateX(60deg)` then
-        // `perspective(500px)` in azul's first-listed-applied-first order
-        // (CSS would write `perspective() rotateX()`): the centre is fixed,
-        // and the vertical centre line STAYS vertical (a perspective about
-        // (0,0) bends it sideways).
+        // The CSS idiom `perspective(500px) rotateX(60deg)` about the centre
+        // of a 200x100 box (CSS order: rotateX applies first, the projection
+        // last): the centre is fixed, and the vertical centre line STAYS
+        // vertical (a perspective about (0,0) bends it sideways).
         let origin = StyleTransformOrigin {
             x: PixelValue::px(100.0),
             y: PixelValue::px(50.0),
         };
         let m = ComputedTransform3D::from_style_transform_vec(
             &[
-                StyleTransform::RotateX(AngleValue::deg(60.0)),
                 StyleTransform::Perspective(PixelValue::px(500.0)),
+                StyleTransform::RotateX(AngleValue::deg(60.0)),
             ],
             &origin,
             200.0,

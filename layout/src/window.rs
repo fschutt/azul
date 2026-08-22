@@ -3827,10 +3827,22 @@ impl LayoutWindow {
         // also avoids GpuValueCache::synchronize, which currently mis-lifts
         // to wasm (out-of-bounds access). Desktop is unaffected.
         if !self.skip_gpu_sync {
+            // `transform-origin` / `translate()` percentages resolve against
+            // the node's own box. Layout has not run yet for THIS pass, so
+            // the previous pass's sizes stand in (exact in steady state); the
+            // refresh after the solve below corrects the first frame and any
+            // size change.
+            let previous = self.layout_results.get(&dom_id);
+            let previous_size = |node: NodeId| -> Option<(f32, f32)> {
+                let lr = previous?;
+                let idx = *lr.layout_tree.dom_to_layout.get(&node)?.first()?;
+                let size = lr.layout_tree.nodes.get(idx.index())?.used_size?;
+                Some((size.width, size.height))
+            };
             let mut transform_opacity_events = self
                 .gpu_state_manager
                 .get_or_create_cache(dom_id)
-                .synchronize(&styled_dom);
+                .synchronize_with_sizes(&styled_dom, &previous_size);
             // MWA-C-gpu_state: drop the PREVIOUS pass's events before
             // merging this one's. `pending_changes` has zero drain call
             // sites (both renderers re-read cache values via
@@ -3907,6 +3919,24 @@ impl LayoutWindow {
         // Hint the allocator to return freed pages after the layout pass
         // drops its transient allocations (intrinsic sizing Vecs, etc.).
         crate::probe::hint_purge_allocator();
+
+        // The sizes exist now: resolve every CSS transform's percentages
+        // against the node's REAL box (see `synchronize_with_sizes`). Both
+        // compositors read these live values, so the correction is visible
+        // in this very frame.
+        if !self.skip_gpu_sync {
+            let tree = self.layout_cache.tree.as_ref();
+            let new_size = |node: NodeId| -> Option<(f32, f32)> {
+                let tree = tree?;
+                let idx = *tree.dom_to_layout.get(&node)?.first()?;
+                let size = tree.nodes.get(idx.index())?.used_size?;
+                Some((size.width, size.height))
+            };
+            let _refreshed: usize = self
+                .gpu_state_manager
+                .get_or_create_cache(dom_id)
+                .refresh_transform_values(&styled_dom, &new_size);
+        }
 
         // M12.7: the headless web path needs the per-node geometry. Everything below —
         // scrollbar TransformKey registration, GPU-cache opacity/transform sync,

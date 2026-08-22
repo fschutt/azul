@@ -200,9 +200,28 @@ impl GpuValueCache {
     /// and `apply_*_events` passes (which mutate it).
     #[must_use]
     pub fn synchronize(&mut self, styled_dom: &StyledDom) -> GpuEventChanges {
+        self.synchronize_with_sizes(styled_dom, &|_| None)
+    }
+
+    /// [`Self::synchronize`] with the nodes' border-box sizes (logical px),
+    /// which is what `transform-origin` and `translate()` percentages
+    /// resolve against (CSS Transforms 1: the element's own box). Layout
+    /// runs AFTER this sync, so callers pass the PREVIOUS pass's sizes —
+    /// exact in steady state — and correct the values once the new sizes
+    /// exist with [`Self::refresh_transform_values`]. With no size source
+    /// a percentage origin resolves to 0, i.e. the top-left corner: that
+    /// was the only behaviour before, and it pivoted every `rotate()` /
+    /// `scale()` under the default `transform-origin: 50% 50%` at the
+    /// corner instead of the centre.
+    #[must_use]
+    pub fn synchronize_with_sizes(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_size: &dyn Fn(NodeId) -> Option<(f32, f32)>,
+    ) -> GpuEventChanges {
         Self::init_simd_features();
 
-        let transform_key_changes = self.compute_transform_events(styled_dom);
+        let transform_key_changes = self.compute_transform_events(styled_dom, node_size);
         self.apply_transform_events(&transform_key_changes);
 
         let opacity_key_changes = self.compute_opacity_events(styled_dom);
@@ -238,12 +257,74 @@ impl GpuValueCache {
     }
 
     /// Computes CSS-transform change events against the cached values (read-only).
-    fn compute_transform_events(&self, styled_dom: &StyledDom) -> Vec<GpuTransformKeyEvent> {
+    /// The node's CSS `transform` as a matrix, with percentages resolved
+    /// against `size` (its border box, logical px); `None` when the node
+    /// has no transform.
+    fn css_transform_of(
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+        size: (f32, f32),
+    ) -> Option<ComputedTransform3D> {
         let css_property_cache = styled_dom.get_css_property_cache();
-        let node_data = styled_dom.node_data.as_container();
-        let node_states = styled_dom.styled_nodes.as_container();
-
+        let node_data = &styled_dom.node_data.as_container()[node_id];
+        let styled_node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+        let transform_prop = css_property_cache.get_transform(node_data, &node_id, styled_node_state);
+        let t = transform_prop.as_ref().and_then(|v| v.get_property())?;
         let default_transform_origin = StyleTransformOrigin::default();
+        let transform_origin =
+            css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
+        let transform_origin = transform_origin
+            .as_ref()
+            .and_then(|o| o.get_property())
+            .unwrap_or(&default_transform_origin);
+        Some(ComputedTransform3D::from_style_transform_vec(
+            t.as_ref(),
+            transform_origin,
+            size.0,
+            size.1,
+            RotationMode::ForWebRender,
+        ))
+    }
+
+    /// AFTER layout: recompute every cached CSS transform with the nodes'
+    /// real sizes (see [`Self::synchronize_with_sizes`]). Returns how many
+    /// values changed. Both compositors read the LIVE values from this cache
+    /// (the display list's baked matrix is only the fallback for a key
+    /// nothing has published), so a corrected value reaches the screen in
+    /// the same frame.
+    pub fn refresh_transform_values(
+        &mut self,
+        styled_dom: &StyledDom,
+        node_size: &dyn Fn(NodeId) -> Option<(f32, f32)>,
+    ) -> usize {
+        let node_count = styled_dom.node_data.len();
+        let nodes: Vec<NodeId> = self.css_transform_keys.keys().copied().collect();
+        let mut changed = 0;
+        for node_id in nodes {
+            if node_id.index() >= node_count {
+                continue;
+            }
+            let Some(size) = node_size(node_id) else {
+                continue;
+            };
+            let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
+                continue;
+            };
+            if self.css_current_transform_values.get(&node_id) != Some(&fresh) {
+                self.css_current_transform_values.insert(node_id, fresh);
+                changed += 1;
+            }
+        }
+        changed
+    }
+
+    fn compute_transform_events(
+        &self,
+        styled_dom: &StyledDom,
+        node_size: &dyn Fn(NodeId) -> Option<(f32, f32)>,
+    ) -> Vec<GpuTransformKeyEvent> {
+        let css_property_cache = styled_dom.get_css_property_cache();
+        let node_states = styled_dom.styled_nodes.as_container();
 
         // calculate the transform values of every single node that has a non-default transform.
         //
@@ -272,40 +353,15 @@ impl GpuValueCache {
                         }
                     }
                 }
-                let node_data = &node_data[node_id];
-                // NOT `get_transform(...)?`: a `?` here skips the whole node when there
-                // is no transform cascade entry (the ordinary case), so a node that just
-                // LOST its transform never reaches the `(Some(old), None) => Removed` arm
-                // and its cached TransformKey is never evicted. Turn "no entry" into
-                // `None` instead (mirrors the transform_origin handling below).
-                let transform_prop =
-                    css_property_cache.get_transform(node_data, &node_id, styled_node_state);
-                let current_transform = transform_prop
-                    .as_ref()
-                    .and_then(|v| v.get_property())
-                    .map(|t| {
-                        // TODO: look up the parent nodes size properly to resolve animation of
-                        // transforms with %
-                        let parent_size_width = 0.0;
-                        let parent_size_height = 0.0;
-                        let transform_origin = css_property_cache.get_transform_origin(
-                            node_data,
-                            &node_id,
-                            styled_node_state,
-                        );
-                        let transform_origin = transform_origin
-                            .as_ref()
-                            .and_then(|o| o.get_property())
-                            .unwrap_or(&default_transform_origin);
-
-                        ComputedTransform3D::from_style_transform_vec(
-                            t.as_ref(),
-                            transform_origin,
-                            parent_size_width,
-                            parent_size_height,
-                            RotationMode::ForWebRender,
-                        )
-                    });
+                // `css_transform_of` turns "no transform cascade entry" (the
+                // ordinary case) into `None` rather than skipping the node, so
+                // a node that just LOST its transform still reaches the
+                // `(Some(old), None) => Removed` arm and its cached
+                // TransformKey is evicted. Percentages resolve against the
+                // node's own box — the previous pass's size before layout, 0
+                // (the corner) when no size is known yet.
+                let size = node_size(node_id).unwrap_or((0.0, 0.0));
+                let current_transform = Self::css_transform_of(styled_dom, node_id, size);
 
                 let existing_transform = if self.css_current_transform_values.is_empty() {
                     None

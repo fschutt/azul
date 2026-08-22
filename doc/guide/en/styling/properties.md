@@ -204,9 +204,14 @@ System font keywords resolve to platform defaults (`SF Pro`, `Segoe UI`,
 - `perspective-origin` accepts a length pair. Type `StylePerspectiveOrigin`.
 - `backface-visibility` accepts `visible` or `hidden`. Type `StyleBackfaceVisibility`.
 
-Transforms compose left to right. Multiple functions in one declaration
-chain. `transform: translate(10px, 0) rotate(45deg) scale(1.2)` first
-translates, then rotates around the origin, then scales.
+Transforms compose as in CSS: the functions are multiplied left to right,
+so they apply to the element right to left. `transform: translate(10px, 0)
+rotate(45deg) scale(1.2)` first scales, then rotates, then translates — and
+the whole chain pivots about `transform-origin` (`50% 50%`, the element's
+centre, by default; percentages resolve against the element's own box).
+The common 3D idiom `perspective(800px) rotateX(30deg)` therefore works as
+in a browser: the rotation happens first and the perspective projects the
+tilted plane.
 
 ## Flexbox and grid
 
