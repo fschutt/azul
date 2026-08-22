@@ -1002,8 +1002,8 @@ mod autotest_generated {
         let callbacks = dom.root.get_callbacks();
         assert_eq!(
             callbacks.as_ref().len(),
-            1,
-            "exactly one callback: the AfterMount capture-thread starter"
+            2,
+            "two callbacks: the AfterMount capture-thread starter + the NodeResized re-targeter"
         );
         assert_eq!(
             callbacks.as_ref()[0].event,

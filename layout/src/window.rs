@@ -17011,6 +17011,82 @@ mod autotest_generated {
         );
     }
 
+    /// `(y, height)` of DOM node `index` (pre-order) in a laid-out window.
+    fn y_and_height(win: &LayoutWindow, index: usize) -> (f32, f32) {
+        let dnid = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(index))),
+        };
+        let pos = win.get_node_position(dnid).expect("laid out");
+        let size = win.get_node_size(dnid).expect("laid out");
+        (pos.y, size.height)
+    }
+
+    /// CSS 2.2 §8.3.1: an EMPTY block's top and bottom margins collapse
+    /// through each other and with its neighbours': a(50, mb 10) /
+    /// empty(mt 20, mb 30) / b(mt 5) puts b at a + 50 + max(10, 20, 30, 5).
+    #[test]
+    fn an_empty_block_between_siblings_collapses_every_margin_to_the_max() {
+        let dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("height: 50px; margin-bottom: 10px;"))
+            .with_child(Dom::create_div().with_css("margin-top: 20px; margin-bottom: 30px;"))
+            .with_child(Dom::create_div().with_css("height: 50px; margin-top: 5px;"));
+        let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
+        // body(0) > a(1), empty(2), b(3)
+        let (a_y, _) = y_and_height(&win, 1);
+        let (e_y, e_h) = y_and_height(&win, 2);
+        let (b_y, _) = y_and_height(&win, 3);
+        assert!(e_h.abs() < 0.5, "an empty block is zero tall: {e_h}");
+        assert!(
+            (b_y - a_y - 80.0).abs() < 0.5,
+            "b must start 50 + max(10, 20, 30, 5) = 80 below a, got {}",
+            b_y - a_y
+        );
+        assert!((e_y - a_y) >= 50.0 && (e_y - a_y) <= 80.5, "the empty block sits inside the seam: {}", e_y - a_y);
+    }
+
+    /// THE CLASS (AzWidgets 2026-08-21, "placeholder drawn low"): an EMPTY
+    /// FIRST child under a parent with a top blocker (padding). Its
+    /// collapsed-through margin is ONE margin inside the parent's content
+    /// box: 4 + 13 + 4 = 21 (Chrome: 21); the pen used to advance by the
+    /// margin AND carry it for the parent's bottom padding to add again.
+    #[test]
+    fn an_empty_first_child_inside_a_padded_parent_counts_its_margin_once() {
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("padding: 4px;")
+                .with_child(Dom::create_div().with_css("margin-top: 13px; margin-bottom: 13px;")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
+        // body(0) > wrap(1) > e(2)
+        let (wrap_y, wrap_h) = y_and_height(&win, 1);
+        let (e_y, _) = y_and_height(&win, 2);
+        assert!((wrap_h - 21.0).abs() < 0.5, "padding 4 + ONE collapsed margin 13 + padding 4 = 21, got {wrap_h}");
+        assert!((e_y - wrap_y - 17.0).abs() < 0.5, "the empty block's border edges sit after its top margin: 4 + 13 = 17, got {}", e_y - wrap_y);
+
+        // After a sibling, under the same padded parent: counted once too.
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("padding: 4px;")
+                .with_child(Dom::create_div().with_css("height: 10px;"))
+                .with_child(Dom::create_div().with_css("margin-top: 13px; margin-bottom: 13px;")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
+        let (_, wrap_h) = y_and_height(&win, 1);
+        assert!((wrap_h - 31.0).abs() < 0.5, "4 + 10 + 13 + 4 = 31, got {wrap_h}");
+
+        // And the parent's OWN top margin never leaks into its content box
+        // through an empty first child (the "feet to meters" mix).
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("margin-top: 40px; padding: 4px;")
+                .with_child(Dom::create_div().with_css("margin-top: 13px; margin-bottom: 13px;")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
+        let (_, wrap_h) = y_and_height(&win, 1);
+        assert!((wrap_h - 21.0).abs() < 0.5, "the parent's margin is not added inside it: {wrap_h}");
+    }
+
     #[test]
     fn layout_and_generate_display_list_populates_results_for_a_plain_dom() {
         let win = laid_out(fixture_dom(), 200.0, 150.0);

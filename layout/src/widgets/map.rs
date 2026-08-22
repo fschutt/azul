@@ -72,10 +72,6 @@ pub struct MapTileLayer {
     /// `{z}` / `{x}` / `{y}` placeholders are substituted at fetch
     /// time. Matches Leaflet's `tileLayer(url_template)`.
     pub url_template: AzString,
-    /// Minimum integer zoom this layer supports.
-    pub min_zoom: u8,
-    /// Maximum integer zoom this layer supports.
-    pub max_zoom: u8,
     /// Attribution string the user MUST display (`ODbL` "© OpenStreetMap
     /// contributors" or similar). Most providers require it.
     pub attribution: AzString,
@@ -90,6 +86,10 @@ pub struct MapTileLayer {
     /// dark theme), or `Custom` (your `style_css`). A non-empty `style_css`
     /// always wins over a preset. See [`MapTheme`].
     pub theme: MapTheme,
+    /// Minimum integer zoom this layer supports.
+    pub min_zoom: u8,
+    /// Maximum integer zoom this layer supports.
+    pub max_zoom: u8,
 }
 
 /// A map look. Presets are vendored `MapCSS` palettes
@@ -153,8 +153,10 @@ impl MapTheme {
     }
 
     /// Is this a dark look? (`System` answers for the dark resolution.)
+    /// Named `is_dark_look` because `is_dark` is the auto-emitted variant
+    /// predicate for `MapTheme::Dark` in the bindings.
     #[must_use]
-    pub const fn is_dark(self) -> bool {
+    pub const fn is_dark_look(self) -> bool {
         matches!(self, Self::Dark | Self::GoogleNight | Self::AppleDark)
     }
 
@@ -2214,7 +2216,7 @@ mod theme_tests {
     fn system_follows_the_window_theme_and_presets_resolve_to_themselves() {
         let light = MapTheme::System.resolve(WindowTheme::LightMode);
         let dark = MapTheme::System.resolve(WindowTheme::DarkMode);
-        assert!(!light.is_dark() && dark.is_dark(), "{light:?} / {dark:?}");
+        assert!(!light.is_dark_look() && dark.is_dark_look(), "{light:?} / {dark:?}");
         assert_ne!(light, MapTheme::System);
         assert!(!light.sheet().is_empty() && !dark.sheet().is_empty());
         for preset in [MapTheme::Positron, MapTheme::Dark, MapTheme::GoogleNight, MapTheme::AppleLight, MapTheme::Custom] {

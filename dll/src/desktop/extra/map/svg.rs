@@ -207,10 +207,12 @@ pub fn features_to_svg(features: &[geojson::Feature], tile: MapTileId, mapcss: &
     // A theme's `canvas { fill: … }` rule drives this base colour (a dark
     // theme needs a dark land under the water holes); the built-in light
     // land colour otherwise.
-    let _ = write!(
-        out,
-        "<rect x=\"0\" y=\"0\" width=\"256\" height=\"256\" fill=\"{}\" />",
-        style_sheet.canvas()
+    let _ = core::fmt::Write::write_fmt(
+        &mut out,
+        format_args!(
+            "<rect x=\"0\" y=\"0\" width=\"256\" height=\"256\" fill=\"{}\" />",
+            style_sheet.canvas()
+        ),
     );
 
     // Tile bounding box in degrees. We project each Position back into

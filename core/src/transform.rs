@@ -1396,17 +1396,19 @@ mod autotest_generated {
 
     #[test]
     fn perspective_is_applied_about_the_transform_origin() {
-        // `perspective(500px) rotateX(60deg)` about the centre of a 200x100
-        // box: the centre is fixed, and the vertical centre line STAYS
-        // vertical (a perspective about (0,0) bends it sideways).
+        // A tilt about the centre of a 200x100 box — `rotateX(60deg)` then
+        // `perspective(500px)` in azul's first-listed-applied-first order
+        // (CSS would write `perspective() rotateX()`): the centre is fixed,
+        // and the vertical centre line STAYS vertical (a perspective about
+        // (0,0) bends it sideways).
         let origin = StyleTransformOrigin {
             x: PixelValue::px(100.0),
             y: PixelValue::px(50.0),
         };
         let m = ComputedTransform3D::from_style_transform_vec(
             &[
-                StyleTransform::Perspective(PixelValue::px(500.0)),
                 StyleTransform::RotateX(AngleValue::deg(60.0)),
+                StyleTransform::Perspective(PixelValue::px(500.0)),
             ],
             &origin,
             200.0,

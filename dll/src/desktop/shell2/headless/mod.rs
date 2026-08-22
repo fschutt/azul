@@ -5825,10 +5825,12 @@ mod tests {
             panic!("root dom");
         };
         for data in dom.styled_dom.node_data.as_container().internal.iter() {
-            let Some(ds) = data.get_dataset().as_ref() else {
+            // `get_dataset` hands out `Option<&RefAny>`; clone the RefAny
+            // itself (not the reference) to downcast it.
+            let Some(ds) = data.get_dataset() else {
                 continue;
             };
-            let mut ds = ds.clone();
+            let mut ds: RefAny = RefAny::clone(ds);
             if let Some(s) = ds.downcast_ref::<CameraWidgetState>() {
                 return (s.preview, s.thread_id.is_some());
             }
