@@ -194,7 +194,10 @@ pub fn render_initial_page(
     // The Phase-0 loader pulls every WASM URL from the HTML head hints, so it
     // takes no arguments. Revisit once M4 wires real per-callback module
     // preloading into the HTML head.
-    let loader_js_content = super::loader_js::generate_loader_js();
+    let mut loader_js_content = super::loader_js::generate_loader_js();
+    if ctx.needs_transient_dismiss_js {
+        loader_js_content.push_str(TRANSIENT_DISMISS_JS);
+    }
 
     // 5. Build stylesheet
     let stylesheet = build_stylesheet(&ctx);
@@ -281,6 +284,9 @@ struct RenderContext {
     /// Each entry's `callback` is the underlying `CoreCallback` (fn-ptr
     /// usize + optional ctx). Returned to the caller via `RenderOutput`.
     callbacks: Vec<DiscoveredCallback>,
+    /// At least one `<transient-window dismiss=outside|escape>` was rendered:
+    /// emit the page-level light-dismiss listener once.
+    needs_transient_dismiss_js: bool,
 }
 
 impl RenderContext {
@@ -293,6 +299,7 @@ impl RenderContext {
             images: Vec::new(),
             fonts: Vec::new(),
             callbacks: Vec::new(),
+            needs_transient_dismiss_js: false,
         }
     }
 
@@ -347,6 +354,7 @@ impl RenderContext {
         let is_void = is_void_element(tag);
 
         let mut attrs = self.build_node_attrs(nd, az_id);
+        self.transient_window_attrs(nd, &mut attrs);
         self.collect_image(nd, &mut attrs);
         self.emit_css_from_cache(cache, idx, az_id);
         self.emit_callback_attrs(nd, az_id, &mut attrs);
@@ -393,6 +401,38 @@ impl RenderContext {
             attrs.push_str(a);
         }
         attrs
+    }
+
+    /// `<transient-window>` on the web: there is no OS popup to open, so the
+    /// node stays a `<div>` inside the page, positioned by its UA CSS
+    /// (`position: absolute; top: 100%` — emitted from the cascade like any
+    /// other computed style), shown or hidden by `open`, and placed on the
+    /// requested edge of its parent. `dismiss=outside|escape` is served by
+    /// one page-level listener that flips `data-open` on an outside click /
+    /// Escape — the same light-dismiss contract as the native popup.
+    fn transient_window_attrs(&mut self, nd: &NodeData, attrs: &mut String) {
+        let NodeType::TransientWindow(cfg) = &nd.node_type else { return };
+        use azul_core::transient::TransientAnchor;
+        attrs.push_str(" class=\"az-transient-window\"");
+        attrs.push_str(&format!(
+            " data-open=\"{}\" data-anchor=\"{}\" data-dismiss=\"{}\"",
+            cfg.open,
+            cfg.anchor.as_str(),
+            cfg.dismiss.as_str()
+        ));
+        // Edge placement overrides the UA `top: 100%` default; `Cursor` has
+        // no cursor on a static page and falls back to "below".
+        let edge = match cfg.anchor {
+            TransientAnchor::Bottom | TransientAnchor::Cursor => "top:100%;left:0;",
+            TransientAnchor::Top => "bottom:100%;top:auto;left:0;",
+            TransientAnchor::Left => "right:100%;top:0;left:auto;",
+            TransientAnchor::Right => "left:100%;top:0;",
+        };
+        let display = if cfg.open { "" } else { "display:none;" };
+        attrs.push_str(&format!(" style=\"position:absolute;{edge}{display}\""));
+        if cfg.dismiss != azul_core::transient::TransientDismiss::None {
+            self.needs_transient_dismiss_js = true;
+        }
     }
 
     /// If the node is an image, collect it and append the `src` attribute.
@@ -846,4 +886,33 @@ fn html_escape_attr(s: &str) -> String {
 const RESET_CSS: &str = r#"
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; }
+.az-transient-window[data-open="false"] { display: none; }
+"#;
+
+/// Light dismiss for `<transient-window>` on the web: a press outside an open
+/// popup (and outside its anchor, which toggles it itself) or Escape closes
+/// every `dismiss=outside` popup; Escape alone also closes `dismiss=escape`
+/// ones. Mirrors the native engine's rules — see `common::transient`.
+const TRANSIENT_DISMISS_JS: &str = r#"
+(function(){
+  function openPopups(){return Array.prototype.slice.call(document.querySelectorAll('.az-transient-window[data-open="true"]'));}
+  function close(el){el.setAttribute('data-open','false');el.style.display='none';el.dispatchEvent(new CustomEvent('az-dismissed',{bubbles:true}));}
+  document.addEventListener('pointerdown',function(e){
+    openPopups().forEach(function(el){
+      if(el.getAttribute('data-dismiss')!=='outside')return;
+      if(el.contains(e.target))return;
+      var anchor=el.parentElement;
+      if(anchor&&anchor.contains(e.target)){
+        var n=e.target,inOther=false;
+        while(n&&n!==anchor){if(n.classList&&n.classList.contains('az-transient-window')){inOther=true;break;}n=n.parentElement;}
+        if(!inOther)return;
+      }
+      close(el);
+    });
+  },true);
+  document.addEventListener('keydown',function(e){
+    if(e.key!=='Escape')return;
+    openPopups().forEach(function(el){var d=el.getAttribute('data-dismiss');if(d==='outside'||d==='escape')close(el);});
+  });
+})();
 "#;

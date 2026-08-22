@@ -31,7 +31,7 @@ use azul::dom::{
 
 // ───────────────────────── Model (source of truth) ─────────────────────────
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 struct Showcase {
     switch_on: bool,
     slider_value: f32,

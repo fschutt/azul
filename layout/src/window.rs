@@ -3462,6 +3462,31 @@ impl LayoutWindow {
         LogicalSize::new(max_x, max_y)
     }
 
+    /// A node's layout rect moved into VIEWPORT space: the scroll offsets of
+    /// every scrollable ancestor are taken off, so the result is where the
+    /// node is on screen right now, not where the unscrolled layout put it.
+    /// This is what a popup must anchor to — a swatch halfway down a
+    /// scrolled page is not at its layout y.
+    ///
+    /// GPU transforms on ancestors are not applied (the IME caret path does;
+    /// popups under a `transform`ed ancestor are a follow-up).
+    #[must_use]
+    pub fn get_node_rect_in_viewport(&self, node: DomNodeId) -> Option<LogicalRect> {
+        let mut rect = self.get_node_layout_rect(node)?;
+        let node_id = node.node.into_crate_internal()?;
+        let layout_idx = self
+            .layout_results
+            .get(&node.dom)?
+            .layout_tree
+            .dom_to_layout
+            .get(&node_id)
+            .and_then(|v| v.first().copied())?;
+        let scroll = self.accumulated_scroll_for_node(node.dom, layout_idx.index());
+        rect.origin.x -= scroll.x;
+        rect.origin.y -= scroll.y;
+        Some(rect)
+    }
+
     /// Hand the accumulated popup diff to the backend, leaving it empty.
     pub fn take_transient_diff(&mut self) -> crate::transient::TransientDiff {
         core::mem::take(&mut self.pending_transient_diff)

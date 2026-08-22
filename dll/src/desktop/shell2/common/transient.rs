@@ -152,7 +152,7 @@ pub fn popup_create_options(
     cursor: Option<LogicalPosition>,
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
-    let origin = open.placement.resolve(size, cursor);
+    let origin = open.placement.resolve_within(size, cursor, placement_bounds(parent));
 
     let mailbox = RefAny::new(TransientWindowData {
         parent_window_id,
@@ -165,37 +165,13 @@ pub fn popup_create_options(
         dismissed: false,
     });
 
-    let mut window_state = FullWindowState::default();
-    window_state.flags.window_type = WindowType::Menu;
-    window_state.flags.is_always_on_top = true;
-    window_state.flags.is_visible = true;
-    window_state.flags.decorations = WindowDecorations::None;
-    window_state.flags.is_resizable = false;
-    window_state.title = "Popup".into();
-    window_state.window_id = "azul-transient".into();
-    window_state.size.dimensions = size;
+    let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
     window_state.size.dpi = parent.size.dpi;
     window_state.theme = parent.theme;
-    #[allow(clippy::cast_possible_truncation)] // whole logical pixels
-    {
-        window_state.position = WindowPosition::RelativeToParentWindow(PhysicalPosition::new(
-            origin.x.round() as i32,
-            origin.y.round() as i32,
-        ));
-    }
     window_state.layout_callback = LayoutCallback {
         cb: transient_layout_callback,
         ctx: OptionRefAny::Some(mailbox.clone()),
     };
-    {
-        use azul_core::window::{AzStringPair, StringPairVec};
-        let lin = &mut window_state.platform_specific_options.linux_options;
-        lin.x11_override_redirect = true;
-        lin.x11_wm_classes = StringPairVec::from_vec(alloc::vec![AzStringPair {
-            key: "azul-transient".into(),
-            value: "Azul".into(),
-        }]);
-    }
 
     let options = WindowCreateOptions {
         window_state,
@@ -207,6 +183,80 @@ pub fn popup_create_options(
         parent_window_id,
     };
     (options, mailbox)
+}
+
+/// Where a popup of `parent` may go, in the parent's own coordinates: the
+/// work area of the monitor the parent is on (a popup is its own window and
+/// may hang out of a short parent, but not off the screen). When the
+/// parent's screen position is unknown — Wayland, which never tells — the
+/// parent's own rect is the best available bound; the compositor's
+/// positioner does its own constraint adjustment there anyway.
+fn placement_bounds(parent: &FullWindowState) -> azul_core::geom::LogicalRect {
+    use azul_core::geom::LogicalRect;
+    let own = LogicalRect::new(LogicalPosition::zero(), parent.size.dimensions);
+    let WindowPosition::Initialized(pos) = parent.position else {
+        return own;
+    };
+    #[allow(clippy::cast_precision_loss)] // screen coordinates
+    let parent_origin = LogicalPosition::new(pos.x as f32, pos.y as f32);
+    // macOS enumerates screens through AppKit, main thread only; a layout
+    // pass off it (headless tests) keeps the parent-rect bound.
+    #[cfg(target_os = "macos")]
+    if objc2_foundation::MainThreadMarker::new().is_none() {
+        return own;
+    }
+    let Some(display) = crate::desktop::display::get_window_display(parent_origin, parent.size.dimensions) else {
+        return own;
+    };
+    let wa = display.work_area;
+    LogicalRect::new(
+        LogicalPosition::new(wa.origin.x - parent_origin.x, wa.origin.y - parent_origin.y),
+        wa.size,
+    )
+}
+
+/// The window state every popup window starts from — a transient window
+/// or a fallback (window-based) menu alike. ONE place for "what a popup is":
+/// the `Menu` window type every backend already treats as borderless,
+/// always-on-top and parent-owned (X11 adds override-redirect +
+/// `_NET_WM_WINDOW_TYPE_POPUP_MENU`, Wayland turns it into an `xdg_popup`),
+/// no decorations, not resizable, and positioned RELATIVE TO THE PARENT's
+/// content origin (`origin`, top-down logical px) — the one model that works
+/// where absolute screen coordinates do not exist (Wayland) and is
+/// re-resolved against the parent's live origin everywhere else.
+#[must_use]
+pub fn popup_window_state(
+    title: &str,
+    window_id: &str,
+    size: LogicalSize,
+    origin: LogicalPosition,
+) -> FullWindowState {
+    let mut window_state = FullWindowState::default();
+    window_state.flags.window_type = WindowType::Menu;
+    window_state.flags.is_always_on_top = true;
+    window_state.flags.is_visible = true;
+    window_state.flags.decorations = WindowDecorations::None;
+    window_state.flags.is_resizable = false;
+    window_state.title = title.into();
+    window_state.window_id = window_id.into();
+    window_state.size.dimensions = size;
+    #[allow(clippy::cast_possible_truncation)] // whole logical pixels
+    {
+        window_state.position = WindowPosition::RelativeToParentWindow(PhysicalPosition::new(
+            origin.x.round() as i32,
+            origin.y.round() as i32,
+        ));
+    }
+    {
+        use azul_core::window::{AzStringPair, StringPairVec};
+        let lin = &mut window_state.platform_specific_options.linux_options;
+        lin.x11_override_redirect = true;
+        lin.x11_wm_classes = StringPairVec::from_vec(alloc::vec![AzStringPair {
+            key: window_id.into(),
+            value: "Azul".into(),
+        }]);
+    }
+    window_state
 }
 
 /// What the parent's sync step wants the shell to do afterwards.
@@ -380,8 +430,16 @@ pub fn popup_dismiss_cause(
     previous: &FullWindowState,
     current: &FullWindowState,
 ) -> Option<DismissCause> {
-    let m = mailbox_of(current)?;
-    let policy = read(&m, |d| d.placement.dismiss)?;
+    // A transient window carries its policy in the mailbox. A window-based
+    // MENU (no mailbox, `Menu` type) light-dismisses by definition — this is
+    // the one dismiss implementation serving both, which is what the plan's
+    // "lift Menu's window into TransientWindow" step is for: Escape and
+    // focus loss close a fallback menu on every backend the same way.
+    let policy = match mailbox_of(current) {
+        Some(m) => read(&m, |d| d.placement.dismiss)?,
+        None if current.flags.window_type == WindowType::Menu => TransientDismiss::Outside,
+        None => return None,
+    };
     if policy == TransientDismiss::None {
         return None;
     }
