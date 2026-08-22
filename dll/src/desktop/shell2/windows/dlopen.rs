@@ -238,6 +238,7 @@ pub mod constants {
     pub const SWP_NOSIZE: u32 = 0x0001;
     pub const SWP_NOMOVE: u32 = 0x0002;
     pub const SWP_NOZORDER: u32 = 0x0004;
+    pub const SWP_NOACTIVATE: u32 = 0x0010;
     pub const SWP_FRAMECHANGED: u32 = 0x0020;
 
     // Cursor constants (for LoadCursorW)
@@ -468,6 +469,16 @@ pub struct User32Functions {
     pub GetCursorPos: unsafe extern "system" fn(*mut POINT) -> BOOL,
     pub ScreenToClient: unsafe extern "system" fn(HWND, *mut POINT) -> BOOL,
     pub ClientToScreen: unsafe extern "system" fn(HWND, *mut POINT) -> BOOL,
+
+    // Button state outside the message stream. After a native caption drag
+    // (`WM_NCLBUTTONDOWN`/`HTCAPTION`) USER32's modal move loop swallows the
+    // `WM_LBUTTONUP`, so the only way to learn the button came up is to ask.
+    pub GetKeyState: unsafe extern "system" fn(i32) -> i16,
+
+    // Frameless-window geometry (`WM_NCCALCSIZE`): a maximized window whose
+    // non-client area was removed still has its frame laid out OUTSIDE the
+    // monitor, so its client rect must be pinned to the monitor's work area.
+    pub IsZoomed: unsafe extern "system" fn(HWND) -> BOOL,
     pub SetCapture: unsafe extern "system" fn(HWND) -> HWND,
     pub ReleaseCapture: unsafe extern "system" fn() -> BOOL,
     /// The window that currently owns the mouse capture (NULL = none). Used to
@@ -791,6 +802,10 @@ impl Win32Libraries {
                 GetCursorPos: user32_dll.get_symbol("GetCursorPos")?,
                 ScreenToClient: user32_dll.get_symbol("ScreenToClient")?,
                 ClientToScreen: user32_dll.get_symbol("ClientToScreen")?,
+
+                // Button state + frameless geometry (both since XP).
+                GetKeyState: user32_dll.get_symbol("GetKeyState")?,
+                IsZoomed: user32_dll.get_symbol("IsZoomed")?,
                 SetCapture: user32_dll.get_symbol("SetCapture")?,
                 ReleaseCapture: user32_dll.get_symbol("ReleaseCapture")?,
                 GetCapture: user32_dll.get_symbol("GetCapture")?,

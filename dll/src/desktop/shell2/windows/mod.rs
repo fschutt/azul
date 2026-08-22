@@ -2126,11 +2126,206 @@ impl Win32Window {
         const HTCAPTION: usize = 2;
         unsafe {
             (self.win32.user32.ReleaseCapture)();
+            // `WM_NCLBUTTONDOWN`'s lParam is documented as the cursor in
+            // SCREEN coordinates. DefWindowProc's move loop anchors on the
+            // live cursor rather than on lParam, so `0` works — but a
+            // hook or a future `WM_NCHITTEST` handler reads it, so send
+            // what the contract says.
+            let mut pt = dlopen::POINT { x: 0, y: 0 };
+            (self.win32.user32.GetCursorPos)(&mut pt);
+            // MAKELPARAM: LOWORD = x, HIWORD = y, each a WORD — a negative
+            // (left-of-primary) coordinate must truncate, not sign-extend.
+            let lparam = ((pt.y as u16 as usize) << 16) | (pt.x as u16 as usize);
             (self.win32.user32.PostMessageW)(
                 self.hwnd,
                 WM_NCLBUTTONDOWN,
                 HTCAPTION,
+                lparam as dlopen::LPARAM,
+            );
+        }
+    }
+
+    /// A native size/move loop just ended. USER32 swallows the `WM_LBUTTONUP`
+    /// that ends it (the loop breaks on it without dispatching; the app only
+    /// sees `WM_EXITSIZEMOVE` / `WM_CAPTURECHANGED`), so `left_down` — set
+    /// true by the press that STARTED the drag — would stay latched: the next
+    /// press diffs `true → true` and produces no `MouseDown`, and every motion
+    /// reads as a drag. Same shape as the `WM_KILLFOCUS` reset, gated on the
+    /// button really being up so a loop that ends for another reason (Esc)
+    /// with the button still held does not fake a release.
+    fn release_buttons_swallowed_by_modal_loop(&mut self, hwnd: HWND) {
+        const VK_LBUTTON: i32 = 0x01;
+        const VK_RBUTTON: i32 = 0x02;
+        const VK_MBUTTON: i32 = 0x04;
+        let up = |vk: i32| unsafe { (self.win32.user32.GetKeyState)(vk) } >= 0;
+        let (left_up, right_up, middle_up) = (up(VK_LBUTTON), up(VK_RBUTTON), up(VK_MBUTTON));
+        let latched = {
+            let ms = self.common.mouse_state_mut();
+            (ms.left_down && left_up) || (ms.right_down && right_up) || (ms.middle_down && middle_up)
+        };
+        if !latched {
+            return;
+        }
+        let prev_snapshot = self.common.current_window_state().clone();
+        {
+            let ms = self.common.mouse_state_mut();
+            if left_up {
+                ms.left_down = false;
+            }
+            if right_up {
+                ms.right_down = false;
+            }
+            if middle_up {
+                ms.middle_down = false;
+            }
+        }
+        self.set_previous_window_state(prev_snapshot);
+        let r = self.process_window_events(0);
+        self.route_main_window_result(hwnd, r);
+    }
+
+    /// `WM_NCCALCSIZE` for a frameless window: the whole window rect is
+    /// client area — the frame styles stay (so the DWM draws the shadow and
+    /// corners, and `SC_SIZE` can resize), the frame's AREA goes to us.
+    ///
+    /// Maximized, the OS lays the (now invisible) frame out OUTSIDE the
+    /// monitor, so "the whole window rect" would overhang it on every side
+    /// and, without a caption to reserve it, cover the taskbar. Pin the
+    /// client rect to the monitor's work area instead.
+    ///
+    /// Returns `Some(lresult)` when handled, `None` for DefWindowProc.
+    fn handle_nccalcsize(&mut self, hwnd: HWND, wparam: dlopen::WPARAM, lparam: dlopen::LPARAM) -> Option<dlopen::LRESULT> {
+        use azul_core::window::WindowDecorations;
+        if !matches!(self.common.current_window_state().flags.decorations, WindowDecorations::None) {
+            return None;
+        }
+        // wParam == FALSE: lParam is a bare RECT and "return 0" already means
+        // "client = window". wParam == TRUE: lParam is NCCALCSIZE_PARAMS,
+        // whose first RECT is the proposed window rect to turn into the
+        // client rect — the same memory either way.
+        if lparam == 0 {
+            return Some(0);
+        }
+        if wparam != 0 {
+            unsafe {
+                let rect = lparam as *mut dlopen::RECT;
+                if (self.win32.user32.IsZoomed)(hwnd) != 0 {
+                    let monitor = (self.win32.user32.MonitorFromWindow)(hwnd, dlopen::MONITOR_DEFAULTTONEAREST);
+                    if !monitor.is_null() {
+                        let mut mi: dlopen::MONITORINFOEXW = core::mem::zeroed();
+                        mi.cbSize = core::mem::size_of::<dlopen::MONITORINFOEXW>() as u32;
+                        if (self.win32.user32.GetMonitorInfoW)(monitor, &mut mi) != 0 {
+                            *rect = mi.rcWork;
+                        }
+                    }
+                }
+            }
+        }
+        Some(0)
+    }
+
+    /// `WM_NCHITTEST` for a frameless window.
+    ///
+    /// DefWindowProc answers this from the window STYLE, not from what
+    /// `WM_NCCALCSIZE` said: with the frame styles kept (see `wcreate.rs`)
+    /// it would still report the top ~31 px of our client area as
+    /// `HTCAPTION` — every press there would start a native drag or, on a
+    /// double-click, maximize — and the outer 8 px as a resize band. So
+    /// answer it ourselves: the resize band (when resizable and not
+    /// maximized) stays native, because `SC_SIZE` is what makes the CSD
+    /// edges resize at all; everything else is `HTCLIENT`, and the
+    /// `-azul-app-region: drag` path turns the regions the app chose into a
+    /// native move via `WM_NCLBUTTONDOWN` / `HTCAPTION` on its own.
+    ///
+    /// Returns `Some(hit code)` when handled, `None` for DefWindowProc.
+    fn handle_nchittest(&mut self, hwnd: HWND, lparam: dlopen::LPARAM) -> Option<dlopen::LRESULT> {
+        use azul_core::window::WindowDecorations;
+        const HTCLIENT: isize = 1;
+        const HTLEFT: isize = 10;
+        const HTRIGHT: isize = 11;
+        const HTTOP: isize = 12;
+        const HTTOPLEFT: isize = 13;
+        const HTTOPRIGHT: isize = 14;
+        const HTBOTTOM: isize = 15;
+        const HTBOTTOMLEFT: isize = 16;
+        const HTBOTTOMRIGHT: isize = 17;
+
+        let ws = self.common.current_window_state();
+        if !matches!(ws.flags.decorations, WindowDecorations::None) {
+            return None;
+        }
+        let resizable = ws.flags.is_resizable;
+        let dpi_factor = dpi::dpi_to_scale_factor(ws.size.dpi);
+
+        // lParam: cursor in SCREEN coordinates, signed 16-bit halves.
+        let x = (lparam & 0xFFFF) as u16 as i16 as i32;
+        let y = ((lparam >> 16) & 0xFFFF) as u16 as i16 as i32;
+
+        let (maximized, rect) = unsafe {
+            let mut wr = dlopen::RECT::default();
+            let ok = (self.win32.user32.GetWindowRect)(hwnd, &mut wr) != 0;
+            ((self.win32.user32.IsZoomed)(hwnd) != 0, ok.then_some(wr))
+        };
+        let Some(wr) = rect else {
+            return Some(HTCLIENT);
+        };
+        if maximized || !resizable {
+            return Some(HTCLIENT);
+        }
+
+        let band = libm::roundf(
+            crate::desktop::shell2::common::event::CSD_RESIZE_BAND_PX * dpi_factor,
+        )
+        .max(1.0) as i32;
+        let left = x < wr.left + band;
+        let right = x >= wr.right - band;
+        let top = y < wr.top + band;
+        let bottom = y >= wr.bottom - band;
+        Some(match (top, bottom, left, right) {
+            (true, _, true, _) => HTTOPLEFT,
+            (true, _, _, true) => HTTOPRIGHT,
+            (_, true, true, _) => HTBOTTOMLEFT,
+            (_, true, _, true) => HTBOTTOMRIGHT,
+            (true, _, _, _) => HTTOP,
+            (_, true, _, _) => HTBOTTOM,
+            (_, _, true, _) => HTLEFT,
+            (_, _, _, true) => HTRIGHT,
+            _ => HTCLIENT,
+        })
+    }
+
+    /// A window CREATED frameless got its creation-time `WM_NCCALCSIZE`
+    /// before `GWLP_USERDATA` pointed at this struct, i.e. DefWindowProc
+    /// answered it and the window still has a caption-sized non-client
+    /// area. Now that `window_proc` can reach `handle_nccalcsize`, recompute
+    /// the frame, then re-apply the requested client size against the real
+    /// (zero) frame. Call once, right after `GWLP_USERDATA` is set.
+    pub fn finish_frameless_frame(&mut self) {
+        use azul_core::window::WindowDecorations;
+        use dlopen::constants::*;
+        if !matches!(self.common.current_window_state().flags.decorations, WindowDecorations::None) {
+            return;
+        }
+        let want = self.common.current_window_state().size.dimensions;
+        let dpi_factor = dpi::dpi_to_scale_factor(self.common.current_window_state().size.dpi);
+        unsafe {
+            (self.win32.user32.SetWindowPos)(
+                self.hwnd,
+                std::ptr::null_mut(),
                 0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+        let want_w = libm::roundf(want.width * dpi_factor).max(1.0) as i32;
+        let want_h = libm::roundf(want.height * dpi_factor).max(1.0) as i32;
+        if let Err(e) = wcreate::set_client_size(self.hwnd, want_w, want_h, &self.win32) {
+            log_warn!(
+                LogCategory::Window,
+                "[Win32] frameless client-size correction failed: {:?}",
+                e
             );
         }
     }
@@ -2281,10 +2476,14 @@ impl Win32Window {
                 let style = (self.win32.user32.GetWindowLongPtrW)(
                     self.hwnd, GWL_STYLE,
                 );
+                // Frameless keeps EVERY frame style (see `wcreate.rs` for why:
+                // the DWM shadow, the corners, snap and `SC_SIZE` all need a
+                // frame to exist) and loses only the non-client AREA, which
+                // `WM_NCCALCSIZE` hands to the client while `WS_POPUP` is set.
                 let new_style = match current.flags.decorations {
                     WindowDecorations::None => {
-                        (style & !((WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as isize))
-                            | WS_POPUP as isize
+                        style
+                            | (WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as isize
                     }
                     _ => {
                         // Normal, NoTitle, NoTitleAutoInject, NoControls all keep basic chrome
@@ -3237,6 +3436,7 @@ fn pump_modal_loop_work() {
                     );
                     registry::register_window(new_hwnd, new_window_ptr);
                     (*new_window_ptr).register_drag_drop();
+                    (*new_window_ptr).finish_frameless_frame();
                 },
                 Err(e) => {
                     log_error!(
@@ -3315,6 +3515,8 @@ unsafe extern "system" fn window_proc(
     const WM_XBUTTONUP: u32 = 0x020C;
     const WM_ENTERSIZEMOVE: u32 = 0x0231;
     const WM_EXITSIZEMOVE: u32 = 0x0232;
+    const WM_NCCALCSIZE: u32 = 0x0083;
+    const WM_NCHITTEST: u32 = 0x0084;
     const WM_MOUSEWHEEL: u32 = 0x020A;
     const WM_APP_FRAME_READY_LOCAL: u32 = WM_APP_FRAME_READY;
     const WM_APP_SHOW_PENDING_MENU_LOCAL: u32 = WM_APP_SHOW_PENDING_MENU;
@@ -4112,11 +4314,17 @@ unsafe extern "system" fn window_proc(
                     };
                     unsafe {
                         (window.win32.user32.ReleaseCapture)();
+                        // lParam of WM_NCLBUTTONDOWN is the cursor in SCREEN
+                        // coordinates; WM_LBUTTONDOWN's is client-relative.
+                        let mut pt = dlopen::POINT { x: 0, y: 0 };
+                        (window.win32.user32.GetCursorPos)(&mut pt);
+                        let screen_lparam =
+                            (((pt.y as u16 as usize) << 16) | (pt.x as u16 as usize)) as dlopen::LPARAM;
                         (window.win32.user32.SendMessageW)(
                             hwnd,
                             WM_NCLBUTTONDOWN,
                             ht as dlopen::WPARAM,
-                            lparam,
+                            screen_lparam,
                         );
                     }
                     return 0;
@@ -4574,7 +4782,28 @@ unsafe extern "system" fn window_proc(
             // timer must go — leaving it armed would run the sweep twice per
             // frame forever after the first resize.
             window.stop_modal_loop_pump();
+            // The loop ate the button-up that ended it; release what is
+            // latched (see the method for the symptom).
+            window.release_buttons_swallowed_by_modal_loop(hwnd);
             0
+        }
+
+        WM_NCCALCSIZE => {
+            // Frameless windows hand the frame's area to the client here;
+            // everything else keeps DefWindowProc's answer.
+            match window.handle_nccalcsize(hwnd, wparam, lparam) {
+                Some(r) => r,
+                None => def_window_proc_w(hwnd, msg, wparam, lparam),
+            }
+        }
+
+        WM_NCHITTEST => {
+            // Frameless windows: resize band or client, never HTCAPTION
+            // from the style (see `handle_nchittest`).
+            match window.handle_nchittest(hwnd, lparam) {
+                Some(r) => r,
+                None => def_window_proc_w(hwnd, msg, wparam, lparam),
+            }
         }
 
         WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {

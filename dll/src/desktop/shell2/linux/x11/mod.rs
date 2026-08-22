@@ -5395,9 +5395,10 @@ impl X11Window {
     /// already took the native path; X11 fell through to the default no-op in
     /// `common::event`, which is why dragging felt worse here.
     ///
-    /// The pointer position comes from the CURRENT state — the WM wants the
-    /// coordinates of the press that started the drag, and this runs from the
-    /// callback that press dispatched.
+    /// The pointer position comes from the CURRENT state: the gesture
+    /// threshold turns the press into a `DragStart` on a later MotionNotify,
+    /// so this is the pointer as of that motion. WMs treat the value as the
+    /// drag anchor, so that is the right one to send.
     fn handle_begin_interactive_move(&mut self) {
         let (x, y) = {
             let ws = self.common.current_window_state();
@@ -5406,7 +5407,13 @@ impl X11Window {
                 None => return, // no cursor, nothing to drag from
             }
         };
-        // Window-relative -> root: the WM needs screen coordinates.
+        // Window-relative -> root: the WM needs screen coordinates, and it
+        // needs them in PHYSICAL pixels. `cursor_position` is LOGICAL (every
+        // pointer event goes through `to_logical_pos`); the window origin
+        // from ConfigureNotify is physical. Adding them raw was right only at
+        // scale 1.0 — at Xft.dpi 192 the anchor landed `cursor` px off and
+        // KWin/xfwm4 jumped the window by that much on the first motion.
+        let s = self.hidpi();
         let (ox, oy) = match self.common.current_window_state().position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 (pos.x as f32, pos.y as f32)
@@ -5414,10 +5421,23 @@ impl X11Window {
             azul_core::window::WindowPosition::Uninitialized => (0.0, 0.0),
         };
         self.begin_net_wm_moveresize(
-            (x + ox) as std::os::raw::c_long,
-            (y + oy) as std::os::raw::c_long,
+            (x * s + ox) as std::os::raw::c_long,
+            (y * s + oy) as std::os::raw::c_long,
             8, // _NET_WM_MOVERESIZE_MOVE
         );
+        // The WM takes its own pointer grab now (owner_events = False in
+        // mutter, KWin and xfwm4), so the ButtonRelease that ends the drag
+        // goes to the WM and never arrives here — and the EnterNotify /
+        // FocusOut with mode NotifyUngrab that do arrive are filtered as
+        // grab noise. Nothing else clears `left_down`, so after every native
+        // drag the next press diffed `true → true` (no MouseDown) and every
+        // motion read as a drag. Release the buttons at the hand-off: the
+        // pointer is the WM's from here until it comes up.
+        self.common.update_unsynced_state(|ws| {
+            ws.mouse_state.left_down = false;
+            ws.mouse_state.right_down = false;
+            ws.mouse_state.middle_down = false;
+        });
     }
 
     fn sync_window_state(&mut self) {

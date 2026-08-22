@@ -143,8 +143,20 @@ pub fn create_hwnd(
                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
             }
             WindowDecorations::None => {
-                // Borderless popup window
-                WS_POPUP
+                // Frameless — but NOT a bare `WS_POPUP`. The DWM only draws a
+                // shadow, Windows 11 rounded corners and the snap-layouts
+                // affordance for a window that HAS a frame, and only lets
+                // `SC_SIZE` resize one that has `WS_THICKFRAME`; on a bare
+                // popup `DwmExtendFrameIntoClientArea` below returns S_OK and
+                // draws nothing, and the CSD resize edges do nothing. So keep
+                // every frame style and remove the non-client AREA instead,
+                // in `WM_NCCALCSIZE` (returns 0 for a frameless window, so
+                // the client rect is the whole window). That is the recipe
+                // Chromium, Electron and every borderless-window sample use.
+                // `WS_CAPTION` must stay for `SW_MAXIMIZE` to respect the
+                // taskbar's work area; without it a maximize covers the
+                // screen like fullscreen.
+                WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
             }
         };
 
@@ -170,7 +182,11 @@ pub fn create_hwnd(
         }
 
         // Restore the drop shadow, the Windows 11 rounded corners and the
-        // snap-layouts affordance that WS_POPUP strips from a frameless window.
+        // snap-layouts affordance for a frameless window: the frame styles
+        // above give the DWM a frame to draw, `WM_NCCALCSIZE` hands the
+        // frame's area to the client, and this extends the (now invisible)
+        // frame one pixel into the client so the DWM keeps compositing the
+        // shadow and corners for it.
         //
         // This must happen HERE as well as in sync_window_state, because that
         // one is diff-gated on `previous.flags.decorations != current` — and a

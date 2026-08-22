@@ -1143,6 +1143,10 @@ pub fn run(
         registry::register_window(hwnd, window_ptr);
         log_trace!(LogCategory::Window, "[shell2::run] window registered");
 
+        // A frameless window's frame could only be computed once
+        // GWLP_USERDATA reached window_proc — i.e. now.
+        (*window_ptr).finish_frameless_frame();
+
         // Register the OLE drop target now that the window pointer is in the
         // registry (the COM callbacks resolve the Win32Window from the HWND).
         (*window_ptr).register_drag_drop();
@@ -1353,6 +1357,7 @@ pub fn run(
 
                                 // Register the OLE drop target (after registry).
                                 (*new_window_ptr).register_drag_drop();
+                                (*new_window_ptr).finish_frameless_frame();
 
                                 log_debug!(
                                     debug_server::LogCategory::Window,
