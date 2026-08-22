@@ -17,9 +17,11 @@ use azul::audio::AudioConfig;
 use azul::camera::CameraConfig;
 use azul::screen::ScreenCaptureConfig;
 use azul::prelude::*;
-use azul::widgets::{CameraWidget, MicrophoneWidget, ScreenCaptureWidget};
+use azul::widgets::{AudioFrame, CameraWidget, MicrophoneWidget, ProgressBar, ScreenCaptureWidget};
 use azul::audio::AudioDeviceList;
-use azul::css::LogicalSize;
+use azul::css::{CssProperty, LayoutWidth, LogicalSize, PixelValue};
+use azul::dom::{DomNodeId, OnAudioFrameCallback};
+use azul::option::OptionRefAny;
 use azul::str::String as AzString;
 
 struct MeetState {
@@ -28,9 +30,36 @@ struct MeetState {
     mic_on: bool,
     cam_on: bool,
     screen_on: bool,
+    /// The microphone level last shown on the meter, in whole percent
+    /// (0 = silence / −60 dBFS and below, 100 = full scale). Kept so a frame
+    /// that lands on the same percent does not touch the DOM at all.
+    mic_level: f32,
+    /// The level meter's `ProgressBar` container node, recorded at its
+    /// `AfterMount` and cleared at `BeforeUnmount`. A thread writeback (which
+    /// is what an audio frame arrives as) has no hit node, so the meter must
+    /// be found by id rather than relative to "the node this event hit".
+    meter_bar: Option<DomNodeId>,
     /// Enumerated audio devices (shown in the settings strip).
     mics: Vec<String>,
     speakers: Vec<String>,
+}
+
+/// The quietest level the meter shows, in dBFS. Speech into a laptop mic
+/// sits around −30…−15 dBFS; −60 is the room's noise floor. A linear RMS
+/// scale would park every spoken word in the bottom tenth of the bar.
+const METER_FLOOR_DB: f32 = -60.0;
+
+/// Microphone level as the meter shows it: the chunk's RMS in dBFS, mapped
+/// linearly from [`METER_FLOOR_DB`] (0 %) to 0 dBFS (100 %).
+fn mic_level_percent(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let mean_square = samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32;
+    let rms = mean_square.sqrt();
+    // 1e-6 ≈ −120 dBFS: keeps log10 finite on digital silence.
+    let db = 20.0 * rms.max(1e-6).log10();
+    ((db - METER_FLOOR_DB) / -METER_FLOOR_DB * 100.0).clamp(0.0, 100.0)
 }
 
 const TILE: &str = "width: 300px; height: 200px; margin: 8px; border-radius: 10px; \
@@ -72,12 +101,13 @@ fn device_col(title: &str, devices: &[String]) -> Dom {
 }
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (link, mic, cam, screen, mics, speakers) = match data.downcast_ref::<MeetState>() {
+    let (link, mic, cam, screen, mic_level, mics, speakers) = match data.downcast_ref::<MeetState>() {
         Some(s) => (
             s.link.clone(),
             s.mic_on,
             s.cam_on,
             s.screen_on,
+            s.mic_level,
             s.mics.clone(),
             s.speakers.clone(),
         ),
@@ -168,17 +198,115 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     );
     // While unmuted, a (visually tiny) MicrophoneWidget captures audio — its
     // AfterMount starts the mic, its Drop (on RefreshDom when muted) stops it.
+    // Every captured chunk goes to `mic_on_frame`, which drives the level
+    // meter below it.
     if mic {
         body = body.with_child(
             MicrophoneWidget::create(AudioConfig {
                 sample_rate: 48_000,
                 channels: 1,
             })
+            .with_on_frame(
+                data.clone(),
+                OnAudioFrameCallback {
+                    cb: mic_on_frame,
+                    callable: OptionRefAny::None,
+                },
+            )
             .dom()
             .with_css("width: 1px; height: 1px; overflow: hidden;"),
         );
+        // Meter row: label + ProgressBar. The bar publishes its percentage as
+        // its accessibility value on every build; `mic_on_frame` keeps both
+        // the fill and that value current between builds. Its mount hooks
+        // hand the bar's node to the state so the audio callback can find it.
+        body = body.with_child(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; \
+                     padding: 6px 12px; background: #15151c;",
+                )
+                .with_child(
+                    Dom::create_span_with_text("Mic level")
+                        .with_css("font-size: 13px; color: #8890a8; margin-right: 10px; white-space: nowrap;"),
+                )
+                .with_child(
+                    ProgressBar::create(mic_level)
+                        .dom()
+                        .with_css("width: 200px;")
+                        .with_callback(
+                            EventFilter::Component(ComponentEventFilter::AfterMount),
+                            data.clone(),
+                            meter_mounted,
+                        )
+                        .with_callback(
+                            EventFilter::Component(ComponentEventFilter::BeforeUnmount),
+                            data.clone(),
+                            meter_unmounted,
+                        ),
+                ),
+        );
     }
     body.with_child(grid).with_child(toolbar).with_child(devices_panel)
+}
+
+/// The meter's `ProgressBar` container is on screen: remember its node.
+extern "C" fn meter_mounted(mut data: RefAny, info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.meter_bar = Some(info.get_hit_node());
+    }
+    Update::DoNothing
+}
+
+/// The meter is going away (mute): forget the node so a late audio frame
+/// cannot write into whatever takes its place.
+extern "C" fn meter_unmounted(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.meter_bar = None;
+    }
+    Update::DoNothing
+}
+
+/// One captured audio chunk → the level meter, LIVE: no `RefreshDom`.
+///
+/// A rebuild per chunk (~50 per second) would re-run `layout()` and reconcile
+/// every tile at audio rate; the meter is three properties on three nodes, so
+/// the callback sets exactly those. The bar container is the node
+/// `meter_mounted` recorded; its FILL is its first child and the remaining
+/// space the fill's next sibling — the `ProgressBar` widget's documented shape
+/// (container → bar + remaining). The container is also what carries the
+/// accessibility value, so a screen reader hears the level a sighted user
+/// sees, updated at the same moment.
+extern "C" fn mic_on_frame(mut data: RefAny, mut info: CallbackInfo, frame: AudioFrame) -> Update {
+    let level = mic_level_percent(frame.samples.as_ref()).round();
+    let bar = {
+        let Some(mut s) = data.downcast_mut::<MeetState>() else {
+            return Update::DoNothing;
+        };
+        // Same whole percent as last time: nothing to draw, nothing to say.
+        if (s.mic_level - level).abs() < 0.5 {
+            return Update::DoNothing;
+        }
+        s.mic_level = level;
+        let Some(bar) = s.meter_bar else {
+            return Update::DoNothing;
+        };
+        bar
+    };
+    let Some(fill) = info.get_first_child(bar).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(remaining) = info.get_next_sibling(fill).into_option() else {
+        return Update::DoNothing;
+    };
+
+    info.set_css_property(fill, CssProperty::const_width(LayoutWidth::Px(PixelValue::percent(level))));
+    info.set_css_property(
+        remaining,
+        CssProperty::const_width(LayoutWidth::Px(PixelValue::percent(100.0 - level))),
+    );
+    info.set_accessibility_value(bar, format!("{level:.0}%"));
+    Update::DoNothing
 }
 
 extern "C" fn mic_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
@@ -235,6 +363,8 @@ pub fn start() {
     let data = RefAny::new(MeetState {
         link,
         mic_on: false,
+        mic_level: 0.0,
+        meter_bar: None,
         cam_on: false,
         screen_on: false,
         mics,

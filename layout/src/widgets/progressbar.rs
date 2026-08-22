@@ -464,6 +464,22 @@ impl ProgressBar {
                 )];
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10874511710181900075)
             })
+            // For a progress bar the VALUE is the content: two coloured divs
+            // say nothing to a screen reader, "75%" says everything. Published
+            // on every build so it tracks the bar; a callback that moves the
+            // bar live without a rebuild keeps it current with
+            // `CallbackInfo::set_accessibility_value` on this node.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::ProgressBar,
+                accessibility_value: Some(AzString::from(alloc::format!(
+                    "{:.0}%",
+                    // NaN clamps to NaN and would read "NaN%"; an unknown
+                    // value announces as empty, like the bar it draws.
+                    if percent_done.is_finite() { percent_done } else { 0.0 }
+                )))
+                .into(),
+                ..Default::default()
+            })
             .with_children(DomVec::from_vec(vec![
                 Dom::create_div()
                     .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
@@ -1535,6 +1551,38 @@ mod autotest_generated {
             .dom();
 
         assert_eq!(a, b, "two identically-built progress bars rendered differently");
+    }
+
+    /// The bar's percentage is its accessibility VALUE, on the container, as a
+    /// `ProgressBar` role — so a screen reader announces "progress bar, 75%"
+    /// instead of two anonymous divs. Out-of-range and NaN inputs announce
+    /// what the bar draws (clamped / empty), never "NaN%".
+    #[test]
+    fn dom_publishes_its_percentage_as_the_accessibility_value() {
+        use azul_core::a11y::AccessibilityRole;
+
+        for (input, expected) in [
+            (75.0_f32, "75%"),
+            (0.0, "0%"),
+            (100.0, "100%"),
+            (33.3, "33%"),
+            (-5.0, "0%"),
+            (250.0, "100%"),
+            (f32::NAN, "0%"),
+            (f32::INFINITY, "100%"),
+        ] {
+            let dom = ProgressBar::create(input).dom();
+            let info = dom
+                .root
+                .get_accessibility_info()
+                .unwrap_or_else(|| panic!("{input}: the container carries accessibility info"));
+            assert_eq!(info.role, AccessibilityRole::ProgressBar, "{input}");
+            assert_eq!(
+                info.accessibility_value.as_ref().map(AzString::as_str),
+                Some(expected),
+                "{input}: the percentage is the accessibility value"
+            );
+        }
     }
 
     #[test]
