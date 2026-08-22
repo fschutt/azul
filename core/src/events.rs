@@ -1357,6 +1357,24 @@ fn matches_hover_filter(
         (PermissionChanged, EventType::PermissionChanged) => true,
         (BiometricResult, EventType::BiometricResult) => true,
         (KeyringResult, EventType::KeyringResult) => true,
+        // Gestures. These filters existed, the detectors produced the events,
+        // and this table had no arm for them — a `PinchOut` handler on a map
+        // could never fire, whatever the gesture manager saw.
+        (HoverEventFilter::LongPress, EventType::LongPress) => true,
+        (HoverEventFilter::SwipeLeft, EventType::SwipeLeft) => true,
+        (HoverEventFilter::SwipeRight, EventType::SwipeRight) => true,
+        (HoverEventFilter::SwipeUp, EventType::SwipeUp) => true,
+        (HoverEventFilter::SwipeDown, EventType::SwipeDown) => true,
+        (HoverEventFilter::PinchIn, EventType::PinchIn) => true,
+        (HoverEventFilter::PinchOut, EventType::PinchOut) => true,
+        (HoverEventFilter::RotateClockwise, EventType::RotateClockwise) => true,
+        (HoverEventFilter::RotateCounterClockwise, EventType::RotateCounterClockwise) => true,
+        (HoverEventFilter::MouseOut, EventType::MouseOut) => true,
+        (HoverEventFilter::FocusIn, EventType::FocusIn) => true,
+        (HoverEventFilter::FocusOut, EventType::FocusOut) => true,
+        (HoverEventFilter::CompositionStart, EventType::CompositionStart) => true,
+        (HoverEventFilter::CompositionUpdate, EventType::CompositionUpdate) => true,
+        (HoverEventFilter::CompositionEnd, EventType::CompositionEnd) => true,
         _ => false,
     }
 }
@@ -1409,6 +1427,16 @@ fn matches_focus_filter(
         (FocusEventFilter::Copy, EventType::Copy) => true,
         (FocusEventFilter::Cut, EventType::Cut) => true,
         (FocusEventFilter::Paste, EventType::Paste) => true,
+        // Gestures — same gap as the hover table.
+        (FocusEventFilter::LongPress, EventType::LongPress) => true,
+        (FocusEventFilter::SwipeLeft, EventType::SwipeLeft) => true,
+        (FocusEventFilter::SwipeRight, EventType::SwipeRight) => true,
+        (FocusEventFilter::SwipeUp, EventType::SwipeUp) => true,
+        (FocusEventFilter::SwipeDown, EventType::SwipeDown) => true,
+        (FocusEventFilter::PinchIn, EventType::PinchIn) => true,
+        (FocusEventFilter::PinchOut, EventType::PinchOut) => true,
+        (FocusEventFilter::RotateClockwise, EventType::RotateClockwise) => true,
+        (FocusEventFilter::RotateCounterClockwise, EventType::RotateCounterClockwise) => true,
         _ => false,
     }
 }
@@ -1480,6 +1508,16 @@ fn matches_window_filter(
         (DragOver, EventType::DragOver) => true,
         (DragLeave, EventType::DragLeave) => true,
         (Drop, EventType::Drop) => true,
+        // Gestures — same gap as the hover table.
+        (WindowEventFilter::LongPress, EventType::LongPress) => true,
+        (WindowEventFilter::SwipeLeft, EventType::SwipeLeft) => true,
+        (WindowEventFilter::SwipeRight, EventType::SwipeRight) => true,
+        (WindowEventFilter::SwipeUp, EventType::SwipeUp) => true,
+        (WindowEventFilter::SwipeDown, EventType::SwipeDown) => true,
+        (WindowEventFilter::PinchIn, EventType::PinchIn) => true,
+        (WindowEventFilter::PinchOut, EventType::PinchOut) => true,
+        (WindowEventFilter::RotateClockwise, EventType::RotateClockwise) => true,
+        (WindowEventFilter::RotateCounterClockwise, EventType::RotateCounterClockwise) => true,
         _ => false,
     }
 }
@@ -6041,6 +6079,35 @@ mod autotest_generated {
         // The rule is narrow: a move still bubbles to every ancestor.
         assert!(EventType::MouseOver.bubbles());
         assert!(EventType::DragLeave.bubbles(), "W3C dragleave bubbles");
+    }
+
+    /// REPORTED (AzMap pinch, 2026-08-21): the gesture detectors produced
+    /// `PinchIn`/`PinchOut`, the widget registered `Hover(PinchOut)`, and the
+    /// callback never ran — the filter truth tables had no arm for any gesture.
+    /// Every gesture event type must match its same-named filter in all three
+    /// tables; a new gesture added to the enums without its arm fails here.
+    #[test]
+    fn every_gesture_event_matches_its_same_named_filter() {
+        let gestures: [(EventType, HoverEventFilter, FocusEventFilter, WindowEventFilter); 9] = [
+            (EventType::LongPress, HoverEventFilter::LongPress, FocusEventFilter::LongPress, WindowEventFilter::LongPress),
+            (EventType::SwipeLeft, HoverEventFilter::SwipeLeft, FocusEventFilter::SwipeLeft, WindowEventFilter::SwipeLeft),
+            (EventType::SwipeRight, HoverEventFilter::SwipeRight, FocusEventFilter::SwipeRight, WindowEventFilter::SwipeRight),
+            (EventType::SwipeUp, HoverEventFilter::SwipeUp, FocusEventFilter::SwipeUp, WindowEventFilter::SwipeUp),
+            (EventType::SwipeDown, HoverEventFilter::SwipeDown, FocusEventFilter::SwipeDown, WindowEventFilter::SwipeDown),
+            (EventType::PinchIn, HoverEventFilter::PinchIn, FocusEventFilter::PinchIn, WindowEventFilter::PinchIn),
+            (EventType::PinchOut, HoverEventFilter::PinchOut, FocusEventFilter::PinchOut, WindowEventFilter::PinchOut),
+            (EventType::RotateClockwise, HoverEventFilter::RotateClockwise, FocusEventFilter::RotateClockwise, WindowEventFilter::RotateClockwise),
+            (EventType::RotateCounterClockwise, HoverEventFilter::RotateCounterClockwise, FocusEventFilter::RotateCounterClockwise, WindowEventFilter::RotateCounterClockwise),
+        ];
+        for (ty, hover, focus, window) in gestures {
+            let ev = SyntheticEvent::new(ty, EventSource::User, dnid(0, 0), tick(0), EventData::None);
+            assert!(matches_hover_filter(hover, &ev, EventPhase::Target), "Hover({hover:?}) must match {ty:?}");
+            assert!(matches_focus_filter(focus, &ev, EventPhase::Target), "Focus({focus:?}) must match {ty:?}");
+            assert!(matches_window_filter(window, &ev, EventPhase::Target), "Window({window:?}) must match {ty:?}");
+            // ...and the table is a truth table, not a wildcard.
+            let other = SyntheticEvent::new(EventType::MouseDown, EventSource::User, dnid(0, 0), tick(0), EventData::None);
+            assert!(!matches_hover_filter(hover, &other, EventPhase::Target));
+        }
     }
 
     #[test]

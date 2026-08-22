@@ -1305,6 +1305,30 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         style
     }
 
+    /// The node's explicit PIXEL `min-height` / `max-height` in BORDER-BOX terms
+    /// (`None` for auto / percent / calc — those stay taffy's business). Read
+    /// from the memoised taffy style, so it is exactly what taffy was told.
+    fn own_px_height_bounds(
+        &self,
+        node_idx: usize,
+        padding_border_height: f32,
+    ) -> (Option<f32>, Option<f32>) {
+        let dom_id = self.tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.dom_node_id);
+        let style = self.translate_style_to_taffy_cached(dom_id);
+        // `min-height` on a content-box node bounds the CONTENT box.
+        let extra = if style.box_sizing == BoxSizing::ContentBox {
+            padding_border_height
+        } else {
+            0.0
+        };
+        let px = |d: Dimension| -> Option<f32> {
+            let raw = d.into_raw();
+            (raw.tag() == taffy::CompactLength::LENGTH_TAG && raw.value().is_finite())
+                .then(|| raw.value() + extra)
+        };
+        (px(style.min_size.height), px(style.max_size.height))
+    }
+
     /// Determines if cross-axis intrinsic size should be suppressed for stretching.
     ///
     /// Per CSS Flexbox spec, align-items: stretch makes items fill the cross-axis
@@ -2054,7 +2078,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                         .and_then(|p| self.tree.get(LayoutNodeId::new(p)))
                         .is_some_and(|p| matches!(p.formatting_context, FormattingContext::Grid));
 
-                    if parent_is_grid {
+                    let content_sized = if parent_is_grid {
                         // For grid items, use available space if content is smaller
                         match inputs.available_space.height {
                             AvailableSpace::Definite(h) => {
@@ -2066,7 +2090,18 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                         }
                     } else {
                         border_box_height
-                    }
+                    };
+                    // A CONTENT-SIZED leaf honours its own explicit min/max-height
+                    // here, not only through taffy's `min_size` clamp. The slot a
+                    // flex container reserved for a `min-height: 64px` textarea
+                    // came out as its 26 px of content; the node's own layout then
+                    // applied the min-height and painted 64 px into that slot —
+                    // over the widget beneath. Measuring the clamped size is the
+                    // one answer both authorities agree on.
+                    let (min_h, max_h) =
+                        self.own_px_height_bounds(node_idx, node_padding_height + node_border_height);
+                    let clamped = min_h.map_or(content_sized, |m| content_sized.max(m));
+                    max_h.map_or(clamped, |m| clamped.min(m.max(min_h.unwrap_or(0.0))))
                 };
 
                 // CRITICAL: Transfer positions from layout_formatting_context to child nodes.

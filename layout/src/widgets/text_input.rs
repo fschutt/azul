@@ -89,10 +89,20 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec =
 // -- container style
 
 #[cfg(target_os = "windows")]
+/// Minimum height of the field (border box), every platform: one line of the
+/// 11 px UI font plus the chrome. With no text the value `<p>` has no line box
+/// and the placeholder is positioned out of flow, so without this an EMPTY
+/// field collapsed to its padding + border (4 px) — it used to be propped up
+/// by the UA `<p>` margin that `widget_p` now resets.
+const TEXT_INPUT_MIN_HEIGHT_PX: isize = 22;
+
 static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        TEXT_INPUT_MIN_HEIGHT_PX,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
@@ -207,6 +217,9 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        TEXT_INPUT_MIN_HEIGHT_PX,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
@@ -326,6 +339,9 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        TEXT_INPUT_MIN_HEIGHT_PX,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
