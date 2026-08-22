@@ -86,11 +86,11 @@ pub fn accelerator_matches(
 
 /// Depth-first search of `items` for the first enabled entry whose
 /// accelerator matches the chord (see [`accelerator_matches`]).
-fn find_accelerated_in(
-    items: &[MenuItem],
+fn find_accelerated_in<'a>(
+    items: &'a [MenuItem],
     keyboard: &KeyboardState,
     pressed: VirtualKeyCode,
-) -> Option<&StringMenuItem> {
+) -> Option<&'a StringMenuItem> {
     for item in items {
         let MenuItem::String(s) = item else {
             continue;
@@ -140,11 +140,11 @@ impl Menu {
     /// matches the chord the keyboard is in, `pressed` being the key that
     /// just went down. Greyed / disabled items never match.
     #[must_use]
-    pub fn find_accelerated_item(
-        &self,
+    pub fn find_accelerated_item<'a>(
+        &'a self,
         keyboard: &KeyboardState,
         pressed: VirtualKeyCode,
-    ) -> Option<&StringMenuItem> {
+    ) -> Option<&'a StringMenuItem> {
         find_accelerated_in(self.items.as_ref(), keyboard, pressed)
     }
 
