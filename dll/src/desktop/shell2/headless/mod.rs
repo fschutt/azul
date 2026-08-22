@@ -5891,14 +5891,32 @@ mod tests {
         window
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        // A DPI change is a FULL regeneration, and `regenerate_layout` runs
+        // the lifecycle loop itself: the NodeResized the DPI change queues
+        // (`resize_watch_dpi`) is dispatched before it returns.
         window.regenerate_layout().expect("full regeneration at 2x");
-        window
-            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
-            .expect("resize at 2x");
         assert_eq!(
             camera_state_of(&window).0,
             Some((600, 180)),
             "the worker is told DEVICE pixels: logical 300x90 at 2x is 600x180"
+        );
+
+        // And the resize FAST PATH still works after that full regeneration
+        // (a DPI change clears the caches; the next OS resize must not fail
+        // on the rebuilt tree): 700 wide -> a 350 px tile -> 700x180 device.
+        window.snapshot_window_state_baseline("headless.test.capture_tile_size_2x");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 700.0;
+            });
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize fast path at 2x");
+        assert_eq!(
+            camera_state_of(&window).0,
+            Some((700, 180)),
+            "a resize after the DPI change re-targets the worker in device pixels"
         );
     }
 

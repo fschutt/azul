@@ -5872,7 +5872,10 @@ impl MacOSWindow {
         // `PlatformWindow::invoke_menu_callback` runs the callback with a
         // full CallbackInfo, applies its changes, syncs the window state and
         // requests a rebuild when asked. Only the redraw is ours.
-        match self.invoke_menu_callback(callback, "macos.handle_menu_action") {
+        match self.invoke_menu_callback(
+            callback,
+            super::common::event::MenuInvocation::Native { site: "macos.handle_menu_action" },
+        ) {
             ProcessEventResult::DoNothing => {}
             _ => self.request_redraw(),
         }

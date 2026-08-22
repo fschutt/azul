@@ -1021,6 +1021,17 @@ fn os_synced_fields(
     )
 }
 
+/// How a menu item's callback came to run — see
+/// `PlatformWindow::invoke_menu_callback` for what each owns afterwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuInvocation {
+    /// The OS activated the item (menu-bar click, Win32 command id, GNOME
+    /// action); `site` names the backend for the `AZ_VALIDATE` report.
+    Native { site: &'static str },
+    /// The shared accelerator dispatch, inside an input pass.
+    Accelerator,
+}
+
 pub fn check_input_delta_consumed(
     previous: Option<&FullWindowState>,
     current: &FullWindowState,
@@ -6937,7 +6948,7 @@ pub trait PlatformWindow {
         });
 
         match callback {
-            Some(cb) => self.invoke_menu_callback(cb, "menu.accelerator"),
+            Some(cb) => self.invoke_menu_callback(cb, MenuInvocation::Accelerator),
             None => ProcessEventResult::DoNothing,
         }
     }
@@ -6947,10 +6958,19 @@ pub trait PlatformWindow {
     /// for (window-state changes, a DOM rebuild). One implementation for the
     /// native menu handlers (macOS tags, Win32 command ids, GNOME actions)
     /// and the shared accelerator dispatch.
+    ///
+    /// `how` decides who owns the window-state baseline afterwards. A NATIVE
+    /// activation arrives outside any input pass — there is no pending input
+    /// delta — so the baseline is advanced here, like after a click. An
+    /// ACCELERATOR runs INSIDE `process_window_events`, before the DOM
+    /// dispatch, and the very key that fired it is the delta that pass is
+    /// about to consume: snapshotting here tripped `AZ_VALIDATE`
+    /// ("unconsumed input delta at menu.accelerator") and, without the
+    /// validator, would have deleted the key-down for the DOM.
     fn invoke_menu_callback(
         &mut self,
         callback: azul_core::menu::CoreMenuCallback,
-        site: &str,
+        how: MenuInvocation,
     ) -> ProcessEventResult {
         use azul_core::callbacks::Update;
         use azul_layout::callbacks::{Callback, MenuCallback};
@@ -6979,7 +6999,9 @@ pub trait PlatformWindow {
             )
         };
 
-        self.snapshot_window_state_baseline(site);
+        if let MenuInvocation::Native { site } = how {
+            self.snapshot_window_state_baseline(site);
+        }
         let mut result = ProcessEventResult::DoNothing;
         for change in &changes {
             result = result.max(self.apply_user_change(change));
@@ -6988,8 +7010,11 @@ pub trait PlatformWindow {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
         // Window-state changes the callback made (title, size, close) reach
-        // the OS now, as after a native click.
-        self.sync_window_state();
+        // the OS now, as after a native click. The surrounding input pass
+        // syncs after an accelerator.
+        if matches!(how, MenuInvocation::Native { .. }) {
+            self.sync_window_state();
+        }
         if matches!(
             result,
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
