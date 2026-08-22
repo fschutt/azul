@@ -3620,13 +3620,20 @@ fn layout_ifc<T: ParsedFontTrait>(
         // empty IFC renders nothing, as before.
         if let Some(strut_height) = editing_host_strut_height(ctx, tree, node_index) {
             if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
-                warm_node.inline_layout_result = Some(Box::new(CachedInlineLayout::new(
+                // WITH the IFC's constraints, exactly like a real line box:
+                // `reshape_text_node` shapes an edit into the cached layout's
+                // constraints and bails when there are none. Stored bare
+                // (`CachedInlineLayout::new`), the strut was a line the caret
+                // could stand on but nothing could be typed into — the first
+                // keystroke into an empty TextInput was silently dropped.
+                warm_node.inline_layout_result = Some(Box::new(CachedInlineLayout::new_with_constraints(
                     Arc::new(text3::cache::UnifiedLayout {
                         items: Vec::new(),
                         overflow: text3::cache::OverflowInfo::default(),
                     }),
                     constraints.available_width_type,
                     false,
+                    text3_constraints.clone(),
                 )));
                 // A strut has no glyphs: its baseline sits where a line of
                 // this font would put one (ascent ~ 0.8 em within the line).

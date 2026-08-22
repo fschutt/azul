@@ -541,14 +541,9 @@ phases.mark("after_callback");
         phases.mark("after_layout_and_dl");
         layout_window.current_window_state = current_window_state.clone();
 
-        let dirty_entries: Vec<_> = layout_window
-            .content_overlay
-            .iter_text()
-            .map(|(k, _)| *k)
-            .collect();
-        for (dom_id, node_id) in dirty_entries {
-            layout_window.reapply_dirty_text_node(dom_id, node_id);
-        }
+        // Overlay text (in-flight edits) is re-applied by the layout funnel
+        // itself (`LayoutWindow::layout_and_generate_display_list`), once, on
+        // every path — not here.
 
         // The warm relayout is a REAL layout pass: it can add or remove scroll
         // containers (a CSS breakpoint swapping a widget to its compact form
@@ -1129,23 +1124,9 @@ phases.mark("after_layout_and_dl");
     // the stale layout_window.current_window_state still held the old size.
     layout_window.current_window_state = current_window_state.clone();
 
-    // V3 ARCHITECTURE: Re-apply dirty_text_nodes to the layout cache.
-    // The layout just ran on the stale DOM text (from the layout callback).
-    // Now patch the layout cache with the edited text from dirty_text_nodes
-    // so the display list shows the correct (edited) content.
-    // This calls update_text_cache_after_edit for each dirty node, which
-    // re-shapes the text and regenerates the inline layout result.
-    let dirty_entries: Vec<_> = layout_window
-        .content_overlay
-        .iter_text()
-        .map(|(k, _)| *k)
-        .collect();
-    for (dom_id, node_id) in dirty_entries {
-        // update_text_cache_after_edit reads from dirty_text_nodes internally
-        // (via get_text_before_textinput which checks dirty_text_nodes first)
-        // and updates the inline_layout_result in the layout tree.
-        layout_window.reapply_dirty_text_node(dom_id, node_id);
-    }
+    // Overlay text (in-flight edits) is re-applied by the layout funnel
+    // itself (`LayoutWindow::layout_and_generate_display_list`), once, on
+    // every path — not here.
 
     log_debug!(
         LogCategory::Layout,

@@ -3267,6 +3267,26 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
 /// results) — the same value the HTTP `run_e2e_tests` command produces.
 #[must_use]
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
+    run_e2e_test_with_dom(test, None)
+}
+
+/// [`run_e2e_test`] on a document built in Rust: `initial_dom` is laid out
+/// BEFORE the first step runs, in place of the empty body a scenario
+/// without a `mount` op starts from. The steps then drive that tree through
+/// the same ops (`click`, `text_input`, ...) a JSON scenario uses — which is
+/// how the widgets (whose DOM no HTML `mount` can express: they carry
+/// datasets, callbacks and empty text nodes) get exercised end to end.
+pub fn run_e2e_test_with_dom(test: &E2eTest, initial_dom: Option<StyledDom>) -> E2eTestResult {
+    run_e2e_test_keeping_runner(test, initial_dom).0
+}
+
+/// [`run_e2e_test_with_dom`], handing the finished [`Runner`] back so a test
+/// can inspect what the scenario left on screen (the display list, the
+/// managers) beyond what the ops themselves assert.
+fn run_e2e_test_keeping_runner(
+    test: &E2eTest,
+    initial_dom: Option<StyledDom>,
+) -> (E2eTestResult, Runner) {
     if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
         eprintln!("[scenario] {}", test.name);
     }
@@ -3302,6 +3322,12 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
         None => (800.0, 600.0, 96, false),
     };
     let mut runner = Runner::new(w, h, dpi, animations);
+    if let Some(dom) = initial_dom {
+        // The mount-less `regenerate_layout` arm takes the CURRENT tree back
+        // out of `layout_results`, so laying the document out once here is
+        // all it takes for every later pass to keep it.
+        runner.layout(dom);
+    }
 
     let (tx, rx) = std::sync::mpsc::channel();
     let request = DebugRequest {
@@ -3384,7 +3410,8 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
     // RED, no matter what its assertions said: they were evaluated against a
     // window where that something never happened. Reported per unsupported
     // change, by name — see `Runner::unsupported`.
-    unsupported_to_failure(result, &runner.unsupported_changes)
+    let result = unsupported_to_failure(result, &runner.unsupported_changes);
+    (result, runner)
 }
 
 /// Fold the runner's unsupported-change log into the scenario result, turning a
@@ -3846,6 +3873,79 @@ mod tests {
                 .get_pending_changeset()
                 .is_none(),
             "the vetoed record dies now — surviving into the next pass would land it late"
+        );
+    }
+
+    // ── 4. The real TextInput widget, through the real ops ───────────────────
+
+    /// THE CLASS (AzWidgets 2026-08-22, "the TextInput shows a caret but
+    /// typing paints nothing"): the widget is `div[contenteditable] >
+    /// [p.placeholder (contenteditable=false), p.value > ""]`, focused by a
+    /// CLICK (the FocusReceived path seeds the caret) and typed into through
+    /// the shells' text ingress. The engine's buffer is the value `<p>`'s text
+    /// — the placeholder is walled off — and the RENDERED side must follow:
+    /// the typed glyph is painted, the placeholder (hidden by the widget's own
+    /// TextInput callback) is not, and the value reads back.
+    #[test]
+    fn typing_into_the_text_input_widget_paints_the_glyph() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "text_input_widget_types",
+            "setup": { "window_width": 600, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".__azul-native-text-input-container" },
+                { "op": "wait_frame" },
+                { "op": "wait", "ms": 50 },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "__azul-native-text-input-container" },
+                { "op": "snapshot_frame", "as": "focused_empty" },
+                { "op": "text_input", "text": "Xy" },
+                { "op": "wait_frame" },
+                { "op": "wait", "ms": 50 },
+                { "op": "assert_text", "selector": ".__azul-native-text-input-container", "expected": "Xy" },
+                { "op": "assert_changed", "vs": "focused_empty", "min_damage_rects": 1 }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(
+            result.status, "pass",
+            "typing into the TextInput widget must land in its value: {:#?}",
+            result.steps
+        );
+
+        // What is on screen: every glyph run the final display list carries.
+        let runs: Vec<usize> = runner
+            .layout_window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("layout result")
+            .display_list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                DisplayListItem::Text { glyphs, .. } => Some(glyphs.len()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            runs.contains(&2),
+            "the typed text `Xy` must be PAINTED as a two-glyph run: {runs:?}"
+        );
+        assert!(
+            !runs.iter().any(|n| *n > 2),
+            "the placeholder prompt must be hidden once there is text: {runs:?}"
         );
     }
 }

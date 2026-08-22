@@ -1878,8 +1878,22 @@ impl LayoutWindow {
         // pre-edit text. The damage rect was right; the pixels in it were old.
         //
         // Cheap: the overlay only holds nodes the user actually edited, and
-        // `reapply_dirty_text_node` re-shapes from the clean base, so running
-        // it again after a call site that already did is a no-op in effect.
+        // `reapply_dirty_text_node` re-shapes from the clean base.
+        //
+        // (The comment above shipped WITHOUT the loop — fda08926f described
+        // the fix and left the two shell call sites as the only ones, so an
+        // incremental relayout still rebuilt an edited IFC from the DOM's
+        // pre-edit text. The TextInput widget hit exactly that: its own
+        // TextInput callback hides the placeholder after the first keystroke,
+        // that CSS change relayouts, and the value just typed was gone.)
+        if result.is_ok() {
+            let dirty_entries: Vec<(DomId, NodeId)> =
+                self.content_overlay.iter_text().map(|(k, _)| *k).collect();
+            for (dom_id, node_id) in dirty_entries {
+                self.reapply_dirty_text_node(dom_id, node_id);
+            }
+        }
+
         // After successful layout, update the accessibility tree
         #[cfg(feature = "a11y")]
         if result.is_ok() {
@@ -12136,13 +12150,29 @@ impl LayoutWindow {
         Arc::new(props)
     }
 
+    /// A subtree carrying an explicit `contenteditable="false"` (and not the
+    /// `set_contenteditable()` flag, which wins) is WALLED OFF from the
+    /// editable it sits in: that is what stops the inheritance walk in
+    /// [`solver3::getters::is_node_contenteditable_inherited`], and the text
+    /// widgets rely on it to keep their placeholder prompt — which lives
+    /// *inside* the editable container — out of the value the engine edits.
+    /// Every walk over an editable's subtree (the buffer READ in
+    /// [`Self::collect_text_from_children`] and the reshape TARGET in
+    /// [`Self::ifc_candidate_children`]) must apply the same rule, or an edit
+    /// is computed from one set of nodes and painted into another.
+    fn is_walled_off_editable_subtree(node_data: &azul_core::dom::NodeData) -> bool {
+        !node_data.is_contenteditable()
+            && node_data
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|attr| matches!(attr, AttributeType::ContentEditable(false)))
+    }
+
     /// Recursively collect text content from child nodes
     ///
-    /// A subtree carrying an explicit `contenteditable="false"` is skipped: that
-    /// is what stops the inheritance walk in
-    /// [`solver3::getters::is_node_contenteditable_inherited`], and the text
-    /// widgets rely on it to keep their placeholder prompt — which lives *inside*
-    /// the editable container — out of the value the engine edits.
+    /// A subtree carrying an explicit `contenteditable="false"` is skipped
+    /// ([`Self::is_walled_off_editable_subtree`]).
     fn collect_text_from_children(
         &self,
         dom_id: DomId,
@@ -12166,12 +12196,9 @@ impl LayoutWindow {
             // Same precedence as `is_node_contenteditable_inherited`: the
             // `set_contenteditable()` flag wins, otherwise an explicit
             // `contenteditable="false"` attribute walls the subtree off.
-            let is_walled_off = node_data.get(child_id.index()).is_some_and(|nd| {
-                !nd.is_contenteditable()
-                    && nd.attributes().as_ref().iter().any(|attr| {
-                        matches!(attr, AttributeType::ContentEditable(false))
-                    })
-            });
+            let is_walled_off = node_data
+                .get(child_id.index())
+                .is_some_and(Self::is_walled_off_editable_subtree);
 
             if !is_walled_off {
                 // Get content from this child (recursive)
@@ -12235,18 +12262,26 @@ impl LayoutWindow {
         self.reshape_text_node(dom_id, node_id, new_inline_content);
     }
 
-    /// The direct children of `node_id` in the order [`Self::reshape_text_node`]
+    /// The descendants of `node_id` in the order [`Self::reshape_text_node`]
     /// searches them for an inline formatting context: the block that owns the
-    /// caret first, then document order.
+    /// caret first, then document order — and NEVER a walled-off subtree
+    /// ([`Self::is_walled_off_editable_subtree`]).
     ///
-    /// Plain document order hands `container > [placeholder p, value p]` to the
-    /// *placeholder* whenever it is displayed, so the edit lands in the prompt
-    /// instead of the value.
+    /// The buffer the edit was computed from is the editable's text WITHOUT
+    /// its `contenteditable="false"` islands ([`Self::collect_text_from_children`]),
+    /// so the shaped result must go to a block inside that same set. The
+    /// text widgets are `container > [p.placeholder (contenteditable=false),
+    /// p.value]` with the caret on the CONTAINER: no child "owns" the caret,
+    /// document order put the placeholder first, and the typed text was
+    /// shaped into the prompt — which the widget hides on the first
+    /// keystroke. A focused TextInput showed a caret and painted nothing for
+    /// whatever was typed (AzWidgets, 2026-08-22).
     fn ifc_candidate_children(&self, dom_id: DomId, node_id: NodeId) -> Vec<NodeId> {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return Vec::new();
         };
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+        let node_data = layout_result.styled_dom.node_data.as_ref();
 
         // Breadth-first over the WHOLE subtree, not just the direct children.
         // An editable's text can sit any number of blocks down
@@ -12268,8 +12303,13 @@ impl LayoutWindow {
             };
             let mut child = item.first_child_id(parent);
             while let Some(child_id) = child {
-                children.push(child_id);
-                queue.push_back(child_id);
+                let walled_off = node_data
+                    .get(child_id.index())
+                    .is_some_and(Self::is_walled_off_editable_subtree);
+                if !walled_off {
+                    children.push(child_id);
+                    queue.push_back(child_id);
+                }
                 let Some(child_item) = node_hierarchy.get(child_id.index()) else {
                     break;
                 };
@@ -12581,15 +12621,6 @@ impl LayoutWindow {
         }
     }
 
-    /// Regenerate the display list for a specific DOM from the current layout tree.
-    ///
-    /// This is the critical missing piece for text input: after `update_text_cache_after_edit`
-    /// updates the `inline_layout_result` on layout tree nodes, the `DomLayoutResult.display_list`
-    /// must be regenerated. Otherwise, `generate_frame()` sends the OLD display list to `WebRender`
-    /// and the screen shows stale text.
-    ///
-    /// This method creates a temporary `LayoutContext` from the existing `LayoutWindow` state
-    /// and calls `generate_display_list` on the already-computed layout tree and positions.
     /// THE PATCH CONTRACT, checked: if the last build of `dom_id`'s display
     /// list was a PATCHED one (the previous list spliced and translated by
     /// node deltas — see `solver3::display_list::PatchState`), rebuild the
@@ -12618,6 +12649,19 @@ impl LayoutWindow {
             return Vec::new();
         };
         let wholesale: Vec<String> = lr.display_list.items.iter().map(|i| format!("{i:?}")).collect();
+        // `AZ_PATCH_VERIFY_DUMP=<dir>`: write both lists in full, one item per
+        // line, so a mismatch can be read side by side (the report below is
+        // index-aligned and clipped, which is enough to SEE a drift but not
+        // to diagnose one item inserted near the top).
+        #[cfg(feature = "std")]
+        if patched != wholesale {
+            if let Some(dir) = std::env::var_os("AZ_PATCH_VERIFY_DUMP") {
+                let dir = std::path::PathBuf::from(dir);
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::write(dir.join("patched.txt"), patched.join("\n"));
+                let _ = std::fs::write(dir.join("wholesale.txt"), wholesale.join("\n"));
+            }
+        }
         let mut out = Vec::new();
         if patched.len() != wholesale.len() {
             out.push(format!(
@@ -12639,6 +12683,15 @@ impl LayoutWindow {
         out
     }
 
+    /// Regenerate the display list for a specific DOM from the current layout tree.
+    ///
+    /// This is the critical missing piece for text input: after `update_text_cache_after_edit`
+    /// updates the `inline_layout_result` on layout tree nodes, the `DomLayoutResult.display_list`
+    /// must be regenerated. Otherwise, `generate_frame()` sends the OLD display list to `WebRender`
+    /// and the screen shows stale text.
+    ///
+    /// This method creates a temporary `LayoutContext` from the existing `LayoutWindow` state
+    /// and calls `generate_display_list` on the already-computed layout tree and positions.
     pub fn regenerate_display_list_for_dom(&mut self, dom_id: DomId) {
         use crate::solver3::{
             display_list::generate_display_list,
@@ -17028,6 +17081,20 @@ mod autotest_generated {
             .get_inline_layout_for_node(DomId::ROOT_ID, inner)
             .expect("an empty editing host keeps an inline layout for its caret");
         assert!(layout.items.is_empty(), "…with no items: the caret painter's strut branch");
+        // ...and with CONSTRAINTS, so the first keystroke has a line box to
+        // be shaped into (`reshape_text_node` drops an edit whose IFC carries
+        // none — which is how an empty TextInput ate its first character).
+        let lr = win.layout_results.get(&DomId::ROOT_ID).expect("layout result");
+        let idx = *lr.layout_tree.dom_to_layout.get(&inner).and_then(|v| v.first()).expect("mapped");
+        let cached = lr
+            .layout_tree
+            .warm(idx)
+            .and_then(|w| w.inline_layout_result.as_ref())
+            .expect("cached inline layout");
+        assert!(
+            cached.constraints.is_some(),
+            "the strut line box carries the IFC's constraints like any other line box"
+        );
 
         let plain = laid_out(host(false), 400.0, 300.0);
         let size = plain.get_node_size(dnid).expect("the plain div is laid out");
