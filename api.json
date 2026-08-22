@@ -6857,6 +6857,76 @@
                                     "type": "OptionString"
                                 },
                                 "fn_body": "azul_layout::desktop::dialogs::FileDialog::save_file(title, default_path)"
+                            },
+                            "open_file_async": {
+                                "doc": [
+                                    "Open a file WITHOUT blocking: returns a [`FilePickerHandle`] to poll",
+                                    "from a later callback (a timer, the next event, the layout callback).",
+                                    "",
+                                    "- iOS / Android: the OS picker is presented and the handle resolves",
+                                    "  when its delegate / activity result fires.",
+                                    "- Desktop: the synchronous dialog runs here (it is modal anyway) and",
+                                    "  the handle comes back already answered, so the same polling code",
+                                    "  sees `Selected` / `Cancelled` on its first `poll`.",
+                                    "- A mobile build whose shell never registered a backend: `Error`,",
+                                    "  immediately — never a handle that stays `Pending` forever.",
+                                    "",
+                                    "`allow_multiple` resolves to `SelectedMultiple` instead of `Selected`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "default_path": "OptionString"
+                                    },
+                                    {
+                                        "filter_list": "OptionFileTypeList"
+                                    },
+                                    {
+                                        "allow_multiple": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePickerHandle"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FileDialog::open_file_async(title, default_path, filter_list, allow_multiple)"
+                            },
+                            "save_file_async": {
+                                "doc": [
+                                    "Save-file counterpart of [`Self::open_file_async`]; resolves to",
+                                    "`Selected` with the chosen path."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "default_path": "OptionString"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePickerHandle"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FileDialog::save_file_async(title, default_path)"
+                            },
+                            "open_directory_async": {
+                                "doc": [
+                                    "Directory counterpart of [`Self::open_file_async`]; resolves to",
+                                    "`Selected` with the chosen directory."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "default_path": "OptionString"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePickerHandle"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FileDialog::open_directory_async(title, default_path)"
                             }
                         },
                         "repr": "C"
@@ -7106,6 +7176,84 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "FilePickerHandle": {
+                        "external": "azul_layout::desktop::dialogs::FilePickerHandle",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "poll": {
+                                "doc": [
+                                    "Sync read of the current status. Returns a clone so the caller can",
+                                    "destructure without holding the mutex."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePickerStatus"
+                                },
+                                "fn_body": "object.poll()"
+                            },
+                            "is_done": {
+                                "doc": [
+                                    "`true` once the picker has been answered (anything but `Pending`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_done()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FilePickerStatus": {
+                        "external": "azul_layout::desktop::dialogs::FilePickerStatus",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Pending": {},
+                                "Cancelled": {},
+                                "Selected": {
+                                    "type": "String"
+                                },
+                                "SelectedMultiple": {
+                                    "type": "StringVec"
+                                },
+                                "Error": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },

@@ -415,17 +415,15 @@ pub enum FilePickerStatus {
     /// User dismissed the picker without selecting anything. Maps to the
     /// W3C `<input type="file">` cancel semantics (an empty selection).
     Cancelled,
-    /// Single-file picker resolved. `OptionString::None` is impossible
-    /// here — present for FFI shape parity with the desktop `open_file`
-    /// return.
-    Selected { path: OptionString },
+    /// Single-file picker resolved: the chosen path.
+    Selected(AzString),
     /// Multi-file picker resolved. Empty vec means the user dismissed
     /// without picking — equivalent to `Cancelled`.
-    SelectedMultiple { paths: StringVec },
+    SelectedMultiple(StringVec),
     /// Platform-level error (sandbox denial, intent failure, no backend on
     /// this platform, …). The message is user-presentable; the caller is
     /// expected to surface it.
-    Error { message: AzString },
+    Error(AzString),
 }
 
 /// Shared state behind [`FilePickerHandle`]. Held in an `Arc<Mutex<…>>` so
@@ -436,23 +434,31 @@ struct FilePickerInner {
     status: FilePickerStatus,
 }
 
+type SharedInner = Mutex<FilePickerInner>;
+
 /// Opaque handle the user holds across event-loop ticks.
 ///
-/// `#[repr(C)]` so the FFI surface sees a stable layout. The underlying
-/// `Arc<Mutex<…>>` is reference-counted, so cloning the handle is cheap and
-/// every clone observes the same status updates.
-#[derive(Debug, Clone)]
+/// The FFI shape of every engine-resource handle (`Db`, `Pdf`, …): a
+/// pointer plus a destructor flag, `#[repr(C)]`. Unlike those, this one is
+/// REFERENCE-COUNTED — `ptr` is an `Arc<Mutex<FilePickerInner>>` and every
+/// handle owns one strong count — because the OS backend keeps a clone and
+/// writes the answer into it later, possibly after the user dropped theirs.
+/// A shallow, non-owning clone would be a use-after-free waiting for the
+/// picker to dismiss. A null `ptr` (the `Default`) polls as an `Error`.
+#[derive(Debug)]
 #[repr(C)]
 pub struct FilePickerHandle {
-    inner: ArcMutexFilePickerInner,
+    /// `Arc::into_raw` of the shared slot; one strong count per handle.
+    pub ptr: *const core::ffi::c_void,
+    /// `true` when dropping this handle releases its strong count — every
+    /// live handle; `false` only for the null `Default`.
+    pub run_destructor: bool,
 }
 
-/// Newtype around `Arc<Mutex<FilePickerInner>>`. Lives behind one
-/// indirection so the public [`FilePickerHandle`] layout stays `repr(C)`
-/// while the implementation can grow without breaking the wire ABI.
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-struct ArcMutexFilePickerInner(Arc<Mutex<FilePickerInner>>);
+// SAFETY: the only thing behind `ptr` is an `Arc<Mutex<FilePickerInner>>`,
+// which is `Send + Sync`; the handle is that `Arc` with its type erased.
+unsafe impl Send for FilePickerHandle {}
+unsafe impl Sync for FilePickerHandle {}
 
 impl FilePickerHandle {
     /// A fresh handle in `Pending` state. The platform backend retains a
@@ -468,20 +474,34 @@ impl FilePickerHandle {
     /// `Error`. The first `poll` sees the answer.
     #[must_use]
     pub fn with_status(status: FilePickerStatus) -> Self {
+        let arc: Arc<SharedInner> = Arc::new(Mutex::new(FilePickerInner { status }));
         Self {
-            inner: ArcMutexFilePickerInner(Arc::new(Mutex::new(FilePickerInner { status }))),
+            ptr: Arc::into_raw(arc).cast::<core::ffi::c_void>(),
+            run_destructor: true,
         }
+    }
+
+    /// The shared slot, or `None` for the null `Default` handle.
+    fn inner(&self) -> Option<&SharedInner> {
+        if self.ptr.is_null() {
+            return None;
+        }
+        // SAFETY: a non-null `ptr` came from `Arc::into_raw` in `with_status`
+        // and this handle holds a strong count, so the allocation is alive
+        // for as long as `&self` is.
+        Some(unsafe { &*self.ptr.cast::<SharedInner>() })
     }
 
     /// Sync read of the current status. Returns a clone so the caller can
     /// destructure without holding the mutex.
     #[must_use]
     pub fn poll(&self) -> FilePickerStatus {
-        match self.inner.0.lock() {
-            Ok(g) => g.status.clone(),
-            Err(_) => FilePickerStatus::Error {
-                message: AzString::from("file picker mutex poisoned"),
-            },
+        match self.inner().map(Mutex::lock) {
+            Some(Ok(g)) => g.status.clone(),
+            Some(Err(_)) => FilePickerStatus::Error(AzString::from("file picker mutex poisoned")),
+            None => FilePickerStatus::Error(AzString::from(
+                "null file picker handle (a Default, not one a FileDialog returned)",
+            )),
         }
     }
 
@@ -495,8 +515,47 @@ impl FilePickerHandle {
     /// status. Idempotent — repeated writes from a flaky delegate keep the
     /// most recent value.
     pub fn set_status(&self, next: FilePickerStatus) {
-        if let Ok(mut g) = self.inner.0.lock() {
+        if let Some(Ok(mut g)) = self.inner().map(Mutex::lock) {
             g.status = next;
+        }
+    }
+}
+
+impl Clone for FilePickerHandle {
+    /// Another owner of the SAME slot — every clone observes the same status
+    /// updates. Increments the strong count; the clone releases it on drop.
+    fn clone(&self) -> Self {
+        if self.ptr.is_null() {
+            return Self::default();
+        }
+        // SAFETY: see `inner`; incrementing while we hold a count is sound.
+        unsafe { Arc::increment_strong_count(self.ptr.cast::<SharedInner>()) };
+        Self {
+            ptr: self.ptr,
+            run_destructor: true,
+        }
+    }
+}
+
+impl Default for FilePickerHandle {
+    /// The null handle: polls as an `Error`, clones to another null, drops
+    /// to nothing. What the FFI hands out for "no handle".
+    fn default() -> Self {
+        Self {
+            ptr: core::ptr::null(),
+            run_destructor: false,
+        }
+    }
+}
+
+impl Drop for FilePickerHandle {
+    fn drop(&mut self) {
+        if self.run_destructor && !self.ptr.is_null() {
+            // SAFETY: this handle's own strong count, taken in
+            // `with_status` / `clone`, released exactly once here.
+            drop(unsafe { Arc::from_raw(self.ptr.cast::<SharedInner>()) });
+            self.ptr = core::ptr::null();
+            self.run_destructor = false;
         }
     }
 }
@@ -567,12 +626,12 @@ impl FileDialog {
         {
             let status = if allow_multiple {
                 match Self::open_multiple_files(title, default_path, filter_list).into_option() {
-                    Some(paths) => FilePickerStatus::SelectedMultiple { paths },
+                    Some(paths) => FilePickerStatus::SelectedMultiple(paths),
                     None => FilePickerStatus::Cancelled,
                 }
             } else {
                 match Self::open_file(title, default_path, filter_list).into_option() {
-                    Some(path) => FilePickerStatus::Selected { path: OptionString::Some(path) },
+                    Some(path) => FilePickerStatus::Selected(path),
                     None => FilePickerStatus::Cancelled,
                 }
             };
@@ -596,7 +655,7 @@ impl FileDialog {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let status = match Self::save_file(title, default_path).into_option() {
-                Some(path) => FilePickerStatus::Selected { path: OptionString::Some(path) },
+                Some(path) => FilePickerStatus::Selected(path),
                 None => FilePickerStatus::Cancelled,
             };
             FilePickerHandle::with_status(status)
@@ -619,7 +678,7 @@ impl FileDialog {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let status = match Self::open_directory(title, default_path).into_option() {
-                Some(path) => FilePickerStatus::Selected { path: OptionString::Some(path) },
+                Some(path) => FilePickerStatus::Selected(path),
                 None => FilePickerStatus::Cancelled,
             };
             FilePickerHandle::with_status(status)
@@ -637,12 +696,10 @@ impl FileDialog {
 /// user never saw must not read as "the user declined".
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn no_backend_error() -> FilePickerStatus {
-    FilePickerStatus::Error {
-        message: AzString::from(
+    FilePickerStatus::Error(AzString::from(
             "no file picker backend is registered on this platform (the shell must call \
              register_file_picker_backend at startup)",
-        ),
-    }
+        ))
 }
 
 /// Convenience shim: show a default "Info" message box.
@@ -1058,24 +1115,37 @@ mod autotest_generated {
         assert_eq!(user_side.poll(), FilePickerStatus::Pending);
         assert!(!user_side.is_done());
 
-        backend_side.set_status(FilePickerStatus::Selected {
-            path: OptionString::Some(s("/tmp/a.txt")),
-        });
+        backend_side.set_status(FilePickerStatus::Selected(s("/tmp/a.txt")));
         drop(backend_side); // the backend drops its clone after answering
         assert!(user_side.is_done());
         assert_eq!(
             user_side.poll(),
-            FilePickerStatus::Selected { path: OptionString::Some(s("/tmp/a.txt")) }
+            FilePickerStatus::Selected(s("/tmp/a.txt"))
         );
 
         // A flaky delegate that fires twice keeps the LATEST answer.
         user_side.set_status(FilePickerStatus::Cancelled);
         assert_eq!(user_side.poll(), FilePickerStatus::Cancelled);
 
-        let answered = FilePickerHandle::with_status(FilePickerStatus::SelectedMultiple {
-            paths: StringVec::from_vec(vec![s("a"), s("b")]),
-        });
+        let answered = FilePickerHandle::with_status(FilePickerStatus::SelectedMultiple(StringVec::from_vec(vec![s("a"), s("b")])));
         assert!(answered.is_done(), "a pre-answered handle is done on its first poll");
+
+        // The backend answering AFTER the user dropped their handle must be
+        // sound: the clone owns its own strong count. And the null `Default`
+        // is an answered Error, never a handle that stays Pending.
+        let user = FilePickerHandle::new_pending();
+        let backend = user.clone();
+        drop(user);
+        backend.set_status(FilePickerStatus::Cancelled);
+        assert_eq!(backend.poll(), FilePickerStatus::Cancelled);
+        drop(backend);
+
+        let null = FilePickerHandle::default();
+        assert!(null.ptr.is_null() && !null.run_destructor);
+        assert!(matches!(null.poll(), FilePickerStatus::Error(_)));
+        assert!(null.is_done());
+        assert!(null.clone().ptr.is_null());
+        null.set_status(FilePickerStatus::Cancelled); // a no-op, not a crash
     }
 
     /// Without a registered backend nothing here may block, and the filter
