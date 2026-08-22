@@ -84,6 +84,14 @@ pub enum ScrollInputSource {
     /// Continuous trackpad gesture (macOS precise scrolling).
     /// Position is set directly — the OS handles momentum/physics.
     TrackpadContinuous,
+    /// The OS momentum tail after the fingers lifted (macOS
+    /// `momentumPhase == Began | Changed`). Moves the content like
+    /// `TrackpadContinuous` while the node is in range; the first delta that
+    /// pushes past an edge hands the axis to the rubber-band spring (with the
+    /// delta's velocity as the bump) and every later momentum delta on that
+    /// node is dropped — the OS momentum knows nothing about our edge, and a
+    /// spring it kept interrupting was never seen by the user.
+    TrackpadMomentum,
     /// Trackpad gesture ended (fingers lifted off trackpad).
     /// Triggers spring-back if the scroll position is past the bounds
     /// (rubber-banding overshoot). The OS sends this when
