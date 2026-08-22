@@ -427,7 +427,7 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     let fc_cache = Arc::new(FcFontCache::default());
     let registry = FcFontRegistry::new();
     registry.spawn_scout_and_builders();
-    let registry_opt = Some(registry);
+    let registry_opt = Some(registry.clone());
 
     let mut window = HeadlessWindow::new(
         options,
@@ -451,6 +451,28 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     //   path where the leak was observed).
     for _ in 0..WARMUP_ITERATIONS {
         window.regenerate_layout().expect("warmup regenerate_layout failed");
+    }
+
+    // The scout + builder threads allocate on THEIR threads, and the live-heap
+    // counter is process-wide: a build still in flight during a measured
+    // window is growth the loop did not cause. Under load (this suite runs
+    // after two control tests and next to other builds) it routinely was —
+    // the steady-state test read the font cache filling as a leak. Wait for
+    // the transition the warmup was only hoping for.
+    {
+        let started = std::time::Instant::now();
+        while !registry.is_build_complete() {
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(120),
+                "the font registry build did not complete within 120 s; the heap figures \
+                 below would include the builder threads' allocations"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        eprintln!(
+            "[leak_regression] font registry build complete after {:.1} s",
+            started.elapsed().as_secs_f64()
+        );
     }
 
     // Drain the probe thread-local event buffer: without a consumer
