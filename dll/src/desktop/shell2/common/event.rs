@@ -3002,10 +3002,14 @@ pub trait PlatformWindow {
         );
         let started = std::time::Instant::now();
 
+        self.poll_transient_mailbox();
         let mut result = self.regenerate_layout_once()?;
         let mut passes = 1usize;
 
         for _pass in 1..MAX_LIFECYCLE_REGEN_PASSES {
+            // Popups first: a dismissal queues its `Dismissed` lifecycle event,
+            // which the drain below then delivers in this same call.
+            self.sync_transient_windows();
             if !self.dispatch_pending_lifecycle_events() {
                 self.refill_a11y_tree_after_regeneration();
                 self.flush_a11y_tree_update();
@@ -3018,6 +3022,7 @@ pub trait PlatformWindow {
             result = self.regenerate_layout_once()?;
             passes += 1;
         }
+        self.sync_transient_windows();
 
         // One last drain, so callbacks still RUN on the final pass even though we
         // will not lay out again for them.
@@ -3280,6 +3285,93 @@ pub trait PlatformWindow {
     /// ## Parameters
     /// * `options` - Configuration for the new window
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions);
+
+    /// This window's key in the backend's window registry — what a child
+    /// passes as `WindowCreateOptions::parent_window_id`. Every backend keys
+    /// its registry by the native handle the raw window handle carries
+    /// (`NSWindow*`, `HWND`, the X11 window id, the `wl_surface*`), so the
+    /// default derives it; headless has no registry and reports 0.
+    fn registry_window_id(&self) -> u64 {
+        use azul_core::window::RawWindowHandle;
+        match self.get_raw_window_handle() {
+            RawWindowHandle::MacOS(h) => h.ns_window as usize as u64,
+            RawWindowHandle::Windows(h) => h.hwnd as usize as u64,
+            RawWindowHandle::Xlib(h) => h.window,
+            RawWindowHandle::Wayland(h) => h.surface as usize as u64,
+            _ => 0,
+        }
+    }
+
+    /// Ask every OTHER window of this app to regenerate its layout and
+    /// redraw. Backends implement it by walking their registry — the same
+    /// fan-out they do for `Update::RefreshDomAllWindows`. It is how a parent
+    /// wakes the popups it wrote a mailbox for, and how a popup wakes its
+    /// parent after dismissing itself. Headless has nobody to wake.
+    fn request_regeneration_all_windows(&mut self) {}
+
+    /// `<transient-window>`, parent side: after a layout pass, turn the
+    /// engine's popup diff into child windows / mailbox writes, and act on
+    /// popups that dismissed themselves. See `common::transient`.
+    fn sync_transient_windows(&mut self) {
+        let parent_id = self.registry_window_id();
+        let parent_state = self.get_current_window_state().clone();
+        let Some(lw) = self.get_layout_window_mut() else {
+            return;
+        };
+        let outcome = super::transient::sync_parent(parent_id, &parent_state, lw);
+        for options in outcome.create {
+            self.queue_window_create(options);
+        }
+        if outcome.wake_all {
+            self.request_regeneration_all_windows();
+        }
+    }
+
+    /// `<transient-window>`, popup side: close if the parent said so.
+    fn poll_transient_mailbox(&mut self) {
+        if super::transient::poll_popup(self.get_current_window_state())
+            == super::transient::PopupAction::Close
+        {
+            let _ = self.request_window_close("transient.closed_by_parent");
+        }
+    }
+
+    /// `<transient-window>`, both sides, on every input transition:
+    /// - a popup dismisses itself on Escape / focus loss (per its policy),
+    /// - a parent dismisses its `outside`-dismissable popups on a fresh press.
+    fn process_transient_dismissal(&mut self) {
+        use super::transient::{dismiss_outside_on_press, popup_dismiss_cause, post_dismissed};
+        let Some(previous) = self.get_previous_window_state().clone() else {
+            return;
+        };
+        let current = self.get_current_window_state().clone();
+
+        if let Some(cause) = popup_dismiss_cause(&previous, &current) {
+            if post_dismissed(&current) {
+                log_debug!(
+                    super::debug_server::LogCategory::Window,
+                    "[transient] popup dismissing itself: {cause:?}"
+                );
+                let _ = self.request_window_close("transient.dismissed");
+                self.request_regeneration_all_windows();
+            }
+            return;
+        }
+
+        let dismissed_any = match self.get_layout_window_mut() {
+            Some(lw) => dismiss_outside_on_press(&previous, &current, lw),
+            None => false,
+        };
+        if dismissed_any {
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[transient] press in the parent dismissed its popups"
+            );
+            // The Dismissed lifecycle event is queued; a regeneration drains it.
+            self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            self.request_regeneration_all_windows();
+        }
+    }
 
     // REQUIRED: Menu Display (Platform-Specific Implementation)
 
@@ -7115,6 +7207,7 @@ pub trait PlatformWindow {
                 super::capability_pump::pump(lw);
             }
             self.sync_capability_pump_timer();
+            self.process_transient_dismissal();
         }
 
         // Get previous state (or use current as fallback for first frame)

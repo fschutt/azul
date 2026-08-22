@@ -235,13 +235,6 @@ pub fn regenerate_layout(
     relayout_reason: azul_core::callbacks::RelayoutReason,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
-    // The popup diff is per-PASS. Clear it first thing, so an exit that does
-    // not reach a reconcile (the fingerprint-equal "layout unchanged" path,
-    // which keeps the old result and returns) reports "nothing to do" rather
-    // than replaying last pass's opened/closed list. The continuity test
-    // caught exactly that: pass 3 was unchanged, and the backend would have
-    // re-created a popup that was already open.
-    layout_window.pending_transient_diff = azul_layout::transient::TransientDiff::default();
     // Engine observability: the whole produce side (callback + solve + DL)
     // reports as scope "layout"; the probe spans inside land per-phase.
     #[cfg(feature = "telemetry")]
@@ -1917,5 +1910,11 @@ fn reconcile_transient_windows(
             diff.closed.len()
         );
     }
-    layout_window.pending_transient_diff = diff;
+    // Accumulate, never assign: a layout call may run several passes before
+    // the backend takes the diff, and an exit that reaches no reconcile (the
+    // fingerprint-equal "layout unchanged" path) must not replay an older
+    // pass's opened/closed list either — the continuity test caught a popup
+    // about to be re-created that way. `merge` also cancels an open+close
+    // pair the backend never saw, so nothing flashes.
+    layout_window.pending_transient_diff.merge(diff);
 }

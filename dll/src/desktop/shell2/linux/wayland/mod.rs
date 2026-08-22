@@ -1287,6 +1287,24 @@ impl PlatformWindow for WaylandWindow {
         }
     }
 
+    fn request_regeneration_all_windows(&mut self) {
+        for wid in super::registry::get_all_window_ids() {
+            if wid == self.surface as u64 {
+                continue;
+            }
+            if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
+                if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
+                    w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    w.request_redraw();
+                }
+            }
+        }
+        // The nested xdg_popup is not a registered window; repaint it too.
+        if let Some(p) = self.active_popup.as_mut() {
+            p.request_repaint();
+        }
+    }
+
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }

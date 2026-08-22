@@ -3438,6 +3438,18 @@ impl event::PlatformWindow for MacOSWindow {
         }
     }
 
+    fn request_regeneration_all_windows(&mut self) {
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            w.request_redraw();
+        }
+    }
+
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
         self.pending_window_creates.push(options);
     }
@@ -5818,6 +5830,13 @@ impl MacOSWindow {
             | ProcessEventResult::ShouldRegenerateDomAllWindows
             | ProcessEventResult::ShouldIncrementalRelayout
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                // RefreshDomAllWindows: ALSO every other registered window
+                // (X11/Windows/Wayland already did this; macOS refreshed only
+                // itself, so a popup's callback mutating shared app data never
+                // reached its parent until the parent got its own input).
+                if event_result == ProcessEventResult::ShouldRegenerateDomAllWindows {
+                    PlatformWindow::request_regeneration_all_windows(self);
+                }
                 self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }

@@ -320,6 +320,9 @@ pub enum LifecycleReason {
     Update,
     /// Node was removed from DOM
     Unmount,
+    /// A `<transient-window>` was closed by the USER (outside click, Escape),
+    /// not by the app flipping `open`.
+    Dismiss,
 }
 
 /// Keyboard modifier keys state.
@@ -650,6 +653,10 @@ pub enum EventType {
     Update,
     /// Component layout bounds changed
     Resize,
+    /// A `<transient-window>` was dismissed by the user (outside click or
+    /// Escape). Fired on the transient node so the app can drop its `open`
+    /// flag; the surface is already gone by the time this runs.
+    Dismiss,
 
     // Window Events
     /// Window resized
@@ -1284,6 +1291,7 @@ const fn matches_component_filter(
             | (ComponentEventFilter::BeforeUnmount, EventType::Unmount)
             | (ComponentEventFilter::Updated, EventType::Update)
             | (ComponentEventFilter::NodeResized, EventType::Resize)
+            | (ComponentEventFilter::Dismissed, EventType::Dismiss)
     )
 }
 
@@ -2454,6 +2462,10 @@ pub enum ComponentEventFilter {
     Selected,
     /// Fired when a keyed component's content has changed (props/state update).
     Updated,
+    /// Fired on a `<transient-window>` the user dismissed (outside click or
+    /// Escape). The popup is closed by the engine regardless; this is where
+    /// the app clears its own `open` state so the next layout agrees.
+    Dismissed,
 }
 
 /// Defines application-level events not tied to a specific window or node.
@@ -2794,6 +2806,7 @@ pub trait EventProvider {
         E::Unmount => vec![EF::Component(ComponentEventFilter::BeforeUnmount)],
         E::Update => vec![EF::Component(ComponentEventFilter::Updated)],
         E::Resize => vec![EF::Component(ComponentEventFilter::NodeResized)],
+        E::Dismiss => vec![EF::Component(ComponentEventFilter::Dismissed)],
 
         // Hardware input-device events (P6) — node-level Hover mirror + the
         // window-level filter (the device isn't bound to a node).
@@ -5789,6 +5802,7 @@ mod autotest_generated {
             (ComponentEventFilter::BeforeUnmount, EventType::Unmount),
             (ComponentEventFilter::Updated, EventType::Update),
             (ComponentEventFilter::NodeResized, EventType::Resize),
+            (ComponentEventFilter::Dismissed, EventType::Dismiss),
         ];
         for (filter, ty) in pairs {
             let ev = lifecycle(ty);
@@ -5883,6 +5897,7 @@ mod autotest_generated {
             (EventType::Unmount, EventData::None),
             (EventType::Update, EventData::None),
             (EventType::Resize, EventData::None),
+            (EventType::Dismiss, EventData::None),
             (EventType::WindowResize, EventData::None),
             (EventType::WindowMove, EventData::None),
             (EventType::WindowClose, EventData::None),

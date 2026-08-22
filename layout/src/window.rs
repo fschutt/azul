@@ -1154,8 +1154,9 @@ pub struct LayoutWindow {
     /// and under which `DomId` each one's content is laid out. See
     /// `crate::transient`.
     pub transient_windows: crate::transient::TransientWindowManager,
-    /// What the last layout pass did to the set of open popups — the backend
-    /// drains this after `regenerate_layout` to create/move/destroy surfaces.
+    /// What layout has done to the set of open popups since the backend last
+    /// looked — accumulated across passes (see `TransientDiff::merge`), taken
+    /// with [`Self::take_transient_diff`] to create/move/destroy surfaces.
     pub pending_transient_diff: crate::transient::TransientDiff,
     /// GPU state manager for all nodes across all DOMs
     pub gpu_state_manager: GpuStateManager,
@@ -3440,6 +3441,46 @@ impl LayoutWindow {
     ///
     /// Returns `None` if the node is not an open transient window or its
     /// content could not be laid out — the manager then does not open it.
+    /// Hand the accumulated popup diff to the backend, leaving it empty.
+    pub fn take_transient_diff(&mut self) -> crate::transient::TransientDiff {
+        core::mem::take(&mut self.pending_transient_diff)
+    }
+
+    /// The user dismissed the popup hanging off `source_node` (outside click,
+    /// Escape). Closes it in the manager — edge-triggered, so the node's
+    /// still-`open` attribute does not reopen it — drops its layout result,
+    /// records the close for the backend, and queues
+    /// `ComponentEventFilter::Dismissed` on the node so the app can clear its
+    /// own `open` flag on the next lifecycle drain. Returns the closed window.
+    pub fn dismiss_transient_window(
+        &mut self,
+        source_node: NodeId,
+    ) -> Option<crate::transient::OpenTransientWindow> {
+        let closed = self.transient_windows.dismiss(source_node)?;
+        self.layout_results.remove(&closed.content_dom);
+        self.pending_transient_diff.merge(crate::transient::TransientDiff {
+            closed: vec![closed.content_dom],
+            ..Default::default()
+        });
+        let now = {
+            #[cfg(feature = "std")]
+            {
+                Instant::now()
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
+            }
+        };
+        self.pending_lifecycle_events.push(azul_core::diff::create_dismiss_event(
+            source_node,
+            DomId::ROOT_ID,
+            &now,
+            closed.placement.anchor_rect,
+        ));
+        Some(closed)
+    }
+
     pub fn layout_transient_content(
         &mut self,
         source_node: NodeId,

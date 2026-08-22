@@ -19,6 +19,7 @@ use azul_core::{
     dom::{DomId, NodeType},
     geom::{LogicalRect, LogicalSize, OptionLogicalSize},
     id::NodeId,
+    refany::OptionRefAny,
     styled_dom::StyledDom,
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
 };
@@ -234,7 +235,7 @@ mod tests {
 /// or nothing at all headless); this owns everything the surface displays.
 /// The split is deliberate — it is what lets one dismiss implementation and
 /// one layout path serve every platform.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OpenTransientWindow {
     /// The `<transient-window>` node in the parent DOM that this window IS.
     /// Identity: if the parent rebuilds and the same node is still open, the
@@ -248,6 +249,11 @@ pub struct OpenTransientWindow {
     /// The size the content came out at after its own layout, or the
     /// requested size if one was given. What the backend sizes the surface to.
     pub content_size: LogicalSize,
+    /// The backend's handle on the surface — whatever it chooses to keep
+    /// (the shell keeps the popup window's shared mailbox here). `None` until
+    /// the backend has acted on `opened`, and always `None` headless. Opaque
+    /// to this crate on purpose: the engine does not know what a surface is.
+    pub surface: OptionRefAny,
 }
 
 /// Tracks the open transient windows across parent layouts.
@@ -265,11 +271,25 @@ pub struct TransientWindowManager {
     /// Monotonic: a content `DomId` is never reused within a window's lifetime,
     /// so a stale reference to a closed popup cannot alias a new one.
     next_index: usize,
+    /// Source nodes the USER dismissed (outside click, Escape) whose node may
+    /// still say `open=true` — the app has not caught up yet, or does not
+    /// care. Edge-triggered: such a node stays closed until its `open` goes
+    /// false and true again. Without this a dismissed popup would reopen on
+    /// the very next parent layout, which is the bug that makes "click
+    /// outside to close" feel broken.
+    dismissed: Vec<NodeId>,
+    /// Surface handles of windows this manager closed on its own (the app
+    /// set `open=false`, or the node unmounted), waiting for the backend to
+    /// collect them with [`Self::take_closed_surfaces`] and tear the surfaces
+    /// down. A dismissal hands its window straight back to the caller instead.
+    closed_surfaces: Vec<OptionRefAny>,
 }
 
 /// What changed between two parent layouts, so the backend knows which
 /// surfaces to create, move, or destroy. Returned by
-/// [`TransientWindowManager::reconcile`].
+/// [`TransientWindowManager::reconcile`] and accumulated on the window until
+/// the backend takes it — a layout call may run several passes (lifecycle
+/// callbacks re-layout) before the backend looks.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct TransientDiff {
     /// Content dom ids whose window must be CREATED.
@@ -280,10 +300,53 @@ pub struct TransientDiff {
     pub closed: Vec<DomId>,
 }
 
+impl TransientDiff {
+    /// Nothing to do.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.opened.is_empty() && self.moved.is_empty() && self.closed.is_empty()
+    }
+
+    /// Fold a later pass's diff into this one.
+    ///
+    /// A window opened and then closed before the backend ever saw it cancels
+    /// out entirely — creating a surface only to destroy it would flash. A
+    /// move on a window that is about to be created or destroyed is noise.
+    pub fn merge(&mut self, later: Self) {
+        for dom in later.closed {
+            if let Some(i) = self.opened.iter().position(|d| *d == dom) {
+                self.opened.remove(i); // never existed as far as the backend knows
+                self.moved.retain(|d| *d != dom);
+                continue;
+            }
+            self.moved.retain(|d| *d != dom);
+            if !self.closed.contains(&dom) {
+                self.closed.push(dom);
+            }
+        }
+        for dom in later.opened {
+            // Content ids are never reused, so an id in `closed` cannot reopen.
+            if !self.opened.contains(&dom) {
+                self.opened.push(dom);
+            }
+        }
+        for dom in later.moved {
+            if !self.opened.contains(&dom) && !self.moved.contains(&dom) {
+                self.moved.push(dom);
+            }
+        }
+    }
+}
+
 impl TransientWindowManager {
     #[must_use]
     pub const fn new() -> Self {
-        Self { open: Vec::new(), next_index: 0 }
+        Self {
+            open: Vec::new(),
+            next_index: 0,
+            dismissed: Vec::new(),
+            closed_surfaces: Vec::new(),
+        }
     }
 
     /// Every currently open window.
@@ -296,6 +359,38 @@ impl TransientWindowManager {
     #[must_use]
     pub fn get(&self, dom: DomId) -> Option<&OpenTransientWindow> {
         self.open.iter().find(|w| w.content_dom == dom)
+    }
+
+    /// Mutable access, for the backend to attach its surface handle.
+    #[must_use]
+    pub fn get_mut(&mut self, dom: DomId) -> Option<&mut OpenTransientWindow> {
+        self.open.iter_mut().find(|w| w.content_dom == dom)
+    }
+
+    /// The USER closed the popup hanging off `source_node` (outside click,
+    /// Escape). Closes it now and remembers the node as dismissed, so the
+    /// node's still-`open` attribute does not reopen it on the next pass —
+    /// only an `open` that goes false and true again can. Returns the window
+    /// that was closed, so the caller can drop its surface and its layout
+    /// result and tell the app.
+    pub fn dismiss(&mut self, source_node: NodeId) -> Option<OpenTransientWindow> {
+        if !self.dismissed.contains(&source_node) {
+            self.dismissed.push(source_node);
+        }
+        let i = self.open.iter().position(|w| w.source_node == source_node)?;
+        Some(self.open.remove(i))
+    }
+
+    /// Source nodes currently held closed by a user dismissal.
+    #[must_use]
+    pub fn dismissed_nodes(&self) -> &[NodeId] {
+        &self.dismissed
+    }
+
+    /// Surfaces of windows closed since the backend last asked. Each comes
+    /// out exactly once.
+    pub fn take_closed_surfaces(&mut self) -> Vec<OptionRefAny> {
+        core::mem::take(&mut self.closed_surfaces)
     }
 
     /// Is `dom` one of ours? Lets a dispatcher route a click on a popup surface
@@ -324,16 +419,25 @@ impl TransientWindowManager {
     ) -> TransientDiff {
         let mut diff = TransientDiff::default();
 
+        // 0. A dismissed node is re-armed the moment the app stops asking for
+        //    it (`open=false`); while it still asks, the dismissal wins.
+        self.dismissed.retain(|n| wanted.iter().any(|p| p.node == *n));
+        let wanted: Vec<TransientPlacement> =
+            wanted.iter().filter(|p| !self.dismissed.contains(&p.node)).copied().collect();
+
         // 1. Close anything no longer wanted.
         let still_wanted = |w: &OpenTransientWindow| wanted.iter().any(|p| p.node == w.source_node);
         let (keep, close): (Vec<_>, Vec<_>) = core::mem::take(&mut self.open)
             .into_iter()
             .partition(still_wanted);
-        diff.closed.extend(close.iter().map(|w| w.content_dom));
+        for w in close {
+            diff.closed.push(w.content_dom);
+            self.closed_surfaces.push(w.surface);
+        }
         self.open = keep;
 
         // 2. Update or open each wanted window.
-        for p in wanted {
+        for p in &wanted {
             if let Some(existing) = self.open.iter_mut().find(|w| w.source_node == p.node) {
                 let moved = existing.placement != *p;
                 existing.placement = *p;
@@ -358,6 +462,7 @@ impl TransientWindowManager {
                 content_dom,
                 placement: *p,
                 content_size,
+                surface: OptionRefAny::None,
             });
             diff.opened.push(content_dom);
         }
@@ -367,7 +472,13 @@ impl TransientWindowManager {
 
     /// Close everything — the parent window is going away.
     pub fn close_all(&mut self) -> Vec<DomId> {
-        core::mem::take(&mut self.open).into_iter().map(|w| w.content_dom).collect()
+        core::mem::take(&mut self.open)
+            .into_iter()
+            .map(|w| {
+                self.closed_surfaces.push(w.surface);
+                w.content_dom
+            })
+            .collect()
     }
 }
 
@@ -384,14 +495,20 @@ impl crate::managers::NodeIdRemap for TransientWindowManager {
         if dom != DomId::ROOT_ID {
             return; // transient windows hang off the parent (root) dom only
         }
-        self.open.retain_mut(|w| match map.resolve(w.source_node) {
-            Some(new_id) => {
+        let mut unmounted = Vec::new();
+        self.open.retain_mut(|w| {
+            if let Some(new_id) = map.resolve(w.source_node) {
                 w.source_node = new_id;
                 w.placement.node = new_id;
                 true
+            } else {
+                unmounted.push(core::mem::replace(&mut w.surface, OptionRefAny::None));
+                false
             }
-            None => false,
         });
+        self.closed_surfaces.extend(unmounted);
+        // A dismissal follows its node too; an unmounted node's is moot.
+        self.dismissed = self.dismissed.iter().filter_map(|n| map.resolve(*n)).collect();
     }
 }
 
