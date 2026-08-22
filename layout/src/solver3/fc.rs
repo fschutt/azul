@@ -2989,11 +2989,17 @@ fn layout_bfc<T: ParsedFontTrait>(
             );
         }
     } else {
-        // No children: just use parent's margins
-        if !top_margin_resolved {
-            main_pen += parent_margin_top;
-        }
-        main_pen += parent_margin_bottom;
+        // No in-flow children: the content box is EMPTY, so the pen stays
+        // where it is. This node's own margins live in the PARENT's
+        // coordinate space (exactly as the branches above say) and never
+        // count towards its content height. They used to be added here, so
+        // every childless block reported a content height equal to its
+        // margin sum (`<div style="margin: 20px 0 30px">` came out 50px
+        // tall) — and, because `is_empty_block` reads `used_size`, the
+        // parent then refused to collapse that "non-empty" block's margins
+        // through (CSS 2.2 §8.3.1): a(mb 10) / empty(mt 20, mb 30) / b(mt 5)
+        // stacked 50 + 10 + 20 + 50 + 30 instead of 50 + max(10, 20, 30, 5).
+        // Floats inside a BFC root still grow it below (§10.6.7).
     }
 
     // CRITICAL: If this is a root node (no parent), apply escaped margins directly
