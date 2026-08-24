@@ -504,7 +504,7 @@ jobs:
           path: |
             target/release/azul-doc
             target/release/azul-doc.exe
-          key: azul-doc-bin-v1-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml') }}
+          key: azul-doc-bin-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'layout/src/**/*.rs', 'layout/Cargo.toml', 'core/src/**/*.rs', 'core/Cargo.toml', 'css/src/**/*.rs', 'css/Cargo.toml') }}
 
       - name: Build azul-doc (release)
         if: steps.doc-bin-cache.outputs.cache-hit != 'true'
@@ -612,7 +612,7 @@ jobs:
           path: |
             target/release/azul-doc
             target/release/azul-doc.exe
-          key: azul-doc-bin-v1-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml') }}
+          key: azul-doc-bin-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'layout/src/**/*.rs', 'layout/Cargo.toml', 'core/src/**/*.rs', 'core/Cargo.toml', 'css/src/**/*.rs', 'css/Cargo.toml') }}
 
       - name: Build azul-doc (release)
         if: steps.doc-bin-cache.outputs.cache-hit != 'true'
@@ -679,7 +679,7 @@ jobs:
           path: |
             target/release/azul-doc
             target/release/azul-doc.exe
-          key: azul-doc-bin-v1-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml') }}
+          key: azul-doc-bin-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'layout/src/**/*.rs', 'layout/Cargo.toml', 'core/src/**/*.rs', 'core/Cargo.toml', 'css/src/**/*.rs', 'css/Cargo.toml') }}
 
       - name: Build azul-doc (release)
         if: steps.doc-bin-cache.outputs.cache-hit != 'true'
