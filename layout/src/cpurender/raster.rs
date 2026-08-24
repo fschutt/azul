@@ -1321,6 +1321,7 @@ fn damage_logging_enabled() -> bool {
 }
 
 #[allow(clippy::many_single_char_names)] // r,g,b,a colour channels + loop indices
+#[allow(clippy::tuple_array_conversions)] // explicit [r,g,b,a]->(r,g,b,a) is correct; .into() was not
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1462,7 +1463,11 @@ pub fn render_display_list_damaged(
         let (cr, cg, cb, ca) = if std::env::var_os("AZ_DEBUG_FILL").is_some() {
             damage_clear_color()
         } else {
-            render_state.clear_color.into()
+            // Explicit destructure, NOT `.into()`: the array→tuple conversion
+            // resolved to the wrong thing and painted damage rects with a bad
+            // clear colour, hiding content on every repaint.
+            let [r, g, b, a] = render_state.clear_color;
+            (r, g, b, a)
         };
         pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
 
