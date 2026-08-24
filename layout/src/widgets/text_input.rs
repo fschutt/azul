@@ -167,8 +167,17 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
             inner: COLOR_9B9B9B,
         },
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    // A single-line field CLIPS vertically but SCROLLS horizontally WITHOUT a
+    // scrollbar, so the caret stays visible once the text runs past the right
+    // edge. `overflow-x: hidden` clipped the caret (the "append-only" feel the
+    // user hit); `auto` makes the container a scroll box the caret-reveal
+    // (`scroll_selection_into_view`) can shift, and `scrollbar-width: none` keeps
+    // a one-line input from sprouting a horizontal bar under it.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
+        LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
