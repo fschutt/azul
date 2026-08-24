@@ -513,6 +513,13 @@ pub fn sync_parent(
                 } else {
                     popup_create_options(parent_window_id, parent_state, &w, content, cursor)
                 };
+                // If this torn window is the panel of a live inline tear, it is
+                // born FOLLOWING — mouse-transparent from its first frame — so
+                // the drag the parent already owns is not interrupted the
+                // instant the proxy materialises under the cursor.
+                if lw.inline_tear.map(|t| t.node) == Some(w.source_node) {
+                    write(&mailbox, |d| d.following = true);
+                }
                 if let Some(slot) = lw.transient_windows.get_mut(w.content_dom) {
                     slot.surface = OptionRefAny::Some(mailbox);
                 }
@@ -668,6 +675,19 @@ pub fn inline_tear_mailbox(lw: &LayoutWindow, node: NodeId) -> Option<RefAny> {
             OptionRefAny::Some(m) => Some(m.clone()),
             OptionRefAny::None => None,
         })
+}
+
+/// Is this window a live drag proxy the parent is driving? A following proxy
+/// must be MOUSE-TRANSPARENT: the gesture belongs to the parent (mouse-down
+/// landed there), and the proxy pops up UNDER the cursor — if it ate mouse
+/// events the drag would break the instant the proxy appeared, and the drop
+/// would never reach the parent's zone hit-test. So events fall through it to
+/// the parent, exactly as a drag ghost does. Interactive again once dropped.
+#[must_use]
+pub fn proxy_is_following(state: &FullWindowState) -> bool {
+    mailbox_of(state)
+        .and_then(|m| read(&m, |d| d.following))
+        .unwrap_or(false)
 }
 
 /// Parent → proxy: slide a live inline-tear proxy to `origin` (parent logical

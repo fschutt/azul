@@ -3653,6 +3653,13 @@ impl event::PlatformWindow for MacOSWindow {
         self.pending_window_creates.push(options);
     }
 
+    fn set_window_mouse_transparent(&mut self, transparent: bool) {
+        // A following drag proxy lets clicks through to the parent that owns
+        // the gesture; a borderless window already answers NO to
+        // canBecomeKeyWindow, so it never steals focus either.
+        self.window.setIgnoresMouseEvents(transparent);
+    }
+
     // REQUIRED: Menu Display
 
     fn show_menu_from_callback(

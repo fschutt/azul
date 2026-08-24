@@ -3327,6 +3327,12 @@ pub trait PlatformWindow {
     /// parent after dismissing itself. Headless has nobody to wake.
     fn request_regeneration_all_windows(&mut self) {}
 
+    /// Make this window pass mouse events straight through to whatever is
+    /// behind it (macOS `setIgnoresMouseEvents:`). Used for a live drag proxy
+    /// — a torn panel following the parent's cursor — so the parent keeps the
+    /// gesture. Default: no-op (headless, or a backend without click-through).
+    fn set_window_mouse_transparent(&mut self, _transparent: bool) {}
+
     /// `<transient-window>`, parent side: after a layout pass, turn the
     /// engine's popup diff into child windows / mailbox writes, and act on
     /// popups that dismissed themselves. See `common::transient`.
@@ -3408,7 +3414,12 @@ pub trait PlatformWindow {
     /// and resize to the placement the parent last wrote (the anchor moved,
     /// the content re-measured) - a torn-off toplevel only resizes.
     fn poll_transient_mailbox(&mut self) {
-        use super::transient::{poll_popup, relative_position, PopupAction};
+        use super::transient::{poll_popup, proxy_is_following, relative_position, PopupAction};
+        // A drag proxy (a torn panel the parent is dragging) must let the mouse
+        // through to the parent that owns the gesture; a settled window takes
+        // its own clicks again.
+        let following = proxy_is_following(self.get_current_window_state());
+        self.set_window_mouse_transparent(following);
         match poll_popup(self.get_current_window_state()) {
             PopupAction::Close => {
                 let _ = self.request_window_close("transient.closed_by_parent");
