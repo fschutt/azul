@@ -1242,9 +1242,23 @@ impl MacOSWindow {
         let binding = layout_result.styled_dom.node_data.as_container();
         let node_data = binding.get(node_id)?;
 
-        // Context menus are stored directly on NodeData, not as callbacks
-        // Clone the menu to avoid borrow conflicts
-        let context_menu = node_data.get_context_menu()?.clone();
+        // Context menus are stored directly on NodeData. A right-click on a
+        // CHILD of the node that carries the menu opens it too (every OS does
+        // this) - walk up from the hit node to the first ancestor with one,
+        // the same walk the keyboard-accelerator lookup already does.
+        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node_id);
+        let mut context_menu = None;
+        for _ in 0..256 {
+            let Some(n) = current else { break };
+            if let Some(menu) = binding.get(n).and_then(azul_core::dom::NodeData::get_context_menu) {
+                context_menu = Some(menu.clone());
+                break;
+            }
+            current = hierarchy.get(n).and_then(|h| h.parent_id());
+        }
+        let context_menu = context_menu?;
+        let _ = node_data;
 
         log_debug!(
             LogCategory::Input,

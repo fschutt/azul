@@ -30,6 +30,7 @@ use azul::dom::{
     TextAreaOnFocusLostCallback, TimePickerOnChangeCallback, ToastOnDismissCallback,
 };
 
+use azul::menu::{Menu, MenuItem, StringMenuItem};
 use azul::misc::{TransientDock, TransientTearoff};
 use azul::window::TransientWindowConfig;
 
@@ -50,6 +51,16 @@ struct Showcase {
     interactions: usize,
     /// The colour picked in the `ColorInput`'s popup; the swatch shows it.
     color: ColorU,
+    /// The last menu-bar / context-menu item chosen (shown in the Menus section).
+    menu_status: azul::str::String,
+    /// Files the user has dropped onto the drop zone.
+    dropped: Vec<azul::str::String>,
+    /// Whether a file is being hovered over the drop zone right now.
+    file_hovering: bool,
+    /// VS-style document tabs (labels), reorderable + tear-off-able.
+    tabs: Vec<azul::str::String>,
+    /// Which tab is active.
+    active_tab: usize,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -151,6 +162,142 @@ fn dock_zones() -> Dom {
         .with_css("display: flex; flex-direction: row; gap: 12px;")
         .with_child(zone("dock-left", Some(panel)))
         .with_child(zone("dock-right", None))
+}
+
+// ─────────────────────────── Menus + context menu ──────────────────────────
+
+/// A menu item whose click records `label` into `menu_status`. The label is
+/// carried in a tiny per-item RefAny so one callback serves every item.
+fn menu_action(data: &RefAny, label: &'static str) -> StringMenuItem {
+    // Pack (Showcase, label) — the item's callback reads the label back.
+    let item_data = RefAny::new((data.clone(), label));
+    StringMenuItem::create(label).with_callback(item_data, on_menu_item)
+}
+
+extern "C" fn on_menu_item(mut data: RefAny, _: CallbackInfo) -> Update {
+    let (mut showcase, label) = match data.downcast_ref::<(RefAny, &'static str)>() {
+        Some(pair) => ((*pair).0.clone(), (*pair).1),
+        None => return Update::DoNothing,
+    };
+    if let Some(mut s) = showcase.downcast_mut::<Showcase>() {
+        s.menu_status = format!("Chose: {label}").into();
+        s.interactions += 1;
+        return Update::RefreshDom;
+    }
+    Update::DoNothing
+}
+
+/// The right-click context menu for the Menus box: a couple of actions, a
+/// separator, and a submenu — the same `Menu` a native menu bar uses.
+fn context_menu(data: &RefAny) -> Menu {
+    Menu::create(vec![
+        MenuItem::string(menu_action(data, "Cut")),
+        MenuItem::string(menu_action(data, "Copy")),
+        MenuItem::string(menu_action(data, "Paste")),
+        MenuItem::separator(),
+        MenuItem::string(
+            StringMenuItem::create("More")
+                .with_children(vec![
+                    MenuItem::string(menu_action(data, "Duplicate")),
+                    MenuItem::string(menu_action(data, "Delete")),
+                ]),
+        ),
+    ])
+}
+
+/// The window menu bar: File / Edit, wired to the same status line.
+fn menu_bar(data: &RefAny) -> Menu {
+    Menu::create(vec![
+        MenuItem::string(
+            StringMenuItem::create("File").with_children(vec![
+                MenuItem::string(menu_action(data, "New")),
+                MenuItem::string(menu_action(data, "Open")),
+                MenuItem::separator(),
+                MenuItem::string(menu_action(data, "Quit")),
+            ]),
+        ),
+        MenuItem::string(
+            StringMenuItem::create("Edit").with_children(vec![
+                MenuItem::string(menu_action(data, "Undo")),
+                MenuItem::string(menu_action(data, "Redo")),
+            ]),
+        ),
+    ])
+}
+
+/// The Menus section: a box that opens the context menu on right-click.
+fn menus_section(data: &RefAny, status: &str) -> Dom {
+    let box_ = Dom::create_div()
+        .with_css(
+            "display: flex; align-items: center; justify-content: center; height: 80px; \
+             border: 1px dashed #98a2b3; border-radius: 8px; background-color: #f9fafb; \
+             color: #475467; cursor: context-menu;",
+        )
+        .with_child(Dom::create_span_with_text("Right-click me for a context menu"))
+        .with_context_menu(context_menu(data));
+    section(
+        "Menus",
+        vec![
+            labelled("Context menu", box_),
+            labelled("Status", Dom::create_span_with_text(status).with_css("color: #1d2939;")),
+        ],
+    )
+}
+
+// ─────────────────────────────── File drop ─────────────────────────────────
+
+extern "C" fn on_file_hover(mut data: RefAny, info: CallbackInfo) -> Update {
+    let hovering = info.is_file_drag_active();
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        if s.file_hovering != hovering {
+            s.file_hovering = hovering;
+            return Update::RefreshDom;
+        }
+    }
+    Update::DoNothing
+}
+
+extern "C" fn on_file_drop(mut data: RefAny, info: CallbackInfo) -> Update {
+    let files = info.get_dropped_files();
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.file_hovering = false;
+        for f in files.as_ref() {
+            s.dropped.push(f.clone());
+        }
+        s.interactions += 1;
+        return Update::RefreshDom;
+    }
+    Update::DoNothing
+}
+
+/// The Files section: a drop zone that lists the files dropped onto it.
+fn files_section(data: &RefAny, dropped: &[azul::str::String], hovering: bool) -> Dom {
+    let bg = if hovering { "#eef4ff" } else { "#f9fafb" };
+    let border = if hovering { "#2970ff" } else { "#98a2b3" };
+    let mut zone = Dom::create_div()
+        .with_css(format!(
+            "display: flex; flex-direction: column; align-items: center; justify-content: center; \
+             min-height: 90px; border: 2px dashed {border}; border-radius: 8px; background-color: {bg}; \
+             color: #475467; padding: 12px;",
+        ))
+        .with_child(Dom::create_span_with_text(if hovering {
+            "Release to drop"
+        } else {
+            "Drag files here from your file manager"
+        }));
+    zone.add_callback(EventFilter::Window(WindowEventFilter::HoveredFile), data.clone(), on_file_hover);
+    zone.add_callback(EventFilter::Window(WindowEventFilter::HoveredFileCancelled), data.clone(), on_file_hover);
+    zone.add_callback(EventFilter::Window(WindowEventFilter::DroppedFile), data.clone(), on_file_drop);
+
+    let mut list = Dom::create_div().with_css("display: flex; flex-direction: column; gap: 2px; margin-top: 8px;");
+    if dropped.is_empty() {
+        list = list.with_child(Dom::create_span_with_text("(nothing dropped yet)").with_css("color: #98a2b3; font-size: 12px;"));
+    } else {
+        for f in dropped {
+            list = list.with_child(Dom::create_span_with_text(f.as_str()).with_css("font-size: 12px; color: #1d2939; font-family: monospace;"));
+        }
+    }
+    section("Files", vec![labelled("Drop zone", zone), labelled("Dropped files", list)])
 }
 
 // ──────────────────────────── Layout callback ──────────────────────────────
@@ -382,6 +529,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         vec![labelled("Dockable panel (drag the grip out; drop it on the other zone)", dock_zones())],
     );
 
+    // ── Menus + Files ───────────────────────────────────────────────────
+    let menus = menus_section(&data, s.menu_status.as_str());
+    let files = files_section(&data, &s.dropped, s.file_hovering);
+
     // ── Navigation ──────────────────────────────────────────────────────
     let navigation = section(
         "Navigation",
@@ -509,6 +660,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
 
     // ── Scrollable column ───────────────────────────────────────────────
     Dom::create_body()
+        .with_menu_bar(menu_bar(&data))
         .with_css("font-family: sans-serif; background-color: #f2f4f7;")
         .with_child(
             Dom::create_div()
@@ -522,6 +674,8 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_child(selection)
                 .with_child(display)
                 .with_child(feedback)
+                .with_child(menus)
+                .with_child(files)
                 .with_child(docking)
                 .with_child(navigation)
                 .with_child(overlays)
@@ -681,6 +835,11 @@ pub fn start() {
         current_step: 1,
         interactions: 0,
         color: ColorU { r: 255, g: 87, b: 51, a: 255 },
+        menu_status: "No menu item chosen yet.".into(),
+        dropped: Vec::new(),
+        file_hovering: false,
+        tabs: vec!["main.rs".into(), "lib.rs".into(), "Cargo.toml".into(), "README.md".into()],
+        active_tab: 0,
     });
     let config = AppConfig::create();
     let app = App::create(data, config);

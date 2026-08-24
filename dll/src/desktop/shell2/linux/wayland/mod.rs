@@ -4422,16 +4422,19 @@ impl WaylandWindow {
         };
 
         let binding = layout_result.styled_dom.node_data.as_container();
-        let node_data = match binding.get(node_id) {
-            Some(nd) => nd,
-            None => return false,
-        };
-
-        // Context menus are stored directly on NodeData
-        // Clone to avoid borrow conflict (same pattern as macOS/X11)
-        let context_menu = match node_data.get_context_menu() {
-            Some(menu) => menu.clone(),
-            None => return false,
+        // A right-click on a CHILD of the node carrying the menu opens it too:
+        // walk up to the first ancestor with a context menu (as X11/macOS do).
+        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let mut cur = Some(node_id);
+        let context_menu = loop {
+            let nid = match cur {
+                Some(n) => n,
+                None => return false,
+            };
+            if let Some(menu) = binding.get(nid).and_then(|nd| nd.get_context_menu()) {
+                break menu.clone();
+            }
+            cur = hierarchy.get(nid).and_then(|h| h.parent_id());
         };
 
         log_debug!(
