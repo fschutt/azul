@@ -106,16 +106,44 @@ pub fn render_icon_to_rgba(
             StyleFontSize::px(size)
         ))),
     ];
+    // Seed the icon's own font into the cascade, BEFORE the StyledDom is built.
+    //
+    // This is the difference between a visible icon and a `.notdef` tofu box.
+    // `resolve_icons_in_styled_dom` writes the resolved font family into the
+    // node's INLINE style (`apply_cached_resolution` -> `node.set_style`) and
+    // its `styled_nodes` entry, but it does NOT touch the CSS property cache -
+    // which was cascaded when the StyledDom was built and still describes the
+    // original `<icon>` node. `collect_font_stacks_from_styled_dom` reads that
+    // cache, so the resolver's `StyleFontFamily::Ref(font)` is invisible to it:
+    // measured, zero FontRefs are collected, nothing is registered as an
+    // embedded font, and the shaper falls back to a system face with no glyph
+    // at the icon's private-use codepoint.
+    //
+    // Putting the family in before the cascade makes it visible to collection,
+    // registration and shaping alike. Resolution still supplies the GLYPH.
+    if let Some(font) = font_of_spec(spec, provider) {
+        props.push(CssPropertyWithConditions::simple(CssProperty::FontFamily(
+            CssPropertyValue::Exact(azul_css::props::basic::StyleFontFamilyVec::from_vec(
+                alloc::vec![azul_css::props::basic::StyleFontFamily::Ref(font)],
+            )),
+        )));
+    }
+
     if let Some(c) = tint {
         props.push(CssPropertyWithConditions::simple(CssProperty::TextColor(
             CssPropertyValue::Exact(StyleTextColor { inner: c }),
         )));
     }
 
-    let mut dom = Dom::create_icon(String::from(spec))
+    let dom = Dom::create_icon(String::from(spec))
         .with_css_props(CssPropertyWithConditionsVec::from_vec(props));
 
-    let mut styled = StyledDom::create(&mut dom, Css::empty());
+    // `create_from_dom`, NOT `create(&mut dom, Css::empty())`: the former also
+    // runs `fixup_children_estimated` + `scope_inline_css` and collects the
+    // tree's inline CSS, which is what the engine's own layout path
+    // (`regenerate_layout`) uses. Building the StyledDom the other way produces
+    // a subtly different property cache and the icon does not resolve the same.
+    let mut styled = StyledDom::create_from_dom(dom);
     resolve_icons_in_styled_dom(&mut styled, provider, system_style);
 
     // The caller's FontManager, NOT a fresh one.
@@ -172,6 +200,28 @@ pub fn render_icon_to_rgba(
         height: result.pixel_height,
         rgba: result.rgba,
     })
+}
+
+/// The `FontRef` behind a font-backed icon spec, if it is one.
+///
+/// An image-backed icon (`ImageIconData`) has no font and returns `None`; it
+/// needs no seeding because it resolves to an image node, not to text.
+fn font_of_spec(
+    spec: &str,
+    provider: &SharedIconProvider,
+) -> Option<azul_css::props::basic::FontRef> {
+    for alt in spec.split(',') {
+        let alt = alt.trim();
+        if alt.is_empty() {
+            continue;
+        }
+        if let Some(mut data) = provider.lookup(alt) {
+            if let Some(f) = data.downcast_ref::<crate::icon::FontIconData>() {
+                return Some(f.font.clone());
+            }
+        }
+    }
+    None
 }
 
 /// Does any pack hold this spec? Mirrors the registry's own lookup, including
