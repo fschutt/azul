@@ -127,6 +127,47 @@ impl A11yManager {
         }
     }
 
+    /// Force the collected child lists to satisfy accesskit's `TreeUpdate`
+    /// invariants, so a malformed a11y tree can never abort the process (the
+    /// release build is `panic = "abort"`, so the shell's `catch_unwind` around
+    /// `update_if_active` cannot catch accesskit's consumer panic).
+    ///
+    /// Given `node_ids` (every node present in the update, in order), the
+    /// `root_id`, and the raw `root_children` + `parent_children_map`, this:
+    /// - drops any child that names no present node, is its own parent, or was
+    ///   ALREADY claimed by another parent (accesskit forbids a node having two
+    ///   parents — a GLOBAL duplicate, tree.rs:225), and clears the child list of
+    ///   a parent that is itself not present;
+    /// - re-hangs every exposed non-root node that no parent claimed off the root,
+    ///   so every node is reachable (accesskit tree.rs:307).
+    ///
+    /// Root's children win a tie (they are processed first). The result is a
+    /// forest rooted at `root_id` with each node reachable exactly once.
+    fn enforce_child_invariants(
+        node_ids: &[A11yNodeId],
+        root_id: A11yNodeId,
+        root_children: &mut Vec<A11yNodeId>,
+        parent_children_map: &mut HashMap<A11yNodeId, Vec<A11yNodeId>>,
+    ) {
+        let valid: std::collections::HashSet<A11yNodeId> = node_ids.iter().copied().collect();
+        let mut claimed: std::collections::HashSet<A11yNodeId> = std::collections::HashSet::new();
+        root_children.retain(|c| valid.contains(c) && *c != root_id && claimed.insert(*c));
+        for (parent, children) in parent_children_map.iter_mut() {
+            if !valid.contains(parent) {
+                children.clear();
+                continue;
+            }
+            let p = *parent;
+            children.retain(|c| valid.contains(c) && *c != p && claimed.insert(*c));
+        }
+        for id in node_ids {
+            if *id != root_id && !claimed.contains(id) {
+                claimed.insert(*id);
+                root_children.push(*id);
+            }
+        }
+    }
+
     /// Updates the accessibility tree based on the current layout state.
     ///
     /// This should be called after each layout pass to synchronize the
@@ -357,6 +398,26 @@ impl A11yManager {
             }
         }
 
+        // A11Y CONSISTENCY GUARD. accesskit's tree consumer PANICS on a
+        // malformed `TreeUpdate` — a focus/child naming no node (tree.rs:75), a
+        // node claimed as a child by two parents (:225, a GLOBAL "duplicate
+        // child"), or a node reachable from no parent at all (:307). Because the
+        // release build is `panic = "abort"`, the `catch_unwind` around
+        // `update_if_active` in the macOS shell CANNOT save it: the process
+        // aborts. This merges the MAIN window's DOM with EVERY transient-window
+        // child DOM into one tree, which is exactly where a dangling/duplicate/
+        // orphan reference slips in (a focused node from a DOM that just
+        // regenerated, a subtree whose accessible parent wasn't exposed). Enforce
+        // the invariants here so a bad tree degrades gracefully — the whole
+        // "a11y update aborts the app" bug class cannot recur.
+        let node_ids: Vec<A11yNodeId> = nodes.iter().map(|(id, _)| *id).collect();
+        Self::enforce_child_invariants(
+            &node_ids,
+            root_id,
+            &mut root_children,
+            &mut parent_children_map,
+        );
+
         // Third pass: Set children on all nodes (including root)
         for (node_id, node) in &mut nodes {
             if *node_id == root_id {
@@ -384,8 +445,12 @@ impl A11yManager {
                     .map_or(root_id, |(id, _)| *id)
             });
 
-        // Create the tree update
-        
+        // Focus MUST name a node in the update (accesskit tree.rs:75). The
+        // fallback above normally guarantees this, but a `focused_node` mapped
+        // from a DOM that regenerated between the focus write and this build can
+        // resolve to an id that was filtered out — degrade to the root instead of
+        // aborting.
+        let focus = if node_ids.contains(&focus) { focus } else { root_id };
 
         TreeUpdate {
             nodes,
@@ -2230,6 +2295,69 @@ mod autotest_generated {
             A11yNodeId(0),
             "with no content nodes, focus must fall back to the root"
         );
+    }
+
+    #[test]
+    fn enforce_child_invariants_makes_a_malformed_tree_accesskit_safe() {
+        use std::collections::{HashMap, HashSet};
+
+        // Regression for the SIGABRT in accesskit_consumer::tree::State::update
+        // (a mouse_up a11y flush): a malformed TreeUpdate ABORTS the process
+        // under panic=abort, so the shell's catch_unwind can't save it. This one
+        // input carries EVERY accesskit-fatal shape at once — a class-level guard
+        // has to neutralise all of them, no matter what the multi-DOM merge emits.
+        let root = A11yNodeId(0);
+        let node_ids = vec![
+            root,
+            A11yNodeId(1),
+            A11yNodeId(2),
+            A11yNodeId(3),
+            A11yNodeId(4),
+            A11yNodeId(5),
+        ];
+        //   99 = child that names no present node   -> must be dropped (else tree.rs:75/307-adjacent)
+        //   2  = claimed by root AND node 1          -> a node with two parents (tree.rs:225)
+        //   3  = claimed by node 1 AND node 2        -> two parents again
+        //   4  = its own child                       -> self-cycle
+        //   88 = parent that is not a present node   -> its child list must be cleared
+        //   5  = only child of missing parent 88     -> orphan; must be re-hung reachable (tree.rs:307)
+        let mut root_children = vec![A11yNodeId(1), A11yNodeId(2), A11yNodeId(99)];
+        let mut map: HashMap<A11yNodeId, Vec<A11yNodeId>> = HashMap::new();
+        map.insert(A11yNodeId(1), vec![A11yNodeId(2), A11yNodeId(3)]);
+        map.insert(A11yNodeId(2), vec![A11yNodeId(3)]);
+        map.insert(A11yNodeId(4), vec![A11yNodeId(4)]);
+        map.insert(A11yNodeId(88), vec![A11yNodeId(5)]);
+
+        A11yManager::enforce_child_invariants(&node_ids, root, &mut root_children, &mut map);
+
+        let valid: HashSet<A11yNodeId> = node_ids.iter().copied().collect();
+        let mut all_children: Vec<A11yNodeId> = root_children.clone();
+        for children in map.values() {
+            all_children.extend(children.iter().copied());
+        }
+
+        // 1. No child names a node absent from the update.
+        for c in &all_children {
+            assert!(valid.contains(c), "dangling child {c:?} survived the guard");
+        }
+        // 2. No node is a child of two parents (accesskit's GLOBAL duplicate).
+        let mut seen = HashSet::new();
+        for c in &all_children {
+            assert!(seen.insert(*c), "node {c:?} still has two parents");
+        }
+        // 3. No node is its own child.
+        assert!(
+            !map.get(&A11yNodeId(4)).is_some_and(|ch| ch.contains(&A11yNodeId(4))),
+            "self-parent survived the guard"
+        );
+        // 4. Every present non-root node is reachable exactly once (no orphan).
+        let reachable: HashSet<A11yNodeId> = all_children.iter().copied().collect();
+        for id in &node_ids {
+            if *id == root {
+                continue;
+            }
+            assert!(reachable.contains(id), "node {id:?} is an orphan (unreachable from root)");
+        }
     }
 
     #[test]
