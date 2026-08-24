@@ -6645,6 +6645,12 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     ("keyring", "host capability with no headless backend"),
     ("sensors", "host capability with no headless backend"),
     (
+        "eyedropper",
+        "host capability (a native screen colour-sampler) with no headless backend — its \
+         issued/last_result/pending_event never populate in a headless run, so there is no \
+         latch to assert. The state it CAN hold is fingerprinted as `eyedropper`",
+    ),
+    (
         "a11y",
         "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, \
          not an impossibility: proving a tree node still maps to a live DOM node needs an \
@@ -7637,6 +7643,7 @@ fn fingerprinted_managers() -> Vec<&'static str> {
         "biometric",
         "keyring",
         "sensors",
+        "eyedropper",
     ];
     #[cfg(feature = "a11y")]
     names.push("a11y");
@@ -7757,6 +7764,7 @@ pub(crate) fn manager_fingerprints(
     out.insert("biometric".to_string(), fp_biometric(&lw.biometric_manager));
     out.insert("keyring".to_string(), fp_keyring(&lw.keyring_manager));
     out.insert("sensors".to_string(), fp_sensors(&lw.sensor_manager));
+    out.insert("eyedropper".to_string(), fp_eyedropper(&lw.eyedropper_manager));
     #[cfg(feature = "a11y")]
     out.insert("a11y".to_string(), fp_a11y(&lw.a11y_manager));
     out
@@ -8179,6 +8187,18 @@ fn fp_sensors(m: &azul_layout::managers::sensors::SensorManager) -> ManagerFinge
         format!(
             "accel={:?} gyro={:?} mag={:?} pending={} listeners={}",
             m.accelerometer, m.gyroscope, m.magnetometer, m.pending_event, m.has_listeners
+        ),
+    )
+}
+
+fn fp_eyedropper(m: &azul_layout::managers::eyedropper::EyedropperManager) -> ManagerFingerprint {
+    ManagerFingerprint::new(
+        m.issued().len() + usize::from(m.last_result().is_some()),
+        format!(
+            "issued={:?} last_result={:?} pending_async={}",
+            m.issued(),
+            m.last_result(),
+            m.has_pending_async(),
         ),
     )
 }
