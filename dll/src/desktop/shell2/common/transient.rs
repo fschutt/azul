@@ -245,12 +245,14 @@ pub fn popup_create_options(
     (options, mailbox)
 }
 
-/// Build the TOPLEVEL for a torn-off transient window: a `Normal` window
-/// with a title bar (so the OS gives it a close button and its own moves),
-/// not always-on-top, never light-dismissed, at the engine's torn origin
-/// (parent coordinates -> screen, where the parent's screen position is
-/// known; the compositor places it where it is not). The same mailbox
-/// layout callback as a popup: it is still the one subtree.
+/// Build the window for a torn-off transient window. It is a `Menu`-type,
+/// borderless, `RelativeToParentWindow`-positioned popup — the SAME window a
+/// picker's popover uses — that merely happens to be `torn`. That is the one
+/// path every backend already renders correctly: per-pixel alpha (so rounded
+/// corners are real, not a black rectangle) and parent-relative positioning
+/// (so it lands under the cursor, not at some absolute-coordinate offset). A
+/// `Normal` toplevel got neither on macOS. The same mailbox layout callback
+/// as a popup: it is still the one subtree.
 #[must_use]
 pub fn toplevel_create_options(
     parent_window_id: u64,
@@ -280,36 +282,20 @@ pub fn toplevel_create_options(
         following: false,
     });
 
-    let mut window_state = FullWindowState::default();
-    window_state.flags.window_type = WindowType::Normal;
-    window_state.flags.is_visible = true;
-    window_state.flags.is_resizable = false;
-    // A torn-off panel is a bare, borderless surface that follows the cursor
-    // and re-docks — a VS-style drag proxy, not an application window. No
-    // titlebar, no traffic-light / close buttons (the popup path is already
-    // frameless; the torn toplevel must match).
-    window_state.flags.decorations = WindowDecorations::None;
-    // Carry the configured material, exactly as the popup path does: a
-    // `Transparent` panel keeps per-pixel alpha when torn off, so its rounded
-    // corners are real corners instead of white window corners (the same
-    // treatment the colour picker's popover gets — it was only applied to the
-    // popup form, not the torn one).
-    window_state.flags.background_material = open.placement.material;
-    window_state.title = title.into();
-    window_state.window_id = "azul-transient-torn".into();
-    window_state.size.dimensions = size;
+    // A torn-off panel is exactly the popover the picker uses, only `torn`:
+    // borderless, parent-owned, positioned RELATIVE to the parent (the model
+    // that survives Wayland and lands under the cursor), and — through the
+    // Menu window type — given per-pixel alpha by every backend, so a
+    // Transparent panel keeps its real rounded corners instead of a black
+    // rectangle. A `Normal` toplevel at an absolute position got neither.
+    let mut window_state = popup_window_state(title, "azul-transient-torn", size, origin);
     window_state.size.dpi = parent.size.dpi;
     window_state.theme = parent.theme;
-    #[allow(clippy::cast_possible_truncation)] // whole pixels
-    {
-        window_state.position = match parent.position {
-            WindowPosition::Initialized(pp) => WindowPosition::Initialized(PhysicalPosition::new(
-                pp.x + origin.x.round() as i32,
-                pp.y + origin.y.round() as i32,
-            )),
-            _ => WindowPosition::Uninitialized,
-        };
-    }
+    window_state.flags.background_material = open.placement.material;
+    // Unlike a menu/picker popup, a torn-off panel is a window the user parks
+    // and works next to — it must not sit permanently above every other
+    // window. (It stays borderless + parent-relative, just not pinned.)
+    window_state.flags.is_always_on_top = false;
     window_state.layout_callback = LayoutCallback {
         cb: transient_layout_callback,
         ctx: OptionRefAny::Some(mailbox.clone()),

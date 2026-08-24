@@ -751,8 +751,8 @@ fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> Transient
 }
 
 /// The colour picker's grip: dragging it off the swatch turns the popup into
-/// a `Normal` toplevel titled "Colour" at the drop point; dragging the
-/// toplevel's grip back over the swatch docks it — a popup again, fresh id
+/// a frameless (Menu-type) torn panel titled "Colour" at the drop point;
+/// dragging its grip back over the swatch docks it — a popup again, fresh id
 /// each way, the old window told to close each way.
 #[test]
 fn dragging_the_grip_tears_the_picker_off_and_dragging_it_back_docks_it() {
@@ -814,7 +814,9 @@ fn dragging_the_grip_tears_the_picker_off_and_dragging_it_back_docks_it() {
         assert!((torn.x - report.origin.x).abs() < 1.0 && (torn.y - report.origin.y).abs() < 1.0);
     }
     let top_opts = take_queued_popup(&mut parent);
-    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal, "a real toplevel");
+    // A torn-off panel is a frameless (Menu-type) drag proxy, not a decorated
+    // toplevel — borderless, parent-relative, alpha-capable — but not pinned.
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Menu, "a frameless torn panel");
     assert_eq!(top_opts.window_state.title.as_str(), "Colour");
     assert!(!top_opts.window_state.flags.is_always_on_top);
     let tm = mailbox(&top_opts.window_state);
@@ -1034,7 +1036,7 @@ fn a_drop_on_a_zone_re_anchors_and_the_torn_attribute_is_followed() {
     relayout(&mut parent);
     assert!(mailbox(&popup_opts.window_state).closed);
     let top_opts = take_queued_popup(&mut parent);
-    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal);
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Menu);
     assert_eq!(top_opts.window_state.title.as_str(), "Tools");
     assert_eq!(*events.lock().unwrap(), vec!["docked-on-zone", "torn-off"]);
 
@@ -1069,7 +1071,7 @@ fn set_transient_window_torn_tears_off_and_docks_with_events() {
     relayout(&mut parent);
     assert!(mailbox(&popup_opts.window_state).closed);
     let top_opts = take_queued_popup(&mut parent);
-    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal);
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Menu);
     let origin = mailbox(&top_opts.window_state).origin;
     assert_eq!(origin, mailbox(&popup_opts.window_state).origin, "torn off where the popup was");
     assert_eq!(*events.lock().unwrap(), vec!["torn-off"]);
@@ -1104,7 +1106,7 @@ fn closing_a_torn_off_toplevel_dismisses_the_node() {
     let (mut parent, _events) = make_zones_parent(true, true, TransientTearoff::Free);
     parent.regenerate_layout().expect("layout");
     let top_opts = take_queued_popup(&mut parent);
-    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal, "torn=\"true\" opens torn");
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Menu, "torn=\"true\" opens torn");
     let mut top = headless(top_opts.clone(), parent.common.app_data.clone());
     top.regenerate_layout().expect("layout");
 
@@ -1476,7 +1478,7 @@ fn an_inline_docked_panel_is_content_of_its_zone_and_moves_between_zones() {
     assert!(parent.get_layout_window().unwrap().inline_tear.is_none(), "the drag ended");
     parent.regenerate_layout().expect("re-layout after the drop");
     let top_opts = take_queued_popup(&mut parent);
-    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Normal, "torn off into a toplevel");
+    assert_eq!(top_opts.window_state.flags.window_type, WindowType::Menu, "torn off into a frameless panel");
     assert_eq!(top_opts.window_state.title.as_str(), "Tools");
     assert!(rect_of(&parent, "panel").is_none(), "torn off: no longer in the parent's flow");
     assert_eq!(*events.lock().unwrap(), vec!["torn-off"]);
