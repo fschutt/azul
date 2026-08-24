@@ -859,6 +859,70 @@ impl Runner {
             .get_current(&azul_layout::managers::hover::InputPointId::Mouse)
             .cloned();
 
+        // ── 2b. PRE-CALLBACK INPUT INTERPRETER ───────────────────────────
+        //
+        // Port of the DLL's `pre_filter` step (`event.rs`: build
+        // `InputInterpreterInfo`, call `layout_window.input_interpreter`, then
+        // apply the resulting pre-callback `SystemChange`s BEFORE user dispatch).
+        // THIS STAGE DID NOT EXIST: the runner derived the KeyDown event but
+        // never ran the interpreter, so the keyboard editing ops it produces —
+        // arrow-key caret movement and Backspace/Delete
+        // (`SystemChange::ApplySelectionOp`) — were silently dropped. Every
+        // keyboard-delete e2e test only passed because the `key_down` op used to
+        // shortcut Backspace/Delete straight to the C-API `delete_backward`; once
+        // that shortcut is removed to match native macOS, the real path has to
+        // run here. We apply `ApplySelectionOp` (arrows / Backspace / Delete) via
+        // the same `apply_selection_op` the DLL's arm calls; other pre-callback
+        // changes (clipboard shortcuts, select-all) still flow through the
+        // existing `CallbackChange` machinery.
+        {
+            use azul_core::events::{
+                InputInterpreterInfo, InputInterpreterState, SystemChange,
+            };
+            let pre_filter = {
+                let lw = &self.layout_window;
+                let info = InputInterpreterInfo {
+                    events: &synthetic_events,
+                    hit_test: hit_test_for_dispatch.as_ref(),
+                    keyboard_state: &self.window_state.keyboard_state,
+                    mouse_state: &self.window_state.mouse_state,
+                    state: InputInterpreterState {
+                        focused_node: lw.focus_manager.get_focused_node().copied(),
+                        click_count: 1,
+                        drag_start_position: if self.window_state.mouse_state.left_down
+                            && lw.text_edit_manager.has_active_editing()
+                        {
+                            self.window_state.mouse_state.cursor_position.get_position()
+                        } else {
+                            None
+                        },
+                        has_selection: lw
+                            .text_edit_manager
+                            .multi_cursor
+                            .as_ref()
+                            .map(|mc| {
+                                mc.selections.iter().any(|s| {
+                                    matches!(
+                                        &s.selection,
+                                        azul_core::selection::Selection::Range(_)
+                                    )
+                                })
+                            })
+                            .unwrap_or(false),
+                    },
+                };
+                azul_core::events::default_input_interpreter(&info)
+            };
+            for change in &pre_filter.system_changes {
+                if let SystemChange::ApplySelectionOp { target, op } = change {
+                    if self.layout_window.apply_selection_op(*target, op) {
+                        result = result
+                            .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                    }
+                }
+            }
+        }
+
         // ── 3. USER CALLBACK DISPATCH (W3C capture → target → bubble) ────
         let old_focus = self.layout_window.focus_manager.get_focused_node().copied();
         let (changes_result, callback_update, prevent_default) =
@@ -3995,6 +4059,185 @@ mod tests {
         assert!(
             !runs.iter().any(|n| *n > 2),
             "the placeholder prompt must be hidden once there is text: {runs:?}"
+        );
+    }
+
+    /// Build a `TextInput` widget in a laid-out headless window, type `abc` into
+    /// it through the shell key ingress, and return the runner focused on it.
+    ///
+    /// The widget's shape is `container[contenteditable] > placeholder + value`,
+    /// with the inline layout living on the VALUE child, not the focused
+    /// container — the exact shape the keyboard-delete regression turns on.
+    fn text_input_runner_typed_abc() -> (Runner, DomNodeId, NodeId) {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // key_up between keystrokes: two identical consecutive key_downs are a
+        // Some(k)->Some(k) diff (no fresh VirtualKeyDown), so the shell ingress
+        // needs the release to re-arm — exactly what a real user does.
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "text_input_typed_abc",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".__azul-native-text-input-container" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "a", "text": "a" }, { "op": "key_up", "key": "a" },
+                { "op": "key_down", "key": "b", "text": "b" }, { "op": "key_up", "key": "b" },
+                { "op": "key_down", "key": "c", "text": "c" }, { "op": "key_up", "key": "c" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (_result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("clicking the text input must focus its container");
+        let node_id = focused
+            .node
+            .into_crate_internal()
+            .expect("the focused container has a node id");
+        (runner, focused, node_id)
+    }
+
+    fn text_input_value(runner: &Runner, dom: DomId, node_id: NodeId) -> String {
+        runner.layout_window.extract_text_from_inline_content(
+            &runner.layout_window.get_text_before_textinput(dom, node_id),
+        )
+    }
+
+    /// The direct-call regression: `apply_selection_op` with a Delete op on the
+    /// focused TextInput HOST must delete a character.
+    ///
+    /// Before the fix, `apply_selection_op` read the inline layout from the host
+    /// node and returned `false` the instant it was `None` — which it always is
+    /// for a widget whose IFC lives on a value child — so keyboard Backspace /
+    /// Delete / arrow keys were DEAD in every TextInput / TextArea. Mouse editing
+    /// worked (hit testing resolves the child), and the C-API delete path worked
+    /// (it never consulted the host's layout), so nothing caught it.
+    #[test]
+    fn keyboard_delete_op_deletes_inside_a_text_input_widget() {
+        use azul_core::events::{SelectionDirection, SelectionMode, SelectionOp, SelectionStep};
+
+        let (mut runner, focused, node_id) = text_input_runner_typed_abc();
+
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "abc",
+            "typing through the shell ingress must fill the value node",
+        );
+        // The precondition that IS the bug: the focused host block carries no
+        // inline layout — the value child does. `apply_selection_op` must not
+        // treat that as "nothing to edit".
+        assert!(
+            runner
+                .layout_window
+                .get_inline_layout_for_node(focused.dom, node_id)
+                .is_none(),
+            "precondition: the TextInput host block has no inline layout of its own",
+        );
+
+        let backspace = SelectionOp::new(
+            SelectionDirection::Backward,
+            SelectionStep::Character,
+            SelectionMode::Delete,
+        );
+        assert!(
+            runner.layout_window.apply_selection_op(focused, &backspace),
+            "apply_selection_op(Delete) must report an edit (it used to bail on the \
+             host's missing inline layout)",
+        );
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "ab",
+            "Backspace must remove the last character of the value node",
+        );
+
+        // A range delete (select-all then Backspace) must clear it too.
+        let select_all = SelectionOp::new(
+            SelectionDirection::Backward,
+            SelectionStep::Document,
+            SelectionMode::Extend,
+        );
+        runner.layout_window.apply_selection_op(focused, &select_all);
+        let delete_range = SelectionOp::new(
+            SelectionDirection::Backward,
+            SelectionStep::Character,
+            SelectionMode::Delete,
+        );
+        runner.layout_window.apply_selection_op(focused, &delete_range);
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "",
+            "selecting the whole value and pressing Backspace must clear it",
+        );
+    }
+
+    /// The end-to-end regression through the SAME shell ingress a real keystroke
+    /// takes: a `key_down {"key":"Backspace"}` op must delete a character.
+    ///
+    /// This pins the unification — the e2e `key_down` op used to shortcut
+    /// Backspace/Delete straight to the C-API `delete_backward()` (a DIFFERENT
+    /// code path than native macOS, which routes KeyDown(Back) →
+    /// `SystemChange::ApplySelectionOp` → `apply_selection_op`). That shortcut
+    /// hid the dead keyboard-delete: every backspace test passed while the real
+    /// path was broken. The op now drives the real path, so this test exercises
+    /// exactly what the user's keyboard does.
+    #[test]
+    fn key_down_backspace_op_deletes_through_the_shell_ingress() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "key_down_backspace",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".__azul-native-text-input-container" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "a", "text": "a" }, { "op": "key_up", "key": "a" },
+                { "op": "key_down", "key": "b", "text": "b" }, { "op": "key_up", "key": "b" },
+                { "op": "key_down", "key": "c", "text": "c" }, { "op": "key_up", "key": "c" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Backspace" }, { "op": "key_up", "key": "Backspace" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (_result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("clicking the text input must focus its container");
+        let node_id = focused.node.into_crate_internal().expect("focused node id");
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "ab",
+            "a Backspace key_down must delete the last character through the real \
+             ApplySelectionOp path (not the C-API shortcut the harness used to take)",
         );
     }
 }

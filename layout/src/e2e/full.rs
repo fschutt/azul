@@ -15290,24 +15290,23 @@ pub fn process_debug_event(
             // triggers process_window_events() internally. Setting needs_update would
             // cause Update::RefreshDom → full DOM rebuild, overwriting text edits.
 
-            // Special handling for text editing keys on contenteditable nodes.
-            // On native macOS, these go through NSTextInputClient → doCommandBySelector:.
-            // The debug server must simulate that by pushing the appropriate CallbackChange.
-            if let Some(keycode) = parse_virtual_keycode(key) {
-                let layout_window = callback_info.get_layout_window();
-                let focused = layout_window.focus_manager.get_focused_node().copied();
-                if let Some(focused) = focused {
-                    match keycode {
-                        VirtualKeyCode::Back => {
-                            callback_info.delete_backward(focused);
-                        }
-                        VirtualKeyCode::Delete => {
-                            callback_info.delete_forward(focused);
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            // Backspace / Delete are deliberately NOT special-cased here — they
+            // ride the exact route a real keystroke takes. The
+            // `current_virtual_keycode` set above makes the state-diff pass emit
+            // VirtualKeyDown(Back/Delete), whose default action is
+            // `SystemChange::ApplySelectionOp { Delete }` →
+            // `LayoutWindow::apply_selection_op` → `delete_selection`.
+            //
+            // This used to shortcut them to `callback_info.delete_backward()` /
+            // `delete_forward()` (the C-API arm), on the false premise that native
+            // macOS routes them through `doCommandBySelector:` — that selector is
+            // a NO-OP; the real macOS `keyDown:` falls through to
+            // `handle_key_down` → the SAME ApplySelectionOp path. The shortcut
+            // BYPASSED `apply_selection_op`, so keyboard delete could be entirely
+            // dead (as it was for TextInput/TextArea, whose IFC lives on a value
+            // child the focused host block does not carry) while every e2e
+            // backspace test still passed. Driving the real path keeps the
+            // headless e2e route and the native keyDown route one code path.
 
             send_ok(request, None, None);
         }

@@ -7723,6 +7723,25 @@ impl LayoutWindow {
         }
     }
 
+    /// Resolve the node whose inline layout an editing op should read.
+    ///
+    /// The focused editable is frequently a block HOST whose text actually lives
+    /// in a value / paragraph CHILD — `div[contenteditable] > p > text`, which is
+    /// exactly the shape `TextInput` and `TextArea` build. The host block itself
+    /// carries no inline layout, so a keyboard op that reads
+    /// `get_inline_layout_for_node(host)` finds `None`. Return `node_id` when it
+    /// directly holds an inline layout, otherwise the first IFC-bearing
+    /// descendant (caret-owner first, via [`Self::ifc_candidate_children`], the
+    /// same descent `reshape_text_node` / `get_text_before_textinput` use).
+    fn resolve_ifc_layout_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        if self.get_inline_layout_for_node(dom_id, node_id).is_some() {
+            return Some(node_id);
+        }
+        self.ifc_candidate_children(dom_id, node_id)
+            .into_iter()
+            .find(|&c| self.get_inline_layout_for_node(dom_id, c).is_some())
+    }
+
     /// Apply a unified selection operation (navigation, extend, or delete).
     ///
     /// Single entry point that replaces the separate `ArrowKeyNavigation` and
@@ -7740,14 +7759,30 @@ impl LayoutWindow {
             return false;
         };
 
-        let layout = match self.get_inline_layout_for_node(dom_id, node_id) {
+        // The keyboard selection/delete op targets the focused editable HOST,
+        // but a widget like TextInput / TextArea keeps its inline layout on a
+        // value CHILD (`container[contenteditable] > p.value`), not on the host
+        // block — so `get_inline_layout_for_node(host)` is None and this whole op
+        // used to bail before deleting or moving anything. That made keyboard
+        // Backspace / Delete / arrow keys DEAD inside every text widget: the real
+        // keystroke routes KeyDown(Back) → ApplySelectionOp here, and mouse
+        // editing only worked because hit-testing resolves the child directly.
+        // Resolve the node that actually holds the IFC and read layout + dense
+        // from THERE. `delete_selection` still targets the host node: it edits
+        // through the content overlay + recursive text fetch, which resolve the
+        // container's value child on their own.
+        let ifc_node = self
+            .resolve_ifc_layout_node(dom_id, node_id)
+            .unwrap_or(node_id);
+
+        let layout = match self.get_inline_layout_for_node(dom_id, ifc_node) {
             Some(l) => l.clone(),
             None => return false,
         };
         // (d6f) Hoisted (and Arc-cloned, severing the `self` borrow)
         // before `text_edit_manager` is borrowed mutably — the closures
         // below can then resolve without touching `self`.
-        let dense = self.get_dense_for_node(dom_id, node_id).cloned();
+        let dense = self.get_dense_for_node(dom_id, ifc_node).cloned();
 
         match op.mode {
             SelectionMode::Move | SelectionMode::Extend => {
