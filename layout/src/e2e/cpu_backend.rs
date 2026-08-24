@@ -468,11 +468,23 @@ impl CpuBackend {
                         dpi_factor,
                     );
                     all_damage.extend(strips);
-                    all_damage.extend(cpurender::overlay_rects_after_frame(
-                        display_list,
-                        *scroll_id,
-                        clip,
-                    ));
+                    // Overlays composited OVER the frame (its own scrollbar, a
+                    // dropdown, a tooltip) are DRAGGED by the memmove above: a
+                    // positive scroll delta shifts every pixel inside the clip by
+                    // -delta on screen. Repaint each overlay at BOTH its correct
+                    // position AND where its dragged ghost landed (origin - delta).
+                    // Without the ghost rect, an overlay that does NOT span the
+                    // scroll axis — the vertical scrollbar during a horizontal
+                    // pan — leaves a delta-wide stale sliver on its trailing edge
+                    // (the leading edge is cleaned by the exposed strip; the
+                    // trailing edge is not).
+                    for g in cpurender::overlay_rects_after_frame(display_list, *scroll_id, clip) {
+                        all_damage.push(g);
+                        let mut ghost = g;
+                        ghost.origin.x -= delta.0;
+                        ghost.origin.y -= delta.1;
+                        all_damage.push(ghost);
+                    }
                     present_extra.push(*clip);
                 } else {
                     all_damage.push(*clip);
