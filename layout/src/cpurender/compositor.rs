@@ -2279,6 +2279,122 @@ pub fn translate_hint_for_patch(
 /// [`compute_display_list_damage`] + the translate hint. Returns
 /// `(damage, moved_union)`; `moved_union` is `None` when nothing matched
 /// the hint (caller falls back to plain damage).
+/// Damage for a STRUCTURALLY changed display list (item count or item kinds
+/// differ): the visually-equal PREFIX and SUFFIX are unchanged, so everything
+/// that changed lies in the middle window — damage is the union of the OLD
+/// and NEW middle windows' bounds, mapped to visual space through the scroll
+/// stack. Sound for any localized insertion / removal / replacement; a change
+/// that touches everything degrades to a full-window rect, which is what the
+/// bail produced anyway.
+///
+/// `None` (keep the full repaint) when any scroll offset changed between the
+/// frames — a scrolled frame moves items the equality scan would misjudge.
+fn windowed_structural_damage(
+    old: &DisplayList,
+    new: &DisplayList,
+    old_offsets: &ScrollOffsetMap,
+    new_offsets: &ScrollOffsetMap,
+) -> Option<Vec<LogicalRect>> {
+    if old_offsets != new_offsets {
+        return None;
+    }
+
+    let o = &old.items;
+    let n = &new.items;
+    let min_len = o.len().min(n.len());
+
+    let mut prefix = 0;
+    while prefix < min_len && o[prefix].is_visually_equal(&n[prefix]) {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < min_len - prefix
+        && o[o.len() - 1 - suffix].is_visually_equal(&n[n.len() - 1 - suffix])
+    {
+        suffix += 1;
+    }
+
+    // The accumulated scroll offset at the prefix boundary (offsets are equal
+    // between the frames, so one walk over the new list serves both).
+    let mut stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    for item in &n[..prefix] {
+        match item {
+            DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
+                let (sx, sy) = new_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                stack.push((ax + sx, ay + sy));
+            }
+            DisplayListItem::PopScrollFrame => {
+                if stack.len() > 1 {
+                    stack.pop();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Union the middle window of one list, tracking Push/Pop inside it.
+    let union_window = |items: &[DisplayListItem],
+                        offsets: &ScrollOffsetMap,
+                        start_stack: &[(f32, f32)]|
+     -> Option<LogicalRect> {
+        let mut stack = start_stack.to_vec();
+        let mut acc: Option<LogicalRect> = None;
+        for item in items {
+            match item {
+                DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                    let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
+                    let (sx, sy) = offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                    stack.push((ax + sx, ay + sy));
+                }
+                DisplayListItem::PopScrollFrame => {
+                    if stack.len() > 1 {
+                        stack.pop();
+                    }
+                }
+                _ => {}
+            }
+            let Some(b) = item.bounds() else { continue };
+            let (ox, oy) = *stack.last().unwrap_or(&(0.0, 0.0));
+            let visual = LogicalRect {
+                origin: LogicalPosition {
+                    x: b.origin.x - ox,
+                    y: b.origin.y - oy,
+                },
+                size: b.size,
+            };
+            acc = Some(match acc {
+                Some(a) => {
+                    let x0 = a.origin.x.min(visual.origin.x);
+                    let y0 = a.origin.y.min(visual.origin.y);
+                    let x1 = (a.origin.x + a.size.width).max(visual.origin.x + visual.size.width);
+                    let y1 = (a.origin.y + a.size.height).max(visual.origin.y + visual.size.height);
+                    LogicalRect {
+                        origin: LogicalPosition { x: x0, y: y0 },
+                        size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+                    }
+                }
+                None => visual,
+            });
+        }
+        acc
+    };
+
+    let mut damage = Vec::new();
+    if let Some(r) = union_window(&o[prefix..o.len() - suffix], old_offsets, &stack) {
+        damage.push(r);
+    }
+    if let Some(r) = union_window(&n[prefix..n.len() - suffix], new_offsets, &stack) {
+        damage.push(r);
+    }
+    // A window of only Push/Pop pairs (no bounds-carrying item) still changed
+    // structure somewhere — be conservative rather than claim "no damage".
+    if damage.is_empty() {
+        return None;
+    }
+    Some(damage)
+}
+
 #[must_use] pub fn compute_display_list_damage_translated(
     old: &DisplayList,
     new: &DisplayList,
@@ -2307,9 +2423,17 @@ fn compute_display_list_damage_impl(
     new_offsets: &ScrollOffsetMap,
     hint: Option<&TranslateHint>,
 ) -> Option<(Vec<LogicalRect>, Option<LogicalRect>)> {
-    // Different item counts → structural change → full repaint
+    // Different item counts: a LOCALIZED structural change (a paragraph that
+    // now wraps to one more line emits one more Text item, an inserted node,
+    // a removed one). This used to bail to a full-window repaint — which is
+    // how retyping a paragraph's text repainted the whole window whenever
+    // the new text changed the LINE COUNT (font-metrics dependent: DejaVu
+    // wraps where Helvetica does not, so the same scenario was green on
+    // macOS and red on ubuntu). The windowed fallback below damages the
+    // changed middle instead.
     if old.items.len() != new.items.len() {
-        return None;
+        return windowed_structural_damage(old, new, old_offsets, new_offsets)
+            .map(|damage| (damage, None));
     }
 
     let mut damage = Vec::new();
@@ -2323,7 +2447,10 @@ fn compute_display_list_damage_impl(
     for (old_item, new_item) in old.items.iter().zip(new.items.iter()) {
         // Compare discriminant first (cheap)
         if std::mem::discriminant(old_item) != std::mem::discriminant(new_item) {
-            return None; // structural change
+            // Structural change with equal counts — same windowed fallback as
+            // the count-mismatch case above.
+            return windowed_structural_damage(old, new, old_offsets, new_offsets)
+                .map(|damage| (damage, None));
         }
 
         match new_item {
@@ -4318,18 +4445,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn damage_diff_returns_none_on_structural_change() {
+    fn damage_diff_windows_a_structural_change() {
+        // A structural change used to bail to a FULL repaint; it now damages
+        // the changed window (here: the removed rect's own area).
         let off = ScrollOffsetMap::new();
         let a = dlist(vec![opaque_rect(0.0, 0.0, 10.0, 10.0)]);
-        assert!(
-            compute_display_list_damage(&a, &dlist(vec![]), &off, &off).is_none(),
-            "different item counts → full repaint"
-        );
+        let d = compute_display_list_damage(&a, &dlist(vec![]), &off, &off)
+            .expect("a removed item damages its area, not the full frame");
+        assert_eq!(d.len(), 1);
+        assert!((d[0].size.width - 10.0).abs() < 0.5 && (d[0].size.height - 10.0).abs() < 0.5);
         let b = dlist(vec![DisplayListItem::PopClip]);
-        assert!(
-            compute_display_list_damage(&a, &b, &off, &off).is_none(),
-            "same length, different discriminant → full repaint"
-        );
+        let d = compute_display_list_damage(&a, &b, &off, &off)
+            .expect("a replaced item damages its area");
+        assert_eq!(d.len(), 1, "the boundless PopClip contributes no rect of its own");
+        // A change with NO bounds-carrying item anywhere in the window stays
+        // a full repaint — conservative, never "no damage".
+        let c = dlist(vec![DisplayListItem::PopClip]);
+        let e = dlist(vec![DisplayListItem::PopScrollFrame]);
+        assert!(compute_display_list_damage(&c, &e, &off, &off).is_none());
     }
 
     #[test]
@@ -5202,6 +5335,73 @@ mod autotest_generated {
             at(&out, 8, 8),
             [255, 255, 255, 255],
             "an opacity-0 layer must contribute nothing over the white root"
+        );
+    }
+
+    // ================= windowed structural display-list damage ===============
+
+    /// THE CLASS (dl_text_patch on ubuntu, 2026-08-24): retyping a
+    /// paragraph's text so it wraps to one more line emits one more Text
+    /// item; the item-count check bailed the whole diff to a FULL repaint —
+    /// font-metrics dependent, so green on macOS and red on DejaVu. A
+    /// localized structural change now damages the changed middle window.
+    #[test]
+    fn a_changed_item_count_damages_the_changed_window_not_the_full_frame() {
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let blue = ColorU { r: 0, g: 0, b: 255, a: 255 };
+        let old = dlist(vec![
+            rect_item(0.0, 0.0, 100.0, 10.0, red),
+            rect_item(0.0, 20.0, 100.0, 10.0, red),
+            rect_item(0.0, 500.0, 100.0, 10.0, red),
+        ]);
+        let new = dlist(vec![
+            rect_item(0.0, 0.0, 100.0, 10.0, red),
+            rect_item(0.0, 20.0, 100.0, 10.0, blue),
+            rect_item(0.0, 32.0, 100.0, 10.0, blue), // the inserted "new line"
+            rect_item(0.0, 500.0, 100.0, 10.0, red),
+        ]);
+        let off = ScrollOffsetMap::new();
+        let damage = compute_display_list_damage(&old, &new, &off, &off)
+            .expect("a localized insertion must yield rect damage, not a full repaint");
+        assert!(!damage.is_empty());
+        for r in &damage {
+            assert!(
+                r.origin.y >= 19.0 && r.origin.y + r.size.height <= 43.0,
+                "damage stays in the changed window (the shared prefix/suffix are untouched): {r:?}"
+            );
+        }
+    }
+
+    /// The fallback maps the changed window through the scroll stack, and
+    /// keeps the full-repaint bail when the offsets themselves changed.
+    #[test]
+    fn windowed_damage_respects_scroll_offsets() {
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let old = dlist(vec![
+            push_scroll(1, 0.0, 0.0, 100.0, 50.0),
+            rect_item(0.0, 100.0, 100.0, 10.0, red),
+            DisplayListItem::PopScrollFrame,
+        ]);
+        let new = dlist(vec![
+            push_scroll(1, 0.0, 0.0, 100.0, 50.0),
+            rect_item(0.0, 100.0, 100.0, 10.0, red),
+            rect_item(0.0, 112.0, 100.0, 10.0, red),
+            DisplayListItem::PopScrollFrame,
+        ]);
+        let mut off = ScrollOffsetMap::new();
+        off.insert(1, (0.0, 90.0));
+        let damage = compute_display_list_damage(&old, &new, &off, &off)
+            .expect("insertion inside an (unchanged) scrolled frame yields rects");
+        assert!(
+            damage.iter().any(|r| (r.origin.y - 22.0).abs() < 1.0),
+            "content coords minus the 90px scroll offset: {damage:?}"
+        );
+
+        let mut moved = ScrollOffsetMap::new();
+        moved.insert(1, (0.0, 40.0));
+        assert!(
+            compute_display_list_damage(&old, &new, &off, &moved).is_none(),
+            "a structural change WHILE the offsets changed keeps the full-repaint bail"
         );
     }
 
