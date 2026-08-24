@@ -285,8 +285,23 @@ impl MacOSWindow {
         // had just recorded (`right_down = false`), so MouseUp(Right) callbacks
         // never fired on a node that carried a context menu.
         if button == MouseButton::Right {
-            if let Some(hit_node) = self.get_first_hovered_node() {
-                self.resolve_context_menu(hit_node, position);
+            // The DEEPEST hovered node (not the shallowest — `get_first_hovered_node`
+            // returns the smallest NodeId, ~the body), so the ancestor walk in
+            // `resolve_context_menu` starts BELOW the node carrying the menu and
+            // can reach it. A right-click on a label inside a box opens the box's
+            // menu; picking the body found nothing (no "[Context Menu] Queuing").
+            let deepest = self
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.hover_manager.current_hover_node_full());
+            if let Some(dn) = deepest {
+                if let Some(nid) = dn.node.into_crate_internal() {
+                    self.resolve_context_menu(
+                        HitTestNode { dom_id: dn.dom.inner as u64, node_id: nid.index() as u64 },
+                        position,
+                    );
+                }
             }
         }
 
