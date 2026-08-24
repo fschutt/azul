@@ -1,4 +1,4 @@
-//! macOS system tray — `NSStatusItem` in the menu bar.
+//! macOS system tray  -  `NSStatusItem` in the menu bar.
 //!
 //! # The lifetime rule this whole file is built around
 //!
@@ -53,13 +53,17 @@ impl core::fmt::Debug for PlatformTray {
 }
 
 /// macOS always has a menu bar. Unlike Linux there is no "is a tray running"
-/// question to answer — the only failure mode is being off the main thread.
+/// question to answer  -  the only failure mode is being off the main thread.
 pub(super) fn is_available() -> bool {
     MainThreadMarker::new().is_some()
 }
 
 impl PlatformTray {
-    pub(super) fn new(data: &TrayIconData) -> Result<Self, TrayError> {
+    pub(super) fn new(
+        data: &TrayIconData,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+    ) -> Result<Self, TrayError> {
         let Some(mtm) = MainThreadMarker::new() else {
             return Err(TrayError::Platform(
                 "NSStatusItem must be created on the main thread".into(),
@@ -87,7 +91,7 @@ impl PlatformTray {
                 .setAutosaveName(Some(&NSString::from_str(data.id.as_str())));
         }
 
-        this.apply(data, mtm)?;
+        this.apply(data, mtm, provider, font_manager)?;
         Ok(this)
     }
 
@@ -95,16 +99,24 @@ impl PlatformTray {
         &mut self,
         _old: &TrayIconData,
         new: &TrayIconData,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
     ) -> Result<(), TrayError> {
         let Some(mtm) = MainThreadMarker::new() else {
             return Err(TrayError::Platform(
                 "NSStatusItem must be updated on the main thread".into(),
             ));
         };
-        self.apply(new, mtm)
+        self.apply(new, mtm, provider, font_manager)
     }
 
-    fn apply(&mut self, data: &TrayIconData, mtm: MainThreadMarker) -> Result<(), TrayError> {
+    fn apply(
+        &mut self,
+        data: &TrayIconData,
+        mtm: MainThreadMarker,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+    ) -> Result<(), TrayError> {
         use azul_core::tray::TrayStatus;
 
         // `Passive` means "the host may hide this". macOS has no such state, so
@@ -122,7 +134,7 @@ impl PlatformTray {
         };
 
         // ---- icon ----
-        match rgba_for(data, mtm) {
+        match rgba_for(data, mtm, provider, font_manager) {
             Some(image) => unsafe {
                 button.setImage(Some(&image));
                 button.setImagePosition(NSCellImagePosition::ImageOnly);
@@ -194,16 +206,21 @@ impl PlatformTray {
 }
 
 /// Build an `NSImage` for the tray, or `None` if the data carries no icon.
-fn rgba_for(data: &TrayIconData, mtm: MainThreadMarker) -> Option<Retained<NSImage>> {
+fn rgba_for(
+    data: &TrayIconData,
+    mtm: MainThreadMarker,
+    provider: &azul_core::icon::SharedIconProvider,
+    font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+) -> Option<Retained<NSImage>> {
     let (w, h, rgba) = match data.icon {
         TrayIconSource::None => return None,
         TrayIconSource::Rgba(ref v) => {
-            let img = data.best_icon(ICON_PIXELS)?;
+            let img = data.best_icon(ICON_PIXELS).into_option()?;
             let _ = v;
             (img.width, img.height, img.rgba.as_ref().to_vec())
         }
         TrayIconSource::Named(ref spec) => {
-            let rendered = crate::desktop::tray::render_named_icon(spec.as_str(), ICON_PIXELS)?;
+            let rendered = crate::desktop::tray::render_named_icon(spec.as_str(), ICON_PIXELS, provider, font_manager)?;
             (rendered.width, rendered.height, rendered.rgba)
         }
     };

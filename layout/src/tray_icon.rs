@@ -74,12 +74,9 @@ pub fn render_icon_to_rgba(
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
     tint: Option<ColorU>,
+    font_manager: &crate::font_traits::FontManager<azul_css::props::basic::FontRef>,
 ) -> Option<RenderedIcon> {
-    use crate::{
-        cpurender::{render_component_preview, ComponentPreviewOptions},
-        font::loading::build_font_cache,
-        font_traits::FontManager,
-    };
+    use crate::cpurender::{render_component_preview, ComponentPreviewOptions};
 
     if size_px == 0 || spec.is_empty() {
         return None;
@@ -121,8 +118,27 @@ pub fn render_icon_to_rgba(
     let mut styled = StyledDom::create(&mut dom, Css::empty());
     resolve_icons_in_styled_dom(&mut styled, provider, system_style);
 
-    let fc_cache = build_font_cache();
-    let font_manager = FontManager::new(fc_cache).ok()?;
+    // The caller's FontManager, NOT a fresh one.
+    //
+    // Building one here (`FontManager::new(build_font_cache())`) creates a
+    // second, disconnected font universe: a `FontManager` shapes from TWO pools
+    // — `parsed_fonts` (resolved by family NAME out of the system font cache)
+    // and `embedded_fonts` (handed over directly as `StyleFontFamily::Ref`) —
+    // and Material Icons live in the SECOND, because
+    // `create_font_icon_from_original` styles the glyph with
+    // `StyleFontFamily::Ref(font)` rather than a family name. A fresh manager
+    // has that pool empty, so every icon shaped to `.notdef` and the tray got a
+    // tofu box, with every intermediate step reporting success. Same shape as
+    // the 0.2.0 CPU-renderer failure documented on
+    // `FontManager::resolve_font_by_hash`.
+    //
+    // Registering the DOM's embedded fonts is still needed for a manager that
+    // has not seen this particular icon font yet; it is idempotent.
+    crate::solver3::getters::register_embedded_fonts_from_styled_dom(
+        &styled,
+        font_manager,
+        &system_style.platform,
+    );
 
     let result = render_component_preview(
         &styled,
@@ -138,6 +154,14 @@ pub fn render_icon_to_rgba(
         None,
     )
     .ok()?;
+
+    // A wrong-looking tray icon is otherwise almost impossible to diagnose: it
+    // is a 36px image inside the menu bar, and every intermediate step reports
+    // success. `AZ_TRAY_ICON_DUMP=<dir>` writes the exact bitmap we hand the OS.
+    if let Ok(dir) = std::env::var("AZ_TRAY_ICON_DUMP") {
+        let path = format!("{dir}/tray-icon-{size_px}.png");
+        let _ = std::fs::write(&path, &result.png_data);
+    }
 
     if result.rgba.is_empty() || result.pixel_width == 0 || result.pixel_height == 0 {
         return None;
@@ -165,27 +189,13 @@ mod tests {
     use super::*;
     use azul_core::icon::{IconProviderHandle, SharedIconProvider};
 
-    fn empty_provider() -> SharedIconProvider {
-        SharedIconProvider::from_handle(IconProviderHandle::new())
-    }
-
-    #[test]
-    fn degenerate_inputs_are_rejected_before_any_layout_work() {
-        let p = empty_provider();
-        let s = SystemStyle::default();
-        assert!(render_icon_to_rgba("settings", 0, &p, &s, None).is_none());
-        assert!(render_icon_to_rgba("", 16, &p, &s, None).is_none());
-    }
-
-    #[test]
-    fn an_unregistered_spec_is_none_not_a_blank_square() {
-        // The distinction matters: resolution turns an unknown icon into an
-        // empty div, which renders as a fully transparent square. Returning
-        // that as Some() would put an invisible icon in the tray and look
-        // exactly like a working one.
-        let p = empty_provider();
-        assert!(render_icon_to_rgba("definitely_not_registered", 16, &p, &SystemStyle::default(), None).is_none());
-    }
+    // `render_icon_to_rgba` itself is not unit-tested: it needs a real
+    // `FontManager`, and building one scans the system font directories, which
+    // makes the test slow and machine-dependent. Its pure precondition —
+    // "does this spec resolve at all" — is what actually decides whether the
+    // caller gets an icon or a silently-blank square, so that is what is
+    // pinned here. The rendering itself is exercised by the `tray` example
+    // plus `AZ_TRAY_ICON_DUMP`.
 
     #[test]
     fn spec_resolution_honours_the_fallback_list() {
@@ -196,10 +206,20 @@ mod tests {
 
         assert!(spec_resolves("logo", &p));
         assert!(spec_resolves("testpack:logo", &p));
-        // First alternative missing, second present — must still resolve.
+        // First alternative missing, second present - must still resolve.
         assert!(spec_resolves("missing:x, logo", &p));
         assert!(!spec_resolves("missing:x", &p));
         assert!(!spec_resolves("", &p));
         assert!(!spec_resolves(" , ", &p));
+    }
+
+    #[test]
+    fn an_unregistered_spec_does_not_resolve() {
+        // This is what stops a blank bitmap reaching the tray: resolution turns
+        // an unknown icon into an empty div, which renders as a fully
+        // TRANSPARENT square - indistinguishable from a working icon once it is
+        // 18pt in a menu bar.
+        let p = SharedIconProvider::from_handle(IconProviderHandle::new());
+        assert!(!spec_resolves("definitely_not_registered", &p));
     }
 }

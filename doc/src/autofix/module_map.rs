@@ -43,6 +43,7 @@ pub const MODULES: &[&str] = &[
     "sensor",
     "gamepad",
     "gesture",
+    "tray",
     "webtransport",
     "db",
     "file",
@@ -432,6 +433,23 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
     );
 
     // Widgets module - UI components
+    // System tray. Every keyword is the FULL `tray`-prefixed stem rather than
+    // just "tray", because matching picks the LONGEST keyword and several of
+    // these would otherwise lose to a shorter-but-unrelated module:
+    // TrayIconImage/TrayIconData match "icon" (image), TrayScrollAxis matches
+    // "scroll" (widgets). Spelling the stems out makes tray win by length
+    // instead of relying on MODULES order to break a tie.
+    map.insert(
+        "tray",
+        vec![
+            "tray",
+            "trayicon",   // TrayIconData, TrayIconImage, TrayIconSource
+            "trayevent",  // TrayEvent, TrayEventType
+            "trayscroll", // TrayScrollAxis — beats "scroll"
+            "traycategory",
+            "traystatus",
+        ],
+    );
     map.insert(
         "widgets",
         vec![
@@ -686,6 +704,10 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_core::sensors::") { return Some("sensor".to_string()); }
     if path.starts_with("azul_core::gamepad::") { return Some("gamepad".to_string()); }
     if path.starts_with("azul_core::db::") { return Some("db".to_string()); }
+    // Routed by path rather than by name: a `Tray*` name-keyword arm would also
+    // capture unrelated future types, and the module is small enough that the
+    // exact path is both safer and self-documenting.
+    if path.starts_with("azul_core::tray::") { return Some("tray".to_string()); }
     if path.starts_with("azul_core::url::") { return Some("url".to_string()); }
     if path.starts_with("azul_core::xml::") { return Some("xml".to_string()); }
     // azul_layout::*

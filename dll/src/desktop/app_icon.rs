@@ -47,14 +47,18 @@ pub enum IconOutcome {
 /// process-wide default window icon.
 ///
 /// `spec` is an icon-registry spec, exactly as an `<icon>` node takes.
-pub fn set_app_icon(spec: &str) -> IconOutcome {
+pub fn set_app_icon(
+    spec: &str,
+    provider: &azul_core::icon::SharedIconProvider,
+    font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+) -> IconOutcome {
     #[cfg(target_os = "macos")]
     {
-        macos::set_app_icon(spec)
+        macos::set_app_icon(spec, provider, font_manager)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = spec;
+        let _ = (spec, provider, font_manager);
         IconOutcome::Unsupported
     }
 }
@@ -93,11 +97,15 @@ mod macos {
     const APP_ICON_PIXELS: u32 = 1024;
     const APP_ICON_POINTS: u32 = 512;
 
-    pub(super) fn set_app_icon(spec: &str) -> IconOutcome {
+    pub(super) fn set_app_icon(
+        spec: &str,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+    ) -> IconOutcome {
         let Some(mtm) = MainThreadMarker::new() else {
             return IconOutcome::Unsupported;
         };
-        let Some(rendered) = crate::desktop::tray::render_named_icon(spec, APP_ICON_PIXELS) else {
+        let Some(rendered) = crate::desktop::tray::render_named_icon(spec, APP_ICON_PIXELS, provider, font_manager) else {
             return IconOutcome::NotFound;
         };
         let Some(image) = crate::desktop::tray::macos::nsimage_from_rgba(

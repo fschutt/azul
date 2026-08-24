@@ -78,7 +78,11 @@ pub(super) struct PlatformTray {
 }
 
 impl PlatformTray {
-    pub(super) fn new(_data: &TrayIconData) -> Result<Self, TrayError> {
+    pub(super) fn new(
+        _data: &TrayIconData,
+        _provider: &azul_core::icon::SharedIconProvider,
+        _font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+    ) -> Result<Self, TrayError> {
         Err(TrayError::Unsupported)
     }
 
@@ -86,7 +90,16 @@ impl PlatformTray {
         &mut self,
         _old: &TrayIconData,
         _new: &TrayIconData,
+        _provider: &azul_core::icon::SharedIconProvider,
+        _font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
     ) -> Result<(), TrayError> {
+        match self._never {}
+    }
+}
+
+impl PlatformTray {
+    /// Unreachable — `new()` never returns a value on this platform yet.
+    pub(super) fn pump(&mut self) {
         match self._never {}
     }
 }

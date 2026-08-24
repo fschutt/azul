@@ -99946,6 +99946,206 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "TrayIconImageVecDestructor": {
+                        "external": "azul_core::tray::TrayIconImageVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TrayIconImageVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TrayIconImageVecDestructorType": {
+                        "external": "azul_core::tray::TrayIconImageVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "TrayIconImageVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "TrayIconImageVec": {
+                        "external": "azul_core::tray::TrayIconImageVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TrayIconImage",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TrayIconImageVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TrayIconImageVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TrayIconImageVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TrayIconImageVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconImageVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tray_icon_image_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tray_icon_image_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "tray_icon_image_vec.is_empty()"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTrayIconImage"
+                                },
+                                "fn_body": "tray_icon_image_vec.c_get(index).into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TrayIconImageVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TrayIconImage"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconImageVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TrayIconImageVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TrayIconImage"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconImageVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TrayIconImageVecSlice": {
+                        "external": "azul_core::tray::TrayIconImageVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TrayIconImage",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -105421,6 +105621,24 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionTrayIconImage": {
+                        "external": "azul_core::tray::OptionTrayIconImage",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TrayIconImage"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -108195,6 +108413,30 @@
                                     }
                                 ],
                                 "fn_body": "object.run(root_window)"
+                            },
+                            "set_tray": {
+                                "doc": [
+                                    "Ask for a system-tray icon. Takes effect when `run()` starts.",
+                                    "",
+                                    "Deferred rather than immediate because a tray cannot exist this early:",
+                                    "macOS needs `NSApplication`, and every backend needs the icon registry",
+                                    "published so a `TrayIconSource::Named` spec can resolve.",
+                                    "",
+                                    "This is best-effort by design. On a desktop with no tray  -  a vanilla",
+                                    "GNOME has no `StatusNotifierWatcher` at all  -  nothing appears and the",
+                                    "app still runs; the failure is logged. Use",
+                                    "[`crate::desktop::tray::TrayIcon::is_available`] beforehand if the app",
+                                    "needs to know."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "tray": "TrayIconData"
+                                    }
+                                ],
+                                "fn_body": "object.set_tray(tray)"
                             }
                         },
                         "repr": "C"
@@ -113687,6 +113929,383 @@
                             {
                                 "Popup": {},
                                 "Inline": {}
+                            }
+                        ],
+                        "repr": "C"
+                    }
+                }
+            },
+            "tray": {
+                "classes": {
+                    "TrayIconImage": {
+                        "external": "azul_core::tray::TrayIconImage",
+                        "custom_impls": [
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "key": {
+                                    "type": "IconKey"
+                                },
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "rgba": {
+                                    "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "new": {
+                                "doc": [
+                                    "`rgba` must be exactly `width * height * 4` bytes; returns `None`",
+                                    "otherwise.",
+                                    "",
+                                    "Returns `OptionTrayIconImage` rather than `Option<Self>` so the",
+                                    "signature crosses the C ABI unchanged."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    },
+                                    {
+                                        "rgba": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTrayIconImage"
+                                },
+                                "fn_body": "azul_core::tray::TrayIconImage::new(width, height, rgba)"
+                            },
+                            "to_argb32_be": {
+                                "doc": [
+                                    "The icon's pixels as ARGB32 in **network (big-endian) byte order**, the",
+                                    "wire format `org.kde.StatusNotifierItem`'s `IconPixmap` (`a(iiay)`)",
+                                    "requires. Nothing else uses this layout, so it is computed on demand."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.to_argb32_be()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TrayCategory": {
+                        "external": "azul_core::tray::TrayCategory",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ApplicationStatus": {},
+                                "Communications": {},
+                                "SystemServices": {},
+                                "Hardware": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TrayIconData": {
+                        "external": "azul_core::tray::TrayIconData",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "String"
+                                },
+                                "title": {
+                                    "type": "String"
+                                },
+                                "icon": {
+                                    "type": "TrayIconSource"
+                                },
+                                "attention_icon": {
+                                    "type": "TrayIconSource"
+                                },
+                                "tooltip": {
+                                    "type": "OptionString"
+                                },
+                                "category": {
+                                    "type": "TrayCategory"
+                                },
+                                "status": {
+                                    "type": "TrayStatus"
+                                },
+                                "menu": {
+                                    "type": "OptionMenu"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "fn_args": [
+                                    {
+                                        "id": "String"
+                                    },
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::tray::TrayIconData::new(id, title)"
+                            }
+                        },
+                        "functions": {
+                            "with_icon": {
+                                "doc": [
+                                    "Use an explicit RGBA bitmap. Prefer [`Self::with_named_icon`] unless the",
+                                    "icon genuinely is not in a pack."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "TrayIconImage"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconData"
+                                },
+                                "fn_body": "object.with_icon(icon)"
+                            },
+                            "with_menu": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "menu": "Menu"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconData"
+                                },
+                                "fn_body": "object.with_menu(menu)"
+                            },
+                            "with_tooltip": {
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "tooltip": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconData"
+                                },
+                                "fn_body": "object.with_tooltip(tooltip)"
+                            },
+                            "with_named_icon": {
+                                "doc": [
+                                    "Use an icon from the icon registry, by the same spec an `<icon>` node",
+                                    "takes  -  `\"settings\"`, `\"mypack:logo\"`, or a fallback list. Preferred:",
+                                    "it renders at whatever size each platform asks for."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "spec": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconData"
+                                },
+                                "fn_body": "object.with_named_icon(spec)"
+                            },
+                            "best_icon": {
+                                "doc": [
+                                    "The icon closest to `target_px`, preferring the smallest one that is at",
+                                    "least `target_px` (upscaling a small icon looks far worse than",
+                                    "downscaling a large one  -  this is why Windows' own `LoadIconMetric`",
+                                    "scales down from a larger frame rather than up).",
+                                    "Only meaningful for [`TrayIconSource::Rgba`]; a `Named` icon is",
+                                    "rasterized at the exact size instead, so it never needs picking.",
+                                    "",
+                                    "Returns an owned `OptionTrayIconImage` rather than `Option<&_>` because",
+                                    "a borrow cannot cross the C ABI. The clone is one `U8Vec` bump."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "target_px": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTrayIconImage"
+                                },
+                                "fn_body": "object.best_icon(target_px)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TrayIconSource": {
+                        "external": "azul_core::tray::TrayIconSource",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Rgba": {
+                                    "type": "TrayIconImageVec"
+                                },
+                                "Named": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TrayStatus": {
+                        "external": "azul_core::tray::TrayStatus",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Passive": {},
+                                "Active": {},
+                                "NeedsAttention": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TrayScrollAxis": {
+                        "external": "azul_core::tray::TrayScrollAxis",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Vertical": {},
+                                "Horizontal": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TrayEvent": {
+                        "external": "azul_core::tray::TrayEvent",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "TrayEventType"
+                                },
+                                "menu_command": {
+                                    "type": "u32"
+                                },
+                                "scroll_delta": {
+                                    "type": "i32"
+                                },
+                                "scroll_axis": {
+                                    "type": "TrayScrollAxis"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "simple": {
+                                "fn_args": [
+                                    {
+                                        "kind": "TrayEventType"
+                                    }
+                                ],
+                                "fn_body": "azul_core::tray::TrayEvent::simple(kind)"
+                            },
+                            "menu_item": {
+                                "fn_args": [
+                                    {
+                                        "command": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_core::tray::TrayEvent::menu_item(command)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TrayEventType": {
+                        "external": "azul_core::tray::TrayEventType",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Activate": {},
+                                "SecondaryActivate": {},
+                                "ContextMenu": {},
+                                "Scroll": {},
+                                "MenuItem": {}
                             }
                         ],
                         "repr": "C"

@@ -405,6 +405,10 @@ fn run_headless(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
     debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
     component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) -> Result<(), WindowError> {
@@ -420,10 +424,6 @@ fn run_headless(
     // Extract icon_provider from config (same as real platforms do)
     let icon_provider_handle = core::mem::take(&mut config.icon_provider);
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
-    // Publish it for app-level consumers that outlive any window — the tray
-    // (and later the app icon), which resolve an icon spec through the same
-    // registry `<icon>` nodes use.
-    crate::desktop::tray::set_icon_provider(shared_icon_provider.clone());
 
     let app_data_arc = Arc::new(RefCell::new(app_data));
     let mut window = HeadlessWindow::new(root_window, app_data_arc, undo_manager, config, shared_icon_provider, fc_cache, font_registry)?;
@@ -517,6 +517,10 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
 ) -> Result<(), WindowError> {
     crate::plog_info!(
         "[macOS] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, AZ_LOG=trace for everything)",
@@ -559,7 +563,7 @@ pub fn run(
 
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, debug_request_rx, component_map);
     }
 
     use azul_core::icon::SharedIconProvider;
@@ -582,10 +586,6 @@ pub fn run(
     
     // Convert IconProviderHandle to SharedIconProvider once - this will be cloned to all windows
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
-    // Publish it for app-level consumers that outlive any window — the tray
-    // (and later the app icon), which resolve an icon spec through the same
-    // registry `<icon>` nodes use.
-    crate::desktop::tray::set_icon_provider(shared_icon_provider.clone());
 
     autoreleasepool(|_| {
         let mtm = MainThreadMarker::new()
@@ -616,6 +616,7 @@ pub fn run(
             crate::desktop::shell2::macos::setup_main_menu(&app, mtm);
         }
 
+
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
         debug_server::log(
@@ -632,6 +633,24 @@ pub fn run(
             "MacOSWindow created successfully",
             None,
         );
+
+        // Install the tray requested by `App::set_tray()`.
+        //
+        // AFTER the first window, not before, for two reasons that both bit:
+        //
+        // 1. It needs the app's real `FontManager`, and that lives on the
+        //    window's `LayoutWindow`. Building a fresh one here means a second,
+        //    disconnected font universe (see `tray_icon::render_icon_to_rgba`).
+        // 2. The font registry scans in a BACKGROUND thread, and `fc_cache` is
+        //    only snapshotted from it at layout time. Rendering an icon before
+        //    the first layout therefore shapes against an empty/partial font
+        //    set, which comes out as a `.notdef` tofu box rather than as a
+        //    visible failure.
+        //
+        // By this point the window has laid out once, so the manager is warm.
+        if let (Some(tray), Some(lw)) = (tray, window.common.layout_window.as_ref()) {
+            crate::desktop::tray::install_tray(tray, &shared_icon_provider, &lw.font_manager);
+        }
 
         // Register debug timer with explicit channel + component map (no globals)
         if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
@@ -703,6 +722,11 @@ pub fn run(
                     let fc_cache = fc_cache.clone();
                     let font_registry = font_registry.clone();
                     let drain = RcBlock::new(move || {
+                        // Tray menu clicks land in the process-wide menu-action
+                        // queue; drain the ones this tray owns into the tray
+                        // event mailbox. Self-gating when there is no tray.
+                        crate::desktop::tray::pump_tray();
+
                         for wptr in super::macos::registry::get_all_window_ptrs() {
                             let window = unsafe { &mut *wptr };
                             window.drain_loop_work();
@@ -1036,6 +1060,10 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
@@ -1074,6 +1102,10 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     if resolve_backend(&root_window) == super::AzBackend::Headless {
@@ -1097,6 +1129,10 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
 ) -> Result<(), WindowError> {
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
@@ -1104,7 +1140,7 @@ pub fn run(
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, debug_request_rx, component_map);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     crate::plog_info!(
@@ -1519,6 +1555,10 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
 ) -> Result<(), WindowError> {
     // Same reasoning as the environment dump below, for the knobs this build
     // cannot honour at all.
@@ -1559,7 +1599,7 @@ pub fn run(
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         crate::plog_info!("[Linux] backend resolved to Headless (AZ_BACKEND=headless)");
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, debug_request_rx, component_map);
     }
     use std::cell::RefCell;
 

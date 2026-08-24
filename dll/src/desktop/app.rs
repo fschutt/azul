@@ -20,8 +20,8 @@ use crate::desktop::shell2::common::debug_server;
 /// Wait (off the calling thread) for the font scan to finish, then write the
 /// on-disk font manifest.
 ///
-/// Persisting must not happen on the layout thread — the serialize + write is
-/// real I/O — and it must not happen before the scan is complete: a manifest
+/// Persisting must not happen on the layout thread  -  the serialize + write is
+/// real I/O  -  and it must not happen before the scan is complete: a manifest
 /// written mid-scan would describe a PARTIAL font set, and the next launch
 /// would load it, see `cache_loaded == true`, and lay out against a font
 /// universe missing most of the system's families. A partial cache is strictly
@@ -91,7 +91,7 @@ impl Default for App {
 /// A C/C++/Python host that `dlopen`s libazul never runs Rust's runtime, which
 /// is what normally installs this. Without it the default `SIGPIPE` disposition
 /// (`SIG_DFL` = terminate) kills the whole process on the first write to a
-/// closed socket/pipe — e.g. the D-Bus theme probe in `discover_system_style`,
+/// closed socket/pipe  -  e.g. the D-Bus theme probe in `discover_system_style`,
 /// or a dropped Wayland/X11/debug-server connection. Idempotent, and harmless
 /// for Rust hosts (whose runtime already ignores SIGPIPE).
 #[cfg(unix)]
@@ -180,6 +180,21 @@ impl App {
 
     pub fn get_monitors(&self) -> MonitorVec {
         crate::desktop::display::get_monitors()
+    }
+
+    /// Ask for a system-tray icon. Takes effect when `run()` starts.
+    ///
+    /// Deferred rather than immediate because a tray cannot exist this early:
+    /// macOS needs `NSApplication`, and every backend needs the icon registry
+    /// published so a `TrayIconSource::Named` spec can resolve.
+    ///
+    /// This is best-effort by design. On a desktop with no tray  -  a vanilla
+    /// GNOME has no `StatusNotifierWatcher` at all  -  nothing appears and the
+    /// app still runs; the failure is logged. Use
+    /// [`crate::desktop::tray::TrayIcon::is_available`] beforehand if the app
+    /// needs to know.
+    pub fn set_tray(&mut self, tray: azul_core::tray::TrayIconData) {
+        self.ptr.tray = Some(tray);
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
@@ -280,6 +295,9 @@ impl App {
                 fc_cache,
                 font_registry,
                 dialog,
+                // The crash reporter is a standalone dialog, not the app: it
+                // must not inherit the app's tray.
+                None,
             );
             if let Err(e) = err {
                 eprintln!("[azul] crash-reporter dialog failed: {e:?}");
@@ -288,7 +306,7 @@ impl App {
         }
 
         // Use shell2 for the actual run loop
-        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window);
+        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window, self.ptr.tray.clone());
 
         // Telemetry: persist + upload whatever the interval uploader has not
         // sent yet. Without this a SHORT run (an e2e drive, a screenshot
@@ -335,7 +353,7 @@ pub struct AppInternal {
     /// No window is actually shown until the `.run_inner()` method is called.
     pub windows: WindowCreateOptionsVec,
     /// Font configuration cache (shared across all windows)
-    /// Initially empty — populated from the registry at first layout time
+    /// Initially empty  -  populated from the registry at first layout time
     pub fc_cache: Box<Arc<FcFontCache>>,
     /// Async font registry: background threads race to discover and parse fonts.
     /// At layout time, `request_fonts()` blocks until the needed fonts are ready,
@@ -345,12 +363,17 @@ pub struct AppInternal {
     /// to every window so a callback's `undo_app_state` / `redo_app_state` /
     /// `commit_undo_snapshot` operates on one shared history.
     pub undo_manager: crate::desktop::shell2::common::event::SharedUndoManager,
+    /// Tray requested via [`App::set_tray`], applied when `run()` starts.
+    ///
+    /// Owned by the App rather than a process global: it is per-App state, and
+    /// a global would silently pick the wrong one if a process ever ran two.
+    pub tray: Option<azul_core::tray::TrayIconData>,
 }
 
 impl AppInternal {
     /// Creates a new, empty application.
     ///
-    /// Does not open any windows — call `App::run` to enter the event loop.
+    /// Does not open any windows  -  call `App::run` to enter the event loop.
     pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
 
         debug_server::log(
@@ -452,6 +475,7 @@ impl AppInternal {
             windows: WindowCreateOptionsVec::from_const_slice(&[]),
             data: initial_data,
             config: app_config,
+            tray: None,
             fc_cache: Box::new(fc_cache),
             font_registry,
             undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),

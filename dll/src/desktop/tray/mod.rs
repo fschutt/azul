@@ -99,23 +99,51 @@ pub fn drain_tray_events() -> Vec<TrayEvent> {
         .unwrap_or_default()
 }
 
-/// The app's icon registry, so a tray can resolve a named icon.
-///
-/// `OnceLock` rather than a mutex because the icon SET and the resolver are
-/// frozen once the provider is shared — `App::run` consumes the
-/// `IconProviderHandle` and `SharedIconProvider` exposes no registration — so
-/// there is nothing to update after this is set.
-///
-/// A global rather than a parameter because the tray is app-level and outlives
-/// any window, while the provider is currently threaded through per-window
-/// state.
-static ICON_PROVIDER: std::sync::OnceLock<azul_core::icon::SharedIconProvider> =
-    std::sync::OnceLock::new();
+thread_local! {
+    /// The live tray, owned by the event-loop thread.
+    ///
+    /// A thread-local rather than a global because `TrayIcon` is not `Send` on
+    /// macOS — it holds a `Retained<NSStatusItem>`, and AppKit objects belong
+    /// to the main thread. Everything that touches it (install, pump, drop)
+    /// already runs there.
+    static LIVE_TRAY: core::cell::RefCell<Option<TrayIcon>> =
+        const { core::cell::RefCell::new(None) };
+}
 
-/// Publish the icon registry for tray (and later app-icon) rendering. Called
-/// once from `run()` after the provider is built. Subsequent calls are ignored.
-pub fn set_icon_provider(provider: azul_core::icon::SharedIconProvider) {
-    let _ = ICON_PROVIDER.set(provider);
+/// Create the tray requested by `App::set_tray`, if any. Called once from
+/// `run()` after the icon registry is published and the platform's app object
+/// exists.
+///
+/// A failure here is logged, not propagated: "there is no tray on this desktop"
+/// is a normal state (a vanilla GNOME has no StatusNotifierWatcher at all), and
+/// it must not stop the app from starting.
+pub fn install_tray(
+    data: TrayIconData,
+    provider: &azul_core::icon::SharedIconProvider,
+    font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+) {
+    match TrayIcon::new(data, provider, font_manager) {
+        Ok(t) => {
+            LIVE_TRAY.with(|c| *c.borrow_mut() = Some(t));
+            crate::plog_info!("[tray] system tray icon installed");
+        }
+        Err(e) => {
+            // Loud on purpose. A silently missing tray icon is indistinguishable
+            // from a working one that the user simply cannot find, which is how
+            // this class of bug survives in other toolkits.
+            crate::plog_warn!("[tray] could not install the system tray icon: {e}");
+        }
+    }
+}
+
+/// Per-iteration tray work — currently draining menu clicks into the event
+/// mailbox. Cheap and self-gating when there is no tray.
+pub fn pump_tray() {
+    LIVE_TRAY.with(|c| {
+        if let Some(t) = c.borrow_mut().as_mut() {
+            t.pump();
+        }
+    });
 }
 
 /// Render a registry icon spec to RGBA at `size_px` square.
@@ -127,14 +155,16 @@ pub fn set_icon_provider(provider: azul_core::icon::SharedIconProvider) {
 pub(crate) fn render_named_icon(
     spec: &str,
     size_px: u32,
+    provider: &azul_core::icon::SharedIconProvider,
+    font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
 ) -> Option<azul_layout::tray_icon::RenderedIcon> {
-    let provider = ICON_PROVIDER.get()?;
     azul_layout::tray_icon::render_icon_to_rgba(
         spec,
         size_px,
         provider,
         &azul_css::system::SystemStyle::default(),
         None,
+        font_manager,
     )
 }
 
@@ -187,14 +217,18 @@ impl TrayIcon {
     /// # Errors
     /// [`TrayError::Unavailable`] when no tray exists (see [`Self::is_available`]),
     /// [`TrayError::Unsupported`] on a target with no backend.
-    pub fn new(data: TrayIconData) -> Result<Self, TrayError> {
+    pub fn new(
+        data: TrayIconData,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+    ) -> Result<Self, TrayError> {
         #[cfg(any(
             target_os = "windows",
             target_os = "macos",
             all(target_os = "linux", not(target_arch = "wasm32"))
         ))]
         {
-            let inner = platform::PlatformTray::new(&data)?;
+            let inner = platform::PlatformTray::new(&data, provider, font_manager)?;
             Ok(Self { inner, data })
         }
         #[cfg(not(any(
@@ -203,7 +237,7 @@ impl TrayIcon {
             all(target_os = "linux", not(target_arch = "wasm32"))
         )))]
         {
-            let _ = data;
+            let _ = (data, provider, font_manager);
             Err(TrayError::Unsupported)
         }
     }
@@ -217,14 +251,19 @@ impl TrayIcon {
     ///
     /// # Errors
     /// Propagates whatever the platform reports.
-    pub fn update(&mut self, data: TrayIconData) -> Result<(), TrayError> {
+    pub fn update(
+        &mut self,
+        data: TrayIconData,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+    ) -> Result<(), TrayError> {
         #[cfg(any(
             target_os = "windows",
             target_os = "macos",
             all(target_os = "linux", not(target_arch = "wasm32"))
         ))]
         {
-            self.inner.update(&self.data, &data)?;
+            self.inner.update(&self.data, &data, provider, font_manager)?;
         }
         self.data = data;
         Ok(())
@@ -234,5 +273,18 @@ impl TrayIcon {
     #[must_use]
     pub const fn data(&self) -> &TrayIconData {
         &self.data
+    }
+
+    /// Per-iteration work. On macOS this drains menu clicks that belong to this
+    /// tray out of the process-wide menu-action queue.
+    pub fn pump(&mut self) {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            all(target_os = "linux", not(target_arch = "wasm32"))
+        ))]
+        {
+            self.inner.pump();
+        }
     }
 }

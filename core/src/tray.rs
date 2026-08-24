@@ -1,4 +1,4 @@
-//! System tray / status icon — platform-agnostic model.
+//! System tray / status icon  -  platform-agnostic model.
 //!
 //! The actual OS plumbing lives in `azul-dll` (`desktop/tray/`). This module
 //! only defines the data the three backends agree on.
@@ -8,12 +8,12 @@
 //! The three platforms share almost nothing below the "icon + retained menu
 //! tree" level, and two of their constraints leak into any honest API:
 //!
-//! 1. **On Linux the menu is not a popup — it is a remote model.** SNI's `Menu`
+//! 1. **On Linux the menu is not a popup  -  it is a remote model.** SNI's `Menu`
 //!    property points at a `com.canonical.dbusmenu` object, and the *panel*
 //!    draws the menu, calling back into us with `GetLayout` / `AboutToShow`.
 //!    So the menu must be a RETAINED tree with stable ids and a revision
 //!    counter. An API shaped as `show_context_menu_at(x, y)` cannot be
-//!    implemented on Linux and would have to be redone — hence
+//!    implemented on Linux and would have to be redone  -  hence
 //!    [`TrayIconData::menu`] is state, not a call.
 //!
 //! 2. **`ContextMenu` is a REQUEST, not a command.** On Linux the panel may
@@ -25,7 +25,7 @@
 //! * **A tray may genuinely not exist.** On a vanilla GNOME there is no
 //!   `org.kde.StatusNotifierWatcher` at all: registration fails silently and no
 //!   icon ever appears. [`TrayIconData`] is therefore accepted on a best-effort
-//!   basis and the app must have a story for "no tray" — see
+//!   basis and the app must have a story for "no tray"  -  see
 //!   `App::tray_available()` in azul-dll.
 //! * **Click semantics differ.** The SNI spec does not say which gesture
 //!   activates an item; some desktops use single left click, some double. Never
@@ -55,7 +55,7 @@ use azul_css::{corety::U8Vec, AzString, OptionString};
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TrayIconImage {
-    /// Cache key — lets a backend skip re-uploading an unchanged icon.
+    /// Cache key  -  lets a backend skip re-uploading an unchanged icon.
     pub key: IconKey,
     pub width: u32,
     pub height: u32,
@@ -70,31 +70,40 @@ impl PartialEq for TrayIconImage {
 impl Eq for TrayIconImage {}
 
 impl TrayIconImage {
-    /// `rgba` must be exactly `width * height * 4` bytes; returns `None` otherwise.
+    /// `rgba` must be exactly `width * height * 4` bytes; returns `None`
+    /// otherwise.
+    ///
+    /// Returns `OptionTrayIconImage` rather than `Option<Self>` so the
+    /// signature crosses the C ABI unchanged.
     #[must_use]
-    pub fn new(width: u32, height: u32, rgba: U8Vec) -> Option<Self> {
+    pub fn new(width: u32, height: u32, rgba: U8Vec) -> OptionTrayIconImage {
         if width == 0 || height == 0 {
-            return None;
+            return OptionTrayIconImage::None;
         }
-        let expected = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
+        let Some(expected) = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))
+        else {
+            return OptionTrayIconImage::None;
+        };
         if rgba.as_ref().len() != expected {
-            return None;
+            return OptionTrayIconImage::None;
         }
-        Some(Self { key: IconKey::new(), width, height, rgba })
+        OptionTrayIconImage::Some(Self { key: IconKey::new(), width, height, rgba })
     }
 
     /// The icon's pixels as ARGB32 in **network (big-endian) byte order**, the
     /// wire format `org.kde.StatusNotifierItem`'s `IconPixmap` (`a(iiay)`)
     /// requires. Nothing else uses this layout, so it is computed on demand.
     #[must_use]
-    pub fn to_argb32_be(&self) -> Vec<u8> {
+    pub fn to_argb32_be(&self) -> U8Vec {
         let src = self.rgba.as_ref();
         let mut out = Vec::with_capacity(src.len());
         for px in src.chunks_exact(4) {
             // RGBA -> ARGB, big-endian == [A, R, G, B] in memory order.
             out.extend_from_slice(&[px[3], px[0], px[1], px[2]]);
         }
-        out
+        U8Vec::from_vec(out)
     }
 }
 
@@ -127,13 +136,13 @@ pub enum TrayIconSource {
     #[default]
     None,
     /// Explicit RGBA bitmaps, ideally at several sizes so each platform can
-    /// pick — see [`TrayIconData::best_icon`].
+    /// pick  -  see [`TrayIconData::best_icon`].
     ///
-    /// Only needed for an icon that genuinely is not in a pack — typically one
+    /// Only needed for an icon that genuinely is not in a pack  -  typically one
     /// generated at runtime, since the icon registry is frozen once the
     /// provider is shared (`App::run` consumes the handle).
     Rgba(TrayIconImageVec),
-    /// An **icon spec** — exactly the string an `<icon>` node takes: a bare
+    /// An **icon spec**  -  exactly the string an `<icon>` node takes: a bare
     /// name (`"settings"`), a pack-qualified name (`"mypack:logo"`), or a
     /// comma-separated fallback list (`"mypack:logo, settings"`).
     ///
@@ -141,13 +150,13 @@ pub enum TrayIconSource {
     ///
     /// It resolves through the SAME registry and resolver `<icon>` DOM nodes
     /// use, so anything registered there works with no tray-specific icon path
-    /// — Material Icons (the default pack), an image pack loaded from a ZIP, or
+    ///  -  Material Icons (the default pack), an image pack loaded from a ZIP, or
     /// a custom resolver. Because resolution yields a `StyledDom` which is then
     /// rendered, an icon can be anything expressible as a DOM: a font glyph, a
     /// bitmap, later an SVG or an emoji.
     ///
     /// And a spec can be rendered at ANY size on demand, which a fixed bitmap
-    /// cannot — a tray needs the same icon at several sizes and cannot know
+    /// cannot  -  a tray needs the same icon at several sizes and cannot know
     /// them up front (Windows re-asks at every taskbar DPI: 16/20/24/32; macOS
     /// wants 18pt, which is 36px on a 2x display; SNI publishes an array).
     Named(AzString),
@@ -293,7 +302,7 @@ pub struct TrayIconData {
     pub id: AzString,
     /// Human-readable application name (SNI `Title`).
     pub title: AzString,
-    /// Where the icon's pixels come from — a named icon-pack entry (preferred)
+    /// Where the icon's pixels come from  -  a named icon-pack entry (preferred)
     /// or explicit RGBA bitmaps.
     pub icon: TrayIconSource,
     /// Shown when `status == NeedsAttention` on SNI hosts. Ignored elsewhere.
@@ -325,20 +334,20 @@ impl Default for TrayIconData {
 
 impl TrayIconData {
     #[must_use]
-    pub fn new(id: &str, title: &str) -> Self {
+    pub fn new(id: AzString, title: AzString) -> Self {
         Self {
-            id: AzString::from(String::from(id)),
-            title: AzString::from(String::from(title)),
+            id,
+            title,
             ..Self::default()
         }
     }
 
     /// Use an icon from the icon registry, by the same spec an `<icon>` node
-    /// takes — `"settings"`, `"mypack:logo"`, or a fallback list. Preferred:
+    /// takes  -  `"settings"`, `"mypack:logo"`, or a fallback list. Preferred:
     /// it renders at whatever size each platform asks for.
     #[must_use]
-    pub fn with_named_icon(mut self, spec: &str) -> Self {
-        self.icon = TrayIconSource::Named(AzString::from(String::from(spec)));
+    pub fn with_named_icon(mut self, spec: AzString) -> Self {
+        self.icon = TrayIconSource::Named(spec);
         self
     }
 
@@ -357,21 +366,24 @@ impl TrayIconData {
     }
 
     #[must_use]
-    pub fn with_tooltip(mut self, tooltip: &str) -> Self {
-        self.tooltip = OptionString::Some(AzString::from(String::from(tooltip)));
+    pub fn with_tooltip(mut self, tooltip: AzString) -> Self {
+        self.tooltip = OptionString::Some(tooltip);
         self
     }
 
     /// The icon closest to `target_px`, preferring the smallest one that is at
     /// least `target_px` (upscaling a small icon looks far worse than
-    /// downscaling a large one — this is why Windows' own `LoadIconMetric`
+    /// downscaling a large one  -  this is why Windows' own `LoadIconMetric`
     /// scales down from a larger frame rather than up).
     /// Only meaningful for [`TrayIconSource::Rgba`]; a `Named` icon is
     /// rasterized at the exact size instead, so it never needs picking.
+    ///
+    /// Returns an owned `OptionTrayIconImage` rather than `Option<&_>` because
+    /// a borrow cannot cross the C ABI. The clone is one `U8Vec` bump.
     #[must_use]
-    pub fn best_icon(&self, target_px: u32) -> Option<&TrayIconImage> {
+    pub fn best_icon(&self, target_px: u32) -> OptionTrayIconImage {
         let TrayIconSource::Rgba(ref icons) = self.icon else {
-            return None;
+            return OptionTrayIconImage::None;
         };
         let icons = icons.as_ref();
         icons
@@ -379,6 +391,8 @@ impl TrayIconData {
             .filter(|i| i.width >= target_px)
             .min_by_key(|i| i.width)
             .or_else(|| icons.iter().max_by_key(|i| i.width))
+            .cloned()
+            .into()
     }
 }
 
@@ -387,7 +401,9 @@ mod tests {
     use super::*;
 
     fn img(w: u32, h: u32) -> TrayIconImage {
-        TrayIconImage::new(w, h, vec![0u8; (w * h * 4) as usize].into()).unwrap()
+        TrayIconImage::new(w, h, vec![0u8; (w * h * 4) as usize].into())
+            .into_option()
+            .expect("w*h*4 buffer must be accepted")
     }
 
     #[test]
@@ -404,8 +420,10 @@ mod tests {
     #[test]
     fn argb32_be_reorders_rgba_to_a_r_g_b() {
         // One pixel: R=1 G=2 B=3 A=4  ->  A=4 R=1 G=2 B=3
-        let i = TrayIconImage::new(1, 1, vec![1, 2, 3, 4].into()).unwrap();
-        assert_eq!(i.to_argb32_be(), vec![4, 1, 2, 3]);
+        let i = TrayIconImage::new(1, 1, vec![1, 2, 3, 4].into())
+            .into_option()
+            .expect("1x1 RGBA is 4 bytes");
+        assert_eq!(i.to_argb32_be().as_ref(), &[4u8, 1, 2, 3]);
     }
 
     #[test]
@@ -419,18 +437,18 @@ mod tests {
             ..Default::default()
         };
         // Exact match wins.
-        assert_eq!(d.best_icon(32).unwrap().width, 32);
+        assert_eq!(d.best_icon(32).into_option().unwrap().width, 32);
         // Between sizes: scale DOWN from 32, never up from 16.
-        assert_eq!(d.best_icon(20).unwrap().width, 32);
+        assert_eq!(d.best_icon(20).into_option().unwrap().width, 32);
         // Larger than everything we have: take the biggest.
-        assert_eq!(d.best_icon(256).unwrap().width, 64);
+        assert_eq!(d.best_icon(256).into_option().unwrap().width, 64);
         // No icons at all is not a panic.
         assert!(TrayIconData::default().best_icon(16).is_none());
         // A named icon has no bitmap to pick from — it is rasterized at the
         // exact size instead, so best_icon must not invent one.
         assert!(
             TrayIconData::default()
-                .with_named_icon("settings")
+                .with_named_icon(AzString::from_const_str("settings"))
                 .best_icon(16)
                 .is_none()
         );
@@ -442,7 +460,11 @@ mod tests {
         // fallback lists is the icon registry's job, not the tray's, so that
         // `<icon>` and a tray icon can never disagree about what a spec means.
         for spec in ["settings", "mypack:logo", "missing:x, settings"] {
-            let d = TrayIconData::new("org.example.app", "App").with_named_icon(spec);
+            let d = TrayIconData::new(
+                AzString::from_const_str("org.example.app"),
+                AzString::from_const_str("App"),
+            )
+            .with_named_icon(AzString::from(String::from(spec)));
             let TrayIconSource::Named(ref s) = d.icon else {
                 panic!("expected a named icon source");
             };
