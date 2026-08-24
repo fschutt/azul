@@ -933,6 +933,9 @@ impl TransientWindowManager {
 ///
 /// A source node that is UNMOUNTED by the rebuild drops its window: the thing
 /// it was anchored to is gone, so there is nothing for the popup to belong to.
+// `managers` (the trait's home) is `text_layout`-gated; without it there is no
+// remap machinery to implement against (e.g. the no-default-features ICU build).
+#[cfg(feature = "text_layout")]
 impl crate::managers::NodeIdRemap for TransientWindowManager {
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
         if dom != DomId::ROOT_ID {

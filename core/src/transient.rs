@@ -28,6 +28,8 @@
 //! See `scripts/TRANSIENT_WINDOW_PLAN_2026_08_22.md` for the full design,
 //! including tear-off and window shapes, which build on this.
 
+use alloc::vec::Vec;
+
 use crate::geom::{LogicalSize, OptionLogicalSize};
 
 /// Which edge of the anchor node a transient window opens from.
