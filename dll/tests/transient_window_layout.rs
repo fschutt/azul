@@ -746,6 +746,7 @@ fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> Transient
         torn: d.torn,
         drag: d.drag,
         drop: d.drop,
+        following: d.following,
     }
 }
 

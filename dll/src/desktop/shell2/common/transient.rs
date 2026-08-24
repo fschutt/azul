@@ -105,6 +105,13 @@ pub struct TransientWindowData {
     pub drag: Option<TearDrag>,
     /// Popup → parent: the tear-off drag ended; decide what it meant.
     pub drop: Option<TearDropReport>,
+    /// Parent → popup: this torn window is a live drag PROXY, driven by the
+    /// PARENT's ongoing gesture (an inline panel torn off the moment the drag
+    /// crossed the threshold — the parent owns the mouse, so the parent writes
+    /// `origin` every frame). While set, the window places itself at `origin`
+    /// even though it is `torn`, so it follows the cursor from drag START, not
+    /// only once the pointer leaves the parent. Cleared on drop.
+    pub following: bool,
 }
 
 /// A tear-off drag in progress, inside the popup window.
@@ -211,6 +218,7 @@ pub fn popup_create_options(
         torn: false,
         drag: None,
         drop: None,
+        following: false,
     });
 
     let mut window_state = popup_window_state("Popup", "azul-transient", size, origin);
@@ -267,6 +275,9 @@ pub fn toplevel_create_options(
         torn: true,
         drag: None,
         drop: None,
+        // Set true by the parent's drag handler on the first move after an
+        // inline tear, so the proxy follows the cursor from drag start.
+        following: false,
     });
 
     let mut window_state = FullWindowState::default();
@@ -278,6 +289,12 @@ pub fn toplevel_create_options(
     // titlebar, no traffic-light / close buttons (the popup path is already
     // frameless; the torn toplevel must match).
     window_state.flags.decorations = WindowDecorations::None;
+    // Carry the configured material, exactly as the popup path does: a
+    // `Transparent` panel keeps per-pixel alpha when torn off, so its rounded
+    // corners are real corners instead of white window corners (the same
+    // treatment the colour picker's popover gets — it was only applied to the
+    // popup form, not the torn one).
+    window_state.flags.background_material = open.placement.material;
     window_state.title = title.into();
     window_state.window_id = "azul-transient-torn".into();
     window_state.size.dimensions = size;
@@ -615,8 +632,8 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
     let Some(m) = mailbox_of(state) else {
         return PopupAction::Nothing;
     };
-    let Some((closed, generation, origin, size, torn, dragging)) =
-        read(&m, |d| (d.closed, d.generation, d.origin, d.content_size, d.torn, d.drag.is_some()))
+    let Some((closed, generation, origin, size, torn, dragging, following)) =
+        read(&m, |d| (d.closed, d.generation, d.origin, d.content_size, d.torn, d.drag.is_some(), d.following))
     else {
         return PopupAction::Nothing;
     };
@@ -627,6 +644,16 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
     // parent wrote shows up as a position/size that differs from it.
     let _ = generation;
     if dragging {
+        return PopupAction::Nothing;
+    }
+    // A live drag proxy follows the parent's cursor: place it at `origin`
+    // every frame even though it is torn (a torn window normally stays where
+    // the user put it, but during the parent-driven tear the parent IS the
+    // one putting it, one frame at a time).
+    if following {
+        if state.position != relative_position(origin) {
+            return PopupAction::Place { origin: Some(origin), size };
+        }
         return PopupAction::Nothing;
     }
     let want_pos = (!torn).then(|| relative_position(origin));
@@ -640,6 +667,39 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
     } else {
         PopupAction::Nothing
     }
+}
+
+/// The proxy window's mailbox for the inline-tear `node`, if it has a surface
+/// yet (it is created a pass after the tear began). The parent talks to the
+/// child through this.
+#[must_use]
+pub fn inline_tear_mailbox(lw: &LayoutWindow, node: NodeId) -> Option<RefAny> {
+    lw.transient_windows
+        .open_windows()
+        .iter()
+        .find(|w| w.source_node == node)
+        .and_then(|w| match &w.surface {
+            OptionRefAny::Some(m) => Some(m.clone()),
+            OptionRefAny::None => None,
+        })
+}
+
+/// Parent → proxy: slide a live inline-tear proxy to `origin` (parent logical
+/// coordinates) this frame. Sets `following` so the window honours `origin`
+/// even though it is torn. The parent owns the gesture, so it — not the child
+/// — advances the position. Returns whether the mailbox took it.
+pub fn drive_proxy(mailbox: &RefAny, origin: LogicalPosition) -> bool {
+    write(mailbox, |d| {
+        d.origin = origin;
+        d.following = true;
+    })
+}
+
+/// The inline-tear drag ended: stop driving the proxy. Whatever the drop
+/// decided (docked back inline, re-docked onto a zone, or left floating), the
+/// parent is no longer moving it.
+pub fn release_proxy(mailbox: &RefAny) -> bool {
+    write(mailbox, |d| d.following = false)
 }
 
 /// `origin` (parent logical coordinates) as the `WindowPosition` a popup

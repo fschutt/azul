@@ -996,6 +996,12 @@ pub struct InlineTear {
     pub press: LogicalPosition,
     /// The panel box's top-left at the press (parent logical coordinates).
     pub origin: LogicalPosition,
+    /// The zone the panel was inline in when the drag began (its
+    /// `anchor_override`). The proxy tear is silent; on release the app hears
+    /// ONE lifecycle event, computed as the NET change from this pre-drag
+    /// state to where the drop settled — so a reorder back into the same zone
+    /// is the no-op it looks like, not a spurious torn-off/docked pair.
+    pub was_zone: Option<NodeId>,
 }
 
 #[derive(Debug)]
@@ -3637,19 +3643,52 @@ impl LayoutWindow {
     }
 
     /// A grip inside an inline-docked panel was pressed and dragged past the
-    /// threshold: remember the panel, the press and where its box was.
+    /// threshold: remember the panel, the press and where its box was, and
+    /// tear it off into a frameless window RIGHT NOW so it follows the cursor
+    /// from the first move (a VS-style drag proxy). The panel leaves the
+    /// inline layout — a gap opens where it was — and the parent drives the
+    /// proxy's position for the rest of the gesture (`drive_inline_tear`),
+    /// deciding dock / re-dock / stay-floating on release (`end_inline_tear`).
     pub fn begin_inline_tear(&mut self, panel: NodeId, press: LogicalPosition) -> bool {
-        let Some(origin) = self
-            .get_node_rect_in_viewport(DomNodeId {
-                dom: DomId::ROOT_ID,
-                node: NodeHierarchyItemId::from_crate_internal(Some(panel)),
-            })
-            .map(|r| r.origin)
-        else {
+        let Some(rect) = self.get_node_rect_in_viewport(DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(panel)),
+        }) else {
             return false;
         };
-        self.inline_tear = Some(InlineTear { node: panel, press, origin });
-        true
+        let origin = rect.origin;
+        let was_zone = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == panel)
+            .and_then(|w| w.anchor_override);
+        // Freeze the proxy window at the size the panel has inline right now,
+        // then FORCE it torn off at its current spot — no jump, it appears
+        // exactly over the gap it left. `drop_transient_window` can't be used
+        // here: the press point is inside the panel's own anchor, so it would
+        // decide "dock back" and never tear. The tear is SILENT (no lifecycle
+        // event): it is a drag proxy, not an app-facing tear-off — the app
+        // hears one event on release (`end_inline_tear`).
+        self.transient_windows.set_content_size(panel, rect.size);
+        self.inline_tear = Some(InlineTear { node: panel, press, origin, was_zone });
+        self.apply_transient_drop_inner(panel, crate::transient::TearDrop::TearOff(origin), false)
+    }
+
+    /// Where the frameless proxy's top-left should be for a pointer at
+    /// `cursor` mid-tear: its start origin plus the drag delta. The dll writes
+    /// this into the proxy window's mailbox each move (the parent owns the
+    /// gesture, so it drives the child). `None` if no inline tear is active.
+    #[must_use]
+    pub fn inline_tear_origin_at(&self, cursor: LogicalPosition) -> Option<(NodeId, LogicalPosition)> {
+        let tear = self.inline_tear?;
+        Some((
+            tear.node,
+            LogicalPosition::new(
+                tear.origin.x + (cursor.x - tear.press.x),
+                tear.origin.y + (cursor.y - tear.press.y),
+            ),
+        ))
     }
 
     /// The inline tear-off drag ended with the pointer at `cursor`: the
@@ -3672,7 +3711,59 @@ impl LayoutWindow {
         }) {
             self.transient_windows.set_content_size(tear.node, rect.size);
         }
-        self.drop_transient_window(tear.node, origin, cursor)
+        // Apply the drop SILENTLY (the proxy tear on drag-start was silent too),
+        // then fire ONE lifecycle event for the NET change from the pre-drag
+        // state to where it settled: floating now → `TornOff`; inline in a
+        // different zone → `Docked`; back in the same zone → nothing.
+        let changed = self.drop_transient_window_emit(tear.node, origin, cursor, false);
+        let (now_torn, now_zone) = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == tear.node)
+            .map_or((false, None), |w| (w.torn.is_some(), w.anchor_override));
+        let net_changed = now_torn || now_zone != tear.was_zone;
+        if net_changed {
+            self.emit_tearoff_event(tear.node);
+        }
+        changed
+    }
+
+    /// Queue the `TornOff` / `Docked` lifecycle event for `node` from its
+    /// current window state (torn → `TornOff`, inline → `Docked`). Factored
+    /// out of `apply_transient_drop_inner` so `end_inline_tear` can fire the
+    /// single net-change event its silent drop suppressed.
+    fn emit_tearoff_event(&mut self, node: NodeId) {
+        let Some(w) = self
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == node)
+        else {
+            return;
+        };
+        let bounds = match w.torn {
+            Some(origin) => LogicalRect::new(origin, w.content_size),
+            None => w.placement.anchor_rect,
+        };
+        let torn = w.torn.is_some();
+        let now = {
+            #[cfg(feature = "std")]
+            {
+                Instant::now()
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
+            }
+        };
+        self.pending_lifecycle_events.push(azul_core::diff::create_tearoff_event(
+            node,
+            DomId::ROOT_ID,
+            &now,
+            torn,
+            bounds,
+        ));
     }
 
     /// The user's tear-off drag of the window at `source_node` ended with the
@@ -3687,6 +3778,19 @@ impl LayoutWindow {
         source_node: NodeId,
         window_origin: LogicalPosition,
         cursor: LogicalPosition,
+    ) -> bool {
+        self.drop_transient_window_emit(source_node, window_origin, cursor, true)
+    }
+
+    /// `drop_transient_window` with control over the lifecycle event. The
+    /// inline-tear proxy drops silently (`emit = false`) and fires its own
+    /// single net-change event in `end_inline_tear`.
+    fn drop_transient_window_emit(
+        &mut self,
+        source_node: NodeId,
+        window_origin: LogicalPosition,
+        cursor: LogicalPosition,
+        emit: bool,
     ) -> bool {
         use crate::transient::{decide_drop, nodes_matching_selector, tearoff_zone_selector, TearDrop};
         let Some(open) = self
@@ -3724,7 +3828,7 @@ impl LayoutWindow {
         let drop = decide_drop(cursor, open.placement.anchor_rect, window_origin, |p| {
             zones.iter().rev().find(|(_, r)| r.contains(p)).map(|(n, _)| *n)
         });
-        self.apply_transient_drop(source_node, drop)
+        self.apply_transient_drop_inner(source_node, drop, emit)
     }
 
     /// A callback's `set_transient_window_torn`: tear the window off at its
@@ -3750,6 +3854,22 @@ impl LayoutWindow {
     }
 
     fn apply_transient_drop(&mut self, source_node: NodeId, drop: crate::transient::TearDrop) -> bool {
+        self.apply_transient_drop_inner(source_node, drop, true)
+    }
+
+    /// `apply_transient_drop`, but `emit_event = false` suppresses the
+    /// `TornOff` / `Docked` lifecycle event. Used by the inline-tear drag
+    /// proxy: tearing the panel into a follower window the instant the drag
+    /// starts is a VISUAL operation, not an app-facing tear — the app hears
+    /// one event, on release, for what the drop actually settled on (docked
+    /// back, re-docked onto a zone, or left floating). Without this, every
+    /// reorder drag would spam a `TornOff` the app never asked about.
+    fn apply_transient_drop_inner(
+        &mut self,
+        source_node: NodeId,
+        drop: crate::transient::TearDrop,
+        emit_event: bool,
+    ) -> bool {
         let zone_before = self
             .transient_windows
             .open_windows()
@@ -3774,7 +3894,7 @@ impl LayoutWindow {
         // The node hears about a change of KIND (torn <-> docked) and about a
         // change of ZONE (dropped onto another dock area): both are "docked".
         let zone_changed = w.torn.is_none() && w.anchor_override != zone_before;
-        if changed || zone_changed {
+        if emit_event && (changed || zone_changed) {
             let bounds = match w.torn {
                 Some(origin) => LogicalRect::new(origin, w.content_size),
                 None => w.placement.anchor_rect,

@@ -138,7 +138,11 @@ fn dock_zones() -> Dom {
     let panel = Dom::create_node(NodeType::transient_window(
         TransientWindowConfig::opened()
             .with_dock(TransientDock::inline())
-            .with_tearoff(TransientTearoff::zone()),
+            .with_tearoff(TransientTearoff::zone())
+            // Torn off, the panel is its own frameless window; Transparent
+            // gives it per-pixel alpha so its rounded corners are real (the
+            // same treatment the colour picker's popover uses).
+            .with_material(azul::css::WindowBackgroundMaterial::Transparent),
     ))
     .with_attributes(vec![
         AttributeType::title("Tools"),

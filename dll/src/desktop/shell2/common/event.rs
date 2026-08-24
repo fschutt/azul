@@ -6477,7 +6477,29 @@ pub trait PlatformWindow {
             let inline_tear_active = self.get_layout_window().is_some_and(|lw| lw.inline_tear.is_some());
             if inline_tear_active {
                 match ev.event_type {
-                    EventType::Drag => continue,
+                    EventType::Drag => {
+                        // Slide the frameless proxy so the grip stays under the
+                        // cursor. The parent owns the gesture (the mouse went
+                        // down here), so the parent writes the child window's
+                        // origin every frame; the child just honours it.
+                        if let Some(cursor) = self
+                            .get_current_window_state()
+                            .mouse_state
+                            .cursor_position
+                            .get_position()
+                        {
+                            let drive = self.get_layout_window().and_then(|lw| {
+                                let (node, origin) = lw.inline_tear_origin_at(cursor)?;
+                                let m = super::transient::inline_tear_mailbox(lw, node)?;
+                                Some((m, origin))
+                            });
+                            if let Some((mailbox, origin)) = drive {
+                                super::transient::drive_proxy(&mailbox, origin);
+                                self.request_regeneration_all_windows();
+                            }
+                        }
+                        continue;
+                    }
                     EventType::DragEnd => {
                         let cursor = self
                             .get_current_window_state()
@@ -6485,6 +6507,15 @@ pub trait PlatformWindow {
                             .cursor_position
                             .get_position()
                             .unwrap_or(azul_core::geom::LogicalPosition::zero());
+                        // Stop driving the proxy, then let the engine decide
+                        // what the drop meant (dock back inline, re-dock onto
+                        // another zone, or stay floating where it was dropped).
+                        if let Some(mailbox) = self.get_layout_window().and_then(|lw| {
+                            let node = lw.inline_tear?.node;
+                            super::transient::inline_tear_mailbox(lw, node)
+                        }) {
+                            super::transient::release_proxy(&mailbox);
+                        }
                         let changed = self
                             .get_layout_window_mut()
                             .is_some_and(|lw| lw.end_inline_tear(cursor));
@@ -6493,8 +6524,8 @@ pub trait PlatformWindow {
                                 super::debug_server::LogCategory::Window,
                                 "[transient] inline panel dropped at {cursor:?}: re-laying out"
                             );
-                            self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         }
+                        self.request_regeneration_all_windows();
                         continue;
                     }
                     _ => {}
@@ -6576,6 +6607,10 @@ pub trait PlatformWindow {
                             super::debug_server::LogCategory::Window,
                             "[transient] inline panel {panel:?} tear-off drag begins"
                         );
+                        // The panel tore off immediately: create its frameless
+                        // proxy window now so it follows the cursor from the
+                        // first move, not only once the pointer leaves us.
+                        self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         continue;
                     }
                 }
