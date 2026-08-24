@@ -2096,9 +2096,11 @@ impl X11Window {
             );
         }
         let position = options.window_state.position;
-        // Monitor ID is now stored in FullWindowState.monitor_id, not in WindowState
-        // For now, we default to monitor 0
-        let monitor_id = 0; // TODO: Get from options or detect primary monitor
+        // The monitor the caller asked to open on, as an index into the list
+        // display::get_monitors() builds. This was hardcoded to 0, so
+        // `WindowCreateOptions.window_state.monitor_id` was silently ignored
+        // and every X11 window opened on the first CRTC.
+        let monitor_id = options.window_state.monitor_id.into_option().unwrap_or(0);
 
         // Try to create window with ARGB visual for true background transparency
         // This allows background-only transparency where the background is transparent
@@ -2482,7 +2484,13 @@ impl X11Window {
                 background_color: options.window_state.background_color,
                 layout_callback: options.window_state.layout_callback,
                 close_callback: options.window_state.close_callback.clone(),
-                monitor_id: OptionU32::None,
+                // Seed with the monitor we are actually placing the window on.
+                // This was `None` and was never written afterwards, so on X11
+                // `CallbackInfo::get_current_monitor()` returned None for the
+                // window's whole life and `WindowMonitorChanged` could never
+                // fire (the event rule needs BOTH sides Some). The
+                // ConfigureNotify handler keeps it current from here on.
+                monitor_id: OptionU32::Some(monitor_id as u32),
                 window_id: options.window_state.window_id.clone(),
                 window_focused: true,
                 active_route: azul_core::resources::OptionRouteMatch::None,
@@ -3803,6 +3811,34 @@ impl X11Window {
                     if let Some(display) =
                         crate::desktop::display::get_display_at_point(window_center)
                     {
+                        // Keep `ws.monitor_id` current so get_current_monitor()
+                        // and WindowMonitorChanged track the move. Resolve the
+                        // INDEX out of the cached list by matching the origin,
+                        // the same way the Win32 WM_MOVE handler does — the
+                        // cache and get_display_at_point() are built from the
+                        // same enumeration, so origins compare exactly.
+                        #[allow(clippy::cast_possible_truncation)]
+                        let found_index = self.common.layout_window.as_ref().and_then(|lw| {
+                            let guard = lw.monitors.lock().ok()?;
+                            guard
+                                .as_ref()
+                                .iter()
+                                .find(|m| {
+                                    m.position.x == display.bounds.origin.x as isize
+                                        && m.position.y == display.bounds.origin.y as isize
+                                })
+                                .map(|m| m.monitor_id.index as u32)
+                        });
+                        if let Some(index) = found_index {
+                            if self.common.current_window_state().monitor_id
+                                != OptionU32::Some(index)
+                            {
+                                self.common.update_window_state(
+                                    crate::desktop::shell2::common::event::WindowStateSource::Os,
+                                    |ws| ws.monitor_id = OptionU32::Some(index),
+                                );
+                            }
+                        }
                         // Same 0.25-step quantization as detect_initial_dpi, so a
                         // noisy mm-based estimate (~1.04) stays at exactly 96 DPI.
                         let new_dpi =
@@ -3864,7 +3900,7 @@ impl X11Window {
                         );
                         if let Some(ref lw) = self.common.layout_window {
                             if let Ok(mut guard) = lw.monitors.lock() {
-                                *guard = crate::desktop::display::get_monitors();
+                                *guard = crate::desktop::display::refresh_monitors();
                             }
                         }
                     }

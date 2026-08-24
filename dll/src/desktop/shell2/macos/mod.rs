@@ -3084,7 +3084,7 @@ define_class!(
                     window.surface_needs_update = true;
                     if let Some(ref lw) = window.common.layout_window {
                         if let Ok(mut guard) = lw.monitors.lock() {
-                            *guard = crate::desktop::display::get_monitors();
+                            *guard = crate::desktop::display::refresh_monitors();
                         }
                     }
                 }
@@ -3100,7 +3100,7 @@ define_class!(
                     let window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Some(ref lw) = window.common.layout_window {
                         if let Ok(mut guard) = lw.monitors.lock() {
-                            *guard = crate::desktop::display::get_monitors();
+                            *guard = crate::desktop::display::refresh_monitors();
                         }
                     }
                 }

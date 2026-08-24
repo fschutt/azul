@@ -622,12 +622,20 @@ impl Win32Window {
             should_show_window
         );
 
-        // Position window on requested monitor (or center on primary)
-        // This can be done before showing
-        // TODO: Use monitor_id to look up actual Monitor from global state
+        // Position window on the REQUESTED monitor (or centre on the first
+        // one). `Monitor::default().monitor_id` is MonitorId::PRIMARY, so
+        // passing it here threw `options.window_state.monitor_id` away and
+        // opened every window on monitors[0] regardless of what the caller
+        // asked for. `hash: 0` is right: position_window_on_monitor matches on
+        // index first and only falls back to a NON-zero hash, so a
+        // hash-less id means "resolve me by index".
+        let target_monitor_id = azul_core::window::MonitorId {
+            index: current_window_state.monitor_id.into_option().unwrap_or(0) as usize,
+            hash: 0,
+        };
         position_window_on_monitor(
             hwnd,
-            Monitor::default().monitor_id,
+            target_monitor_id,
             current_window_state.position,
             current_window_state.size,
             options.parent_window_id,
@@ -5744,7 +5752,7 @@ unsafe extern "system" fn window_proc(
             // Refresh the cached monitor list
             if let Some(ref lw) = window.common.layout_window {
                 if let Ok(mut guard) = lw.monitors.lock() {
-                    *guard = crate::desktop::display::get_monitors();
+                    *guard = crate::desktop::display::refresh_monitors();
                 }
             }
             0

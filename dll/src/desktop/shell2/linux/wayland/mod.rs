@@ -334,6 +334,10 @@ static WL_BUFFER_RELEASE_LISTENER: defines::wl_buffer_listener = defines::wl_buf
 #[derive(Debug, Clone)]
 pub struct MonitorState {
     pub proxy: *mut defines::wl_output,
+    /// The `wl_registry` global id this output was advertised under. This is
+    /// the ONLY handle `wl_registry.global_remove` gives us, so without it a
+    /// monitor unplug cannot be matched to the entry it should drop.
+    pub global_name: u32,
     pub name: String,
     pub scale: i32,
     pub x: i32,
@@ -2234,7 +2238,7 @@ impl WaylandWindow {
                 layout_window.routes = window.resources.config.routes.clone();
                 // Initialize monitor cache once at window creation
                 if let Ok(mut guard) = layout_window.monitors.lock() {
-                    *guard = crate::desktop::display::get_monitors();
+                    *guard = crate::desktop::display::refresh_monitors();
                 }
                 window.common.layout_window = Some(layout_window);
             }
@@ -2288,7 +2292,7 @@ impl WaylandWindow {
                     layout_window.routes = window.resources.config.routes.clone();
                     // Initialize monitor cache once at window creation
                     if let Ok(mut guard) = layout_window.monitors.lock() {
-                        *guard = crate::desktop::display::get_monitors();
+                        *guard = crate::desktop::display::refresh_monitors();
                     }
                     window.common.layout_window = Some(layout_window);
                 }

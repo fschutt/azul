@@ -531,6 +531,7 @@ pub(super) extern "C" fn registry_global_handler(
             use super::MonitorState;
             window.known_outputs.push(MonitorState {
                 proxy: output,
+                global_name: name,
                 name: format!("output-{}", name),
                 scale: 1,
                 x: 0,
@@ -753,11 +754,73 @@ pub(super) extern "C" fn toplevel_decoration_configure_handler(
     }
 }
 
+/// A global went away. In practice: a monitor was unplugged, powered off over
+/// DisplayPort (which the link treats as an unplug), or the compositor dropped
+/// a virtual output.
+///
+/// This used to be an empty stub, which leaked in three separate ways:
+///   * `known_outputs` grew monotonically across replug cycles, so every index
+///     after the removed one shifted — and `get_current_monitor()` correlates
+///     `known_outputs` against `display::get_displays()` BY INDEX.
+///   * the `wl_output` proxy was never destroyed.
+///   * the tracked-listener entry kept pointing at a dead proxy, so a later
+///     event on a recycled id could dispatch into freed state.
 pub(super) extern "C" fn registry_global_remove_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _registry: *mut wl_registry,
-    _name: u32,
+    name: u32,
 ) {
+    let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
+
+    let Some(idx) = window
+        .known_outputs
+        .iter()
+        .position(|m| m.global_name == name)
+    else {
+        // Not an output — seats, shells and every other global share this
+        // event, and we only track outputs here.
+        return;
+    };
+
+    let removed = window.known_outputs.remove(idx);
+
+    // The surface may still list this output as one it had entered; drop it,
+    // or `calculate_current_scale_factor()` keeps folding a dead output's
+    // scale into the max forever.
+    window.current_outputs.retain(|p| *p != removed.proxy);
+
+    // Drop the rebind entry before destroying the proxy, or the next
+    // `rebind_listeners()` re-registers a listener on freed memory.
+    let dead = removed.proxy.cast::<super::defines::wl_proxy>();
+    window.listener_proxies.retain(|p| *p != dead);
+    unsafe { (window.wayland.wl_proxy_destroy)(removed.proxy.cast()) };
+
+    log_info!(
+        LogCategory::Window,
+        "[Wayland] output {} ({}) removed; {} left",
+        name,
+        removed.name,
+        window.known_outputs.len()
+    );
+
+    // The topology changed, so the memoised display list is now wrong.
+    if let Some(ref lw) = window.common.layout_window {
+        if let Ok(mut guard) = lw.monitors.lock() {
+            *guard = crate::desktop::display::refresh_monitors();
+        }
+    }
+
+    // Losing the output the window was on changes its effective scale — same
+    // recompute as the `leave` handler. The fractional-scale protocol owns
+    // size.dpi outright when active, so leave it alone there.
+    if window.preferred_scale_120.is_some() {
+        return;
+    }
+    let new_dpi = (window.calculate_current_scale_factor() * 96.0) as u32;
+    let old_dpi = window.common.current_window_state().size.dpi;
+    if new_dpi > 0 && (new_dpi as i32 - old_dpi as i32).abs() > 1 {
+        apply_os_dpi_change(window, new_dpi);
+    }
 }
 
 // wl_seat listener
