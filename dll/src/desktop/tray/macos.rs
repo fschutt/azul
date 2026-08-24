@@ -184,14 +184,29 @@ impl PlatformTray {
     /// Menu items post their tag to a process-wide queue shared with every
     /// window's menu bar, so this takes only the tags it owns and leaves the
     /// rest for whoever does.
-    pub(super) fn pump(&mut self) {
+    pub(super) fn pump(&mut self) -> Vec<azul_core::menu::CoreMenuCallback> {
         if self.owned_tags.is_empty() {
-            return;
+            return Vec::new();
         }
+        // An item carrying a callback is DELIVERED to that callback and is not
+        // also queued as an event; an item without one is queued for polling.
+        // Splitting here keeps a tray menu item behaving exactly like a window
+        // menu item when the caller attached a callback - same RefAny, same
+        // CallbackInfo, same single invocation path - while leaving bare items
+        // observable through `drain_tray_events`.
+        //
+        // Invoking is the caller's job, not ours: a CallbackInfo needs a window
+        // and the tray has none of its own.
+        let mut to_invoke = Vec::new();
         for tag in take_pending_menu_actions_matching(|t| self.owned_tags.contains_key(&t)) {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            queue_tray_event(TrayEvent::menu_item(tag as u32));
+            let command = tag as u32;
+            match self.menu_callback(command) {
+                Some(cb) => to_invoke.push(cb.clone()),
+                None => queue_tray_event(TrayEvent::menu_item(command)),
+            }
         }
+        to_invoke
     }
 
     /// The callback registered for a menu command, so the integration layer can

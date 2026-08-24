@@ -723,11 +723,15 @@ pub fn run(
                     let font_registry = font_registry.clone();
                     let drain = RcBlock::new(move || {
                         // Tray menu clicks land in the process-wide menu-action
-                        // queue; drain the ones this tray owns into the tray
-                        // event mailbox. Self-gating when there is no tray.
-                        crate::desktop::tray::pump_tray();
+                        // queue; drain the ones this tray owns. Items carrying a
+                        // callback come back here to be invoked, the rest go to
+                        // the tray event mailbox. Self-gating when there is no
+                        // tray.
+                        pump_tray_into_windows();
 
-                        for wptr in super::macos::registry::get_all_window_ptrs() {
+                        let window_ptrs = super::macos::registry::get_all_window_ptrs();
+
+                        for wptr in window_ptrs {
                             let window = unsafe { &mut *wptr };
                             window.drain_loop_work();
 
@@ -824,6 +828,11 @@ pub fn run(
 
                 loop {
                     autoreleasepool(|_| {
+                        // Tray menu clicks, before native events: this loop is
+                        // what runs for the DEFAULT termination behaviour, so
+                        // skipping it here is what made the tray menu inert.
+                        pump_tray_into_windows();
+
                         // --- Drain pending native events (non-blocking) ---
                         // We need to dispatch events BOTH to the system (sendEvent) and to our handlers
                         loop {
@@ -1999,4 +2008,56 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
     }
 
     Ok(())
+}
+
+/// Drain tray menu clicks and run the callbacks they carry.
+///
+/// This lives in ONE place and is called from EVERY macOS event-loop branch on
+/// purpose. It was originally inlined into the `RunForever` timer, which meant
+/// it never ran for the DEFAULT termination behaviour (`EndProcess`) - the tray
+/// appeared, its menu opened, `menuItemAction:` fired and pushed the tag, and
+/// then nothing consumed it. The menu looked dead for the most common config
+/// while working in the one that is rarely used.
+///
+/// A tray menu item is invoked through the SAME path as a window menu item:
+/// `invoke_menu_callback` builds the `CallbackInfo`, hands over the caller's
+/// `RefAny`, applies whatever the callback changed and asks for a rebuild.
+/// It needs a window because a `CallbackInfo` does, and the tray has none of
+/// its own, so the first window stands in.
+#[cfg(target_os = "macos")]
+fn pump_tray_into_windows() {
+    let tray_callbacks = crate::desktop::tray::pump_tray();
+    if tray_callbacks.is_empty() {
+        return;
+    }
+
+    use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
+    use azul_core::events::ProcessEventResult;
+
+    let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
+    match window_ptrs.first() {
+        Some(&wptr) => {
+            let window = unsafe { &mut *wptr };
+            for cb in tray_callbacks {
+                if !matches!(
+                    window.invoke_menu_callback(
+                        cb,
+                        MenuInvocation::Native { site: "macos.tray_menu" },
+                    ),
+                    ProcessEventResult::DoNothing
+                ) {
+                    window.request_redraw();
+                }
+            }
+        }
+        None => {
+            // A tray-first app has no window to run against yet. Say so rather
+            // than dropping a user's callback in silence.
+            log_debug!(
+                debug_server::LogCategory::Callbacks,
+                "[tray] {} menu callback(s) had no window to run against",
+                tray_callbacks.len()
+            );
+        }
+    }
 }

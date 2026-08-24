@@ -30,6 +30,27 @@ use azul::tray::TrayIconData;
 
 struct TrayDemo {
     available: bool,
+    /// Bumped by the tray menu, and rendered by the window - the point being
+    /// that a tray callback mutates the SAME state the window draws from.
+    clicks: usize,
+}
+
+/// Tray menu callbacks are ordinary azul callbacks: your `RefAny` comes back
+/// as the first argument, and returning `Update::RefreshDom` re-runs layout.
+extern "C" fn on_open(mut data: RefAny, _info: CallbackInfo) -> Update {
+    match data.downcast_mut::<TrayDemo>() {
+        Some(mut d) => {
+            d.clicks += 1;
+            println!("[tray] \"Open\" clicked ({} total)", d.clicks);
+            Update::RefreshDom
+        }
+        None => Update::DoNothing,
+    }
+}
+
+extern "C" fn on_quit(_data: RefAny, _info: CallbackInfo) -> Update {
+    println!("[tray] \"Quit\" clicked - exiting");
+    std::process::exit(0);
 }
 
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%; \
@@ -40,10 +61,10 @@ const WARN: &str = "font-size: 13px; color: #bb0000; margin-bottom: 14px;";
 const HINT: &str = "font-size: 13px; color: #555555;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let available = data
+    let (available, clicks) = data
         .downcast_ref::<TrayDemo>()
-        .map(|d| d.available)
-        .unwrap_or(false);
+        .map(|d| (d.available, d.clicks))
+        .unwrap_or((false, 0));
 
     let (status_text, status_css) = if available {
         ("Tray available - look in the menu bar.", OK)
@@ -64,6 +85,13 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                     "Click the icon to open its menu. Menu clicks are logged to stdout.",
                 )
                 .with_css(HINT),
+            )
+            // The count is what makes the wiring visible: it is bumped by a
+            // callback fired from the TRAY, mutating the same RefAny this
+            // window lays out from.
+            .with_child(
+                Dom::create_div_with_text(format!("\"Open\" clicked {clicks} time(s)"))
+                    .with_css(HINT),
             ),
     )
 }
@@ -76,20 +104,29 @@ fn main() {
     // through the same registry and resolver an `<icon>settings</icon>` node
     // uses, then renders to RGBA at whatever size the platform asks for.
     // Try any other Material Icons name - "home", "favorite", "cloud".
-    let tray = TrayIconData::new("rs.azul.tray-demo", "Azul Tray Demo")
-        .with_named_icon("settings")
-        .with_tooltip("Azul tray demo")
-        .with_menu(Menu::create(vec![
-            MenuItem::String(StringMenuItem::create("Open")),
-            MenuItem::Separator,
-            MenuItem::String(StringMenuItem::create("Quit")),
-        ]));
-
     let data = RefAny::new(TrayDemo {
         // set_tray is best-effort and never fails the app; this is read only so
         // the window can be honest about whether an icon actually appeared.
         available: cfg!(target_os = "macos"),
+        clicks: 0,
     });
+
+    let tray = TrayIconData::new("rs.azul.tray-demo", "Azul Tray Demo")
+        .with_named_icon("settings")
+        .with_tooltip("Azul tray demo")
+        .with_menu(Menu::create(vec![
+            // A tray menu item takes the SAME callback a menu-bar item takes:
+            // your own RefAny plus a `CallbackInfo`. Without one the item is
+            // still clickable, but the click only shows up as a `TrayEvent` for
+            // you to poll - attaching a callback is what makes it act.
+            MenuItem::String(
+                StringMenuItem::create("Open").with_callback(data.clone(), on_open),
+            ),
+            MenuItem::Separator,
+            MenuItem::String(
+                StringMenuItem::create("Quit").with_callback(data.clone(), on_quit),
+            ),
+        ]));
 
     let mut app = App::create(data, AppConfig::create());
     app.set_tray(tray);

@@ -138,12 +138,18 @@ pub fn install_tray(
 
 /// Per-iteration tray work — currently draining menu clicks into the event
 /// mailbox. Cheap and self-gating when there is no tray.
-pub fn pump_tray() {
+///
+/// Returns the callbacks of any menu items clicked since the last pump, for the
+/// caller to invoke against a window - the tray has no window of its own, and a
+/// `CallbackInfo` needs one.
+#[must_use]
+pub fn pump_tray() -> Vec<azul_core::menu::CoreMenuCallback> {
     LIVE_TRAY.with(|c| {
-        if let Some(t) = c.borrow_mut().as_mut() {
-            t.pump();
-        }
-    });
+        c.borrow_mut()
+            .as_mut()
+            .map(TrayIcon::pump)
+            .unwrap_or_default()
+    })
 }
 
 /// Render a registry icon spec to RGBA at `size_px` square.
@@ -277,14 +283,21 @@ impl TrayIcon {
 
     /// Per-iteration work. On macOS this drains menu clicks that belong to this
     /// tray out of the process-wide menu-action queue.
-    pub fn pump(&mut self) {
+    #[must_use]
+    pub fn pump(&mut self) -> Vec<azul_core::menu::CoreMenuCallback> {
         #[cfg(any(
             target_os = "windows",
             target_os = "macos",
             all(target_os = "linux", not(target_arch = "wasm32"))
         ))]
         {
-            self.inner.pump();
+            return self.inner.pump();
         }
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            all(target_os = "linux", not(target_arch = "wasm32"))
+        )))]
+        Vec::new()
     }
 }

@@ -99,7 +99,13 @@ impl PlatformTray {
 
 impl PlatformTray {
     /// Unreachable — `new()` never returns a value on this platform yet.
-    pub(super) fn pump(&mut self) {
+    pub(super) fn pump(&mut self) -> Vec<azul_core::menu::CoreMenuCallback> {
+        // No menu backend yet, so nothing can be delivered.
+        Vec::new()
+    }
+
+    #[allow(dead_code)]
+    fn pump_unused(&mut self) {
         match self._never {}
     }
 }
