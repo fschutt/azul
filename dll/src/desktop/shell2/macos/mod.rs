@@ -3865,12 +3865,36 @@ impl MacOSWindow {
                 // Compute stable hash
                 let hash = coregraphics::compute_monitor_hash(display_id, bounds);
 
-                // For now, use display_id as index (not perfect but reasonable)
-                // In a full implementation, we would enumerate all displays and assign indices
-                let monitor_id = MonitorId {
-                    index: display_id as usize,
-                    hash,
+                // `ws.monitor_id` is an INDEX into the monitor list that
+                // `display::get_monitors()` builds — every consumer looks it up
+                // that way (`CallbackInfo::get_current_monitor` matches on
+                // `m.monitor_id.index`, `position_window_on_monitor` likewise).
+                //
+                // This used to store `display_id as usize`, i.e. a raw
+                // `CGDirectDisplayID` like 69733382, which never matched an
+                // index in 0..n — so `get_current_monitor()` returned `None` on
+                // macOS in practice and `position_window_on_monitor` always
+                // fell through to `monitors[0]`.
+                //
+                // `display::macos::get_displays()` enumerates `NSScreen::screens`
+                // in order, so this screen's position in that same array IS the
+                // index. Match by CGDirectDisplayID rather than by frame, since
+                // mirrored displays can share a frame.
+                let index = MainThreadMarker::new().and_then(|mtm| {
+                    NSScreen::screens(mtm).iter().position(|s| {
+                        coregraphics::get_display_id_from_screen(&s) == Some(display_id)
+                    })
+                });
+                let Some(index) = index else {
+                    log_warn!(
+                        LogCategory::Window,
+                        "[MacOSWindow] display_id={} not found in NSScreen::screens; \
+                         leaving monitor_id unchanged",
+                        display_id
+                    );
+                    return;
                 };
+                let monitor_id = MonitorId { index, hash };
 
                 self.common
                     .update_unsynced_state(|ws| {
@@ -8143,11 +8167,28 @@ fn position_window_on_monitor(
 
     let (x, y) = match position {
         WindowPosition::Initialized(pos) => {
-            // Explicit position requested - use it relative to monitor
-            // Note: macOS y-axis is flipped (0 at bottom)
-            (
-                screen_frame.origin.x + pos.x as f64,
-                screen_frame.origin.y + pos.y as f64,
+            // `Initialized` is an ABSOLUTE top-left in the global top-down
+            // space — the same convention `windowDidMove:` reads back and
+            // `sync_window_state` writes. So it is NOT monitor-relative: do
+            // not add `screen_frame.origin`.
+            //
+            // MWA-B9: AppKit wants the frame's BOTTOM-left in the bottom-up
+            // space anchored at the PRIMARY screen, so flip against the
+            // primary screen's height and shed the window's own height.
+            //
+            // This arm previously added a top-down y to a bottom-up screen
+            // origin with no flip at all (its own comment said "macOS y-axis
+            // is flipped" and then didn't flip), so a window asked to open at
+            // (0, 0) opened at the BOTTOM of the screen — and it was the one
+            // site in this backend that broke the MWA-B9 convention.
+            primary_screen_height().map_or(
+                (f64::from(pos.x), f64::from(pos.y)),
+                |primary_height| {
+                    (
+                        f64::from(pos.x),
+                        primary_height - f64::from(pos.y) - window_frame.size.height,
+                    )
+                },
             )
         }
         WindowPosition::Uninitialized => {
