@@ -156,7 +156,10 @@ static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
         },
     )),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Scroll)),
+    // `auto`, not `scroll`: the web-model textarea shows a scrollbar only
+    // once the content overflows — an EMPTY field with a permanent track +
+    // full-length thumb was the reported artifact.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
     // Preserve newlines + wrap long lines.
