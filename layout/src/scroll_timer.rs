@@ -285,17 +285,46 @@ pub extern "C" fn scroll_physics_timer_callback(
         match input.source {
             ScrollInputSource::TrackpadContinuous | ScrollInputSource::TrackpadMomentum => {
                 let is_momentum = input.source == ScrollInputSource::TrackpadMomentum;
-                // Once the rubber-band spring owns the node, the OS momentum
-                // tail is dropped: it knows nothing about our edge, and a
-                // spring it kept killing was never seen (the view "wobbled
-                // back" along the momentum decay instead).
+                // Once the rubber-band spring owns an axis, the OS momentum tail
+                // for THAT axis is dropped: it knows nothing about our edge, and
+                // a spring it kept killing was never seen (the view "wobbled back"
+                // along the momentum decay instead).
+                //
+                // PER-AXIS. A macOS momentum NSEvent carries BOTH scrollingDeltaX
+                // and scrollingDeltaY as one input. Dropping the WHOLE event once
+                // EITHER axis latched the band froze the OTHER axis's fling — the
+                // "an accidental X overscroll bounce kills the Y scroll" the user
+                // reported. Mask only the axis that is actually overshooting (the
+                // spring owns that one); let the in-range axis keep flinging. The
+                // banding axis re-arms its spring from the offset in the
+                // integration loop regardless, so nothing is lost.
+                let mut delta = input.delta;
                 if is_momentum
                     && physics
                         .node_velocities
                         .get(&key)
                         .is_some_and(|v| v.is_rubber_banding)
                 {
-                    continue;
+                    if let Some(info) =
+                        timer_info.get_scroll_node_info(input.dom_id, input.node_id)
+                    {
+                        if calculate_overshoot(info.current_offset.x, 0.0, info.max_scroll_x)
+                            .abs()
+                            > 0.01
+                        {
+                            delta.x = 0.0;
+                        }
+                        if calculate_overshoot(info.current_offset.y, 0.0, info.max_scroll_y)
+                            .abs()
+                            > 0.01
+                        {
+                            delta.y = 0.0;
+                        }
+                    }
+                    if delta.x == 0.0 && delta.y == 0.0 {
+                        // Both axes belong to the spring — nothing left to fling.
+                        continue;
+                    }
                 }
                 let info = timer_info.get_scroll_node_info(input.dom_id, input.node_id);
 
@@ -331,8 +360,8 @@ pub extern "C" fn scroll_physics_timer_callback(
                     })
                     .unwrap_or_default();
                 let new_raw = LogicalPosition {
-                    x: raw_base.x + input.delta.x,
-                    y: raw_base.y + input.delta.y,
+                    x: raw_base.x + delta.x,
+                    y: raw_base.y + delta.y,
                 };
 
                 // The first MOMENTUM delta that pushes past an edge hands the
@@ -350,8 +379,8 @@ pub extern "C" fn scroll_physics_timer_callback(
                                 .entry(key)
                                 .or_insert_with(NodeScrollPhysics::default);
                             np.velocity = LogicalPosition {
-                                x: if over_x.abs() > 0.01 { input.delta.x / dt } else { 0.0 },
-                                y: if over_y.abs() > 0.01 { input.delta.y / dt } else { 0.0 },
+                                x: if over_x.abs() > 0.01 { delta.x / dt } else { 0.0 },
+                                y: if over_y.abs() > 0.01 { delta.y / dt } else { 0.0 },
                             };
                             np.is_rubber_banding = true;
                             handed_to_spring = true;
@@ -3284,6 +3313,78 @@ mod autotest_generated {
         }
         let end = *trace.last().unwrap();
         assert!((end - (100.0 + band(&physics, 90.06))).abs() < 0.05, "{end} (trace {trace:?})");
+    }
+
+    /// Regression: a rubber-band bounce on ONE axis must not freeze the OTHER
+    /// axis's fling.
+    ///
+    /// A macOS momentum NSEvent carries scrollingDeltaX AND scrollingDeltaY as a
+    /// single input. The physics used to DROP the whole event the instant either
+    /// axis latched the rubber band, so an accidental horizontal overscroll
+    /// during a vertical flick stopped the vertical scroll dead — the "once it
+    /// snaps to X it also kills the Y scrolling" the user reported. The masking
+    /// now silences only the overshooting axis and lets the in-range axis keep
+    /// flinging.
+    #[test]
+    fn a_rubber_band_on_one_axis_does_not_freeze_the_other_axis_fling() {
+        let physics = ScrollPhysics::macos();
+        let mut lw =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        // Both axes scrollable: a 100x100 viewport over 200x200 content, so
+        // max_scroll_x = max_scroll_y = 100.
+        register_node(&mut lw, 1, (100.0, 100.0), (200.0, 200.0));
+        let queue = lw.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(queue.clone(), physics));
+
+        // Park at the RIGHT edge in X (x = max_scroll_x) and mid-range in Y.
+        queue.push(input_dev(
+            1,
+            (100.0, 20.0),
+            ScrollInputSource::Programmatic,
+            ScrollInputDevice::Touchpad,
+        ));
+        let _ = closed_loop_tick(&mut lw, &data);
+        assert_eq!(offset_of(&lw, 1).x, 100.0, "seeded at the right edge");
+        assert_eq!(offset_of(&lw, 1).y, 20.0, "seeded mid-range in Y");
+
+        // Fling PAST the right edge in X (momentum) → X enters the rubber band.
+        queue.push(input_dev(
+            1,
+            (40.0, 0.0),
+            ScrollInputSource::TrackpadMomentum,
+            ScrollInputDevice::Touchpad,
+        ));
+        let _ = closed_loop_tick(&mut lw, &data);
+        let x_banded = offset_of(&lw, 1).x;
+        assert!(
+            x_banded > 100.5,
+            "X must be overscrolled past the edge (rubber-banding): {x_banded}"
+        );
+        let y_before = offset_of(&lw, 1).y;
+
+        // Diagonal momentum: X keeps pushing INTO the banding edge (masked), Y is
+        // a plain in-range fling. The Y component must advance every tick.
+        for _ in 0..3 {
+            queue.push(input_dev(
+                1,
+                (40.0, 15.0),
+                ScrollInputSource::TrackpadMomentum,
+                ScrollInputDevice::Touchpad,
+            ));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        let y_after = offset_of(&lw, 1).y;
+        assert!(
+            y_after > y_before + 1.0,
+            "the Y fling must keep advancing while X rubber-bands (the whole-event \
+             drop used to freeze it): {y_before} -> {y_after}"
+        );
+        // X stayed in its band — the Y deltas did not throw it off the edge.
+        assert!(
+            offset_of(&lw, 1).x > 100.5,
+            "X stays in its rubber band: {}",
+            offset_of(&lw, 1).x
+        );
     }
 
     #[test]
