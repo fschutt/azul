@@ -271,6 +271,9 @@ impl Win32Window {
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
         undo_manager: event::SharedUndoManager,
+        // THE app-level font manager, so every window shares one set of font
+        // pools; see `layout_window_sharing_fonts`.
+        app_font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
@@ -549,7 +552,13 @@ impl Win32Window {
         let initial_window_state = options.window_state.clone();
 
         // Create LayoutWindow with initial UI callback
-        let mut layout_window = LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
+        // Shares the app-level manager's font pools rather than starting a
+        // private universe; falls back to a fresh one when there is none.
+        let mut layout_window = crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+            app_font_manager.as_ref(),
+            &fc_cache,
+        )
+        .map_err(|e| {
             WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
         })?;
 
@@ -3451,7 +3460,7 @@ fn pump_modal_loop_work() {
                 break;
             };
 
-            match Win32Window::new(options, config, fc_cache, font_registry, app_data, undo_manager)
+            match Win32Window::new(options, config, fc_cache, font_registry, app_data, undo_manager, None)
             {
                 Ok(new_window) => unsafe {
                     let new_window_ptr = Box::into_raw(Box::new(new_window));

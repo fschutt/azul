@@ -4083,10 +4083,13 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache: Arc<rust_fontconfig::FcFontCache>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
+        // THE app-level font manager. A top-level window shares it rather than
+        // building a private one; see `layout_window_sharing_fonts`.
+        app_font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
         parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, Some(fc_cache), font_registry, parent_lw, mtm)
+        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, Some(fc_cache), font_registry, app_font_manager, parent_lw, mtm)
     }
 
     /// Create a new macOS window with given options.
@@ -4098,7 +4101,7 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, None, None, None, mtm)
+        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, None, None, None, None, mtm)
     }
 
     /// Internal constructor with optional fc_cache parameter
@@ -4110,6 +4113,7 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
+        app_font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
         parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
@@ -4706,7 +4710,13 @@ impl MacOSWindow {
             fc_cache_opt.unwrap_or_else(|| Arc::new(rust_fontconfig::FcFontCache::build()));
         let mut layout_window = match parent_lw {
             Some(parent) => LayoutWindow::from_font_manager(parent.font_manager.clone_shared()),
-            None => LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
+            // Shares the app-level manager's font pools instead of starting a
+            // private universe; falls back to a fresh one when there is none.
+            None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                app_font_manager.as_ref(),
+                &fc_cache,
+            )
+            .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
             })?,
         };

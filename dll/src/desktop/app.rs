@@ -306,7 +306,7 @@ impl App {
         }
 
         // Use shell2 for the actual run loop
-        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window, self.ptr.tray.clone());
+        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window, self.ptr.tray.clone(), self.ptr.font_manager.clone());
 
         // Telemetry: persist + upload whatever the interval uploader has not
         // sent yet. Without this a SHORT run (an e2e drive, a screenshot
@@ -359,6 +359,27 @@ pub struct AppInternal {
     /// At layout time, `request_fonts()` blocks until the needed fonts are ready,
     /// then snapshots into `fc_cache`. This eliminates the ~700ms startup block.
     pub font_registry: Option<Arc<FcFontRegistry>>,
+    /// THE font manager for this app  -  built once here, shared by every window
+    /// and by the tray.
+    ///
+    /// A `FontManager` is not just a cache handle: it owns the `parsed_fonts` and
+    /// `embedded_fonts` pools, and `embedded_fonts` is the ONLY place a face
+    /// handed over as `StyleFontFamily::Ref` (Material Icons, and anything a
+    /// font-backed icon pack resolves to) is ever named. Two managers therefore
+    /// disagree about which faces exist, and whoever registers a face is often
+    /// not whoever later shapes with it  -  a child window, a tray icon, an
+    /// off-screen render. The result is a `.notdef` tofu box with every
+    /// intermediate step reporting success.
+    ///
+    /// Consumers take `clone_shared()` copies: those share the two pools while
+    /// keeping a private `fc_cache` field, so each window can still swap in its
+    /// own registry snapshot at layout time (`replace_fc_cache`) without
+    /// disturbing anyone else.
+    ///
+    /// `Option` because building it can fail; the app still runs, callers fall
+    /// back to constructing their own as before. `Arc` so this stays a thin
+    /// pointer across the C ABI, exactly like `fc_cache` and `font_registry`.
+    pub font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
     /// App-global undo/redo manager. Owned by the App; a shared clone is threaded
     /// to every window so a callback's `undo_app_state` / `redo_app_state` /
     /// `commit_undo_snapshot` operates on one shared history.
@@ -476,6 +497,12 @@ impl AppInternal {
             data: initial_data,
             config: app_config,
             tray: None,
+            // ONE manager, built here rather than per-window. `FcFontCache` is
+            // internally Arc-shared, so the clone tracks whatever the scout
+            // threads discover later.
+            font_manager: azul_layout::font_traits::FontManager::new((*fc_cache).clone())
+                .ok()
+                .map(Arc::new),
             fc_cache: Box::new(fc_cache),
             font_registry,
             undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),

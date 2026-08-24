@@ -409,6 +409,9 @@ fn run_headless(
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
     tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
     debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
     component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) -> Result<(), WindowError> {
@@ -521,6 +524,9 @@ pub fn run(
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
     tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
 ) -> Result<(), WindowError> {
     crate::plog_info!(
         "[macOS] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, AZ_LOG=trace for everything)",
@@ -563,7 +569,7 @@ pub fn run(
 
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, debug_request_rx, component_map);
     }
 
     use azul_core::icon::SharedIconProvider;
@@ -626,7 +632,7 @@ pub fn run(
             None,
         );
         let mut window =
-            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), undo_manager.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), None, mtm)?;
+            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), undo_manager.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), font_manager.clone(), None, mtm)?;
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::Window,
@@ -648,8 +654,45 @@ pub fn run(
         //    visible failure.
         //
         // By this point the window has laid out once, so the manager is warm.
-        if let (Some(tray), Some(lw)) = (tray, window.common.layout_window.as_ref()) {
-            crate::desktop::tray::install_tray(tray, &shared_icon_provider, &lw.font_manager);
+        if let Some(tray) = tray {
+            // ONE font universe. `font_manager` is the app-level manager built
+            // in `AppInternal::create`; `clone_shared()` shares its `parsed_fonts`
+            // and `embedded_fonts` pools while giving us a private `fc_cache`
+            // field to warm, so registering the icon's face here is visible to
+            // every window and vice versa.
+            //
+            // Warming matters because the font registry scans on BACKGROUND
+            // threads and `fc_cache` is only snapshotted from it at layout time.
+            // Taking the window's already-laid-out manager was how this used to
+            // get a warm cache - and that is exactly what tied the tray to a
+            // window existing. Blocking on `request_fonts` here is the same wait
+            // the window does, just done for ourselves.
+            let own = font_manager.as_ref().map(|fm| {
+                let mut fm = fm.clone_shared();
+                if let Some(reg) = font_registry.as_ref() {
+                    let stacks = rust_fontconfig::config::tokenize_common_families(
+                        rust_fontconfig::OperatingSystem::current(),
+                    );
+                    reg.request_fonts(&stacks);
+                    fm.replace_fc_cache(reg.shared_cache());
+                }
+                fm
+            });
+
+            match own
+                .as_ref()
+                .or_else(|| window.common.layout_window.as_ref().map(|lw| &lw.font_manager))
+            {
+                Some(fm) => {
+                    crate::desktop::tray::install_tray(tray, &shared_icon_provider, fm);
+                }
+                None => {
+                    log_debug!(
+                        debug_server::LogCategory::Resources,
+                        "[tray] no font manager available; tray not installed"
+                    );
+                }
+            }
         }
 
         // Register debug timer with explicit channel + component map (no globals)
@@ -721,6 +764,7 @@ pub fn run(
                     let shared_icon_provider = shared_icon_provider.clone();
                     let fc_cache = fc_cache.clone();
                     let font_registry = font_registry.clone();
+                    let font_manager_c = font_manager.clone();
                     let drain = RcBlock::new(move || {
                         // Tray menu clicks land in the process-wide menu-action
                         // queue; drain the ones this tray owns. Items carrying a
@@ -749,6 +793,7 @@ pub fn run(
                                     shared_icon_provider.clone(),
                                     fc_cache.clone(),
                                     font_registry.clone(),
+                                    font_manager_c.clone(),
                                     // A queued create is always a CHILD of this
                                     // window (a transient popup / torn panel) —
                                     // share its warmed font pool so text/icons
@@ -935,6 +980,7 @@ pub fn run(
                                         shared_icon_provider.clone(),
                                         fc_cache.clone(),
                                         font_registry.clone(),
+                                        font_manager.clone(),
                                         // A queued create is a CHILD of this
                                         // window — share its warmed font pool.
                                         window.common.layout_window.as_ref(),
@@ -1073,6 +1119,9 @@ pub fn run(
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
     tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
@@ -1115,6 +1164,9 @@ pub fn run(
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
     tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     if resolve_backend(&root_window) == super::AzBackend::Headless {
@@ -1142,6 +1194,9 @@ pub fn run(
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
     tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
 ) -> Result<(), WindowError> {
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
@@ -1149,7 +1204,7 @@ pub fn run(
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, debug_request_rx, component_map);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     crate::plog_info!(
@@ -1176,7 +1231,7 @@ pub fn run(
         LogCategory::Window,
         "[shell2::run] calling Win32Window::new"
     );
-    let mut window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone(), undo_manager.clone())?;
+    let mut window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone(), undo_manager.clone(), font_manager.clone())?;
     log_trace!(
         LogCategory::Window,
         "[shell2::run] Win32Window::new returned successfully"
@@ -1409,6 +1464,11 @@ pub fn run(
                             window.font_registry.clone(),
                             window.common.app_data.clone(),
                             window.common.undo_manager.clone(),
+                            // The app-level manager: the parent derived from it
+                            // too, so parent and child share the same font pools
+                            // and only the fc_cache snapshot differs (warmed at
+                            // this window's first layout).
+                            font_manager.clone(),
                         ) {
                             Ok(new_window) => {
                                 // Box and leak for stable pointer
@@ -1568,6 +1628,9 @@ pub fn run(
     // global: it is per-App state, and a global would silently pick the wrong
     // one if a process ever ran two Apps.
     tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
 ) -> Result<(), WindowError> {
     // Same reasoning as the environment dump below, for the knobs this build
     // cannot honour at all.
@@ -1608,7 +1671,7 @@ pub fn run(
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         crate::plog_info!("[Linux] backend resolved to Headless (AZ_BACKEND=headless)");
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, debug_request_rx, component_map);
     }
     use std::cell::RefCell;
 
@@ -1617,7 +1680,14 @@ pub fn run(
     use super::linux::{registry, AppResources, LinuxWindow};
 
     // Initialize shared resources once at startup
-    let resources = Arc::new(AppResources::new(config.clone(), fc_cache, font_registry));
+    let resources = Arc::new(AppResources::new_with_font_manager(
+        config.clone(),
+        fc_cache,
+        font_registry,
+        // Adopt the app-level manager so every window on this connection
+        // shares one set of font pools.
+        font_manager,
+    ));
 
     log_debug!(
         debug_server::LogCategory::EventLoop,

@@ -1892,7 +1892,7 @@ impl X11Window {
             return Ok(());
         }
         let mut layout_window =
-            azul_layout::window::LayoutWindow::new((*self.resources.fc_cache).clone())
+            crate::desktop::shell2::common::layout::layout_window_sharing_fonts(self.resources.font_manager.as_ref(), &self.resources.fc_cache)
                 .map_err(|e| {
                     WindowError::PlatformError(format!(
                         "Failed to create LayoutWindow: {:?}",

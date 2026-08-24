@@ -1923,3 +1923,37 @@ pub(crate) fn reconcile_transient_windows(
     // pair the backend never saw, so nothing flashes.
     layout_window.pending_transient_diff.merge(diff);
 }
+
+/// Build a `LayoutWindow` that SHARES the app-level font manager.
+///
+/// This is the single decision point for "where does a window's `FontManager`
+/// come from", and it exists because there are four window backends that each
+/// used to answer it independently with `LayoutWindow::new(fc_cache)` - i.e.
+/// a brand-new `FontManager` per window.
+///
+/// That is not merely wasteful. A `FontManager` owns the `embedded_fonts` pool,
+/// which is the ONLY place a face handed over as `StyleFontFamily::Ref`
+/// (Material Icons, and anything a font-backed icon pack resolves to) is ever
+/// named. Two windows with two managers therefore disagree about which faces
+/// exist, and a face registered while laying out one window is invisible to the
+/// next - which surfaces as a `.notdef` tofu box, with every intermediate step
+/// reporting success.
+///
+/// `clone_shared()` shares the `parsed_fonts` and `embedded_fonts` pools while
+/// giving the window a private `fc_cache` field, so it can still swap in its own
+/// registry snapshot at layout time (`replace_fc_cache`) without disturbing
+/// anyone else.
+///
+/// Falls back to a private manager when there is no app-level one, which is the
+/// old behaviour and keeps this infallible to adopt.
+pub fn layout_window_sharing_fonts(
+    app_font_manager: Option<&std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    fc_cache: &rust_fontconfig::FcFontCache,
+) -> Result<azul_layout::window::LayoutWindow, azul_layout::solver3::LayoutError> {
+    match app_font_manager {
+        Some(fm) => Ok(azul_layout::window::LayoutWindow::from_font_manager(
+            fm.clone_shared(),
+        )),
+        None => azul_layout::window::LayoutWindow::new(fc_cache.clone()),
+    }
+}
