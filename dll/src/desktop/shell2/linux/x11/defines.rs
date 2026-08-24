@@ -349,8 +349,11 @@ pub const SubstructureNotifyMask: c_long = 1 << 19;
 pub const PropModeReplace: c_int = 0;
 pub const PropModeAppend: c_int = 2;
 
-// Predefined atoms
+// Predefined atoms. These are fixed by the protocol (X.h), not interned:
+// PRIMARY=1, SECONDARY=2, ARC=3, ATOM=4, BITMAP=5, CARDINAL=6.
 pub const XA_ATOM: Atom = 4;
+/// The type `_NET_WM_ICON` and most other EWMH numeric properties carry.
+pub const XA_CARDINAL: Atom = 6;
 /// `AnyPropertyType` wildcard for `XGetWindowProperty` (accept any type).
 pub const AnyPropertyType: Atom = 0;
 

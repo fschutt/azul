@@ -513,6 +513,14 @@ pub struct User32Functions {
 
     // Messages
     pub SendMessageW: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
+    /// Build an HICON from an ICONINFO (a 32bpp colour bitmap + a mask).
+    /// The colour bitmap carries STRAIGHT alpha, not premultiplied - the
+    /// opposite of what `UpdateLayeredWindow` and `AlphaBlend` want, which is
+    /// why icons built by copying that code come out with dark fringes.
+    pub CreateIconIndirect: unsafe extern "system" fn(*const IconInfo) -> HICON,
+    /// `WM_SETICON` does NOT take ownership and returns the PREVIOUS icon, so
+    /// the caller destroys both the old one and its own on teardown.
+    pub DestroyIcon: unsafe extern "system" fn(HICON) -> BOOL,
     pub PostMessageW: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> BOOL,
     pub GetMessageW: unsafe extern "system" fn(*mut MSG, HWND, u32, u32) -> BOOL,
     pub PeekMessageW: unsafe extern "system" fn(*mut MSG, HWND, u32, u32, u32) -> BOOL,
@@ -525,10 +533,28 @@ pub struct User32Functions {
     pub KillTimer: unsafe extern "system" fn(HWND, usize) -> BOOL,
 }
 
+/// `ICONINFO`. `fIcon = TRUE` means an icon (hotspot ignored); FALSE means a
+/// cursor. Both bitmaps are owned by the CALLER - `CreateIconIndirect` copies
+/// them, so they must be deleted afterwards or they leak on every icon change.
+#[repr(C)]
+pub struct IconInfo {
+    pub fIcon: BOOL,
+    pub xHotspot: u32,
+    pub yHotspot: u32,
+    pub hbmMask: *mut core::ffi::c_void,
+    pub hbmColor: *mut core::ffi::c_void,
+}
+
 /// Win32 gdi32.dll function pointers for brushes, regions, and pixel blitting
 #[derive(Copy, Clone)]
 pub struct Gdi32Functions {
     pub CreateSolidBrush: unsafe extern "system" fn(u32) -> HBRUSH,
+    /// (w, h, planes, bpp, bits) - used for an icon's 1bpp AND mask. With a
+    /// 32bpp colour bitmap the mask is ignored for blending, but ICONINFO still
+    /// requires one, so it is supplied all-zero.
+    pub CreateBitmap:
+        unsafe extern "system" fn(i32, i32, u32, u32, *const core::ffi::c_void)
+            -> *mut core::ffi::c_void,
     pub DeleteObject: unsafe extern "system" fn(*mut core::ffi::c_void) -> BOOL,
     /// Create a rectangular region - used for DwmEnableBlurBehindWindow
     /// CreateRectRgn(0, 0, -1, -1) creates a minimal region for transparent backgrounds
@@ -835,6 +861,8 @@ impl Win32Libraries {
 
                 // Messages
                 SendMessageW: user32_dll.get_symbol("SendMessageW")?,
+                CreateIconIndirect: user32_dll.get_symbol("CreateIconIndirect")?,
+                DestroyIcon: user32_dll.get_symbol("DestroyIcon")?,
                 PostMessageW: user32_dll.get_symbol("PostMessageW")?,
                 GetMessageW: user32_dll.get_symbol("GetMessageW")?,
                 PeekMessageW: user32_dll.get_symbol("PeekMessageW")?,
@@ -852,6 +880,7 @@ impl Win32Libraries {
         let gdi32 = unsafe {
             Gdi32Functions {
                 CreateSolidBrush: gdi32_dll.get_symbol("CreateSolidBrush")?,
+                CreateBitmap: gdi32_dll.get_symbol("CreateBitmap")?,
                 DeleteObject: gdi32_dll.get_symbol("DeleteObject")?,
                 CreateRectRgn: gdi32_dll.get_symbol("CreateRectRgn")?,
                 CombineRgn: gdi32_dll.get_symbol("CombineRgn")?,
