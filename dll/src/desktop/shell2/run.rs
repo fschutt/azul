@@ -2140,21 +2140,14 @@ fn pump_tray_into_windows() {
     match window_ptrs.first() {
         Some(&wptr) => {
             let window = unsafe { &mut *wptr };
-            for cb in tray_callbacks {
-                if !matches!(
-                    window.invoke_menu_callback(
-                        cb,
-                        MenuInvocation::Native { site: "macos.tray_menu" },
-                    ),
-                    ProcessEventResult::DoNothing
-                ) {
-                    window.request_redraw();
-                }
+            if invoke_tray_callbacks(window, tray_callbacks) {
+                window.request_redraw();
             }
         }
         None => {
-            // A tray-first app has no window to run against yet. Say so rather
-            // than dropping a user's callback in silence.
+            // A tray-first app has no OS window to run against. Say so rather
+            // than dropping a user's callback in silence; `run_tray_only` uses
+            // a HeadlessWindow instead and never reaches this branch.
             log_debug!(
                 debug_server::LogCategory::Callbacks,
                 "[tray] {} menu callback(s) had no window to run against",
@@ -2162,4 +2155,159 @@ fn pump_tray_into_windows() {
             );
         }
     }
+}
+
+/// Run tray menu callbacks against SOME window - a real one, or the headless
+/// stub a tray-only app uses.
+///
+/// A `CallbackInfo` is built from a window (its `LayoutWindow`, raw handle, GL
+/// context, window state), so a callback needs one to exist even when the click
+/// came from a menu bar item that belongs to no window. `HeadlessWindow`
+/// satisfies that without any OS window being created, which is what makes a
+/// genuinely windowless tray app possible.
+#[cfg(target_os = "macos")]
+///
+/// Returns whether anything asked for a repaint; `request_redraw` is not on the
+/// `PlatformWindow` trait, and a windowless app has nothing to repaint anyway,
+/// so the decision belongs to the caller.
+#[cfg(target_os = "macos")]
+#[must_use]
+fn invoke_tray_callbacks<W: crate::desktop::shell2::common::event::PlatformWindow>(
+    window: &mut W,
+    callbacks: Vec<azul_core::menu::CoreMenuCallback>,
+) -> bool {
+    use crate::desktop::shell2::common::event::MenuInvocation;
+    use azul_core::events::ProcessEventResult;
+
+    let mut needs_redraw = false;
+    for cb in callbacks {
+        if !matches!(
+            window.invoke_menu_callback(cb, MenuInvocation::Native { site: "macos.tray_menu" }),
+            ProcessEventResult::DoNothing
+        ) {
+            needs_redraw = true;
+        }
+    }
+    needs_redraw
+}
+
+/// Run an app that has a tray and NO window at all.
+///
+/// The regular `run()` creates a root window unconditionally, which is what made
+/// "tray-first" impossible: a menu-bar-only utility had to open (and then hide) a
+/// window it never wanted.
+///
+/// Two things make a windowless app work:
+///
+/// * **`NSApplicationActivationPolicy::Accessory`** - the runtime equivalent of
+///   `LSUIElement` in an Info.plist. No Dock tile, no application menu bar. A
+///   `Regular` app with no windows is a worse experience than a window: it owns
+///   the menu bar and shows a Dock icon that does nothing. (This also means an
+///   app icon set via `set_app_icon` has nowhere to appear - there is no Dock
+///   tile to draw it on.)
+/// * **A `HeadlessWindow` as the callback context.** A `CallbackInfo` is built
+///   from a window, so a tray menu callback needs one even though the click came
+///   from an item belonging to no window. The headless stub provides the
+///   `LayoutWindow` and state without creating an OS window, and it shares the
+///   app-level font pools like every other consumer.
+///
+/// The event loop is `NSApplication::run`, which does not require any window;
+/// a repeating timer drains tray clicks, exactly as the windowed path does.
+#[cfg(target_os = "macos")]
+pub fn run_tray_only(
+    app_data: RefAny,
+    undo_manager: SharedUndoManager,
+    mut config: AppConfig,
+    fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
+    tray: azul_core::tray::TrayIconData,
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+) -> Result<(), WindowError> {
+    use std::cell::RefCell;
+
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+
+    use super::headless::HeadlessWindow;
+
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
+
+    let icon_provider_handle = core::mem::take(&mut config.icon_provider);
+    let shared_icon_provider =
+        azul_core::icon::SharedIconProvider::from_handle(icon_provider_handle);
+
+    let app = NSApplication::sharedApplication(mtm);
+    unsafe {
+        // Accessory, NOT Regular: see the note above.
+        app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    }
+
+    // The callback context. `WindowCreateOptions::default()` is never shown -
+    // HeadlessWindow creates no OS window - it only shapes the stub's state.
+    let app_data_arc = Arc::new(RefCell::new(app_data));
+    let mut headless = HeadlessWindow::new(
+        WindowCreateOptions::default(),
+        app_data_arc,
+        undo_manager,
+        config,
+        shared_icon_provider.clone(),
+        fc_cache,
+        font_registry.clone(),
+    )?;
+
+    // Same warm-then-install as the windowed path: the registry scans on
+    // background threads, so block on the fonts this icon needs rather than
+    // shaping against a half-built cache and drawing a tofu box.
+    let own = font_manager.as_ref().map(|fm| {
+        let mut fm = fm.clone_shared();
+        if let Some(reg) = font_registry.as_ref() {
+            let stacks = rust_fontconfig::config::tokenize_common_families(
+                rust_fontconfig::OperatingSystem::current(),
+            );
+            reg.request_fonts(&stacks);
+            fm.replace_fc_cache(reg.shared_cache());
+        }
+        fm
+    });
+    match own
+        .as_ref()
+        .or(headless.common.layout_window.as_ref().map(|lw| &lw.font_manager))
+    {
+        Some(fm) => crate::desktop::tray::install_tray(tray, &shared_icon_provider, fm),
+        None => {
+            return Err(WindowError::PlatformError(
+                "tray-only app has no font manager to render its icon".into(),
+            ))
+        }
+    }
+
+    // Drain tray clicks into the headless window. 33ms matches the windowed
+    // path's timer.
+    let headless_ptr: *mut HeadlessWindow = &mut headless;
+    let drain = block2::RcBlock::new(move |_timer: core::ptr::NonNull<objc2_foundation::NSTimer>| {
+        let callbacks = crate::desktop::tray::pump_tray();
+        if !callbacks.is_empty() {
+            // Safe: single-threaded main-loop timer, and `headless` outlives the
+            // run loop below (it is dropped only after `app.run()` returns).
+            let window = unsafe { &mut *headless_ptr };
+            // Nothing to repaint: there is no window on screen.
+            let _ = invoke_tray_callbacks(window, callbacks);
+        }
+    });
+    let _timer: objc2::rc::Retained<objc2_foundation::NSTimer> = unsafe {
+        objc2::msg_send![
+            objc2::class!(NSTimer),
+            scheduledTimerWithTimeInterval: 0.033f64,
+            repeats: true,
+            block: &*drain
+        ]
+    };
+
+    log_info!(
+        LogCategory::EventLoop,
+        "[tray-only] no window; entering NSApplication run loop"
+    );
+    unsafe { app.run() };
+    Ok(())
 }

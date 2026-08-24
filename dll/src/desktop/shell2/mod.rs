@@ -49,6 +49,8 @@ pub use common::{
 };
 // Re-export run function
 pub use run::run;
+#[cfg(target_os = "macos")]
+pub use run::run_tray_only;
 
 // Platform-specific window type selection
 cfg_if::cfg_if! {

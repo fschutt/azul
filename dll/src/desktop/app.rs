@@ -223,6 +223,52 @@ impl App {
         self.ptr.app_icon = Some(spec);
     }
 
+
+    /// Run with a tray and NO window.
+    ///
+    /// For a menu-bar / system-tray utility that has no main window at all.
+    /// `run()` always creates one, so such an app previously had to open and
+    /// then hide a window it never wanted.
+    ///
+    /// Requires `set_tray()` to have been called - without a tray there would be
+    /// no way to interact with the app and nothing to keep it alive.
+    ///
+    /// macOS only for now; other platforms return without running. On macOS this
+    /// switches the process to `Accessory` activation (the runtime equivalent of
+    /// `LSUIElement`): no Dock tile and no application menu bar, which also means
+    /// an icon set via `set_app_icon` has nowhere to appear.
+    pub fn run_tray_only(&self) {
+        let Some(tray) = self.ptr.tray.clone() else {
+            crate::plog_error!("[azul] run_tray_only() called without set_tray(); nothing to run");
+            return;
+        };
+        let data = self.ptr.data.clone();
+        let config = self.ptr.config.clone();
+        let fc_cache = (*self.ptr.fc_cache).clone();
+        let font_registry = self.ptr.font_registry.clone();
+        let undo_manager = self.ptr.undo_manager.clone();
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Err(e) = crate::desktop::shell2::run_tray_only(
+                data,
+                undo_manager,
+                config,
+                fc_cache,
+                font_registry,
+                tray,
+                self.ptr.font_manager.clone(),
+            ) {
+                crate::plog_error!("[azul] run_tray_only failed: {:?}", e);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (data, config, fc_cache, font_registry, undo_manager, tray);
+            crate::plog_error!("[azul] run_tray_only() is macOS-only for now");
+        }
+    }
+
     pub fn run(&self, root_window: WindowCreateOptions) {
         debug_server::log(
             debug_server::LogLevel::Info,

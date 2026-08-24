@@ -108461,6 +108461,27 @@
                                     }
                                 ],
                                 "fn_body": "object.set_app_icon(spec)"
+                            },
+                            "run_tray_only": {
+                                "doc": [
+                                    "Run with a tray and NO window, for a menu-bar / system-tray utility",
+                                    "that has no main window at all. `run()` always creates one, so such",
+                                    "an app previously had to open and then hide a window it never wanted.",
+                                    "",
+                                    "Requires `set_tray()` to have been called: without a tray there is no",
+                                    "way to interact with the app and nothing to keep it alive.",
+                                    "",
+                                    "macOS only for now. There it switches the process to Accessory",
+                                    "activation (the runtime equivalent of `LSUIElement`): no Dock tile and",
+                                    "no application menu bar, which also means an icon set via",
+                                    "`set_app_icon` has nowhere to appear."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.run_tray_only()"
                             }
                         },
                         "repr": "C"
