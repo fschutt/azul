@@ -478,12 +478,17 @@ mod tests {
         let raw = img.get_rawimage().expect("raw");
         assert_eq!((raw.width, raw.height), (LOUPE_PX as usize, LOUPE_PX as usize));
         let RawImageData::U8(px) = &raw.pixels else { panic!("u8") };
-        // Centre cell interior (off its ring and grid lines): red.
+        // Centre cell interior (off its ring and grid lines): the source red.
+        // `ImageRef::new_rawimage` ENCODES to BGRA8 (its documented storage
+        // format — that is what the GPU wants), so the RGBA red source
+        // `[255,0,0,255]` reads back through `get_rawimage` as BGRA
+        // `[0,0,255,255]`. The loupe still DISPLAYS red; only the raw byte order
+        // is B,G,R,A here.
         let cell = (LOUPE_CELLS / 2) * MAGNIFY;
         let (x, y) = ((cell + MAGNIFY / 2) as usize, (cell + MAGNIFY / 2) as usize);
         let i = (y * LOUPE_PX as usize + x) * 4;
-        assert_eq!(&px.as_ref()[i..i + 4], &[255, 0, 0, 255]);
-        // Its ring: white.
+        assert_eq!(&px.as_ref()[i..i + 4], &[0, 0, 255, 255]);
+        // Its ring: white (symmetric under the RGBA↔BGRA channel swap).
         let i = (cell as usize * LOUPE_PX as usize + cell as usize) * 4;
         assert_eq!(&px.as_ref()[i..i + 3], &[255, 255, 255]);
     }
