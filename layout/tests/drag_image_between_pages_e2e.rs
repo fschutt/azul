@@ -103,10 +103,19 @@ fn paginate(html: &str) -> Vec<DisplayList> {
     .collect()
 }
 
-/// The float's 200x100 rect on a page, if present.
+/// The float's 200x100 footprint on a page, if present.
+///
+/// The fixture's float is an UNSTYLED div (pure wrap geometry), so the only
+/// painted-model item carrying its box is its hit-test area — matched
+/// alongside Rect/Border so a styled variant would count too. (This used to
+/// match only Rect/Border and passed by accident: every node emitted a
+/// phantom zero-width Border until the display list stopped emitting
+/// borders that paint nothing.)
 fn float_rect_on(page: &DisplayList) -> Option<LogicalRect> {
     page.items.iter().find_map(|i| match i {
-        DisplayListItem::Rect { bounds, .. } | DisplayListItem::Border { bounds, .. }
+        DisplayListItem::Rect { bounds, .. }
+        | DisplayListItem::Border { bounds, .. }
+        | DisplayListItem::HitTestArea { bounds, .. }
             if (bounds.0.size.width - 200.0).abs() < 0.6
                 && (bounds.0.size.height - 100.0).abs() < 0.6 =>
         {
@@ -195,7 +204,8 @@ fn image_that_no_longer_fits_its_page_moves_whole_never_splits() {
     // (clipped-height) copy of the 200px-wide float.
     for (i, page) in pages.iter().enumerate() {
         let partial = page.items.iter().any(|it| match it {
-            DisplayListItem::Rect { bounds, .. } => {
+            DisplayListItem::Rect { bounds, .. }
+            | DisplayListItem::HitTestArea { bounds, .. } => {
                 (bounds.0.size.width - 200.0).abs() < 0.6
                     && bounds.0.size.height > 1.0
                     && (bounds.0.size.height - 100.0).abs() > 0.6

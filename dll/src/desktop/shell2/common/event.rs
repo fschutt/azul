@@ -6913,9 +6913,18 @@ pub trait PlatformWindow {
             let from_bar = if native_bar {
                 None
             } else {
+                // SCAN for the node carrying the menu bar — it is NOT always
+                // the root: on Linux `inject_software_menubar` wraps the
+                // user's DOM in `Html [menubar widget, user body]`, so the
+                // body that owns `.get_menu_bar()` sits several nodes deep.
+                // A `NodeId::ZERO` lookup found nothing there and every
+                // menu-bar accelerator was dead exactly on the platforms the
+                // shared dispatch exists for (the headless test caught it on
+                // ubuntu CI while passing on macOS, where nothing wraps).
                 nodes
-                    .get(NodeId::ZERO)
-                    .and_then(azul_core::dom::NodeData::get_menu_bar)
+                    .internal
+                    .iter()
+                    .find_map(azul_core::dom::NodeData::get_menu_bar)
                     .and_then(|menu| menu.find_accelerated_item(&keyboard, pressed))
             };
             let from_context = if from_bar.is_some() {
