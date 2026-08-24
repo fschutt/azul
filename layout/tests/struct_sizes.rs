@@ -175,7 +175,13 @@ fn layout_tree_node_struct_sizes_are_pinned() {
          planned rare-data split (memory batch item 2) targets exactly this \
          struct; shrink it there, deliberately, not here."
     );
-    assert_size!(LayoutNodeCold, 280, "Per layout node, rarely touched.");
+    assert_size!(
+        LayoutNodeCold,
+        288,
+        "Per layout node, rarely touched. GREW 280 -> 288 (2026-08-22): \
+         NodeDataFingerprint gained `dataset_hash` so a dataset's allocation \
+         is no longer a LAYOUT change (the TextArea-over-Slider fix)."
+    );
 
 }
 

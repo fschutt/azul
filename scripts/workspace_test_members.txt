@@ -25,6 +25,7 @@ tested: azul-doc                # azul_doc_tests (`--bins`: azul-doc has NO lib 
 
 # ── demo apps that carry real assertions
 tested: AzPaint              # dll_tests (reuses that job's azul-dll build)
+tested: AzMaps               # dll_tests (the arrow-button projection math, pan_tests)
 tested: AzWriter             # dll_tests (ditto)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
@@ -32,7 +33,6 @@ tested: AzWriter             # dll_tests (ditto)
 #    wired into a job.
 no-tests: azul-examples         # examples/rust: hello-world binaries
 no-tests: AzWidgets          # widget showcase binary
-no-tests: AzMaps             # demo binary
 no-tests: azul-vault            # demo binary
 no-tests: azul-gamepad          # demo binary
 no-tests: azul-camera-app       # demo binary

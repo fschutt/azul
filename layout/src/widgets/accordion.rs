@@ -340,11 +340,14 @@ impl Accordion {
         let mut section_doms: Vec<Dom> = Vec::with_capacity(sections.as_ref().len());
 
         for (index, section) in sections.as_ref().iter().enumerate() {
-            let title = Dom::create_p_with_text(section.title.clone())
+            let title = crate::widgets::widget_p_with_text(section.title.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(ACCORDION_TITLE_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     ACCORDION_TITLE_STYLE,
                 ));
+
+            // Read the open state before it is moved into the click data.
+            let section_is_open = section.is_open;
 
             // Per-header self-contained click data (mirrors tree_view's NodeClickData).
             let header_data = HeaderClickData {
@@ -359,6 +362,21 @@ impl Accordion {
                     ACCORDION_HEADER_STYLE,
                 ))
                 .with_tab_index(TabIndex::Auto)
+                // A section header must report whether it is open. Expanded /
+                // Collapsed is the difference between "Details" and "Details,
+                // collapsed, activate to expand" — without it the header reads
+                // identically in both states and the control appears inert.
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::OutlineItem,
+                    states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
+                        if section_is_open {
+                            azul_core::a11y::AccessibilityState::Expanded
+                        } else {
+                            azul_core::a11y::AccessibilityState::Collapsed
+                        },
+                    ]),
+                    ..Default::default()
+                })
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -458,6 +476,21 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
         LayoutDisplay::None
     };
     info.set_css_property(body, CssProperty::const_display(display));
+
+    // The header's ANNOUNCED state must follow the rendered one. This toggle
+    // changes a css property and returns Update::DoNothing — no rebuild — so
+    // the Expanded/Collapsed published when the DOM was built would be frozen
+    // at whatever it was then. A sighted user sees the section close; a screen
+    // reader would still say "expanded". Applying this marks the a11y tree
+    // dirty, so the platform adapter re-reads the node.
+    info.set_accessibility_state(
+        info.get_hit_node(),
+        azul_core::a11y::AccessibilityStateVec::from_vec(vec![if now_open {
+            azul_core::a11y::AccessibilityState::Expanded
+        } else {
+            azul_core::a11y::AccessibilityState::Collapsed
+        }]),
+    );
 
     result
 }

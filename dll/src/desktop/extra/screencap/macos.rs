@@ -22,7 +22,7 @@
 
 use std::ffi::c_void;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use block2::RcBlock;
@@ -42,15 +42,9 @@ const PIXEL_FORMAT_32BGRA: u32 = 0x42475241;
 /// SCStreamOutputType.screen
 const SC_STREAM_OUTPUT_TYPE_SCREEN: isize = 0;
 
-/// Latest captured frame (RGBA + dims), filled by the delegate, drained by read.
-#[derive(Default)]
-struct FrameSlot {
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-    /// Bumped each frame; `read` returns the newest available.
-    seq: u64,
-}
+use azul_layout::widgets::capture_common::{CaptureRead, CaptureRequest};
+
+use crate::desktop::extra::capture_slot::CaptureSlot;
 
 // ---------------------------------------------------------------------------
 // Runtime framework loading
@@ -145,7 +139,7 @@ fn ensure_screen_access() -> bool {
 // ---------------------------------------------------------------------------
 
 struct OutputIvars {
-    slot: Arc<Mutex<FrameSlot>>,
+    slot: Arc<CaptureSlot>,
 }
 
 define_class!(
@@ -183,31 +177,13 @@ define_class!(
                 let h = CVPixelBufferGetHeight(pb) as usize;
                 let stride = CVPixelBufferGetBytesPerRow(pb);
                 let base = CVPixelBufferGetBaseAddress(pb) as *const u8;
-                if !base.is_null() && w > 0 && h > 0 && stride >= w * 4 {
-                    let mut rgba = vec![0u8; w * h * 4];
-                    for y in 0..h {
-                        let row = base.add(y * stride);
-                        for x in 0..w {
-                            let s = row.add(x * 4); // BGRA
-                            let o = (y * w + x) * 4;
-                            rgba[o] = *s.add(2); // R
-                            rgba[o + 1] = *s.add(1); // G
-                            rgba[o + 2] = *s; // B
-                            rgba[o + 3] = 255;
-                        }
-                    }
-                    if let Ok(mut slot) = self.ivars().slot.lock() {
-                        if slot.seq == 0 {
-                            crate::plog_info!(
-                                "[screencap] ScreenCaptureKit: first frame {}x{} stride={} BGRA→RGBA ok",
-                                w, h, stride
-                            );
-                        }
-                        slot.rgba = rgba;
-                        slot.width = w as u32;
-                        slot.height = h as u32;
-                        slot.seq = slot.seq.wrapping_add(1);
-                    }
+                // Swizzle into the slot's REUSED buffer and wake the reader;
+                // the slot validates the plane (see `CaptureSlot::publish_bgra`).
+                if self.ivars().slot.publish_bgra(base, w, h, stride) {
+                    crate::plog_info!(
+                        "[screencap] ScreenCaptureKit: first frame {}x{} stride={} BGRA→RGBA ok",
+                        w, h, stride
+                    );
                 }
                 CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(0));
             }
@@ -216,7 +192,7 @@ define_class!(
 );
 
 impl ScreenCapOutput {
-    fn new(slot: Arc<Mutex<FrameSlot>>) -> Retained<Self> {
+    fn new(slot: Arc<CaptureSlot>) -> Retained<Self> {
         let this = Self::alloc().set_ivars(OutputIvars { slot });
         unsafe { msg_send![super(this), init] }
     }
@@ -263,13 +239,41 @@ struct SckScreen {
     _output: Retained<ScreenCapOutput>,
     /// The sample-handler dispatch queue must outlive the stream.
     _queue: dispatch2::DispatchRetained<dispatch2::DispatchQueue>,
-    slot: Arc<Mutex<FrameSlot>>,
+    slot: Arc<CaptureSlot>,
     last_seq: u64,
+    /// The captured source's size in points — the output size for a zero
+    /// request (`reconfigure` needs it too).
+    source_size: (usize, usize),
 }
 
-/// Open display `index` (clamped) and start an SCStream at ~30 fps BGRA.
-/// Returns a boxed handle, or `0` on failure (test-pattern fallback).
-pub fn open(index: u32, width: u32, height: u32) -> u64 {
+/// A fresh `SCStreamConfiguration`: BGRA, cursor on, `width` x `height`
+/// output, `fps` (0 -> 30). Shared by `open` and `reconfigure`.
+unsafe fn make_config(sc_config: &AnyClass, width: usize, height: usize, fps: u32) -> Option<Retained<AnyObject>> {
+    let config: *mut AnyObject = msg_send![sc_config, new];
+    let config = Retained::from_raw(config)?;
+    let _: () = msg_send![&*config, setWidth: width];
+    let _: () = msg_send![&*config, setHeight: height];
+    let _: () = msg_send![&*config, setPixelFormat: PIXEL_FORMAT_32BGRA];
+    let _: () = msg_send![&*config, setShowsCursor: true];
+    let _: () = msg_send![&*config, setQueueDepth: 5isize];
+    let fps = if fps > 0 { fps } else { 30 };
+    let interval = CMTime {
+        value: 1,
+        timescale: fps as i32,
+        flags: CMTimeFlags::Valid,
+        epoch: 0,
+    };
+    let _: () = msg_send![&*config, setMinimumFrameInterval: interval];
+    Some(config)
+}
+
+/// Open the source named by the request — display `index` (clamped) or the
+/// window `request.window` — and start an SCStream at the requested size and
+/// fps, BGRA, with this process's own windows left out when
+/// `exclude_self`. Returns a boxed handle, or `0` on failure (test-pattern
+/// fallback).
+pub fn open(request: &CaptureRequest) -> u64 {
+    let (index, width, height) = (request.index, request.width, request.height);
     if !ensure_sck_loaded() {
         return 0;
     }
@@ -347,35 +351,79 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         let out_h = if height > 0 { height as usize } else { disp_h.max(1) as usize };
 
         // -- 3. Filter + configuration ---------------------------------------
+        //
+        // A specific WINDOW (`config.source = Window(id)`) is captured on its
+        // own; a display is captured with THIS PROCESS'S OWN WINDOWS EXCLUDED
+        // (`exclude_self`): a shared desktop that shows the sharing app used
+        // to loop — every tile repaint was a screen change, which emitted a
+        // frame, which repainted the tile — at a steady 30 fps on an idle
+        // desktop.
         let empty: Retained<NSArray<AnyObject>> = NSArray::new();
-        let filter: *mut AnyObject = msg_send![sc_filter, alloc];
-        let filter: *mut AnyObject = msg_send![
-            filter,
-            initWithDisplay: display,
-            excludingWindows: &*empty
-        ];
+        let mut filter: *mut AnyObject = core::ptr::null_mut();
+        let (mut out_w, mut out_h) = (out_w, out_h);
+        if request.window != 0 {
+            let windows: *mut AnyObject = msg_send![&*content, windows];
+            if !windows.is_null() {
+                let windows = &*(windows as *const NSArray<AnyObject>);
+                for i in 0..windows.count() {
+                    let w: *mut AnyObject = msg_send![windows, objectAtIndex: i];
+                    let id: u32 = msg_send![&*w, windowID];
+                    if u64::from(id) == request.window {
+                        let f: *mut AnyObject = msg_send![sc_filter, alloc];
+                        filter = msg_send![f, initWithDesktopIndependentWindow: w];
+                        // The window's frame in points sizes a zero request.
+                        if width == 0 || height == 0 {
+                            let frame: objc2_foundation::NSRect = msg_send![&*w, frame];
+                            out_w = (frame.size.width.max(1.0)) as usize;
+                            out_h = (frame.size.height.max(1.0)) as usize;
+                        }
+                        break;
+                    }
+                }
+            }
+            if filter.is_null() {
+                crate::plog_warn!(
+                    "[screencap] window {} not shareable (closed / off-screen?) — capturing the display instead",
+                    request.window
+                );
+            }
+        }
+        if filter.is_null() && request.exclude_self {
+            let apps: *mut AnyObject = msg_send![&*content, applications];
+            if !apps.is_null() {
+                let apps = &*(apps as *const NSArray<AnyObject>);
+                let me = std::process::id() as i32;
+                for i in 0..apps.count() {
+                    let app: *mut AnyObject = msg_send![apps, objectAtIndex: i];
+                    let pid: i32 = msg_send![&*app, processID];
+                    if pid == me {
+                        let ours: Retained<NSArray<AnyObject>> =
+                            NSArray::from_retained_slice(&[Retained::retain(app).expect("non-null app")]);
+                        let f: *mut AnyObject = msg_send![sc_filter, alloc];
+                        filter = msg_send![
+                            f,
+                            initWithDisplay: display,
+                            excludingApplications: &*ours,
+                            exceptingWindows: &*empty
+                        ];
+                        break;
+                    }
+                }
+            }
+        }
+        if filter.is_null() {
+            let f: *mut AnyObject = msg_send![sc_filter, alloc];
+            filter = msg_send![f, initWithDisplay: display, excludingWindows: &*empty];
+        }
         let filter = match Retained::from_raw(filter) {
             Some(f) => f,
             None => return 0,
         };
 
-        let config: *mut AnyObject = msg_send![sc_config, new];
-        let config = match Retained::from_raw(config) {
+        let config = match make_config(sc_config, out_w, out_h, request.fps) {
             Some(c) => c,
             None => return 0,
         };
-        let _: () = msg_send![&*config, setWidth: out_w];
-        let _: () = msg_send![&*config, setHeight: out_h];
-        let _: () = msg_send![&*config, setPixelFormat: PIXEL_FORMAT_32BGRA];
-        let _: () = msg_send![&*config, setShowsCursor: true];
-        let _: () = msg_send![&*config, setQueueDepth: 5isize];
-        let interval = CMTime {
-            value: 1,
-            timescale: 30,
-            flags: CMTimeFlags::Valid,
-            epoch: 0,
-        };
-        let _: () = msg_send![&*config, setMinimumFrameInterval: interval];
 
         // -- 4. Stream + output delegate -------------------------------------
         let stream: *mut AnyObject = msg_send![sc_stream, alloc];
@@ -392,7 +440,7 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         };
 
         ScreenCapOutput::attach_protocol();
-        let slot = Arc::new(Mutex::new(FrameSlot::default()));
+        let slot = CaptureSlot::new();
         let output = ScreenCapOutput::new(slot.clone());
         let queue = dispatch2::DispatchQueue::new("azul.screencap", None);
         let queue_ptr: *mut AnyObject = &*queue as *const _ as *mut AnyObject;
@@ -448,8 +496,14 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         }
 
         crate::plog_info!(
-            "[screencap] ScreenCaptureKit: display {} of {} → {}x{} BGRA @30fps",
-            idx, count, out_w, out_h
+            "[screencap] ScreenCaptureKit: display {} of {} → {}x{} BGRA @{}fps{}{}",
+            idx,
+            count,
+            out_w,
+            out_h,
+            request.fps_or(30),
+            if request.window != 0 { " (window)" } else { "" },
+            if request.exclude_self { ", own windows excluded" } else { "" }
         );
         Box::into_raw(Box::new(SckScreen {
             stream,
@@ -457,42 +511,76 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
             _queue: queue,
             slot,
             last_seq: 0,
+            source_size: (disp_w.max(1) as usize, disp_h.max(1) as usize),
         })) as u64
     }
 }
 
-/// Drain the newest frame into `out` (RGBA8). Screens only emit on CHANGE, so
-/// after a bounded wait the *previous* frame is re-returned (returning `(0,0)`
-/// would make the worker treat an idle desktop as end-of-stream).
-pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
+/// Drain the newest frame into `out` (RGBA8). Screens only emit on CHANGE,
+/// so after the bounded wait an idle desktop is `Idle` — NOT end-of-stream,
+/// and NOT the previous frame re-served as a new buffer (that made an
+/// unchanged picture repaint the tile once a second).
+pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
     let scr = match unsafe { (handle as *mut SckScreen).as_mut() } {
         Some(s) => s,
-        None => return (0, 0),
+        None => return CaptureRead::Ended,
     };
-    for _ in 0..120 {
-        {
-            let slot = match scr.slot.lock() {
-                Ok(s) => s,
-                Err(_) => return (0, 0),
-            };
-            if slot.seq != scr.last_seq && slot.width > 0 {
-                scr.last_seq = slot.seq;
-                out.clear();
-                out.extend_from_slice(&slot.rgba);
-                return (slot.width, slot.height);
+    match scr
+        .slot
+        .read_newer(&mut scr.last_seq, out, Duration::from_millis(1000))
+    {
+        Some((width, height)) => CaptureRead::Frame { width, height },
+        None => CaptureRead::Idle,
+    }
+}
+
+/// Change the output size / fps of the RUNNING stream
+/// (`updateConfiguration:completionHandler:`), so a resized tile or a new
+/// consumer does not restart the capture. `false` on failure (the worker
+/// reopens).
+pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
+    let scr = match unsafe { (handle as *mut SckScreen).as_mut() } {
+        Some(s) => s,
+        None => return false,
+    };
+    let Some(sc_config) = sck_class("SCStreamConfiguration") else {
+        return false;
+    };
+    let out_w = if request.width > 0 { request.width as usize } else { scr.source_size.0 };
+    let out_h = if request.height > 0 { request.height as usize } else { scr.source_size.1 };
+    unsafe {
+        let Some(config) = make_config(sc_config, out_w, out_h, request.fps) else {
+            return false;
+        };
+        let (tx, rx) = mpsc::channel::<String>();
+        let block = RcBlock::new(move |error: *mut AnyObject| {
+            let _ = tx.send(if error.is_null() {
+                String::new()
+            } else {
+                error_desc(error)
+            });
+        });
+        let _: () = msg_send![&*scr.stream, updateConfiguration: &*config, completionHandler: &*block];
+        match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(e) if e.is_empty() => {
+                crate::plog_info!(
+                    "[screencap] ScreenCaptureKit: reconfigured to {}x{} @{}fps (live)",
+                    out_w,
+                    out_h,
+                    request.fps_or(30)
+                );
+                true
+            }
+            Ok(e) => {
+                crate::plog_warn!("[screencap] updateConfiguration failed: {}", e);
+                false
+            }
+            Err(_) => {
+                crate::plog_warn!("[screencap] updateConfiguration timed out");
+                false
             }
         }
-        std::thread::sleep(Duration::from_millis(8));
     }
-    // No new frame (idle screen) — re-serve the last one, if any.
-    if let Ok(slot) = scr.slot.lock() {
-        if slot.width > 0 {
-            out.clear();
-            out.extend_from_slice(&slot.rgba);
-            return (slot.width, slot.height);
-        }
-    }
-    (0, 0)
 }
 
 /// Stop the stream + free the capture (drops the boxed `SckScreen`).

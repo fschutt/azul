@@ -2721,17 +2721,12 @@ impl WaylandWindow {
                     // of a full regenerate_layout(). Mirrors the macOS arm.
                     // The relayout-only request then makes generate_frame_if_needed() skip
                     // regenerate_layout() and only rebuild + send the transaction.
-                    let borrows = self.common.layout_borrows();
-                    if let Some(layout_window) = borrows.layout_window {
-                        let mut debug_messages = None;
-                        if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                            layout_window,
-                            borrows.current_window_state,
-                            borrows.renderer_resources,
-                            &mut debug_messages,
-                        ) {
-                            log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                        }
+                    let mut debug_messages = None;
+                    if let Err(e) = self.incremental_relayout_dispatching(
+                        crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                        &mut debug_messages,
+                    ) {
+                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                     }
                     self.common.request_relayout_only();
                     self.request_redraw();
@@ -3030,17 +3025,12 @@ impl WaylandWindow {
                 // (relayout-only): skip regenerate_layout, but still rebuild the
                 // CPU hit-tester + build & send the full WebRender transaction + present
                 // (an incremental relayout does NOT send the transaction itself).
-                let borrows = self.common.layout_borrows();
-                if let Some(layout_window) = borrows.layout_window {
-                    let mut debug_messages = None;
-                    if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout(
-                        layout_window,
-                        borrows.current_window_state,
-                        borrows.renderer_resources,
-                        &mut debug_messages,
-                    ) {
-                        log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
-                    }
+                let mut debug_messages = None;
+                if let Err(e) = self.incremental_relayout_dispatching(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                    &mut debug_messages,
+                ) {
+                    log_warn!(LogCategory::Layout, "Incremental relayout failed: {}", e);
                 }
                 self.common.request_relayout_only();
                 self.request_redraw();
@@ -3782,7 +3772,28 @@ impl WaylandWindow {
         // Focus is gone — the compositor will not send the key release.
         self.disarm_key_repeat();
         self.snapshot_window_state_baseline("wayland.handle_keyboard_leave");
-        self.common.update_unsynced_state(|ws| ws.window_focused = false);
+        self.common.update_unsynced_state(|ws| {
+            ws.window_focused = false;
+            // Release the mouse buttons: focus left while a button was down, so the
+                        // OS delivers the mouse-UP elsewhere and `left_down` would stay true
+                        // forever — every later move reads as a DRAG (text selects, buttons stop
+                        // clicking). Clearing the flags lets the normal state diff emit the
+                        // MouseUp that unwinds it. See macos::window_did_resign_key.
+            ws.mouse_state.left_down = false;
+            ws.mouse_state.right_down = false;
+            ws.mouse_state.middle_down = false;
+            // Drop every held KEY for the same reason as the buttons above: the
+            // key-UP of whatever caused the focus change goes to the app that
+            // took focus. On macOS that is Cmd of Cmd-Tab, which then stays
+            // latched and turns every later keystroke into a shortcut. Windows
+            // has done this since it was written; the other three never did.
+            ws.keyboard_state.current_virtual_keycode =
+            azul_core::window::OptionVirtualKeyCode::None;
+            ws.keyboard_state.pressed_virtual_keycodes =
+            azul_core::window::VirtualKeyCodeVec::from_vec(Vec::new());
+            ws.keyboard_state.pressed_scancodes =
+            azul_core::window::ScanCodeVec::from_vec(Vec::new());
+        });
         self.dynamic_selector_context.window_focused = false;
         // Every held key is released somewhere we will never hear about, so drop
         // them all now. Engine modifiers are DERIVED from pressed_virtual_keycodes
@@ -5017,22 +5028,17 @@ impl WaylandWindow {
         // dropped rather than left to fire a redundant relayout afterwards.
         if self.common.take_resize_relayout() && !self.common.regeneration_pending() {
             let mut resize_relayout_failed = false;
-            let borrows = self.common.layout_borrows();
-            if let Some(layout_window) = borrows.layout_window {
-                let mut debug_messages = None;
-                let _span = crate::log_span!(LogCategory::Window, "resize_incremental_relayout");
-                if let Err(e) = crate::desktop::shell2::common::layout::incremental_relayout_for_resize(
-                    layout_window,
-                    borrows.current_window_state,
-                    borrows.renderer_resources,
-                    &mut debug_messages,
-                ) {
-                    log_warn!(
-                        LogCategory::Layout,
-                        "[Wayland] resize fast-path relayout failed: {e} — falling back to a                          full regeneration"
-                    );
-                    resize_relayout_failed = true;
-                }
+            let mut debug_messages = None;
+            let _span = crate::log_span!(LogCategory::Window, "resize_incremental_relayout");
+            if let Err(e) = self.incremental_relayout_dispatching(
+                crate::desktop::shell2::common::event::IncrementalRelayout::Resize,
+                &mut debug_messages,
+            ) {
+                log_warn!(
+                    LogCategory::Layout,
+                    "[Wayland] resize fast-path relayout failed: {e} — falling back to a                          full regeneration"
+                );
+                resize_relayout_failed = true;
             }
             if resize_relayout_failed {
                 self.common
@@ -5084,12 +5090,7 @@ impl WaylandWindow {
             // WebRender hit-tester (render_api is None), and without this rebuild every
             // hit test returns nothing -> dead mouse hover / click / text selection /
             // focus. (GPU mode has cpu_hit_tester == None and uses the WebRender tester.)
-            if let (Some(cpu_ht), Some(lw)) = (
-                self.common.cpu_hit_tester.as_mut(),
-                self.common.layout_window.as_ref(),
-            ) {
-                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-            }
+            self.common.rebuild_cpu_hit_tester();
 
             // Send the full transaction (regenerate_layout only re-runs layout, doesn't
             // build/send the WebRender transaction on Wayland)
@@ -5413,35 +5414,9 @@ impl WaylandWindow {
                     // drained and async-loaded VirtualView content never
                     // appears (same fix as the X11 CPU branch). Must run
                     // BEFORE render_frame reads layout_results.
-                    let mut vviews_rebuilt = false;
-                    if let Some(lw) = self.common.layout_window.as_mut() {
-                        if !lw.pending_virtual_view_updates.is_empty() {
-                            let system_callbacks =
-                                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-                            let current_window_state = lw.current_window_state.clone();
-                            let renderer_resources =
-                                std::mem::take(&mut lw.renderer_resources);
-                            let updated = lw.process_pending_virtual_view_updates(
-                                &current_window_state,
-                                &renderer_resources,
-                                &system_callbacks,
-                            );
-                            lw.renderer_resources = renderer_resources;
-                            vviews_rebuilt = !updated.is_empty();
-                        }
-                    }
-                    // The drain REBUILT VirtualView child DOMs (fresh NodeIds).
-                    // The CPU hit-tester still indexes the previous generation's
-                    // rects — rebuild it now, or the next pointer move hit-tests
-                    // stale NodeIds (cursor panic / events on the wrong node).
-                    if vviews_rebuilt {
-                        if let (Some(cpu_ht), Some(lw)) = (
-                            self.common.cpu_hit_tester.as_mut(),
-                            self.common.layout_window.as_ref(),
-                        ) {
-                            cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-                        }
-                    }
+                    // One drain for every backend: it re-invokes in place AND rebuilds
+                    // the CPU hit-tester (the rebuilt child DOMs carry fresh NodeIds).
+                    self.common.drain_virtual_view_updates();
 
                     // Shared per-frame content preparation (journal clock, image
                     // callbacks through the content chokepoint, scrollbar cache).

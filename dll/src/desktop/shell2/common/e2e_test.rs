@@ -227,20 +227,14 @@ pub fn run_e2e_scenario(
             match step {
                 Step::Resize { width, height } => {
                     set_size(&mut window, *width, *height);
-                    // `layout_borrows()` hands out the disjoint borrows a
-                    // layout pass needs; reaching for the fields one at a time
-                    // asks for `&mut common` and `&common` at once.
-                    let borrows = window.common.layout_borrows();
-                    if let Some(layout_window) = borrows.layout_window {
-                        let mut debug_messages = None;
-                        if let Err(e) = super::layout::incremental_relayout(
-                            layout_window,
-                            borrows.current_window_state,
-                            borrows.renderer_resources,
-                            &mut debug_messages,
-                        ) {
-                            eprintln!("[E2E] iter {} incremental_relayout error: {}", iter, e);
-                        }
+                    // The common method runs the relayout AND its finalize
+                    // tail (the CPU hit-tester rebuild), like a real window.
+                    let mut debug_messages = None;
+                    if let Err(e) = window.incremental_relayout_dispatching(
+                        crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                        &mut debug_messages,
+                    ) {
+                        eprintln!("[E2E] iter {} incremental_relayout error: {}", iter, e);
                     }
                 }
                 Step::ResizeFull { width, height } => {

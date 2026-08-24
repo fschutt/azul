@@ -236,13 +236,9 @@ extern "C" fn document_picker_did_pick(
         let status = if paths.is_empty() {
             FilePickerStatus::Cancelled
         } else if count == 1 {
-            FilePickerStatus::Selected {
-                path: OptionString::Some(paths.remove(0)),
-            }
+            FilePickerStatus::Selected(paths.remove(0))
         } else {
-            FilePickerStatus::SelectedMultiple {
-                paths: StringVec::from(paths),
-            }
+            FilePickerStatus::SelectedMultiple(StringVec::from(paths))
         };
         handle.set_status(status);
     }
@@ -358,9 +354,7 @@ pub fn dispatch_open_file(
             // scene hasn't attached yet). Drop the registry entry and
             // resolve the handle to an error so the caller doesn't hang.
             let _ = pop_handle(request_id);
-            handle.set_status(FilePickerStatus::Error {
-                message: AzString::from("no key window — file picker cannot present"),
-            });
+            handle.set_status(FilePickerStatus::Error(AzString::from("no key window — file picker cannot present")));
             return;
         }
 
@@ -376,9 +370,7 @@ pub fn dispatch_open_file(
         ];
         if picker.is_null() {
             let _ = pop_handle(request_id);
-            handle.set_status(FilePickerStatus::Error {
-                message: AzString::from("UIDocumentPickerViewController alloc failed"),
-            });
+            handle.set_status(FilePickerStatus::Error(AzString::from("UIDocumentPickerViewController alloc failed")));
             return;
         }
 
@@ -442,9 +434,7 @@ pub fn dispatch_open_directory(
         let root = key_root_view_controller();
         if root.is_null() {
             let _ = pop_handle(request_id);
-            handle.set_status(FilePickerStatus::Error {
-                message: AzString::from("no key window — directory picker cannot present"),
-            });
+            handle.set_status(FilePickerStatus::Error(AzString::from("no key window — directory picker cannot present")));
             return;
         }
 
@@ -474,9 +464,7 @@ pub fn dispatch_open_directory(
         ];
         if picker.is_null() {
             let _ = pop_handle(request_id);
-            handle.set_status(FilePickerStatus::Error {
-                message: AzString::from("UIDocumentPickerViewController alloc failed"),
-            });
+            handle.set_status(FilePickerStatus::Error(AzString::from("UIDocumentPickerViewController alloc failed")));
             return;
         }
 

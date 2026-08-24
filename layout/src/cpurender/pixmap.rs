@@ -41,6 +41,21 @@ pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
 /// Blit `src` onto `dst` at pixel position (`px_x`, `px_y`) with opacity.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opacity: f32) {
+    blit_pixmap_clipped(src, dst, px_x, px_y, opacity, None);
+}
+
+/// [`blit_pixmap`] with an optional DEST-space clip rect `(x0, y0, x1, y1)`
+/// in device pixels (half-open). What keeps a layer nested inside a scroll
+/// frame from painting outside that frame once the frame has scrolled it
+/// past an edge.
+pub fn blit_pixmap_clipped(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    px_x: i32,
+    px_y: i32,
+    opacity: f32,
+    clip: Option<(i32, i32, i32, i32)>,
+) {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
@@ -55,10 +70,20 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
         if dy < 0 || dy >= dh {
             continue;
         }
+        if let Some((_, cy0, _, cy1)) = clip {
+            if dy < cy0 || dy >= cy1 {
+                continue;
+            }
+        }
         for sx in 0..sw {
             let dx = px_x.saturating_add(sx);
             if dx < 0 || dx >= dw {
                 continue;
+            }
+            if let Some((cx0, _, cx1, _)) = clip {
+                if dx < cx0 || dx >= cx1 {
+                    continue;
+                }
             }
             let si = ((sy * sw + sx) * 4) as usize;
             let di = ((dy * dw + dx) * 4) as usize;
@@ -263,6 +288,167 @@ pub fn blit_pixmap_affine_clipped(
                     ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
                 dst.data[di + 3] =
                     ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+            }
+        }
+    }
+}
+
+/// Projective twin of [`blit_pixmap_affine`]: `h` is a row-major 3x3
+/// homography over column vectors (`compositor::Mat3`) mapping SRC pixels to
+/// DEST pixels with a perspective divide. This is how a `perspective()
+/// rotateX()` tilt reaches the screen on the CPU path — the affine blit
+/// cannot foreshorten. Inverse mapping per dest pixel (the homography's
+/// adjugate), bilinear sampling, the same blend as the affine blit. Dest
+/// pixels that map behind the eye (`w <= 0`) or outside the source draw
+/// nothing; a singular matrix draws nothing.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[allow(clippy::many_single_char_names, clippy::similar_names, clippy::too_many_lines)]
+pub fn blit_pixmap_projective(src: &AzulPixmap, dst: &mut AzulPixmap, h: &[f64; 9], opacity: f32) {
+    blit_pixmap_projective_clipped(src, dst, h, opacity, None);
+}
+
+/// [`blit_pixmap_projective`] with an optional DEST-space clip rect
+/// `(x0, y0, x1, y1)` in device pixels (half-open), intersected with the
+/// projected bounding box.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+// bounded pixel/coord/colour casts
+#[allow(clippy::many_single_char_names)] // homography coefficients: a..i is THE notation
+pub fn blit_pixmap_projective_clipped(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    h: &[f64; 9],
+    opacity: f32,
+    clip: Option<(i32, i32, i32, i32)>,
+) {
+    let sw = src.width as i32;
+    let sh = src.height as i32;
+    let dw = dst.width as i32;
+    let dh = dst.height as i32;
+    if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
+        return;
+    }
+    let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+    if op == 0 {
+        return;
+    }
+
+    // Inverse via the adjugate; a singular matrix has no area.
+    let (a, b, c, d, e, f, g, hh, i) = (h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
+    let det = a * (e * i - f * hh) - b * (d * i - f * g) + c * (d * hh - e * g);
+    if !det.is_finite() || det.abs() < 1e-12 {
+        return;
+    }
+    let inv = [
+        (e * i - f * hh) / det,
+        (c * hh - b * i) / det,
+        (b * f - c * e) / det,
+        (f * g - d * i) / det,
+        (a * i - c * g) / det,
+        (c * d - a * f) / det,
+        (d * hh - e * g) / det,
+        (b * g - a * hh) / det,
+        (a * e - b * d) / det,
+    ];
+
+    // Dest-space bounding box of the four projected src corners. A corner
+    // behind the eye has no finite image: fall back to the whole dest.
+    let corners = [(0.0, 0.0), (f64::from(sw), 0.0), (0.0, f64::from(sh)), (f64::from(sw), f64::from(sh))];
+    let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
+    let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let mut behind = false;
+    for (cx, cy) in corners {
+        let w = g * cx + hh * cy + i;
+        if w <= 1e-9 {
+            behind = true;
+            break;
+        }
+        let x = (a * cx + b * cy + c) / w;
+        let y = (d * cx + e * cy + f) / w;
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    let (x0, y0, x1, y1) = if behind || !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite()) {
+        (0, 0, dw, dh)
+    } else {
+        (
+            (min_x.floor() as i32).max(0),
+            (min_y.floor() as i32).max(0),
+            (max_x.ceil() as i32).min(dw),
+            (max_y.ceil() as i32).min(dh),
+        )
+    };
+    let (x0, y0, x1, y1) = match clip {
+        Some((cx0, cy0, cx1, cy1)) => (x0.max(cx0), y0.max(cy0), x1.min(cx1), y1.min(cy1)),
+        None => (x0, y0, x1, y1),
+    };
+
+    for dy in y0..y1 {
+        for dx in x0..x1 {
+            let (px_c, py_c) = (f64::from(dx) + 0.5, f64::from(dy) + 0.5);
+            let s = inv[6] * px_c + inv[7] * py_c + inv[8];
+            if !(s.is_finite()) || s <= 1e-9 {
+                continue;
+            }
+            let fx = (inv[0] * px_c + inv[1] * py_c + inv[2]) / s;
+            let fy = (inv[3] * px_c + inv[4] * py_c + inv[5]) / s;
+            if !(fx.is_finite() && fy.is_finite()) {
+                continue;
+            }
+            let sx_f = fx - 0.5;
+            let sy_f = fy - 0.5;
+            if sx_f <= -1.0 || sy_f <= -1.0 || sx_f >= f64::from(sw) || sy_f >= f64::from(sh) {
+                continue;
+            }
+            let x_lo = sx_f.floor() as i32;
+            let y_lo = sy_f.floor() as i32;
+            let wx = (sx_f - f64::from(x_lo)) as f32;
+            let wy = (sy_f - f64::from(y_lo)) as f32;
+            let fetch = |x: i32, y: i32| -> [f32; 4] {
+                if x < 0 || y < 0 || x >= sw || y >= sh {
+                    return [0.0, 0.0, 0.0, 0.0];
+                }
+                let idx = ((y * sw + x) * 4) as usize;
+                [
+                    f32::from(src.data[idx]),
+                    f32::from(src.data[idx + 1]),
+                    f32::from(src.data[idx + 2]),
+                    f32::from(src.data[idx + 3]),
+                ]
+            };
+            let lerp2 = |p: [f32; 4], q: [f32; 4], t: f32| -> [f32; 4] {
+                [
+                    p[0] + (q[0] - p[0]) * t,
+                    p[1] + (q[1] - p[1]) * t,
+                    p[2] + (q[2] - p[2]) * t,
+                    p[3] + (q[3] - p[3]) * t,
+                ]
+            };
+            let top = lerp2(fetch(x_lo, y_lo), fetch(x_lo + 1, y_lo), wx);
+            let bot = lerp2(fetch(x_lo, y_lo + 1), fetch(x_lo + 1, y_lo + 1), wx);
+            let px = lerp2(top, bot, wy);
+
+            let sa = ((px[3] as u32) * op) / 255;
+            if sa == 0 {
+                continue;
+            }
+            let di = ((dy * dw + dx) * 4) as usize;
+            if di + 3 >= dst.data.len() {
+                continue;
+            }
+            let (sr, sg, sb) = (px[0] as u32, px[1] as u32, px[2] as u32);
+            if sa >= 255 {
+                dst.data[di] = sr as u8;
+                dst.data[di + 1] = sg as u8;
+                dst.data[di + 2] = sb as u8;
+                dst.data[di + 3] = 255;
+            } else {
+                let inv_sa = 255 - sa;
+                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
+                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
+                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
+                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }
@@ -1356,6 +1542,55 @@ mod autotest_generated {
 
     fn pm(w: u32, h: u32) -> AzulPixmap {
         AzulPixmap::new(w, h).expect("AzulPixmap::new failed for a valid size")
+    }
+
+    // ------------------------------------------------------------------
+    // blit_pixmap_projective
+    // ------------------------------------------------------------------
+
+    fn opaque_run(dst: &AzulPixmap, row: u32) -> u32 {
+        (0..dst.width)
+            .filter(|&x| dst.data[((row * dst.width + x) * 4 + 3) as usize] > 128)
+            .count() as u32
+    }
+
+    #[test]
+    fn the_projective_blit_equals_the_affine_blit_for_an_affine_homography() {
+        let mut src = pm(6, 4);
+        src.fill(200, 40, 90, 255);
+        let m = TransAffine::new_custom(1.5, 0.2, -0.1, 0.8, 7.0, 5.0);
+        let mut a = pm(24, 16);
+        a.fill(0, 0, 0, 0);
+        blit_pixmap_affine(&src, &mut a, &m, 0.9);
+        let mut b = pm(24, 16);
+        b.fill(0, 0, 0, 0);
+        // agg: x' = x*sx + y*shx + tx ; y' = x*shy + y*sy + ty
+        let h = [m.sx, m.shx, m.tx, m.shy, m.sy, m.ty, 0.0, 0.0, 1.0];
+        blit_pixmap_projective(&src, &mut b, &h, 0.9);
+        assert_eq!(a.data, b.data, "with a trivial third row the two blits are the same blit");
+    }
+
+    #[test]
+    fn a_perspective_homography_foreshortens_into_a_trapezoid() {
+        // w = 1 + 0.06 y: rows further down are divided more, so the square
+        // comes out narrower (and shorter) towards the bottom — a tilt.
+        let mut src = pm(20, 20);
+        src.fill(255, 255, 255, 255);
+        let mut dst = pm(40, 40);
+        dst.fill(0, 0, 0, 0);
+        let h = [1.0, 0.0, 10.0, 0.0, 1.0, 10.0, 0.0, 0.06, 1.0];
+        blit_pixmap_projective(&src, &mut dst, &h, 1.0);
+        let top = opaque_run(&dst, 10);
+        let painted_rows: Vec<u32> = (0..40).filter(|&r| opaque_run(&dst, r) > 0).collect();
+        let last = *painted_rows.last().expect("something was painted");
+        let bottom = opaque_run(&dst, last);
+        assert!(top > bottom, "top row {top} px wide must be wider than the last painted row {bottom} px");
+        assert!(top >= 17 && bottom <= 14, "top {top}, bottom {bottom}");
+        assert!(last < 20, "the bottom edge moved UP (y' = 30 / 2.2): last painted row {last}");
+        // nothing outside the destination and nothing behind the eye panics
+        let mut tiny = pm(2, 2);
+        blit_pixmap_projective(&src, &mut tiny, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 1.0], 1.0);
+        blit_pixmap_projective(&src, &mut tiny, &[0.0; 9], 1.0);
     }
 
     fn filled(w: u32, h: u32, c: [u8; 4]) -> AzulPixmap {

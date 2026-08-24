@@ -27,7 +27,7 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::CssPropertyWithConditions;
 use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutWidth, LayoutMarginLeft},
@@ -88,6 +88,11 @@ pub struct TimePicker {
     pub state: TimePickerStateWrapper,
     /// Style for the row container.
     pub container_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 /// Wraps [`TimePickerState`] together with its change callback.
@@ -317,6 +322,13 @@ impl TimePicker {
     /// Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)
     /// and minute (`0..=59`), both clamped into range.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(hour: u32, minute: u32) -> Self {
         let mut inner = TimePickerState::default();
         let (lo, hi) = inner.hour_bounds();
@@ -328,6 +340,7 @@ impl TimePicker {
                 on_change: None.into(),
             },
             container_style: CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE),
+            accessibility_name: OptionString::None,
         }
     }
 
@@ -399,7 +412,7 @@ impl TimePicker {
                 on_hour_up as usize,
                 on_hour_down as usize,
             ),
-            Dom::create_p_with_text(SEPARATOR_TEXT)
+            crate::widgets::widget_p_with_text(SEPARATOR_TEXT)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SEPARATOR_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SEPARATOR_STYLE)),
             build_spinner(
@@ -417,7 +430,7 @@ impl TimePicker {
                 AzString::from_const_str("AM")
             };
             children.push(
-                Dom::create_p_with_text(ampm_text)
+                crate::widgets::widget_p_with_text(ampm_text)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(AMPM_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(AMPM_STYLE))
                     .with_callbacks(
@@ -433,7 +446,12 @@ impl TimePicker {
                         }]
                         .into(),
                     )
-                    .with_tab_index(TabIndex::Auto),
+                    .with_tab_index(TabIndex::Auto)
+                    // Hour/minute steppers act as buttons.
+                    .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                        role: azul_core::a11y::AccessibilityRole::PushButton,
+                        ..Default::default()
+                    }),
             );
         }
 
@@ -457,7 +475,7 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
     let arrow_cell = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
-        Dom::create_p_with_text(arrow)
+        crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ARROW_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ARROW_STYLE))
             .with_callbacks(
@@ -472,6 +490,11 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
+            // The time field opens a chooser.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::ComboBox,
+                ..Default::default()
+            })
     };
 
     Dom::create_div()
@@ -480,7 +503,7 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
         .with_children(
             alloc::vec![
                 arrow_cell(UP_ARROW, up_cb, state.clone()),
-                Dom::create_p_with_text(value)
+                crate::widgets::widget_p_with_text(value)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(DISPLAY_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(DISPLAY_STYLE)),
                 arrow_cell(DOWN_ARROW, down_cb, state),

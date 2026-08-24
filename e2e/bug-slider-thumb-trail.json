@@ -1,0 +1,57 @@
+{
+  "name": "bug_slider_thumb_trail",
+  "description": "SLIDER THUMB TRAIL: dragging the slider left old thumbs on the track. The widget slides its thumb with CallbackInfo::set_css_property(thumb, margin-left) on every pointer move (layout/src/widgets/slider.rs apply_cursor_value) — no rebuild, so the relayout is structure-preserved and the display list goes through the per-IFC PATCH, whose own damage (LayoutCache::last_patch_damage) is what the CPU backends repaint from. This scenario is that exact mechanism — the same CallbackChange::ChangeNodeCssProperties the widget emits — on a track+thumb DOM with the widget's own geometry (16px round thumb on a 200x16 rail), moved three times as a drag would. After every move, assert_damage_sound with pixel_identity compares the damage-driven framebuffer against an independent full repaint: a thumb ghost left at the vacated position is a pixel that should have changed and did not, which pixel_identity reports as a mismatch and the coverage half reports as UNDER-PAINT.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 120,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"track\"><div id=\"thumb\"></div></div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; background: white; }",
+        "body { padding: 20px; }",
+        "#track { display: flex; flex-direction: row; align-items: center; flex-grow: 0; width: 200px; height: 16px; border-radius: 8px; background: #cccccc; }",
+        "#thumb { width: 16px; height: 16px; flex-grow: 0; border-radius: 8px; background: #0d6efd; margin-left: 0px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_dom_tree" },
+    { "op": "assert_exists", "selector": "#thumb" },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "thumb_at_0" },
+    { "op": "set_node_css_override", "node_id": 4, "property": "margin-left", "value": "40px" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_frame_report" },
+    { "op": "assert_changed", "vs": "thumb_at_0", "min_damage_rects": 1 },
+    { "op": "assert_damage_sound", "vs": "thumb_at_0", "forbid_full": true, "pixel_identity": true },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "thumb_at_40" },
+    { "op": "set_node_css_override", "node_id": 4, "property": "margin-left", "value": "80px" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_frame_report" },
+    { "op": "assert_changed", "vs": "thumb_at_40", "min_damage_rects": 1 },
+    { "op": "assert_damage_sound", "vs": "thumb_at_40", "forbid_full": true, "pixel_identity": true },
+
+    { "op": "reset_frame_counters" },
+    { "op": "snapshot_frame", "as": "thumb_at_80" },
+    { "op": "set_node_css_override", "node_id": 4, "property": "margin-left", "value": "92px" },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "get_frame_report" },
+    { "op": "assert_changed", "vs": "thumb_at_80", "min_damage_rects": 1 },
+    { "op": "assert_damage_sound", "vs": "thumb_at_80", "forbid_full": true, "pixel_identity": true },
+    { "op": "capture_damage_png", "path": "target/e2e/bug_slider_thumb_trail.png" },
+
+    { "op": "assert_work_bounded", "max_relayouts": 6, "max_dom_regens": 2 }
+  ]
+}

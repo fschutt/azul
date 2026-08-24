@@ -172,9 +172,7 @@ pub fn dispatch_open_file(
 
     if let Err(msg) = result {
         let _ = pop_handle(request_id);
-        handle.set_status(FilePickerStatus::Error {
-            message: AzString::from(msg),
-        });
+        handle.set_status(FilePickerStatus::Error(AzString::from(msg)));
     }
 }
 
@@ -216,9 +214,7 @@ pub fn dispatch_save_file(
 
     if let Err(msg) = result {
         let _ = pop_handle(request_id);
-        handle.set_status(FilePickerStatus::Error {
-            message: AzString::from(msg),
-        });
+        handle.set_status(FilePickerStatus::Error(AzString::from(msg)));
     }
 }
 
@@ -251,9 +247,7 @@ pub fn dispatch_open_directory(
 
     if let Err(msg) = result {
         let _ = pop_handle(request_id);
-        handle.set_status(FilePickerStatus::Error {
-            message: AzString::from(msg),
-        });
+        handle.set_status(FilePickerStatus::Error(AzString::from(msg)));
     }
 }
 
@@ -302,9 +296,7 @@ pub unsafe extern "system" fn Java_com_azul_picker_AzulFilePicker_nativeOnResult
         let jstr = jni::objects::JString::from_raw(error_or_null);
         let owned: Option<String> = env.get_string(&jstr).ok().map(|s| s.into());
         let msg = owned.unwrap_or_else(|| "AzulFilePicker error (unreadable message)".to_owned());
-        handle.set_status(FilePickerStatus::Error {
-            message: AzString::from(msg),
-        });
+        handle.set_status(FilePickerStatus::Error(AzString::from(msg)));
         return;
     }
 
@@ -347,13 +339,9 @@ pub unsafe extern "system" fn Java_com_azul_picker_AzulFilePicker_nativeOnResult
     let status = if out.is_empty() {
         FilePickerStatus::Cancelled
     } else if out.len() == 1 {
-        FilePickerStatus::Selected {
-            path: OptionString::Some(out.remove(0)),
-        }
+        FilePickerStatus::Selected(out.remove(0))
     } else {
-        FilePickerStatus::SelectedMultiple {
-            paths: StringVec::from(out),
-        }
+        FilePickerStatus::SelectedMultiple(StringVec::from(out))
     };
     handle.set_status(status);
 }

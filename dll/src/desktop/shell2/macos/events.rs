@@ -524,6 +524,14 @@ impl MacOSWindow {
                     || momentum_phase == objc2_app_kit::NSEventPhase::Cancelled
                 {
                     ScrollInputSource::TrackpadEnd
+                } else if momentum_phase == objc2_app_kit::NSEventPhase::Began
+                    || momentum_phase == objc2_app_kit::NSEventPhase::Changed
+                {
+                    // The fingers are up: these deltas are the OS's momentum
+                    // tail. Classified apart so the physics timer can let the
+                    // rubber-band spring own an edge instead of being killed
+                    // by every one of them (the user never saw a spring-back).
+                    ScrollInputSource::TrackpadMomentum
                 } else {
                     ScrollInputSource::TrackpadContinuous
                 }
@@ -567,6 +575,7 @@ impl MacOSWindow {
                         // gestures carry phases; a ratcheting wheel doesn't).
                         match source {
                             azul_layout::managers::scroll_state::ScrollInputSource::TrackpadContinuous
+                            | azul_layout::managers::scroll_state::ScrollInputSource::TrackpadMomentum
                             | azul_layout::managers::scroll_state::ScrollInputSource::TrackpadEnd => {
                                 azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad
                             }

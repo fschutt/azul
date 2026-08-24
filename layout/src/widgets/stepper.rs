@@ -368,6 +368,10 @@ impl Stepper {
     }
 
     #[must_use] pub fn dom(self) -> Dom {
+        // Read before the state is moved into the callbacks below.
+        let step_now = self.stepper_state.inner.current_step;
+        let steps_total = self.stepper_state.inner.total_steps;
+
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -397,7 +401,7 @@ impl Stepper {
                                 STEPPER_CONNECTOR_CLASS,
                             ))
                             .with_css_props(connector_style(conn_left_fill(i, current))),
-                        Dom::create_p_with_text(AzString::from(format!("{}", i + 1).as_str()))
+                        crate::widgets::widget_p_with_text(AzString::from(format!("{}", i + 1).as_str()))
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CIRCLE_CLASS,
                             ))
@@ -428,10 +432,22 @@ impl Stepper {
                     .into(),
                 )
                 .with_tab_index(TabIndex::Auto)
+                // A stepper is a spin button: the VALUE is which step you are
+                // on, and "step 2 of 5" is the entire content of the control.
+                .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                    role: azul_core::a11y::AccessibilityRole::SpinButton,
+                    accessibility_value: Some(AzString::from(alloc::format!(
+                        "step {} of {}",
+                        step_now.saturating_add(1),
+                        steps_total
+                    )))
+                    .into(),
+                    ..Default::default()
+                })
                 .with_children(
                     vec![
                         row,
-                        Dom::create_p_with_text(label.clone())
+                        crate::widgets::widget_p_with_text(label.clone())
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_LABEL_CLASS,
                             ))

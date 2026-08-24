@@ -910,7 +910,11 @@ unsafe impl Sync for StreamCtx {}
 // VTable: open / read / close
 // ---------------------------------------------------------------------------
 
-pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
+/// The portal's share dialog picks the source (the request's display index /
+/// window id cannot be honoured through xdg-desktop-portal, which asks the
+/// user) and PipeWire delivers the source's own size; fps is negotiated by
+/// the compositor. The request is therefore informational here.
+pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> u64 {
     scd!("open() called — starting portal handshake");
     // 1. Portal handshake (may block on the user's share dialog).
     let Some((fd, node_id, dbus, session_path)) = portal_open_stream() else {
@@ -1116,18 +1120,22 @@ pub fn open(_index: u32, _width: u32, _height: u32) -> u64 {
 }
 
 
-pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
+pub fn read(handle: u64, out: &mut Vec<u8>) -> azul_layout::widgets::capture_common::CaptureRead {
+    use azul_layout::widgets::capture_common::CaptureRead;
     let shared = {
         let map = sessions().lock().unwrap();
-        let Some(s) = map.get(&handle) else { return (0, 0) };
+        let Some(s) = map.get(&handle) else {
+            return CaptureRead::Ended;
+        };
         s.shared.clone()
     };
 
     let mut slot = shared.slot.lock().unwrap();
     let start_seq = slot.seq;
-    // Wait for the NEXT frame (≤2s; on timeout re-deliver the last one so a
-    // static screen keeps the widget alive instead of ending the stream).
-    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    // Wait for the NEXT frame (≤1s). A static screen is `Idle`: the worker
+    // keeps polling and presents nothing, so an unchanged picture costs no
+    // repaint (re-delivering the last frame as a new buffer used to).
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
     while slot.seq == start_seq && !slot.dead {
         let timeout = deadline.saturating_duration_since(std::time::Instant::now());
         if timeout.is_zero() {
@@ -1137,26 +1145,26 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
         slot = guard;
     }
     if slot.dead {
-        return (0, 0);
+        return CaptureRead::Ended;
+    }
+    if slot.seq == start_seq {
+        return CaptureRead::Idle;
     }
     if slot.data.is_empty() || slot.width == 0 {
-        // No frame yet (still negotiating): brief blank frame keeps the
-        // worker polling without tripping its EOS handling. If the stream
-        // NEVER produces a frame this branch repeats forever — say so once
-        // instead of blanking silently for the rest of the session.
+        // No usable frame yet (still negotiating). If the stream NEVER
+        // produces a frame this branch repeats forever — say so once
+        // instead of staying silent for the rest of the session.
         static NO_FRAME_YET: std::sync::Once = std::sync::Once::new();
         NO_FRAME_YET.call_once(|| {
             crate::plog_warn!(
-                "[screencap] no frame within 2s of the first read — delivering blank \
-                 frames while the stream negotiates. If this persists, the compositor \
+                "[screencap] no frame within 1s of the first read — idling \
+                 while the stream negotiates. If this persists, the compositor \
                  granted the stream but is not delivering (e.g. dmabuf-only formats \
                  with the EGL importer unavailable); set AZ_SCREENCAP_DEBUG=1 for the \
                  negotiation trace"
             );
         });
-        out.clear();
-        out.resize(4, 0);
-        return (1, 1);
+        return CaptureRead::Idle;
     }
 
     let (w, h) = (slot.width as usize, slot.height as usize);
@@ -1169,7 +1177,10 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
         for px in out.chunks_exact_mut(4) {
             px[3] = 255;
         }
-        return (slot.width, slot.height);
+        return CaptureRead::Frame {
+            width: slot.width,
+            height: slot.height,
+        };
     }
     match slot.spa_format {
         SPA_VIDEO_FORMAT_RGBA => out.copy_from_slice(&slot.data),
@@ -1194,7 +1205,10 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
             }
         }
     }
-    (slot.width, slot.height)
+    CaptureRead::Frame {
+        width: slot.width,
+        height: slot.height,
+    }
 }
 
 pub fn close(handle: u64) {

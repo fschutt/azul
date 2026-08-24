@@ -187,7 +187,7 @@ impl Tooltip {
         // the hovered wrapper), so no per-tooltip state is needed.
         let marker = RefAny::new(());
 
-        let tip = Dom::create_p_with_text(self.text)
+        let tip = crate::widgets::widget_p_with_text(self.text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_TIP_CLASS))
             .with_css_props(self.tip_style);
 

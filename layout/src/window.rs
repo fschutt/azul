@@ -840,6 +840,10 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         routes: _,
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
+        // One rect per NodeResized subscriber (a handful of widgets), not
+        // the document.
+        resize_watch: _,
+        resize_watch_dpi: _,
         #[cfg(feature = "icu")]
         icu_localizer: _,
     } = w;
@@ -1261,6 +1265,17 @@ pub struct LayoutWindow {
     /// Drain-and-clear is the caller's responsibility; nothing inside
     /// `LayoutWindow` ages or discards these on its own.
     pub pending_lifecycle_events: Vec<azul_core::events::SyntheticEvent>,
+    /// Layout box of every node subscribed to `NodeResized`, as of the last
+    /// layout pass — the "previous" side of the next pass's `Resize` events
+    /// (see [`Self::queue_resize_events_after_layout`]).
+    ///
+    /// Node-keyed: remapped
+    /// with the managers on a rebuild, so a subscriber that keeps its identity
+    /// across a DOM regeneration keeps its baseline too.
+    pub resize_watch: BTreeMap<(DomId, NodeId), LogicalRect>,
+    /// The hidpi factor the last `resize_watch` was taken at: a change fires
+    /// `NodeResized` for every watched node (physical size changed).
+    pub resize_watch_dpi: f32,
     /// Resolved `BeforeUnmount` invocations queued for dispatch.
     ///
     /// Unmount events target OLD `NodeIds` that disappear once the new layout
@@ -1575,6 +1590,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -1645,6 +1663,8 @@ impl LayoutWindow {
             },
             pending_virtual_view_updates: BTreeMap::new(),
             pending_lifecycle_events: Vec::new(),
+            resize_watch: BTreeMap::new(),
+            resize_watch_dpi: 1.0,
             pending_unmount_invocations: Vec::new(),
             system_style: None,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
@@ -1858,8 +1878,22 @@ impl LayoutWindow {
         // pre-edit text. The damage rect was right; the pixels in it were old.
         //
         // Cheap: the overlay only holds nodes the user actually edited, and
-        // `reapply_dirty_text_node` re-shapes from the clean base, so running
-        // it again after a call site that already did is a no-op in effect.
+        // `reapply_dirty_text_node` re-shapes from the clean base.
+        //
+        // (The comment above shipped WITHOUT the loop — fda08926f described
+        // the fix and left the two shell call sites as the only ones, so an
+        // incremental relayout still rebuilt an edited IFC from the DOM's
+        // pre-edit text. The TextInput widget hit exactly that: its own
+        // TextInput callback hides the placeholder after the first keystroke,
+        // that CSS change relayouts, and the value just typed was gone.)
+        if result.is_ok() {
+            let dirty_entries: Vec<(DomId, NodeId)> =
+                self.content_overlay.iter_text().map(|(k, _)| *k).collect();
+            for (dom_id, node_id) in dirty_entries {
+                self.reapply_dirty_text_node(dom_id, node_id);
+            }
+        }
+
         // After successful layout, update the accessibility tree
         #[cfg(feature = "a11y")]
         if result.is_ok() {
@@ -1871,6 +1905,33 @@ impl LayoutWindow {
             self.scroll_focused_cursor_into_view();
         }
 
+        // Every layout pass ends here — full rebuild, pre-cascade relayout,
+        // window-resize fast path — so this is the one place `NodeResized`
+        // can be derived from what the solve actually produced.
+        if result.is_ok() {
+            let dpi = window_state.size.get_hidpi_factor().inner.get();
+            self.queue_resize_events_after_layout(system_callbacks, dpi);
+        }
+
+        // PATCH VERIFY (`AZ_PATCH_VERIFY=1`): a PATCHED display list (the
+        // previous list spliced and translated) must equal what the WHOLESALE
+        // builder makes of the same layout results — that is the patch's
+        // whole contract. The two builders producing different pictures for
+        // one tree is how a hover made a placeholder jump (AzWidgets, report
+        // 3.5-1). Off by default (it doubles display-list work); the e2e
+        // suites and the headless widget tests turn it on.
+        #[cfg(feature = "std")]
+        if result.is_ok() && std::env::var_os("AZ_PATCH_VERIFY").is_some() {
+            let mismatches = self.verify_patched_display_list(DomId::ROOT_ID);
+            assert!(
+                mismatches.is_empty(),
+                "AZ_PATCH_VERIFY: the patched display list differs from the wholesale build \
+                 of the same layout results in {} item(s):\n{}",
+                mismatches.len(),
+                mismatches.join("\n")
+            );
+        }
+
         // Developer warning pass: raw text nodes used without a containing
         // block (azul does not auto-wrap them in anonymous blocks the way
         // browsers do — state on a text node is inert). One warning per
@@ -1878,6 +1939,9 @@ impl LayoutWindow {
         if result.is_ok() {
             for lr in self.layout_results.values() {
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
+                crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
+                crate::dom_lint::warn_interactive_without_accessibility(&lr.styled_dom);
+                crate::dom_lint::warn_a11y_shape(&lr.styled_dom);
             }
         }
 
@@ -3311,6 +3375,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -3774,10 +3841,22 @@ impl LayoutWindow {
         // also avoids GpuValueCache::synchronize, which currently mis-lifts
         // to wasm (out-of-bounds access). Desktop is unaffected.
         if !self.skip_gpu_sync {
+            // `transform-origin` / `translate()` percentages resolve against
+            // the node's own box. Layout has not run yet for THIS pass, so
+            // the previous pass's sizes stand in (exact in steady state); the
+            // refresh after the solve below corrects the first frame and any
+            // size change.
+            let previous = self.layout_results.get(&dom_id);
+            let previous_size = |node: NodeId| -> Option<(f32, f32)> {
+                let lr = previous?;
+                let idx = *lr.layout_tree.dom_to_layout.get(&node)?.first()?;
+                let size = lr.layout_tree.nodes.get(idx.index())?.used_size?;
+                Some((size.width, size.height))
+            };
             let mut transform_opacity_events = self
                 .gpu_state_manager
                 .get_or_create_cache(dom_id)
-                .synchronize(&styled_dom);
+                .synchronize_with_sizes(&styled_dom, &previous_size);
             // MWA-C-gpu_state: drop the PREVIOUS pass's events before
             // merging this one's. `pending_changes` has zero drain call
             // sites (both renderers re-read cache values via
@@ -3806,6 +3885,14 @@ impl LayoutWindow {
         let cursor_is_visible = self.text_edit_manager.should_draw_cursor()
             || self.text_edit_manager.tween.is_active();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
+        // The live selection goes through the LAYOUT path too. Only the
+        // display-list-only path (`regenerate_display_list_for_dom`) painted
+        // `SelectionRect`s; this one handed `layout_document` an empty map,
+        // so every relayout — a resize, a restyle, an app's RefreshDom, a
+        // set_css_property patch — erased the highlight until the next drag
+        // move repainted it (the "selection flickers and is gone on release"
+        // report, 2026-08-21).
+        let text_selections_map = self.text_edit_manager.build_text_selections_map();
 
         // Consume the CSS diff staged by `begin_reconciliation` — exactly one
         // pass eats it, and only for the DOM it was computed against.
@@ -3826,7 +3913,7 @@ impl LayoutWindow {
                 viewport,
                 &self.font_manager,
                 &scroll_offsets,
-                &BTreeMap::new(),
+                &text_selections_map,
                 debug_messages,
                 Some(&gpu_cache),
                 &self.renderer_resources,
@@ -3846,6 +3933,24 @@ impl LayoutWindow {
         // Hint the allocator to return freed pages after the layout pass
         // drops its transient allocations (intrinsic sizing Vecs, etc.).
         crate::probe::hint_purge_allocator();
+
+        // The sizes exist now: resolve every CSS transform's percentages
+        // against the node's REAL box (see `synchronize_with_sizes`). Both
+        // compositors read these live values, so the correction is visible
+        // in this very frame.
+        if !self.skip_gpu_sync {
+            let tree = self.layout_cache.tree.as_ref();
+            let new_size = |node: NodeId| -> Option<(f32, f32)> {
+                let tree = tree?;
+                let idx = *tree.dom_to_layout.get(&node)?.first()?;
+                let size = tree.nodes.get(idx.index())?.used_size?;
+                Some((size.width, size.height))
+            };
+            let _refreshed: usize = self
+                .gpu_state_manager
+                .get_or_create_cache(dom_id)
+                .refresh_transform_values(&styled_dom, &new_size);
+        }
 
         // M12.7: the headless web path needs the per-node geometry. Everything below —
         // scrollbar TransformKey registration, GPU-cache opacity/transform sync,
@@ -5074,6 +5179,9 @@ impl LayoutWindow {
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -6926,10 +7034,29 @@ impl LayoutWindow {
         // happens. Put the request back and let the next post-layout call do
         // it properly. Bounded by `MAX_PENDING_FOCUS_RETRIES` so a node that
         // never gains an inline layout still gets its (0,0) fallback.
-        let node_has_layout = self
-            .layout_results
-            .get(&pending.dom_id)
-            .is_some_and(|lr| lr.layout_tree.dom_to_layout.contains_key(&pending.text_node_id));
+        let node_has_layout = self.layout_results.get(&pending.dom_id).is_some_and(|lr| {
+            if lr.layout_tree.dom_to_layout.contains_key(&pending.text_node_id) {
+                return true;
+            }
+            // An EMPTY text node generates no box (it is filtered out of the
+            // layout tree), but its block parent is laid out — with the
+            // editing host's strut line box. Nothing more will ever arrive
+            // for it: seed the (0,0) caret NOW instead of burning the retry
+            // budget and showing no caret for the first frames.
+            let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+            let mut current = hierarchy
+                .get(pending.text_node_id)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            while let Some(parent) = current {
+                if lr.layout_tree.dom_to_layout.contains_key(&parent) {
+                    return true;
+                }
+                current = hierarchy
+                    .get(parent)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            }
+            false
+        });
         if dense_cursor.is_none()
             && sparse_cursor.is_none()
             && !node_has_layout
@@ -12023,13 +12150,29 @@ impl LayoutWindow {
         Arc::new(props)
     }
 
+    /// A subtree carrying an explicit `contenteditable="false"` (and not the
+    /// `set_contenteditable()` flag, which wins) is WALLED OFF from the
+    /// editable it sits in: that is what stops the inheritance walk in
+    /// [`solver3::getters::is_node_contenteditable_inherited`], and the text
+    /// widgets rely on it to keep their placeholder prompt — which lives
+    /// *inside* the editable container — out of the value the engine edits.
+    /// Every walk over an editable's subtree (the buffer READ in
+    /// [`Self::collect_text_from_children`] and the reshape TARGET in
+    /// [`Self::ifc_candidate_children`]) must apply the same rule, or an edit
+    /// is computed from one set of nodes and painted into another.
+    fn is_walled_off_editable_subtree(node_data: &azul_core::dom::NodeData) -> bool {
+        !node_data.is_contenteditable()
+            && node_data
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|attr| matches!(attr, AttributeType::ContentEditable(false)))
+    }
+
     /// Recursively collect text content from child nodes
     ///
-    /// A subtree carrying an explicit `contenteditable="false"` is skipped: that
-    /// is what stops the inheritance walk in
-    /// [`solver3::getters::is_node_contenteditable_inherited`], and the text
-    /// widgets rely on it to keep their placeholder prompt — which lives *inside*
-    /// the editable container — out of the value the engine edits.
+    /// A subtree carrying an explicit `contenteditable="false"` is skipped
+    /// ([`Self::is_walled_off_editable_subtree`]).
     fn collect_text_from_children(
         &self,
         dom_id: DomId,
@@ -12053,12 +12196,9 @@ impl LayoutWindow {
             // Same precedence as `is_node_contenteditable_inherited`: the
             // `set_contenteditable()` flag wins, otherwise an explicit
             // `contenteditable="false"` attribute walls the subtree off.
-            let is_walled_off = node_data.get(child_id.index()).is_some_and(|nd| {
-                !nd.is_contenteditable()
-                    && nd.attributes().as_ref().iter().any(|attr| {
-                        matches!(attr, AttributeType::ContentEditable(false))
-                    })
-            });
+            let is_walled_off = node_data
+                .get(child_id.index())
+                .is_some_and(Self::is_walled_off_editable_subtree);
 
             if !is_walled_off {
                 // Get content from this child (recursive)
@@ -12122,18 +12262,26 @@ impl LayoutWindow {
         self.reshape_text_node(dom_id, node_id, new_inline_content);
     }
 
-    /// The direct children of `node_id` in the order [`Self::reshape_text_node`]
+    /// The descendants of `node_id` in the order [`Self::reshape_text_node`]
     /// searches them for an inline formatting context: the block that owns the
-    /// caret first, then document order.
+    /// caret first, then document order — and NEVER a walled-off subtree
+    /// ([`Self::is_walled_off_editable_subtree`]).
     ///
-    /// Plain document order hands `container > [placeholder p, value p]` to the
-    /// *placeholder* whenever it is displayed, so the edit lands in the prompt
-    /// instead of the value.
+    /// The buffer the edit was computed from is the editable's text WITHOUT
+    /// its `contenteditable="false"` islands ([`Self::collect_text_from_children`]),
+    /// so the shaped result must go to a block inside that same set. The
+    /// text widgets are `container > [p.placeholder (contenteditable=false),
+    /// p.value]` with the caret on the CONTAINER: no child "owns" the caret,
+    /// document order put the placeholder first, and the typed text was
+    /// shaped into the prompt — which the widget hides on the first
+    /// keystroke. A focused `TextInput` showed a caret and painted nothing for
+    /// whatever was typed (`AzWidgets`, 2026-08-22).
     fn ifc_candidate_children(&self, dom_id: DomId, node_id: NodeId) -> Vec<NodeId> {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return Vec::new();
         };
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
+        let node_data = layout_result.styled_dom.node_data.as_ref();
 
         // Breadth-first over the WHOLE subtree, not just the direct children.
         // An editable's text can sit any number of blocks down
@@ -12155,8 +12303,13 @@ impl LayoutWindow {
             };
             let mut child = item.first_child_id(parent);
             while let Some(child_id) = child {
-                children.push(child_id);
-                queue.push_back(child_id);
+                let walled_off = node_data
+                    .get(child_id.index())
+                    .is_some_and(Self::is_walled_off_editable_subtree);
+                if !walled_off {
+                    children.push(child_id);
+                    queue.push_back(child_id);
+                }
                 let Some(child_item) = node_hierarchy.get(child_id.index()) else {
                     break;
                 };
@@ -12468,6 +12621,70 @@ impl LayoutWindow {
         }
     }
 
+    /// THE PATCH CONTRACT, checked: if the last build of `dom_id`'s display
+    /// list was a PATCHED one (the previous list spliced and translated by
+    /// node deltas — see `solver3::display_list::PatchState`), rebuild the
+    /// list WHOLESALE from the same layout results and report every item
+    /// that differs (`"#index: patched … | wholesale …"`). Empty when the two
+    /// builders agree, and when the last build was not patched (nothing to
+    /// verify). Leaves the wholesale list installed — it is the reference.
+    ///
+    /// Used by the `AZ_PATCH_VERIFY` gate in
+    /// [`Self::layout_and_generate_display_list`] and by the headless
+    /// widget tests, so a translate that drifts from a re-layout (an
+    /// absolutely positioned box whose interior was re-run, a node whose
+    /// inline layout was replaced without a size change) fails a test
+    /// instead of moving text on screen.
+    #[must_use]
+    pub fn verify_patched_display_list(&mut self, dom_id: DomId) -> Vec<String> {
+        if !self.layout_cache.last_build_was_patched {
+            return Vec::new();
+        }
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let patched: Vec<String> = lr.display_list.items.iter().map(|i| format!("{i:?}")).collect();
+        self.regenerate_display_list_for_dom(dom_id);
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return Vec::new();
+        };
+        let wholesale: Vec<String> = lr.display_list.items.iter().map(|i| format!("{i:?}")).collect();
+        // `AZ_PATCH_VERIFY_DUMP=<dir>`: write both lists in full, one item per
+        // line, so a mismatch can be read side by side (the report below is
+        // index-aligned and clipped, which is enough to SEE a drift but not
+        // to diagnose one item inserted near the top).
+        #[cfg(feature = "std")]
+        if patched != wholesale {
+            if let Some(dir) = std::env::var_os("AZ_PATCH_VERIFY_DUMP") {
+                let dir = std::path::PathBuf::from(dir);
+                // Best effort: a dump that cannot be written must not fail
+                // the verification it documents.
+                drop(std::fs::create_dir_all(&dir));
+                drop(std::fs::write(dir.join("patched.txt"), patched.join("\n")));
+                drop(std::fs::write(dir.join("wholesale.txt"), wholesale.join("\n")));
+            }
+        }
+        let mut out = Vec::new();
+        if patched.len() != wholesale.len() {
+            out.push(format!(
+                "item count: patched {} vs wholesale {}",
+                patched.len(),
+                wholesale.len()
+            ));
+        }
+        for (i, (p, w)) in patched.iter().zip(wholesale.iter()).enumerate() {
+            if p != w {
+                let clip = |s: &str| s.chars().take(240).collect::<String>();
+                out.push(format!("#{i}: patched {} | wholesale {}", clip(p), clip(w)));
+                if out.len() >= 12 {
+                    out.push("…".to_string());
+                    break;
+                }
+            }
+        }
+        out
+    }
+
     /// Regenerate the display list for a specific DOM from the current layout tree.
     ///
     /// This is the critical missing piece for text input: after `update_text_cache_after_edit`
@@ -12501,8 +12718,7 @@ impl LayoutWindow {
         // typed glyphs were never painted where they actually are. Stale
         // `last_patch_damage` is the milder half of the same defect
         // (over-damage from rects that describe a different list).
-        self.layout_cache.last_build_was_patched = false;
-        self.layout_cache.last_patch_damage = None;
+        self.layout_cache.record_full_emission();
         self.layout_cache.last_patch_move = None;
 
         // Get all the data we need from the layout result
@@ -13457,7 +13673,36 @@ impl LayoutWindow {
             }
         }
 
-        let (dom_id, ifc_root_node_id, initial_range, _local_pos) = found_selection?;
+        // A press that hits NO selectable text ENDS the selection session —
+        // browser mousedown semantics — unless it landed inside a
+        // contenteditable host (an empty TextInput has no text to hit, and
+        // focus has just given it its caret). The session a click on any text
+        // opened used to live for the rest of the window: in AzPaint one click
+        // on the title, then every stroke on the canvas dragged a selection
+        // through the title (`TextSelectionDrag` is armed whenever
+        // `left_down && has_active_editing()`).
+        let Some((dom_id, ifc_root_node_id, initial_range, _local_pos)) = found_selection else {
+            let pressed_an_editable = self
+                .hover_manager
+                .get_current(&InputPointId::Mouse)
+                .is_some_and(|hit_test| {
+                    hit_test.hovered_nodes.iter().any(|(dom_id, hit)| {
+                        self.layout_results.get(dom_id).is_some_and(|lr| {
+                            hit.regular_hit_test_nodes.keys().any(|node_id| {
+                                solver3::getters::is_node_contenteditable_inherited(
+                                    &lr.styled_dom,
+                                    *node_id,
+                                )
+                            })
+                        })
+                    })
+                });
+            if !pressed_an_editable && self.text_edit_manager.has_active_editing() {
+                self.text_edit_manager.clear_editing();
+                self.text_edit_manager.clear_cross_block_selection();
+            }
+            return None;
+        };
 
         // Create DomNodeId for click state tracking - use IFC root's NodeId
         // Selection state is keyed by IFC root because that's where inline_layout_result lives
@@ -14143,6 +14388,95 @@ impl LayoutWindow {
         updated_vviews
     }
 
+    /// Queue a `Resize` lifecycle event (`ComponentEventFilter::NodeResized`)
+    /// for every subscribed node whose layout box changed size since the last
+    /// pass, and remember the current boxes as the next pass's baseline.
+    ///
+    /// Called at the tail of [`Self::layout_and_generate_display_list`], i.e.
+    /// after EVERY solve. `NodeResized` is public API (the video widget
+    /// resizes its decoder target on it) but had never fired in a running
+    /// app: its only emitter lived in `reconcile_dom`, which compared layout
+    /// maps that production passed EMPTY, ran BEFORE the new tree was solved,
+    /// and was not even reached by a window resize (the fast path re-solves
+    /// the existing `StyledDom` without reconciling). Deriving the event from
+    /// the solved boxes covers all three paths with one rule.
+    ///
+    /// The first pass a node is seen records its box and emits nothing (a
+    /// mount is not a resize). The shell drains `pending_lifecycle_events`
+    /// after the pass (`dispatch_pending_lifecycle_events`).
+    pub fn queue_resize_events_after_layout(
+        &mut self,
+        system_callbacks: &ExternalSystemCallbacks,
+        hidpi_factor: f32,
+    ) {
+        use azul_core::dom::{ComponentEventFilter, EventFilter};
+
+        // A DPI change (the window moved to a Retina display, the user
+        // changed scaling) keeps every LOGICAL box and changes every PHYSICAL
+        // one — a subscriber sizing a texture / a capture / a canvas in device
+        // pixels must hear about it. Compare against a rect no node can have,
+        // so every watched node fires exactly once.
+        let dpi_changed = (self.resize_watch_dpi - hidpi_factor).abs() > f32::EPSILON;
+        self.resize_watch_dpi = hidpi_factor;
+
+        let mut current: BTreeMap<(DomId, NodeId), LogicalRect> = BTreeMap::new();
+        for (dom_id, lr) in &self.layout_results {
+            let node_data = lr.styled_dom.node_data.as_container();
+            for (idx, nd) in node_data.internal.iter().enumerate() {
+                let subscribed = nd.callbacks.as_ref().iter().any(|cb| {
+                    matches!(
+                        cb.event,
+                        EventFilter::Component(ComponentEventFilter::NodeResized)
+                    )
+                });
+                if !subscribed {
+                    continue;
+                }
+                let node_id = NodeId::new(idx);
+                let Some(layout_idx) = lr
+                    .layout_tree
+                    .dom_to_layout
+                    .get(&node_id)
+                    .and_then(|v| v.first().copied())
+                else {
+                    continue;
+                };
+                let Some(size) = lr.layout_tree.get(layout_idx).and_then(|n| n.used_size) else {
+                    continue;
+                };
+                let Some(position) = lr.calculated_positions.get(layout_idx.index()) else {
+                    continue;
+                };
+                current.insert(
+                    (*dom_id, node_id),
+                    LogicalRect::new(LogicalPosition::new(position.x, position.y), size),
+                );
+            }
+        }
+
+        if !current.is_empty() || !self.resize_watch.is_empty() {
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            for ((dom_id, node_id), new_rect) in &current {
+                if let Some(old_rect) = self.resize_watch.get(&(*dom_id, *node_id)) {
+                    let old_rect = if dpi_changed {
+                        LogicalRect::new(
+                            old_rect.origin,
+                            LogicalSize::new(-1.0, -1.0),
+                        )
+                    } else {
+                        *old_rect
+                    };
+                    if let Some(ev) = azul_core::events::resize_event_for_bounds(
+                        *dom_id, *node_id, old_rect, *new_rect, &now,
+                    ) {
+                        self.pending_lifecycle_events.push(ev);
+                    }
+                }
+            }
+        }
+        self.resize_watch = current;
+    }
+
     /// Queue `VirtualView` updates to be processed in the next frame
     ///
     /// This is called after callbacks to store the `vviews_to_update` from callback changes
@@ -14319,6 +14653,7 @@ impl LayoutWindow {
 
             // --- NODE-KEYED: plain caches owned directly by the window -------
             text_constraints_cache,
+            resize_watch,
             pending_virtual_view_updates,
             gl_texture_cache,
             currently_dragging_thumb,
@@ -14441,6 +14776,7 @@ impl LayoutWindow {
             structural_history_suppression: _,
             // A document-space Y, no NodeIds.
             pagination_dirty_from: _,
+            resize_watch_dpi: _,
         } = self;
 
         if let Some(rejected) = pending_document_edit.take() {
@@ -14484,6 +14820,7 @@ impl LayoutWindow {
 
         // Window-owned caches (same contract: absent from `map` == unmounted).
         crate::managers::remap_dom_keys(&mut text_constraints_cache.constraints, dom, map);
+        crate::managers::remap_dom_keys(resize_watch, dom, map);
         // Overlay (images + text) remaps with the managers; the CONVERGENCE GC
         // for text (drop entries the new DOM committed) runs at the tail of
         // `layout_and_generate_display_list`, where the new generation is
@@ -16710,6 +17047,143 @@ mod autotest_generated {
         win.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
             .expect("layout must succeed on a well-formed DOM");
         win
+    }
+
+    /// THE CLASS (AzWidgets "TextInput not working", 2026-08-21): an IFC root
+    /// with an EMPTY text run produced no inline layout and zero height, so a
+    /// focused empty editable had no line for its caret and collapsed to its
+    /// chrome. Inside an editing host the empty IFC now keeps a strut line
+    /// box: an (item-less) inline layout and one line-height of height. A
+    /// non-editable twin still renders nothing — the strut is not a general
+    /// "empty blocks get height" rule.
+    #[test]
+    fn an_empty_editing_host_keeps_a_strut_line_box() {
+        fn host(editable: bool) -> StyledDom {
+            let mut inner = Dom::create_div()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(""));
+            if editable {
+                inner = inner.with_contenteditable(true);
+            }
+            StyledDom::create_from_dom(Dom::create_body().with_child(inner))
+        }
+        // body(0) > div(1) > text(2)
+        let inner = NodeId::new(1);
+        let dnid = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(inner)),
+        };
+
+        let win = laid_out(host(true), 400.0, 300.0);
+        let size = win.get_node_size(dnid).expect("the editable div is laid out");
+        assert!(
+            size.height > 8.0 && size.height < 48.0,
+            "an empty editing host keeps ONE line of height (the strut), got {size:?}"
+        );
+        let layout = win
+            .get_inline_layout_for_node(DomId::ROOT_ID, inner)
+            .expect("an empty editing host keeps an inline layout for its caret");
+        assert!(layout.items.is_empty(), "…with no items: the caret painter's strut branch");
+        // ...and with CONSTRAINTS, so the first keystroke has a line box to
+        // be shaped into (`reshape_text_node` drops an edit whose IFC carries
+        // none — which is how an empty TextInput ate its first character).
+        let lr = win.layout_results.get(&DomId::ROOT_ID).expect("layout result");
+        let idx = *lr.layout_tree.dom_to_layout.get(&inner).and_then(|v| v.first()).expect("mapped");
+        let cached = lr
+            .layout_tree
+            .warm(idx)
+            .and_then(|w| w.inline_layout_result.as_ref())
+            .expect("cached inline layout");
+        assert!(
+            cached.constraints.is_some(),
+            "the strut line box carries the IFC's constraints like any other line box"
+        );
+
+        let plain = laid_out(host(false), 400.0, 300.0);
+        let size = plain.get_node_size(dnid).expect("the plain div is laid out");
+        assert!(
+            size.height.abs() < 0.5,
+            "a non-editable empty block still collapses to zero height, got {size:?}"
+        );
+        assert!(
+            plain.get_inline_layout_for_node(DomId::ROOT_ID, inner).is_none(),
+            "…and keeps no inline layout (an empty IFC renders nothing)"
+        );
+    }
+
+    /// `(y, height)` of DOM node `index` (pre-order) in a laid-out window.
+    fn y_and_height(win: &LayoutWindow, index: usize) -> (f32, f32) {
+        let dnid = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(index))),
+        };
+        let pos = win.get_node_position(dnid).expect("laid out");
+        let size = win.get_node_size(dnid).expect("laid out");
+        (pos.y, size.height)
+    }
+
+    /// CSS 2.2 §8.3.1: an EMPTY block's top and bottom margins collapse
+    /// through each other and with its neighbours': a(50, mb 10) /
+    /// empty(mt 20, mb 30) / b(mt 5) puts b at a + 50 + max(10, 20, 30, 5).
+    #[test]
+    fn an_empty_block_between_siblings_collapses_every_margin_to_the_max() {
+        let dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("height: 50px; margin-bottom: 10px;"))
+            .with_child(Dom::create_div().with_css("margin-top: 20px; margin-bottom: 30px;"))
+            .with_child(Dom::create_div().with_css("height: 50px; margin-top: 5px;"));
+        let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
+        // body(0) > a(1), empty(2), b(3)
+        let (a_y, _) = y_and_height(&win, 1);
+        let (e_y, e_h) = y_and_height(&win, 2);
+        let (b_y, _) = y_and_height(&win, 3);
+        assert!(e_h.abs() < 0.5, "an empty block is zero tall: {e_h}");
+        assert!(
+            (b_y - a_y - 80.0).abs() < 0.5,
+            "b must start 50 + max(10, 20, 30, 5) = 80 below a, got {}",
+            b_y - a_y
+        );
+        assert!((e_y - a_y) >= 50.0 && (e_y - a_y) <= 80.5, "the empty block sits inside the seam: {}", e_y - a_y);
+    }
+
+    /// THE CLASS (AzWidgets 2026-08-21, "placeholder drawn low"): an EMPTY
+    /// FIRST child under a parent with a top blocker (padding). Its
+    /// collapsed-through margin is ONE margin inside the parent's content
+    /// box: 4 + 13 + 4 = 21 (Chrome: 21); the pen used to advance by the
+    /// margin AND carry it for the parent's bottom padding to add again.
+    #[test]
+    fn an_empty_first_child_inside_a_padded_parent_counts_its_margin_once() {
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("padding: 4px;")
+                .with_child(Dom::create_div().with_css("margin-top: 13px; margin-bottom: 13px;")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
+        // body(0) > wrap(1) > e(2)
+        let (wrap_y, wrap_h) = y_and_height(&win, 1);
+        let (e_y, _) = y_and_height(&win, 2);
+        assert!((wrap_h - 21.0).abs() < 0.5, "padding 4 + ONE collapsed margin 13 + padding 4 = 21, got {wrap_h}");
+        assert!((e_y - wrap_y - 17.0).abs() < 0.5, "the empty block's border edges sit after its top margin: 4 + 13 = 17, got {}", e_y - wrap_y);
+
+        // After a sibling, under the same padded parent: counted once too.
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("padding: 4px;")
+                .with_child(Dom::create_div().with_css("height: 10px;"))
+                .with_child(Dom::create_div().with_css("margin-top: 13px; margin-bottom: 13px;")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
+        let (_, wrap_h) = y_and_height(&win, 1);
+        assert!((wrap_h - 31.0).abs() < 0.5, "4 + 10 + 13 + 4 = 31, got {wrap_h}");
+
+        // And the parent's OWN top margin never leaks into its content box
+        // through an empty first child (the "feet to meters" mix).
+        let dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("margin-top: 40px; padding: 4px;")
+                .with_child(Dom::create_div().with_css("margin-top: 13px; margin-bottom: 13px;")),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
+        let (_, wrap_h) = y_and_height(&win, 1);
+        assert!((wrap_h - 21.0).abs() < 0.5, "the parent's margin is not added inside it: {wrap_h}");
     }
 
     #[test]

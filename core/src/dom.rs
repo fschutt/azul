@@ -2607,6 +2607,37 @@ impl NodeData {
 
     /// Legacy accessor for raster clip mask. Returns `Some` only for `SvgNodeData::ImageClipMask`.
     #[inline]
+    /// Is this node an image whose content is a null/placeholder image?
+    ///
+    /// Capture widgets (camera, screencapture, microphone level) build their
+    /// node with `ImageRef::null_image(...)` and fill it by writeback later, so
+    /// "placeholder" means "no frame yet" — see `diff::transfer_states`, which
+    /// uses this to keep the previous frame visible across a DOM rebuild
+    /// instead of flashing back to the placeholder.
+    #[must_use]
+    pub fn image_is_placeholder(&self) -> bool {
+        match &self.node_type {
+            NodeType::Image(img) => img.as_ref().is_null_image(),
+            _ => false,
+        }
+    }
+
+    /// Clone this node's `ImageRef`, if it is an image node.
+    #[must_use]
+    pub fn get_image_ref_cloned(&self) -> Option<ImageRef> {
+        match &self.node_type {
+            NodeType::Image(img) => Some(img.as_ref().clone()),
+            _ => None,
+        }
+    }
+
+    /// Replace this node's image. No-op on non-image nodes.
+    pub fn set_image_ref(&mut self, image: ImageRef) {
+        if let NodeType::Image(slot) = &mut self.node_type {
+            *slot = BoxOrStatic::heap(image);
+        }
+    }
+
     #[must_use] pub fn get_image_clip_mask(&self) -> Option<&ImageMask> {
         match self.get_svg_data()? {
             SvgNodeData::ImageClipMask(m) => Some(m),
@@ -6343,6 +6374,68 @@ impl Dom {
     }
 
     #[inline]
+    /// Give this node an accessible NAME, keeping whatever else it already
+    /// declares.
+    ///
+    /// This is the override an application needs and `with_accessibility_info`
+    /// cannot give it. A widget fills in what it knows — a slider's role and
+    /// live value, a checkbox's checked state — and it CANNOT know what the
+    /// control is called: only the app does. Replacing the whole struct to add
+    /// a name would discard the role and the value with it, so the control
+    /// would gain a name and stop reporting its position.
+    ///
+    /// ```ignore
+    /// Slider::new(volume).dom().with_accessibility_name("Volume")
+    /// ```
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(self, name: S) -> Self {
+        self.with_accessibility_assign(AccessibilityInfo {
+            accessibility_name: Some(name.into()).into(),
+            ..AccessibilityInfo::default()
+        })
+    }
+
+    /// Overlay a PARTIAL accessibility declaration, keeping every field the
+    /// patch does not set.
+    ///
+    /// The general form of the two helpers around it, and the one to reach for
+    /// when setting more than one thing at once:
+    ///
+    /// ```ignore
+    /// slider.dom().with_accessibility_assign(&AccessibilityInfo {
+    ///     accessibility_name: Some("Volume".into()).into(),
+    ///     description: Some("0 to 100".into()).into(),
+    ///     ..Default::default()
+    /// })
+    /// // the widget's role, live value and states all survive
+    /// ```
+    ///
+    /// See [`AccessibilityInfo::assign`] for exactly which fields count as
+    /// "set" — `None`, an empty vec and `Unknown` all mean "not specified".
+    #[must_use]
+    pub fn with_accessibility_assign(mut self, patch: AccessibilityInfo) -> Self {
+        let info = self
+            .root
+            .accessibility
+            .as_ref()
+            .map_or_else(AccessibilityInfo::default, |b| (**b).clone());
+        self.root.set_accessibility_info(info.assigned(patch));
+        self
+    }
+
+    /// Point this node at the node that already NAMES it, keeping the rest of
+    /// its declaration.
+    ///
+    /// Preferred over copying the label text: a duplicated name drifts the
+    /// moment someone edits the visible label and forgets the spoken one.
+    #[must_use]
+    pub fn with_accessibility_labelled_by(self, label: DomNodeId) -> Self {
+        self.with_accessibility_assign(AccessibilityInfo {
+            labelled_by: Some(label).into(),
+            ..AccessibilityInfo::default()
+        })
+    }
+
     #[must_use] pub fn with_accessibility_info(mut self, accessibility_info: AccessibilityInfo) -> Self {
         self.root.set_accessibility_info(accessibility_info);
         self

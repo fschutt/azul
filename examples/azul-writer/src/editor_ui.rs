@@ -61,7 +61,16 @@ pub fn title_band(state: &AppState, data: &RefAny) -> Dom {
             .with_on_click(data.clone(), crate::on_redo as ButtonOnClickCallbackType),
     ]);
     crate::fonts::push_ui_font(&mut band.style.bar_style);
-    band.dom()
+    // The title band IS the window's drag handle — `-azul-app-region: drag`,
+    // the same rule Electron spells `-webkit-app-region`. Dragging it hands the
+    // gesture to the window manager, and double-clicking it toggles
+    // maximize/restore, exactly as a native title bar does.
+    //
+    // The property does not cascade, so the quick-access BUTTONS inside the bar
+    // keep working: the framework walks up from whatever the press landed on
+    // and only treats it as a drag once it reaches a node that declares `drag`.
+    // A control that must never drag can stop that walk with `no-drag`.
+    band.dom().with_css("-azul-app-region: drag;")
 }
 
 /// The dark-gray print-layout canvas with the paginated white sheets.

@@ -1307,6 +1307,21 @@ pub enum DisplayListItem {
 /// deliberately the CLIP and not an empty rect: a non-overlapping result
 /// means the extent was computed wrongly, and in that case damaging too
 /// much is recoverable while damaging nothing leaves stale pixels.
+/// The caret of an editable that has no text yet, in the node's CONTENT-BOX
+/// space: at the origin, one line-height tall (`font-size × line-height`,
+/// the `normal` 1.2 when unset), one pixel wide — the line box the first
+/// character will create. Height is floored at 1 px so a zero font never
+/// produces an invisible caret.
+#[must_use]
+pub fn empty_editable_caret_rect(font_size_px: f32, line_height: f32) -> LogicalRect {
+    let height = (font_size_px * line_height).max(1.0);
+    let height = if height.is_finite() { height } else { 1.0 };
+    LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: LogicalSize { width: 1.0, height },
+    }
+}
+
 fn intersect_or(a: LogicalRect, b: LogicalRect) -> LogicalRect {
     let x0 = a.origin.x.max(b.origin.x);
     let y0 = a.origin.y.max(b.origin.y);
@@ -1883,8 +1898,8 @@ impl DisplayListBuilder {
     /// The published 0.2.0 azul-self-test-linux display list carried 24 of
     /// them, e.g.
     ///
-    ///     Border      { bounds: WindowLogicalRect(624x0 @ (-3.4028235e38, -3.4028235e38)) }
-    ///     HitTestArea { bounds: WindowLogicalRect(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    ///     Border      { bounds: `WindowLogicalRect`(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    ///     `HitTestArea` { bounds: `WindowLogicalRect`(624x0 @ (-3.4028235e38, -3.4028235e38)) }
     ///
     /// A `Border` at -3.4e38 is merely invisible. A `HitTestArea` there is
     /// ACTIVELY WRONG: it is a live hit-test rectangle at a coordinate no
@@ -2324,18 +2339,32 @@ impl DisplayListBuilder {
         styles: StyleBorderStyles,
         border_radius: StyleBorderRadius,
     ) {
-        // Check if any border side is visible
-        let has_visible_border = {
-            let has_width = widths.top.is_some()
-                || widths.right.is_some()
-                || widths.bottom.is_some()
-                || widths.left.is_some();
-            let has_style = styles.top.is_some()
-                || styles.right.is_some()
-                || styles.bottom.is_some()
-                || styles.left.is_some();
-            has_width && has_style
-        };
+        // A `Border` item exists only when some side actually PAINTS: a
+        // positive width AND a style other than `none` / `hidden` on that
+        // side (CSS Backgrounds 3 §4.2: `border-style: none` computes the
+        // width to 0). "Any width is Some and any style is Some" was not
+        // that test — the compact property cache answers `Some(0px)` and
+        // `Some(none)` for every UNSET border, so every node in its normal
+        // state carried an invisible zero-width Border item, while the same
+        // node in a `:hover` / `:focus` / `:active` state (resolved through
+        // the slow path, which answers `None`) carried none. A pseudo-state
+        // flip therefore changed the item list without any restyle, and the
+        // patched display list drifted from the wholesale build by exactly
+        // those phantoms (`bug-scroll-offsets-hit-test` under
+        // AZ_PATCH_VERIFY).
+        let has_visible_border = Self::border_side_paints(
+            widths.top.as_ref().and_then(|w| w.get_property()).map(|w| w.inner),
+            styles.top.as_ref().and_then(|s| s.get_property()).map(|s| s.inner),
+        ) || Self::border_side_paints(
+            widths.right.as_ref().and_then(|w| w.get_property()).map(|w| w.inner),
+            styles.right.as_ref().and_then(|s| s.get_property()).map(|s| s.inner),
+        ) || Self::border_side_paints(
+            widths.bottom.as_ref().and_then(|w| w.get_property()).map(|w| w.inner),
+            styles.bottom.as_ref().and_then(|s| s.get_property()).map(|s| s.inner),
+        ) || Self::border_side_paints(
+            widths.left.as_ref().and_then(|w| w.get_property()).map(|w| w.inner),
+            styles.left.as_ref().and_then(|s| s.get_property()).map(|s| s.inner),
+        );
 
         if has_visible_border {
             self.push_item(DisplayListItem::Border {
@@ -2346,6 +2375,21 @@ impl DisplayListBuilder {
                 border_radius,
             });
         }
+    }
+
+    /// One border side paints when its width resolves above zero and its
+    /// style draws something (`none` and `hidden` never do). Widths are
+    /// resolved the way the rasterizer resolves them (no percentage basis,
+    /// the default font size for em).
+    fn border_side_paints(width: Option<PixelValue>, style: Option<BorderStyle>) -> bool {
+        let width = width.map_or(0.0, |w| {
+            w.to_pixels_internal(
+                0.0,
+                azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+            )
+        });
+        width > 0.0 && style.is_some_and(|s| !matches!(s, BorderStyle::None | BorderStyle::Hidden))
     }
 
     pub(crate) fn push_stacking_context(&mut self, z_index: i32, bounds: LogicalRect) {
@@ -3348,15 +3392,35 @@ where
     /// instead of scanning the root's children.
     fn ifc_root_owns_dom_node(&self, node_index: usize, dom_id: NodeId) -> bool {
         let tree = self.positioned_tree.tree;
-        tree.dom_to_layout.get(&dom_id).is_some_and(|indices| {
-            indices
+        if let Some(indices) = tree.dom_to_layout.get(&dom_id) {
+            return indices
                 .iter()
-                .any(|&idx| tree.get_ifc_root_layout_index(idx.index()) == node_index)
-        })
+                .any(|&idx| tree.get_ifc_root_layout_index(idx.index()) == node_index);
+        }
+        // The node generated NO box of its own — an EMPTY text node is
+        // filtered out of the layout tree — so it belongs to the IFC of the
+        // nearest DOM ancestor that did generate one. This is the focused
+        // empty editable: the caret session sits on the value's empty text
+        // node, and the strut line box lives on its `<p>`.
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let mut current = hierarchy.get(dom_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        while let Some(parent) = current {
+            if let Some(indices) = tree.dom_to_layout.get(&parent) {
+                return indices.iter().any(|&idx| {
+                    idx.index() == node_index
+                        || tree.get_ifc_root_layout_index(idx.index()) == node_index
+                });
+            }
+            current = hierarchy.get(parent).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        }
+        false
     }
 
     /// Emits drawing commands for all text cursors (carets).
+    ///
     /// Iterates over `ctx.cursor_locations` to support multi-cursor rendering.
+    /// An editable with NO text gets the strut caret of
+    /// [`empty_editable_caret_rect`].
     /// Preedit underline is only rendered for the primary (last) cursor.
     #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     fn paint_cursor(
@@ -3441,10 +3505,30 @@ where
                 continue;
             }
 
-            // Get cursor rect from text layout
-            let Some(mut rect) = layout.get_cursor_rect(cursor) else {
-                continue;
+            // Get cursor rect from text layout — or, for an EMPTY editable,
+            // the strut caret. `get_cursor_rect` anchors the caret to a
+            // cluster, and an editable with no text has none, so nothing was
+            // painted: a focused, empty TextInput showed no caret at all
+            // (and, with the placeholder hidden on focus, nothing else
+            // either — the field looked dead). The first character will
+            // create a line box at the content-box origin one line-height
+            // tall; the caret stands where that line will be.
+            let rect = match layout.get_cursor_rect(cursor) {
+                Some(rect) => rect,
+                None if layout.items.is_empty() => {
+                    let font_size = super::getters::get_element_font_size(
+                        self.ctx.styled_dom,
+                        dom_id,
+                        node_state,
+                    );
+                    let line_height =
+                        super::getters::get_line_height_value(self.ctx.styled_dom, dom_id, node_state)
+                            .map_or(1.2, |lh| lh.inner.normalized());
+                    empty_editable_caret_rect(font_size, line_height)
+                }
+                None => continue,
             };
+            let mut rect = rect;
 
             rect.origin.x += content_box_offset_x;
             rect.origin.y += content_box_offset_y;
@@ -9093,12 +9177,34 @@ mod autotest_generated {
         StyleBorderStyles { top: None, right: None, bottom: None, left: None }
     }
 
+    /// Every side `Some(none)` — the default style, and what the compact
+    /// cache answers for an unset border.
     fn all_styles() -> StyleBorderStyles {
         StyleBorderStyles {
             top: Some(CssPropertyValue::Exact(StyleBorderTopStyle::default())),
             right: Some(CssPropertyValue::Exact(StyleBorderRightStyle::default())),
             bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle::default())),
             left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle::default())),
+        }
+    }
+
+    fn all_solid_styles() -> StyleBorderStyles {
+        StyleBorderStyles {
+            top: Some(CssPropertyValue::Exact(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+            right: Some(CssPropertyValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+            bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+            left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+        }
+    }
+
+    /// Every side `Some(0px)` — what the compact cache answers for an unset
+    /// border width.
+    fn zero_widths() -> StyleBorderWidths {
+        StyleBorderWidths {
+            top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth { inner: PixelValue::px(0.0) })),
+            right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth { inner: PixelValue::px(0.0) })),
+            bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::px(0.0) })),
+            left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::px(0.0) })),
         }
     }
 
@@ -9665,7 +9771,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn builder_border_requires_both_a_width_and_a_style() {
+    fn builder_border_requires_a_positive_width_and_a_drawing_style() {
         let bounds = rect(0.0, 0.0, 10.0, 10.0);
 
         let mut b = DisplayListBuilder::new();
@@ -9677,12 +9783,35 @@ mod autotest_generated {
         assert!(b.items.is_empty(), "width without style => nothing to draw");
 
         let mut b = DisplayListBuilder::new();
-        b.push_border(bounds, no_widths(), no_colors(), all_styles(), zero_style_radius());
+        b.push_border(bounds, no_widths(), no_colors(), all_solid_styles(), zero_style_radius());
         assert!(b.items.is_empty(), "style without width => nothing to draw");
+
+        // THE CLASS: the compact cache's answer for an UNSET border — every
+        // side `Some(0px)` with style `Some(none)` — must not become an item,
+        // or every normal-state node carries a phantom Border that its
+        // hovered/focused self (slow path: `None`) does not.
+        let mut b = DisplayListBuilder::new();
+        b.push_border(bounds, zero_widths(), no_colors(), all_styles(), zero_style_radius());
+        assert!(b.items.is_empty(), "0px + style none (the unset encoding) => nothing to draw");
 
         let mut b = DisplayListBuilder::new();
         b.push_border(bounds, all_widths(), no_colors(), all_styles(), zero_style_radius());
-        assert_eq!(b.items.len(), 1);
+        assert!(b.items.is_empty(), "3px + style none paints nothing (CSS: none zeroes the width)");
+
+        let mut b = DisplayListBuilder::new();
+        b.push_border(bounds, zero_widths(), no_colors(), all_solid_styles(), zero_style_radius());
+        assert!(b.items.is_empty(), "0px solid => nothing to draw");
+
+        let mut b = DisplayListBuilder::new();
+        b.push_border(bounds, all_widths(), no_colors(), all_solid_styles(), zero_style_radius());
+        assert_eq!(b.items.len(), 1, "3px solid paints");
+
+        // One painting side is enough.
+        let mut one_side = zero_widths();
+        one_side.left = Some(CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::px(1.0) }));
+        let mut b = DisplayListBuilder::new();
+        b.push_border(bounds, one_side, no_colors(), all_solid_styles(), zero_style_radius());
+        assert_eq!(b.items.len(), 1, "a single 1px solid side paints");
     }
 
     #[test]

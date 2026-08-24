@@ -337,6 +337,23 @@ pub enum CallbackChange {
     // Content Modifications
     /// Change the text content of a node
     ChangeNodeText { node_id: DomNodeId, text: AzString },
+    /// Update a node's ACCESSIBILITY declaration in place.
+    ///
+    /// Widgets publish their role and state when they build their DOM, which is
+    /// correct only if every state change rebuilds. Many do not: the accordion
+    /// toggles by `set_css_property` on the body, the switch flips a style — no
+    /// rebuild, so a build-time `Expanded` would keep announcing "expanded"
+    /// after the section closed. This is how a callback corrects that without
+    /// forcing a relayout, and applying it marks the a11y tree dirty so the
+    /// platform adapter re-reads the node.
+    ChangeNodeAccessibilityState {
+        node_id: DomNodeId,
+        /// Replaces `AccessibilityInfo::states` wholesale.
+        states: azul_core::a11y::AccessibilityStateVec,
+    },
+    /// Update a node's announced VALUE in place. See
+    /// [`CallbackChange::ChangeNodeAccessibilityState`].
+    ChangeNodeAccessibilityValue { node_id: DomNodeId, value: AzString },
     /// Change the image of a node
     ChangeNodeImage {
         dom_id: DomId,
@@ -1507,6 +1524,71 @@ impl CallbackInfo {
     /// * `text` - The new text content
     pub fn change_node_text(&mut self, node_id: DomNodeId, text: AzString) {
         self.push_change(CallbackChange::ChangeNodeText { node_id, text });
+    }
+
+    /// Emit a WARNING from inside a callback or a widget.
+    ///
+    /// Goes to the same place every engine lint goes: the installed diagnostic
+    /// sink (stderr by default, so it shows in a terminal), the in-process ring
+    /// that `assert_stderr` reads in e2e, and — once
+    /// `telemetry::install_diagnostics_bridge()` is called — the OTLP pipeline
+    /// behind Loki and Grafana, tagged with the running e2e scenario.
+    ///
+    /// Use it where a widget can SEE that it has been used wrongly and the
+    /// engine cannot: a slider handed min > max, a list told to select an index
+    /// it does not have, a control the app never named. One call, and the
+    /// message reaches a developer's console, a test assertion, and a
+    /// dashboard.
+    ///
+    /// ```ignore
+    /// info.warn(format!("Slider: min ({min}) > max ({max}); clamping"));
+    /// ```
+    pub fn warn(&mut self, message: impl Into<AzString>) {
+        // `Into<AzString>` rather than `Into<String>`: this crosses the FFI,
+        // where the argument arrives as an AzString, and a Rust caller can
+        // still pass a &str or a String.
+        azul_core::diagnostics::emit(alloc::format!(
+            "[azul][warn] {}",
+            message.into().as_str()
+        ));
+    }
+
+    /// Emit an informational message. Same destinations as [`CallbackInfo::warn`];
+    /// use it for things worth seeing in a trace but not worth alarming anyone.
+    pub fn log(&mut self, message: impl Into<AzString>) {
+        azul_core::diagnostics::emit(alloc::format!(
+            "[azul][info] {}",
+            message.into().as_str()
+        ));
+    }
+
+    /// Update a node's accessibility STATE and/or VALUE without rebuilding.
+    ///
+    /// Use it wherever a control changes what it announces but not its
+    /// structure — a toggle flipping checked, a section expanding, a slider
+    /// moving. Publishing only at build time leaves the accessibility tree
+    /// describing a state the widget left behind, and a screen-reader user has
+    /// no way to notice.
+    ///
+    /// ```ignore
+    /// info.set_accessibility_state(
+    ///     node,
+    ///     vec![if open { AccessibilityState::Expanded }
+    ///          else     { AccessibilityState::Collapsed }],
+    /// );
+    /// ```
+    pub fn set_accessibility_state(
+        &mut self,
+        node_id: DomNodeId,
+        states: azul_core::a11y::AccessibilityStateVec,
+    ) {
+        self.push_change(CallbackChange::ChangeNodeAccessibilityState { node_id, states });
+    }
+
+    /// Update a node's accessibility VALUE without rebuilding — a slider's
+    /// position, a progress bar's percentage, a field's contents.
+    pub fn set_accessibility_value(&mut self, node_id: DomNodeId, value: AzString) {
+        self.push_change(CallbackChange::ChangeNodeAccessibilityValue { node_id, value });
     }
 
     /// Change the image of a node (applied after callback returns)

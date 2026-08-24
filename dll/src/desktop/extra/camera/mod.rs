@@ -35,6 +35,7 @@ pub fn ensure_camera_backend() {
                     open: v4l2::open,
                     read: v4l2::read,
                     close: v4l2::close,
+                    reconfigure: None,
                 },
             );
         });
@@ -49,6 +50,7 @@ pub fn ensure_camera_backend() {
                     open: windows::open,
                     read: windows::read,
                     close: windows::close,
+                    reconfigure: None,
                 },
             );
         });
@@ -63,6 +65,7 @@ pub fn ensure_camera_backend() {
                     open: avfoundation::open,
                     read: avfoundation::read,
                     close: avfoundation::close,
+                    reconfigure: Some(avfoundation::reconfigure),
                 },
             );
         });
@@ -79,6 +82,7 @@ pub fn ensure_camera_backend() {
                     open: android::open,
                     read: android::read,
                     close: android::close,
+                    reconfigure: None,
                 },
             );
         });

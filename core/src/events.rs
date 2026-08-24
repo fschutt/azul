@@ -739,6 +739,7 @@ pub enum EventType {
 /// All events in the system are wrapped in this structure, providing
 /// a consistent interface and enabling event propagation control.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::struct_excessive_bools)] // four independent propagation flags — W3C's own model
 pub struct SyntheticEvent {
     /// The type of event
     pub event_type: EventType,
@@ -769,6 +770,15 @@ pub struct SyntheticEvent {
 
     /// Whether default action has been prevented
     pub prevented_default: bool,
+
+    /// Deliver at the target ONLY — no capture, no bubble.
+    ///
+    /// Set on the release synthesised for the node that was PRESSED when the
+    /// pointer releases somewhere else (press-target capture, see
+    /// `HoverManager::apply_press_target_capture`): that node owes a
+    /// `MouseUp`, but its ancestors already see the real release through the
+    /// hovered node's propagation path and must not see it twice.
+    pub at_target_only: bool,
 }
 
 impl SyntheticEvent {
@@ -794,7 +804,15 @@ impl SyntheticEvent {
             stopped: false,
             stopped_immediate: false,
             prevented_default: false,
+            at_target_only: false,
         }
+    }
+
+    /// This event, delivered at its target only (see [`Self::at_target_only`]).
+    #[must_use]
+    pub const fn at_target_only(mut self) -> Self {
+        self.at_target_only = true;
+        self
     }
 
     /// Stop event propagation after the current phase completes.
@@ -914,6 +932,15 @@ pub fn propagate_event(
 
     let mut result = PropagationResult::default();
 
+    // A captured release (see `SyntheticEvent::at_target_only`) reaches its
+    // target and nothing else: the ancestors get the real release through
+    // the hovered node's path.
+    if event.at_target_only {
+        propagate_target_phase(event, target_node_id, callbacks, &mut result);
+        result.default_prevented = event.prevented_default;
+        return result;
+    }
+
     // Phase 1: Capture (root → target)
     propagate_phase(
         event,
@@ -928,8 +955,8 @@ pub fn propagate_event(
         propagate_target_phase(event, target_node_id, callbacks, &mut result);
     }
 
-    // Phase 3: Bubble (target → root)
-    if !event.stopped {
+    // Phase 3: Bubble (target → root) — unless the event type does not bubble.
+    if !event.stopped && event.event_type.bubbles() {
         propagate_phase(
             event,
             ancestors.iter().rev().copied(),
@@ -941,6 +968,26 @@ pub fn propagate_event(
 
     result.default_prevented = event.prevented_default;
     result
+}
+
+impl EventType {
+    /// Whether the event reaches the target's ANCESTORS in the bubble phase.
+    ///
+    /// Enter/leave events do not bubble (`W3C` `mouseenter`/`mouseleave`,
+    /// `pointerenter`/`pointerleave`): each node that gained or lost hover
+    /// gets its OWN event (`event_determination` generates them per node), so
+    /// bubbling a child's leave to its parent tells the parent the pointer
+    /// left IT while it is still inside — which is how a slider's drag ended
+    /// the moment the pointer slid off the thumb, a map pan ended on every
+    /// tile crossing, and a split-pane drag ended on its first motion.
+    /// `dragenter`/`dragleave` DO bubble in the `W3C` model and keep doing so.
+    #[must_use]
+    pub const fn bubbles(self) -> bool {
+        !matches!(
+            self,
+            Self::MouseEnter | Self::MouseLeave | Self::PenEnter | Self::PenLeave
+        )
+    }
 }
 
 /// Process a single propagation phase (Capture or Bubble)
@@ -1310,6 +1357,24 @@ fn matches_hover_filter(
         (PermissionChanged, EventType::PermissionChanged) => true,
         (BiometricResult, EventType::BiometricResult) => true,
         (KeyringResult, EventType::KeyringResult) => true,
+        // Gestures. These filters existed, the detectors produced the events,
+        // and this table had no arm for them — a `PinchOut` handler on a map
+        // could never fire, whatever the gesture manager saw.
+        (HoverEventFilter::LongPress, EventType::LongPress) => true,
+        (HoverEventFilter::SwipeLeft, EventType::SwipeLeft) => true,
+        (HoverEventFilter::SwipeRight, EventType::SwipeRight) => true,
+        (HoverEventFilter::SwipeUp, EventType::SwipeUp) => true,
+        (HoverEventFilter::SwipeDown, EventType::SwipeDown) => true,
+        (HoverEventFilter::PinchIn, EventType::PinchIn) => true,
+        (HoverEventFilter::PinchOut, EventType::PinchOut) => true,
+        (HoverEventFilter::RotateClockwise, EventType::RotateClockwise) => true,
+        (HoverEventFilter::RotateCounterClockwise, EventType::RotateCounterClockwise) => true,
+        (HoverEventFilter::MouseOut, EventType::MouseOut) => true,
+        (HoverEventFilter::FocusIn, EventType::FocusIn) => true,
+        (HoverEventFilter::FocusOut, EventType::FocusOut) => true,
+        (HoverEventFilter::CompositionStart, EventType::CompositionStart) => true,
+        (HoverEventFilter::CompositionUpdate, EventType::CompositionUpdate) => true,
+        (HoverEventFilter::CompositionEnd, EventType::CompositionEnd) => true,
         _ => false,
     }
 }
@@ -1362,6 +1427,16 @@ fn matches_focus_filter(
         (FocusEventFilter::Copy, EventType::Copy) => true,
         (FocusEventFilter::Cut, EventType::Cut) => true,
         (FocusEventFilter::Paste, EventType::Paste) => true,
+        // Gestures — same gap as the hover table.
+        (FocusEventFilter::LongPress, EventType::LongPress) => true,
+        (FocusEventFilter::SwipeLeft, EventType::SwipeLeft) => true,
+        (FocusEventFilter::SwipeRight, EventType::SwipeRight) => true,
+        (FocusEventFilter::SwipeUp, EventType::SwipeUp) => true,
+        (FocusEventFilter::SwipeDown, EventType::SwipeDown) => true,
+        (FocusEventFilter::PinchIn, EventType::PinchIn) => true,
+        (FocusEventFilter::PinchOut, EventType::PinchOut) => true,
+        (FocusEventFilter::RotateClockwise, EventType::RotateClockwise) => true,
+        (FocusEventFilter::RotateCounterClockwise, EventType::RotateCounterClockwise) => true,
         _ => false,
     }
 }
@@ -1433,6 +1508,16 @@ fn matches_window_filter(
         (DragOver, EventType::DragOver) => true,
         (DragLeave, EventType::DragLeave) => true,
         (Drop, EventType::Drop) => true,
+        // Gestures — same gap as the hover table.
+        (WindowEventFilter::LongPress, EventType::LongPress) => true,
+        (WindowEventFilter::SwipeLeft, EventType::SwipeLeft) => true,
+        (WindowEventFilter::SwipeRight, EventType::SwipeRight) => true,
+        (WindowEventFilter::SwipeUp, EventType::SwipeUp) => true,
+        (WindowEventFilter::SwipeDown, EventType::SwipeDown) => true,
+        (WindowEventFilter::PinchIn, EventType::PinchIn) => true,
+        (WindowEventFilter::PinchOut, EventType::PinchOut) => true,
+        (WindowEventFilter::RotateClockwise, EventType::RotateClockwise) => true,
+        (WindowEventFilter::RotateCounterClockwise, EventType::RotateCounterClockwise) => true,
         _ => false,
     }
 }
@@ -1515,6 +1600,7 @@ fn create_lifecycle_event(
         stopped: false,
         stopped_immediate: false,
         prevented_default: false,
+        at_target_only: false,
     }
 }
 
@@ -1610,6 +1696,41 @@ fn create_resize_event(
             reason: LifecycleReason::Resize,
             previous_bounds: Some(old_bounds),
             current_bounds: new_bounds,
+        },
+    ))
+}
+
+/// A `Resize` lifecycle event (`ComponentEventFilter::NodeResized`) for
+/// `node_id` whose layout box went from `old` to `new`.
+///
+/// `None` when its SIZE did not change: a position-only move is not a
+/// resize, and a NaN dimension present on both sides reads as unchanged (see
+/// `size_changed`; a raw `!=` once produced a Resize every frame forever).
+///
+/// This is the constructor the layout tail uses after EVERY solve (full
+/// rebuild, pre-cascade relayout, window-resize fast path). The older
+/// reconcile-time emitter compared layout maps that production always
+/// passed EMPTY, so `NodeResized` had never fired in a running app.
+#[must_use]
+pub fn resize_event_for_bounds(
+    dom_id: DomId,
+    node_id: NodeId,
+    old: LogicalRect,
+    new: LogicalRect,
+    timestamp: &Instant,
+) -> Option<SyntheticEvent> {
+    if !size_changed(old.size, new.size) {
+        return None;
+    }
+    Some(create_lifecycle_event(
+        EventType::Resize,
+        node_id,
+        dom_id,
+        timestamp,
+        LifecycleEventData {
+            reason: LifecycleReason::Resize,
+            previous_bounds: Some(old),
+            current_bounds: new,
         },
     ))
 }
@@ -2583,6 +2704,22 @@ pub trait EventProvider {
         E::MouseOut => vec![EF::Hover(H::MouseOut)],
 
         E::DoubleClick => vec![EF::Hover(H::DoubleClick), EF::Window(W::DoubleClick)],
+        // Gestures: the detectors emitted these for years and this table sent
+        // them to `vec![]` — no filter, no callback, whatever the widget
+        // registered. Every gesture reaches its hover / focus / window filters.
+        E::LongPress => vec![EF::Hover(H::LongPress), EF::Focus(F::LongPress), EF::Window(W::LongPress)],
+        E::SwipeLeft => vec![EF::Hover(H::SwipeLeft), EF::Focus(F::SwipeLeft), EF::Window(W::SwipeLeft)],
+        E::SwipeRight => vec![EF::Hover(H::SwipeRight), EF::Focus(F::SwipeRight), EF::Window(W::SwipeRight)],
+        E::SwipeUp => vec![EF::Hover(H::SwipeUp), EF::Focus(F::SwipeUp), EF::Window(W::SwipeUp)],
+        E::SwipeDown => vec![EF::Hover(H::SwipeDown), EF::Focus(F::SwipeDown), EF::Window(W::SwipeDown)],
+        E::PinchIn => vec![EF::Hover(H::PinchIn), EF::Focus(F::PinchIn), EF::Window(W::PinchIn)],
+        E::PinchOut => vec![EF::Hover(H::PinchOut), EF::Focus(F::PinchOut), EF::Window(W::PinchOut)],
+        E::RotateClockwise => vec![EF::Hover(H::RotateClockwise), EF::Focus(F::RotateClockwise), EF::Window(W::RotateClockwise)],
+        E::RotateCounterClockwise => vec![
+            EF::Hover(H::RotateCounterClockwise),
+            EF::Focus(F::RotateCounterClockwise),
+            EF::Window(W::RotateCounterClockwise),
+        ],
         E::ContextMenu => vec![EF::Hover(H::RightMouseDown)],
 
         // Keyboard events
@@ -5819,13 +5956,18 @@ mod autotest_generated {
             EventType::TimeUpdate,
             EventType::VolumeChange,
             EventType::MediaError,
-            EventType::PinchIn,
-            EventType::RotateClockwise,
-            EventType::SwipeLeft,
         ] {
             assert!(
                 event_type_to_filters(ty, &EventData::None).is_empty(),
                 "{ty:?} is unmapped and must yield no filters"
+            );
+        }
+        // Gestures ARE mapped (they were not, which is why a Pinch callback
+        // never fired) — see every_gesture_event_matches_its_same_named_filter.
+        for ty in [EventType::PinchIn, EventType::RotateClockwise, EventType::SwipeLeft] {
+            assert!(
+                !event_type_to_filters(ty, &EventData::None).is_empty(),
+                "{ty:?} must map to its gesture filters"
             );
         }
     }
@@ -5922,6 +6064,99 @@ mod autotest_generated {
             "target first, then bubbling up to the root — each node once"
         );
         assert!(!result.default_prevented);
+    }
+
+    /// Bug class: a child's enter/leave reaching its parent. W3C `mouseleave`
+    /// does not bubble, and every node that lost hover already gets its own
+    /// event, so a parent that handles `MouseLeave` must hear ONLY about the
+    /// pointer leaving the parent — not a child inside it. (The slider, the
+    /// map and the split pane all ended their drags on a bubbled child leave.)
+    #[test]
+    fn enter_and_leave_events_stop_at_their_target() {
+        let hier = hierarchy_chain(3); // 0 <- 1 <- 2
+        for ty in [EventType::MouseEnter, EventType::MouseLeave, EventType::PenEnter, EventType::PenLeave] {
+            let filter = || {
+                EventFilter::Hover(match ty {
+                    EventType::MouseEnter => HoverEventFilter::MouseEnter,
+                    EventType::MouseLeave => HoverEventFilter::MouseLeave,
+                    EventType::PenEnter => HoverEventFilter::PenEnter,
+                    _ => HoverEventFilter::PenLeave,
+                })
+            };
+            let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+            for i in 0..3 {
+                callbacks.insert(NodeId::new(i), vec![filter()]);
+            }
+            let mut ev = SyntheticEvent::new(ty, EventSource::User, dnid(0, 2), tick(0), EventData::None);
+            let result = propagate_event(&mut ev, &hier, &callbacks);
+            let nodes: Vec<NodeId> = result.callbacks_to_invoke.iter().map(|(n, _)| *n).collect();
+            assert_eq!(
+                nodes,
+                vec![NodeId::new(2)],
+                "{ty:?} reached ancestors — it must stop at its target"
+            );
+            assert!(!ty.bubbles());
+        }
+        // The rule is narrow: a move still bubbles to every ancestor.
+        assert!(EventType::MouseOver.bubbles());
+        assert!(EventType::DragLeave.bubbles(), "W3C dragleave bubbles");
+    }
+
+    /// REPORTED (AzMap pinch, 2026-08-21): the gesture detectors produced
+    /// `PinchIn`/`PinchOut`, the widget registered `Hover(PinchOut)`, and the
+    /// callback never ran — the filter truth tables had no arm for any gesture.
+    /// Every gesture event type must match its same-named filter in all three
+    /// tables; a new gesture added to the enums without its arm fails here.
+    #[test]
+    fn every_gesture_event_matches_its_same_named_filter() {
+        let gestures: [(EventType, HoverEventFilter, FocusEventFilter, WindowEventFilter); 9] = [
+            (EventType::LongPress, HoverEventFilter::LongPress, FocusEventFilter::LongPress, WindowEventFilter::LongPress),
+            (EventType::SwipeLeft, HoverEventFilter::SwipeLeft, FocusEventFilter::SwipeLeft, WindowEventFilter::SwipeLeft),
+            (EventType::SwipeRight, HoverEventFilter::SwipeRight, FocusEventFilter::SwipeRight, WindowEventFilter::SwipeRight),
+            (EventType::SwipeUp, HoverEventFilter::SwipeUp, FocusEventFilter::SwipeUp, WindowEventFilter::SwipeUp),
+            (EventType::SwipeDown, HoverEventFilter::SwipeDown, FocusEventFilter::SwipeDown, WindowEventFilter::SwipeDown),
+            (EventType::PinchIn, HoverEventFilter::PinchIn, FocusEventFilter::PinchIn, WindowEventFilter::PinchIn),
+            (EventType::PinchOut, HoverEventFilter::PinchOut, FocusEventFilter::PinchOut, WindowEventFilter::PinchOut),
+            (EventType::RotateClockwise, HoverEventFilter::RotateClockwise, FocusEventFilter::RotateClockwise, WindowEventFilter::RotateClockwise),
+            (EventType::RotateCounterClockwise, HoverEventFilter::RotateCounterClockwise, FocusEventFilter::RotateCounterClockwise, WindowEventFilter::RotateCounterClockwise),
+        ];
+        for (ty, hover, focus, window) in gestures {
+            let ev = SyntheticEvent::new(ty, EventSource::User, dnid(0, 0), tick(0), EventData::None);
+            assert!(matches_hover_filter(hover, &ev, EventPhase::Target), "Hover({hover:?}) must match {ty:?}");
+            assert!(matches_focus_filter(focus, &ev, EventPhase::Target), "Focus({focus:?}) must match {ty:?}");
+            assert!(matches_window_filter(window, &ev, EventPhase::Target), "Window({window:?}) must match {ty:?}");
+            // ...and the table is a truth table, not a wildcard.
+            let other = SyntheticEvent::new(EventType::MouseDown, EventSource::User, dnid(0, 0), tick(0), EventData::None);
+            assert!(!matches_hover_filter(hover, &other, EventPhase::Target));
+            // The dispatcher asks THIS table which filters to try for an event
+            // type; it sent every gesture to `vec![]`.
+            let filters = event_type_to_filters(ty, &EventData::None);
+            assert!(filters.contains(&EventFilter::Hover(hover)), "{ty:?} must dispatch to Hover({hover:?})");
+            assert!(filters.contains(&EventFilter::Focus(focus)), "{ty:?} must dispatch to Focus({focus:?})");
+            assert!(filters.contains(&EventFilter::Window(window)), "{ty:?} must dispatch to Window({window:?})");
+        }
+    }
+
+    #[test]
+    fn an_at_target_only_event_reaches_its_target_and_no_ancestor() {
+        // The captured release for a pressed node: its ancestors already saw
+        // the real release through the hovered node's path.
+        let hier = hierarchy_chain(3); // 0 <- 1 <- 2
+        let mut callbacks: BTreeMap<NodeId, Vec<EventFilter>> = BTreeMap::new();
+        for i in 0..3 {
+            callbacks.insert(NodeId::new(i), vec![EventFilter::Hover(HoverEventFilter::MouseUp)]);
+        }
+        let mut ev = SyntheticEvent::new(EventType::MouseUp, EventSource::User, dnid(0, 2), tick(0), EventData::None)
+            .at_target_only();
+        let result = propagate_event(&mut ev, &hier, &callbacks);
+        let nodes: Vec<NodeId> = result.callbacks_to_invoke.iter().map(|(n, _)| *n).collect();
+        assert_eq!(nodes, vec![NodeId::new(2)], "at-target-only must skip capture and bubble");
+
+        // The plain event still walks the whole path.
+        let mut ev = SyntheticEvent::new(EventType::MouseUp, EventSource::User, dnid(0, 2), tick(0), EventData::None);
+        let result = propagate_event(&mut ev, &hier, &callbacks);
+        // Hover filters fire in the target and bubble phases only (never capture).
+        assert_eq!(result.callbacks_to_invoke.len(), 3, "target 2 + bubble 1, 0");
     }
 
     #[test]

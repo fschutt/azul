@@ -345,7 +345,7 @@ impl Segmented {
             let seg_style = build_segment_style(i == selected, is_first, is_last);
 
             children.push(
-                Dom::create_p_with_text(label.clone())
+                crate::widgets::widget_p_with_text(label.clone())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(SEGMENT_ITEM_CLASS))
                     .with_css_props(seg_style)
                     .with_callbacks(
@@ -359,7 +359,14 @@ impl Segmented {
                         }]
                         .into(),
                     )
-                    .with_tab_index(TabIndex::Auto),
+                    .with_tab_index(TabIndex::Auto)
+            // Role so the accessibility tree knows what this IS:
+            // a row of mutually exclusive choices. The NAME comes from the widget's own text,
+            // which azul derives when a readable label is present.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::PageTabList,
+                ..Default::default()
+            }),
             );
         }
 

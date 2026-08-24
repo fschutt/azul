@@ -808,6 +808,9 @@ fn emit_static_system_deps(target: &str) {
         // sample-buffer path, CF types used throughout, and Security for the
         // keyring backend.
         for fw in [
+            // vImage frame resampler (`vImageScale_ARGB8888`,
+            // desktop/extra/resample/macos.rs)
+            "Accelerate",
             "AVFoundation",
             "CoreMedia",
             "CoreVideo",

@@ -38,6 +38,10 @@ const MANIFEST_FN: &str = "pub(super) fn every_widget_dom()";
 /// re-checked by `the_exemption_list_has_no_stale_entries`.
 const EXEMPT: &[(&str, &str)] = &[
     (
+        "map_themes",
+        "MapCSS palette constants for MapWidget: declares no widget type and no dom()",
+    ),
+    (
         "capture_common",
         "shared capture plumbing: declares no widget type and no dom()",
     ),

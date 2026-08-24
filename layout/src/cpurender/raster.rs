@@ -2918,7 +2918,13 @@ fn render_text_prerendered_lcd(
     }
     let effective_px = font_size_px * dpi_factor;
     let scale = effective_px / units_per_em;
-    let ppem = effective_px.round() as u16;
+    // ppem = 0 selects the UNHINTED font-unit path in the glyph cache — the
+    // platform-faithful default on macOS (see `text_hinting_enabled`).
+    let ppem = if crate::glyph_cache::text_hinting_enabled() {
+        effective_px.round() as u16
+    } else {
+        0
+    };
     let hint_correction = if ppem > 0 { effective_px / f32::from(ppem) } else { 1.0 };
     let lut = LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32));
 
@@ -3161,7 +3167,13 @@ fn render_text(
 
     let effective_px = font_size_px * dpi_factor;
     let scale = effective_px / units_per_em;
-    let ppem = effective_px.round() as u16;
+    // ppem = 0 selects the UNHINTED font-unit path in the glyph cache — the
+    // platform-faithful default on macOS (see `text_hinting_enabled`).
+    let ppem = if crate::glyph_cache::text_hinting_enabled() {
+        effective_px.round() as u16
+    } else {
+        0
+    };
     // A hinted outline is produced at the integer `ppem`. `hint_correction`
     // rescales it back to the true (possibly fractional) effective size so hinted
     // glyphs match unhinted fallbacks and animate smoothly instead of snapping.
@@ -3702,7 +3714,15 @@ fn render_image(
     }
 
     let image_data = image.get_data();
-    let (src_rgba, src_w, src_h) = match image_data {
+    // SAMPLE THE SOURCE DIRECTLY — do not convert the whole image to RGBA up
+    // front. The old prologue allocated a W×H×4 buffer and swizzled EVERY
+    // source pixel on every repaint, then the blit below nearest-sampled only
+    // the visible destination pixels (as few as 600×400 of 2M). `SrcImage`
+    // reads a pixel per format on demand, so a huge source feeding a small
+    // tile only touches the pixels its taps land on — and `image_scale::sample`
+    // area-averages on a downscale (no more nearest-neighbour aliasing) and
+    // bilinear-interpolates on an upscale.
+    let src = match image_data {
         DecodedImage::Raw((descriptor, data)) => {
             let w = descriptor.width as u32;
             let h = descriptor.height as u32;
@@ -3713,55 +3733,23 @@ fn render_image(
                 azul_core::resources::ImageData::Raw(shared) => shared.as_ref(),
                 azul_core::resources::ImageData::External(_) => return,
             };
-
-            let rgba = match descriptor.format {
-                // Already the target layout — plain copy. This is the format
-                // every live-frame producer (camera / screencap / video
-                // decoder) emits, so it must NOT fall into the gray-placeholder
-                // arm below (that bug made all capture tiles render flat gray
-                // on the CPU backend, on every OS).
-                azul_core::resources::RawImageFormat::RGBA8 => bytes.to_vec(),
-                azul_core::resources::RawImageFormat::RGB8 => {
-                    let mut out = Vec::with_capacity(bytes.len() / 3 * 4);
-                    for chunk in bytes.chunks_exact(3) {
-                        out.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
-                    }
-                    out
-                }
-                azul_core::resources::RawImageFormat::BGRA8 => {
-                    let mut out = Vec::with_capacity(bytes.len());
-                    for chunk in bytes.chunks_exact(4) {
-                        let b = chunk[0];
-                        let g = chunk[1];
-                        let r = chunk[2];
-                        let a = chunk[3];
-                        out.push(r);
-                        out.push(g);
-                        out.push(b);
-                        out.push(a);
-                    }
-                    out
-                }
-                azul_core::resources::RawImageFormat::R8 => {
-                    let mut out = Vec::with_capacity(bytes.len() * 4);
-                    for &v in bytes {
-                        out.push(v);
-                        out.push(v);
-                        out.push(v);
-                        out.push(v);
-                    }
-                    out
-                }
-                _ => {
-                    // Unsupported format — render gray placeholder
-                    let gray = Rgba8::new(200, 200, 200, 255);
-                    let mut path = build_rect_path(&rect);
-                    agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
-                    return;
-                }
+            let src = crate::image_scale::SrcImage {
+                bytes,
+                format: descriptor.format,
+                width: w,
+                height: h,
             };
-
-            (rgba, w, h)
+            // Formats the sampler cannot read (RG8, 16-bit, float) — or a
+            // truncated buffer — fall back to the grey placeholder, exactly
+            // as before. RGBA8/RGB8/BGRA8/R8 (every live-frame producer's
+            // format) are sampleable, so capture tiles do NOT hit this.
+            if !src.is_sampleable() {
+                let gray = Rgba8::new(200, 200, 200, 255);
+                let mut path = build_rect_path(&rect);
+                agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
+                return;
+            }
+            src
         }
         DecodedImage::Callback(_) => {
             // A RenderImageCallback image reached the CPU rasterizer without
@@ -3795,16 +3783,15 @@ fn render_image(
         DecodedImage::Gl(_) => return,
     };
 
-    // Simple nearest-neighbor blit with scaling
+    // Area/bilinear blit: each destination pixel samples its source footprint
+    // (`image_scale::sample`) instead of nearest-neighbour indexing a
+    // pre-converted RGBA buffer.
     let dst_x = rect.x as i32;
     let dst_y = rect.y as i32;
     let dst_w = rect.width as u32;
     let dst_h = rect.height as u32;
     let pw = pixmap.width;
     let ph = pixmap.height;
-
-    let sx = src_w as f32 / dst_w.max(1) as f32;
-    let sy = src_h as f32 / dst_h.max(1) as f32;
 
     // Compute pixel-level clip bounds for the blit loop
     let (clip_x1, clip_y1, clip_x2, clip_y2) = clip.as_ref().map_or((0, 0, pw as i32, ph as i32), |c| (
@@ -3826,29 +3813,25 @@ fn render_image(
                 continue;
             }
 
-            let src_x = ((px as f32 * sx) as u32).min(src_w - 1);
-            let src_y = ((py as f32 * sy) as u32).min(src_h - 1);
-            let si = ((src_y * src_w + src_x) * 4) as usize;
+            let [sr, sg, sb, sa8] = crate::image_scale::sample(&src, dst_w, dst_h, px, py);
             let di = ((ty as u32 * pw + tx as u32) * 4) as usize;
 
-            if si + 3 < src_rgba.len() && di + 3 < pixmap.data.len() {
-                let sa = u32::from(src_rgba[si + 3]);
+            if di + 3 < pixmap.data.len() {
+                let sa = u32::from(sa8);
                 if sa == 255 {
-                    pixmap.data[di] = src_rgba[si];
-                    pixmap.data[di + 1] = src_rgba[si + 1];
-                    pixmap.data[di + 2] = src_rgba[si + 2];
+                    pixmap.data[di] = sr;
+                    pixmap.data[di + 1] = sg;
+                    pixmap.data[di + 2] = sb;
                     pixmap.data[di + 3] = 255;
                 } else if sa > 0 {
                     // Alpha blend: dst = src * sa + dst * (255 - sa)
                     let da = 255 - sa;
                     pixmap.data[di] =
-                        ((u32::from(src_rgba[si]) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
-                    pixmap.data[di + 1] = ((u32::from(src_rgba[si + 1]) * sa
-                        + u32::from(pixmap.data[di + 1]) * da)
-                        / 255) as u8;
-                    pixmap.data[di + 2] = ((u32::from(src_rgba[si + 2]) * sa
-                        + u32::from(pixmap.data[di + 2]) * da)
-                        / 255) as u8;
+                        ((u32::from(sr) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+                    pixmap.data[di + 1] =
+                        ((u32::from(sg) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
+                    pixmap.data[di + 2] =
+                        ((u32::from(sb) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
                     pixmap.data[di + 3] =
                         ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
                 }
@@ -4091,6 +4074,9 @@ pub fn render_component_preview(
             last_reconcile_structure_preserved: false,
             last_build_was_patched: false,
             last_patch_damage: None,
+            build_seq: 0,
+            last_full_build_seq: 0,
+            patch_damage_log: Vec::new(),
             last_dynamic_context: None,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
@@ -6848,6 +6834,69 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_downscaled_image_is_area_averaged_not_nearest_sampled() {
+        // THE CLASS: the CPU image blit used to convert the WHOLE source to
+        // RGBA and then nearest-sample it — a 4K camera frame into a 160 px
+        // tile cost a 33 MB swizzle per repaint and aliased (one source pixel
+        // "won" per destination pixel, so thin lines flickered as the tile
+        // resized). The blit now samples the source through
+        // `image_scale::sample`, which area-averages the footprint of every
+        // destination pixel. A black/white checkerboard shrunk into ONE pixel
+        // is the discriminating input: nearest sampling returns pure black or
+        // pure white, area averaging returns mid grey.
+        let mut checker = Vec::with_capacity(4 * 4 * 4);
+        for y in 0..4 {
+            for x in 0..4 {
+                let v = if (x + y) % 2 == 0 { 0 } else { 255 };
+                checker.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let img = rgba_image(4, 4, checker);
+        let dl = DisplayList {
+            items: vec![DisplayListItem::Image {
+                bounds: wrect(0.0, 0.0, 1.0, 1.0),
+                image: img,
+                border_radius: BorderRadius::default(),
+            }],
+            ..Default::default()
+        };
+        let mut p = pixmap(4, 4);
+        run_list(&dl, &mut p, 1.0).expect("must render");
+        let [r, g, b, a] = px_at(&p, 0, 0);
+        assert_eq!(a, 255, "an opaque source stays opaque");
+        for (name, c) in [("r", r), ("g", g), ("b", b)] {
+            assert!(
+                (96..=160).contains(&c),
+                "NEAREST SAMPLING: a 4x4 checkerboard shrunk into one pixel must average to \
+                 mid grey, got {name} = {c} (pure black/white = one source pixel won)"
+            );
+        }
+        assert_eq!(px_at(&p, 2, 2), [255, 255, 255, 255], "outside the bounds");
+    }
+
+    #[test]
+    fn every_live_frame_format_is_sampleable_by_the_blit() {
+        // The grey-placeholder arm must never catch a live-frame producer's
+        // format (camera / screencap / video emit RGBA8 or BGRA8; decoders
+        // also hand out RGB8 and R8). This pins the contract between the
+        // producers and `image_scale::bytes_per_pixel`, so adding a producer
+        // format without teaching the sampler fails here, not as flat grey
+        // tiles on screen.
+        use azul_core::resources::RawImageFormat;
+        for f in [
+            RawImageFormat::RGBA8,
+            RawImageFormat::BGRA8,
+            RawImageFormat::RGB8,
+            RawImageFormat::R8,
+        ] {
+            assert!(
+                crate::image_scale::bytes_per_pixel(f).is_some(),
+                "{f:?} is a producer format and must be sampleable"
+            );
+        }
+    }
+
+    #[test]
     fn an_image_with_degenerate_bounds_is_skipped() {
         for bad in DEGENERATE {
             let img = rgba_image(1, 1, vec![255, 0, 0, 255]);
@@ -7775,6 +7824,99 @@ mod layer_path_text_tests {
         comp.composite_frame(&mut layered, 1.0);
         let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();
         assert_eq!(ldiff, 0, "render_layers+composite diverges on {ldiff} bytes");
+    }
+
+    /// THE INK-GAMUT LAW: a solid-colour text run blended onto a solid
+    /// backdrop cannot produce a channel value outside `[fg, bg]` (±1 for
+    /// rounding), whatever the anti-aliasing — every correct LCD or
+    /// grayscale blend is a per-channel mix of the two. The first-draw
+    /// screenshot violated it (stem edges darker than the text colour).
+    fn assert_ink_gamut(pix: &AzulPixmap, fg: ColorU, bg: ColorU, what: &str) {
+        let lo = [fg.r.min(bg.r), fg.g.min(bg.g), fg.b.min(bg.b)];
+        let hi = [fg.r.max(bg.r), fg.g.max(bg.g), fg.b.max(bg.b)];
+        for (i, px) in pix.data().chunks_exact(4).enumerate() {
+            for c in 0..3 {
+                assert!(
+                    px[c] >= lo[c].saturating_sub(1) && px[c] <= hi[c].saturating_add(1),
+                    "{what}: pixel {i} channel {c} = {} is outside the ink gamut [{}, {}] — \
+                     text blended against something that is not the backdrop (transparent \
+                     layer?)",
+                    px[c],
+                    lo[c],
+                    hi[c]
+                );
+            }
+        }
+    }
+
+    /// REPORTED (AzWidgets first draw, 2026-08-21): the 13 px subtitle looked
+    /// doubled / smeared on the first frame only. Pixel forensics: RGB-LCD
+    /// fringes blended against BLACK. The showcase column is a scroll frame;
+    /// the layered full-render path gives every scroll frame its own pixbuf,
+    /// cleared to transparent black, and the LCD sweep blends per stripe
+    /// against whatever is in the destination — while the page background
+    /// lives in the ROOT layer. Every later repaint is flat and silently
+    /// fixed it. A plain scroll-frame layer is now seeded with its parent's
+    /// pixels under its bounds, so full == flat, for text in a scroll frame
+    /// without a local background. No uniform-bg proof is attached, so EVERY
+    /// glyph takes the sweep — the worst case.
+    #[test]
+    fn lcd_text_inside_a_scroll_frame_layer_equals_the_flat_render() {
+        let Some(font) = lcd_pretile_tests::load_test_font_pub() else {
+            return;
+        };
+        let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
+        let glyphs = lcd_pretile_tests::shape_pub(&font, "Every built-in widget", 13.0, 8.0, 26.0);
+        let page: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 200.0, height: 40.0 },
+        }
+        .into();
+        let fg = ColorU { r: 0x66, g: 0x70, b: 0x85, a: 255 };
+        let bg = ColorU { r: 0xf2, g: 0xf4, b: 0xf7, a: 255 };
+        let items = vec![
+            DisplayListItem::Rect { bounds: page, color: bg, border_radius: BorderRadius::default() },
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: page,
+                content_size: LogicalSize { width: 200.0, height: 400.0 },
+                scroll_id: 7,
+            },
+            DisplayListItem::Text {
+                glyphs,
+                font_hash,
+                font_size_px: 13.0,
+                color: fg,
+                clip_rect: page,
+                source_node_index: None,
+            },
+            DisplayListItem::PopScrollFrame,
+        ];
+        let n = items.len();
+        let dl = DisplayList { items, node_mapping: vec![None; n], ..Default::default() };
+
+        let mut plain = AzulPixmap::new(200, 40).unwrap();
+        plain.fill(255, 255, 255, 255);
+        let mut gc1 = GlyphCache::new();
+        render_display_list(&dl, &mut plain, 1.0, &rr, &fm, &mut gc1).unwrap();
+        assert_ink_gamut(&plain, fg, bg, "flat render");
+
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut layered = AzulPixmap::new(200, 40).unwrap();
+        layered.fill(255, 255, 255, 255);
+        let mut gc2 = GlyphCache::new();
+        let mut comp = CompositorState::new(200, 40);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
+        assert_eq!(comp.layers.len(), 2, "the scroll frame must have been promoted to a layer");
+        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc2, &state).unwrap();
+        comp.composite_frame(&mut layered, 1.0);
+
+        assert_ink_gamut(&layered, fg, bg, "layered render");
+        let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();
+        assert_eq!(
+            ldiff, 0,
+            "text inside a scroll-frame layer diverges from the flat render on {ldiff} bytes: \
+             the layer was swept against a transparent backdrop instead of the page"
+        );
     }
 }
 

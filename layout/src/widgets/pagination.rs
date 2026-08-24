@@ -353,7 +353,7 @@ impl Pagination {
 
         let make_button =
             |label: AzString, class: &'static [IdOrClass], style: CssPropertyWithConditionsVec| {
-                Dom::create_p_with_text(label)
+                crate::widgets::widget_p_with_text(label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(class))
                     .with_css_props(style)
                     .with_callbacks(
@@ -368,6 +368,13 @@ impl Pagination {
                         .into(),
                     )
                     .with_tab_index(TabIndex::Auto)
+            // Role so the accessibility tree knows what this IS:
+            // each page control is a button. The NAME comes from the widget's own text,
+            // which azul derives when a readable label is present.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::PushButton,
+                ..Default::default()
+            })
             };
 
         let mut children: Vec<Dom> = Vec::with_capacity(total.saturating_add(2));

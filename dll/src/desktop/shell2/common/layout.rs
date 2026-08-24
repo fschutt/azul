@@ -461,6 +461,18 @@ phases.mark("after_callback");
                     nd.callbacks = new_cbs.clone();
                 }
             }
+            // The callbacks just installed are clones of the FRESH build's
+            // datasets; the retained nodes still hold last frame's. Merge
+            // them the way the full path's `transfer_states` does (merge
+            // callback when the node has one, fresh wins otherwise) and
+            // re-point the fresh callbacks at the result. Without this an
+            // identical rebuild reset every widget's callback state — a
+            // slider's drag died on its second move whenever the app's
+            // `RefreshDom` was followed by a redraw-driven relayout — and
+            // split the widget across two allocations.
+            for (idx, fresh) in &transfers.datasets {
+                azul_core::diff::merge_fresh_dataset(node_data_mut, *idx, fresh.clone());
+            }
         }
 
         // Re-derive hover/focus/active flags from the managers. A state
@@ -488,6 +500,17 @@ phases.mark("after_callback");
             layout_window
                 .layout_results
                 .insert(azul_core::dom::DomId::ROOT_ID, old_result);
+            // THE DOM DID NOT CHANGE — THE DATA BEHIND IT MAY HAVE. A VirtualView
+            // renders from a RefAny the fingerprint cannot see (a map's tile
+            // cache, a virtual list's rows); `merge_fresh_dataset` above just
+            // handed it the app's new state. The full path re-invokes every
+            // view (`reset_all_invocation_flags` inside
+            // `layout_and_generate_display_list`); this exit used to re-invoke
+            // none, so a `RefreshDom` whose only change lived inside a dataset
+            // left the view showing last frame's data until some unrelated
+            // event relaid out. Queue them all — the frame path drains the
+            // queue (`drain_virtual_view_updates`) before it paints.
+            layout_window.queue_all_virtual_view_reinvoke();
             log_debug!(
                 LogCategory::Layout,
                 "[regenerate_layout] COMPLETE (pre-cascade skip, layout unchanged)"
@@ -518,14 +541,9 @@ phases.mark("after_callback");
         phases.mark("after_layout_and_dl");
         layout_window.current_window_state = current_window_state.clone();
 
-        let dirty_entries: Vec<_> = layout_window
-            .content_overlay
-            .iter_text()
-            .map(|(k, _)| *k)
-            .collect();
-        for (dom_id, node_id) in dirty_entries {
-            layout_window.reapply_dirty_text_node(dom_id, node_id);
-        }
+        // Overlay text (in-flight edits) is re-applied by the layout funnel
+        // itself (`LayoutWindow::layout_and_generate_display_list`), once, on
+        // every path — not here.
 
         // The warm relayout is a REAL layout pass: it can add or remove scroll
         // containers (a CSS breakpoint swapping a widget to its compact form
@@ -959,15 +977,33 @@ phases.mark("after_runtime_states");
             }
 
             // Also transfer any updated callback data (RefAny) for event callbacks
-            // so that future events use fresh app state references
-            let mut callback_updates: Vec<(usize, azul_core::callbacks::CoreCallbackDataVec)> = Vec::new();
+            // so that future events use fresh app state references.
+            //
+            // The DATASET (and a VirtualView's content refany) travel with
+            // them. `transfer_states` above merged the fresh build's datasets
+            // with last frame's and re-pointed the fresh callbacks at the
+            // result, so `styled_dom`'s nodes are unified: callbacks and
+            // dataset on ONE allocation. Copying only the callbacks onto the
+            // retained node left its dataset on last frame's allocation —
+            // every later callback mutated the one the dataset no longer was,
+            // and the NEXT rebuild merged from the stale dataset (a released
+            // slider came back mid-drag). Copy all three, so the retained
+            // node IS the unified one.
+            let mut callback_updates: Vec<(
+                usize,
+                azul_core::callbacks::CoreCallbackDataVec,
+                Option<azul_core::refany::RefAny>,
+                Option<azul_core::refany::RefAny>,
+            )> = Vec::new();
             {
                 let old_nd_ref = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded").styled_dom.node_data.as_ref();
                 let new_nd_ref = styled_dom.node_data.as_ref();
                 for (idx, (_old_nd, new_nd)) in old_nd_ref.iter().zip(new_nd_ref.iter()).enumerate() {
-                    if !new_nd.callbacks.as_ref().is_empty() {
-                        callback_updates.push((idx, new_nd.callbacks.clone()));
+                    let dataset = new_nd.get_dataset().cloned();
+                    let vv_refany = new_nd.get_virtual_view_node_ref().map(|vv| vv.refany.clone());
+                    if !new_nd.callbacks.as_ref().is_empty() || dataset.is_some() || vv_refany.is_some() {
+                        callback_updates.push((idx, new_nd.callbacks.clone(), dataset, vv_refany));
                     }
                 }
             }
@@ -975,14 +1011,24 @@ phases.mark("after_runtime_states");
                 let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded");
                 let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
-                for (idx, new_callbacks) in callback_updates {
+                for (idx, new_callbacks, dataset, vv_refany) in callback_updates {
                     if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
                         old_nd.callbacks = new_callbacks;
+                        if let Some(ds) = dataset {
+                            old_nd.set_dataset(azul_core::refany::OptionRefAny::Some(ds));
+                        }
+                        if let (Some(r), Some(vv)) = (vv_refany, old_nd.get_virtual_view_node()) {
+                            vv.refany = r;
+                        }
                     }
                 }
             }
 
             if !window_size_changed {
+                // Same rule as the pre-cascade exit above: the DOM is
+                // equivalent, the transferred datasets / VirtualView refanys
+                // are not necessarily — re-invoke every view in place.
+                layout_window.queue_all_virtual_view_reinvoke();
                 log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE (layout unchanged)");
                 azul_layout::probe::emit_phase_heap("end_unchanged");
                 phases.mark("end_unchanged");
@@ -1078,23 +1124,9 @@ phases.mark("after_layout_and_dl");
     // the stale layout_window.current_window_state still held the old size.
     layout_window.current_window_state = current_window_state.clone();
 
-    // V3 ARCHITECTURE: Re-apply dirty_text_nodes to the layout cache.
-    // The layout just ran on the stale DOM text (from the layout callback).
-    // Now patch the layout cache with the edited text from dirty_text_nodes
-    // so the display list shows the correct (edited) content.
-    // This calls update_text_cache_after_edit for each dirty node, which
-    // re-shapes the text and regenerates the inline layout result.
-    let dirty_entries: Vec<_> = layout_window
-        .content_overlay
-        .iter_text()
-        .map(|(k, _)| *k)
-        .collect();
-    for (dom_id, node_id) in dirty_entries {
-        // update_text_cache_after_edit reads from dirty_text_nodes internally
-        // (via get_text_before_textinput which checks dirty_text_nodes first)
-        // and updates the inline_layout_result in the layout tree.
-        layout_window.reapply_dirty_text_node(dom_id, node_id);
-    }
+    // Overlay text (in-flight edits) is re-applied by the layout funnel
+    // itself (`LayoutWindow::layout_and_generate_display_list`), once, on
+    // every path — not here.
 
     log_debug!(
         LogCategory::Layout,
@@ -1276,6 +1308,13 @@ phases.mark("after_layout_and_dl");
     // Linux) so CameraWidget shows the real camera where available; guarded.
     crate::desktop::extra::camera::ensure_camera_backend();
     crate::desktop::extra::screencap::ensure_screen_backend();
+    // The platform frame scaler the capture fan-out uses (vImage on macOS;
+    // the portable scaler elsewhere) — same seam, same guard.
+    crate::desktop::extra::resample::ensure_frame_resampler();
+    // Same seam for the async OS file picker: on iOS / Android
+    // `FileDialog::open_file_async` dispatches to the dispatchers this
+    // installs; the desktop answers the same call synchronously via tfd.
+    crate::desktop::extra::file_picker::ensure_file_picker_backend();
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
@@ -1366,7 +1405,11 @@ phases.mark("end");
 /// an identity mapping. Restyle/scroll-driven incremental relayouts MUST keep
 /// calling [`incremental_relayout`] — they need reconcile's fingerprint diff
 /// for paint-dirty classification.
-pub fn incremental_relayout_for_resize(
+/// PRIVATE TO `common` — backends call
+/// [`CommonWindowState::incremental_relayout`](super::event::CommonWindowState::incremental_relayout)
+/// with `IncrementalRelayout::Resize`, which runs this AND the finalize tail
+/// (the CPU hit-tester rebuild) that the macOS/X11 resize fast path forgot.
+pub(super) fn incremental_relayout_for_resize(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
@@ -1381,7 +1424,13 @@ pub fn incremental_relayout_for_resize(
     )
 }
 
-pub fn incremental_relayout(
+/// PRIVATE TO `common` — backends call
+/// [`CommonWindowState::incremental_relayout`](super::event::CommonWindowState::incremental_relayout),
+/// which runs this AND the finalize tail (the CPU hit-tester rebuild). A
+/// relayout whose results the hit-tester never sees sends every click over a
+/// moved node to whatever used to be there; that is why the bare function is
+/// not reachable from a backend any more.
+pub(super) fn incremental_relayout(
     layout_window: &mut LayoutWindow,
     current_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
@@ -1619,17 +1668,10 @@ pub fn generate_frame(
 
     // Process any pending VirtualView updates requested by callbacks
     // This must happen BEFORE wr_translate2::generate_frame() so that the VirtualView
-    // callbacks can be re-invoked and their layout results are available
-    let system_callbacks = ExternalSystemCallbacks::rust_internal();
-    let current_window_state = layout_window.current_window_state.clone();
-
-    let renderer_resources = std::mem::take(&mut layout_window.renderer_resources);
-    layout_window.process_pending_virtual_view_updates(
-        &current_window_state,
-        &renderer_resources,
-        &system_callbacks,
-    );
-    layout_window.renderer_resources = renderer_resources;
+    // callbacks can be re-invoked and their layout results are available.
+    // (GPU path: the WebRender hit-tester is refreshed by the transaction
+    // itself, so there is no CPU hit-tester to hand in.)
+    drain_virtual_view_updates(layout_window, None);
 
     let mut txn = WrTransaction::new();
 
@@ -1637,6 +1679,49 @@ pub fn generate_frame(
     wr_translate2::generate_frame(&mut txn, layout_window, render_api, true, gl_context);
 
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
+}
+
+/// Drain the queued `VirtualView` re-invocations — `trigger_virtual_view_rerender`
+/// from a callback or a background writeback, a scroll past an edge, or an
+/// unchanged `RefreshDom` (both `LayoutUnchanged` exits of [`regenerate_layout`]
+/// queue every view) — by re-invoking each view's callback IN PLACE on the
+/// existing DOM, and keep the CPU hit-tester honest about it.
+///
+/// Returns whether any view was rebuilt.
+///
+/// THE REBUILD IS PART OF THE DRAIN. An in-place re-invoke gives the view's
+/// child DOM fresh `NodeId`s, so a CPU hit-tester built before it indexes a
+/// generation of nodes that no longer exists: the next pointer move resolves
+/// to a stale id (cursor panic while panning the map, events on the wrong
+/// node). X11, Wayland and Windows each rebuilt the tester by hand after
+/// their own copy of this drain; macOS and headless did not. There is one
+/// drain now, and it cannot forget.
+pub fn drain_virtual_view_updates(
+    layout_window: &mut LayoutWindow,
+    cpu_hit_tester: Option<&mut azul_layout::headless::CpuHitTester>,
+) -> bool {
+    if layout_window.pending_virtual_view_updates.is_empty() {
+        return false;
+    }
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let current_window_state = layout_window.current_window_state.clone();
+    let renderer_resources = std::mem::take(&mut layout_window.renderer_resources);
+    let updated = layout_window.process_pending_virtual_view_updates(
+        &current_window_state,
+        &renderer_resources,
+        &system_callbacks,
+    );
+    layout_window.renderer_resources = renderer_resources;
+    let rebuilt = !updated.is_empty();
+    if rebuilt {
+        if let Some(cpu_ht) = cpu_hit_tester {
+            cpu_ht.rebuild_from_layout_with_gpu(
+                &layout_window.layout_results,
+                Some(&layout_window.gpu_state_manager),
+            );
+        }
+    }
+    rebuilt
 }
 
 /// Wrap the user's `StyledDom` with a `Titlebar` at the top.

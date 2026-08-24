@@ -245,7 +245,7 @@ impl Avatar {
             // The initials are a `<p>` for the same reason the image branch is a
             // replaced node: a raw text child would be a rect-less anonymous box,
             // so the initials class could never be styled by the author.
-            None => Dom::create_p_with_text(self.initials)
+            None => crate::widgets::widget_p_with_text(self.initials)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(AVATAR_INITIALS_CLASS)),
         };
 

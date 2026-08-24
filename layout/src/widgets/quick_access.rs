@@ -551,7 +551,7 @@ impl QuickAccessBar {
         }
 
         children.push(
-            Dom::create_p_with_text(title)
+            crate::widgets::widget_p_with_text(title)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_TITLE))
                 .with_css_props(style.title_style.clone()),
         );

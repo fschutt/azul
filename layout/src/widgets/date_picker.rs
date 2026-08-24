@@ -40,7 +40,7 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{
+use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, StyleFontSize},
         layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutAlignItems, LayoutWidth, LayoutHeight},
@@ -115,6 +115,11 @@ pub struct DatePicker {
     pub state: DatePickerStateWrapper,
     /// Style for the outer container.
     pub container_style: CssPropertyWithConditionsVec,
+    /// What this control is CALLED, for assistive technology.
+    ///
+    /// Carried by the WIDGET so it knows at build time whether it was named;
+    /// forwarded into the accessibility declaration it already builds.
+    pub accessibility_name: OptionString,
 }
 
 /// Wraps [`DatePickerState`] together with its change callback.
@@ -424,6 +429,13 @@ struct DayCellData {
 impl DatePicker {
     /// Creates a new `DatePicker` showing `year`/`month` with `day` selected.
     /// `month` is clamped to `1..=12` and `day` to `1..=days_in_month`.
+    /// Name this control for assistive technology.
+    #[must_use]
+    pub fn with_accessibility_name<S: Into<AzString>>(mut self, name: S) -> Self {
+        self.accessibility_name = Some(name.into()).into();
+        self
+    }
+
     #[must_use] pub fn create(year: u32, month: u32, day: u32) -> Self {
         let month = month.clamp(1, 12);
         let dim = days_in_month(year, month);
@@ -434,6 +446,7 @@ impl DatePicker {
                 on_change: None.into(),
             },
             container_style: CssPropertyWithConditionsVec::from_const_slice(CONTAINER_STYLE),
+            accessibility_name: OptionString::None,
         }
     }
 
@@ -493,7 +506,7 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
     let nav = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
-        Dom::create_p_with_text(arrow)
+        crate::widgets::widget_p_with_text(arrow)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(NAV_BTN_CLASS))
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(NAV_BTN_STYLE))
             .with_callbacks(
@@ -508,6 +521,11 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
+            // Calendar navigation / day cells act as buttons.
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::PushButton,
+                ..Default::default()
+            })
     };
 
     let label = AzString::from(format!("{} {}", month_name(month), year));
@@ -518,7 +536,7 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
         .with_children(
             alloc::vec![
                 nav(PREV_ARROW, on_prev_month as usize, shared.clone()),
-                Dom::create_p_with_text(label)
+                crate::widgets::widget_p_with_text(label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(HEADER_LABEL_CLASS))
                     .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                         HEADER_LABEL_STYLE,
@@ -533,7 +551,7 @@ fn build_weekday_row() -> Dom {
     let cells: Vec<Dom> = WEEKDAY_NAMES
         .iter()
         .map(|n| {
-            Dom::create_p_with_text(n.clone())
+            crate::widgets::widget_p_with_text(n.clone())
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(WEEKDAY_CELL_CLASS))
                 .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                     WEEKDAY_CELL_STYLE,
@@ -589,7 +607,7 @@ fn build_blank_cell() -> Dom {
 fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
-    Dom::create_p_with_text(AzString::from(format!("{day}")))
+    crate::widgets::widget_p_with_text(AzString::from(format!("{day}")))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
         .with_css_props(build_day_cell_style(selected))
         .with_callbacks(
@@ -604,6 +622,11 @@ fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
             .into(),
         )
         .with_tab_index(TabIndex::Auto)
+        // The date field opens a chooser.
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::ComboBox,
+            ..Default::default()
+        })
 }
 
 /// Day-cell click handler. Reads the cell's baked day, updates the shared

@@ -72,10 +72,6 @@ pub struct MapTileLayer {
     /// `{z}` / `{x}` / `{y}` placeholders are substituted at fetch
     /// time. Matches Leaflet's `tileLayer(url_template)`.
     pub url_template: AzString,
-    /// Minimum integer zoom this layer supports.
-    pub min_zoom: u8,
-    /// Maximum integer zoom this layer supports.
-    pub max_zoom: u8,
     /// Attribution string the user MUST display (`ODbL` "© OpenStreetMap
     /// contributors" or similar). Most providers require it.
     pub attribution: AzString,
@@ -86,6 +82,161 @@ pub struct MapTileLayer {
     /// layer name (e.g. `water { fill: #9ecae1; }`, `.buildings { … }`).
     /// Parsed by `azul_dll::desktop::extra::map`'s tile decoder.
     pub style_css: AzString,
+    /// The look: a built-in preset, `System` (follows the window's light /
+    /// dark theme), or `Custom` (your `style_css`). A non-empty `style_css`
+    /// always wins over a preset. See [`MapTheme`].
+    pub theme: MapTheme,
+    /// Minimum integer zoom this layer supports.
+    pub min_zoom: u8,
+    /// Maximum integer zoom this layer supports.
+    pub max_zoom: u8,
+}
+
+/// A map look. Presets are vendored `MapCSS` palettes
+/// (`widgets::map_themes`, see its header for provenance and licences —
+/// the `OpenFreeMap` designs are CC BY 4.0, credit is shown through
+/// [`MapTheme::credit`] / the layer's attribution); `System` follows the
+/// window's light / dark theme with the platform-native look; `Custom`
+/// uses `MapTileLayer::style_css` (the built-in palette when that is
+/// empty). A theme change re-decodes the visible tiles.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MapTheme {
+    /// Follow the window theme: the platform's familiar look in light mode
+    /// (Apple-like on macOS / iOS, Google-like on Android, Positron
+    /// elsewhere) and its dark counterpart in dark mode.
+    #[default]
+    System,
+    /// CARTO Positron via `OpenFreeMap` (light, desaturated).
+    Positron,
+    /// OSM Bright via `OpenFreeMap` (light, colourful).
+    Bright,
+    /// OSM Liberty via `OpenFreeMap` (light, blue sea).
+    Liberty,
+    /// CARTO Dark Matter via `OpenFreeMap` (dark).
+    Dark,
+    /// A Google-Maps-like light look.
+    GoogleLight,
+    /// Google Maps' published "Night mode" palette (dark).
+    GoogleNight,
+    /// An Apple-Maps-like light look.
+    AppleLight,
+    /// An Apple-Maps-like dark look.
+    AppleDark,
+    /// The caller's own `MapTileLayer::style_css`.
+    Custom,
+}
+
+impl MapTheme {
+    /// The `MapCSS` sheet of a preset; empty for `Custom` and the unresolved
+    /// `System` (resolve it with [`Self::resolve`] first).
+    #[must_use]
+    pub fn stylesheet(self) -> AzString {
+        AzString::from(self.sheet())
+    }
+
+    /// [`Self::stylesheet`] as the static slice (internal, no allocation).
+    #[must_use]
+    pub(crate) const fn sheet(self) -> &'static str {
+        use super::map_themes as t;
+        match self {
+            Self::Positron => t::POSITRON,
+            Self::Bright => t::BRIGHT,
+            Self::Liberty => t::LIBERTY,
+            Self::Dark => t::DARK,
+            Self::GoogleLight => t::GOOGLE_LIGHT,
+            Self::GoogleNight => t::GOOGLE_NIGHT,
+            Self::AppleLight => t::APPLE_LIGHT,
+            Self::AppleDark => t::APPLE_DARK,
+            Self::System | Self::Custom => "",
+        }
+    }
+
+    /// Is this a dark look? (`System` answers for the dark resolution.)
+    /// Named `is_dark_look` because `is_dark` is the auto-emitted variant
+    /// predicate for `MapTheme::Dark` in the bindings.
+    #[must_use]
+    pub const fn is_dark_look(self) -> bool {
+        matches!(self, Self::Dark | Self::GoogleNight | Self::AppleDark)
+    }
+
+    /// `System` resolved against the window's theme; every other preset
+    /// is its own resolution.
+    #[must_use]
+    pub fn resolve(self, window_theme: azul_core::window::WindowTheme) -> Self {
+        use azul_core::window::WindowTheme;
+        if self != Self::System {
+            return self;
+        }
+        let dark = matches!(window_theme, WindowTheme::DarkMode);
+        if cfg!(any(target_os = "macos", target_os = "ios")) {
+            if dark { Self::AppleDark } else { Self::AppleLight }
+        } else if cfg!(target_os = "android") {
+            if dark { Self::GoogleNight } else { Self::GoogleLight }
+        } else if dark {
+            Self::Dark
+        } else {
+            Self::Positron
+        }
+    }
+
+    /// The credit line a preset's licence asks for (CC BY 4.0 for the
+    /// `OpenFreeMap` designs, Apache-2.0 for Google's sample); empty for the
+    /// authored looks and `Custom`. Appended to the layer's attribution by
+    /// [`MapTileLayer::with_theme`].
+    #[must_use]
+    pub fn credit(self) -> AzString {
+        AzString::from(self.credit_str())
+    }
+
+    /// [`Self::credit`] as the static slice (internal, no allocation).
+    #[must_use]
+    pub(crate) const fn credit_str(self) -> &'static str {
+        match self {
+            Self::Positron => "Style: Positron © CARTO (CC BY 4.0) via OpenFreeMap",
+            Self::Dark => "Style: Dark Matter © CARTO (CC BY 4.0) via OpenFreeMap",
+            Self::Bright => "Style: OSM Bright © OpenMapTiles (CC BY 4.0) via OpenFreeMap",
+            Self::Liberty => "Style: OSM Liberty (CC BY 4.0) via OpenFreeMap",
+            Self::GoogleNight => "Style: Google Maps Platform night-mode sample (Apache-2.0)",
+            Self::System
+            | Self::GoogleLight
+            | Self::AppleLight
+            | Self::AppleDark
+            | Self::Custom => "",
+        }
+    }
+}
+
+impl MapTileLayer {
+    /// Pick a look. Appends the preset's licence credit (if any) to the
+    /// attribution so an app that shows `attribution` complies with CC BY.
+    #[must_use]
+    pub fn with_theme(mut self, theme: MapTheme) -> Self {
+        self.theme = theme;
+        for t in [theme, theme.resolve(azul_core::window::WindowTheme::LightMode), theme.resolve(azul_core::window::WindowTheme::DarkMode)] {
+            let credit = t.credit_str();
+            if !credit.is_empty() && !self.attribution.as_str().contains(credit) {
+                let mut s = self.attribution.as_str().to_string();
+                if !s.is_empty() {
+                    s.push_str(" · ");
+                }
+                s.push_str(credit);
+                self.attribution = AzString::from(s);
+            }
+        }
+        self
+    }
+
+    /// The `MapCSS` the tiles are decoded with for `resolved` (a resolved
+    /// theme, see [`MapTheme::resolve`]): a non-empty `style_css` always
+    /// wins; else the preset's sheet; else the built-in palette (empty).
+    #[must_use]
+    pub fn effective_style_css(&self, resolved: MapTheme) -> AzString {
+        if !self.style_css.as_str().is_empty() {
+            return self.style_css.clone();
+        }
+        AzString::from(resolved.sheet())
+    }
 }
 
 impl Default for MapTileLayer {
@@ -109,13 +260,18 @@ impl Default for MapTileLayer {
                 "© OpenFreeMap © OpenMapTiles · Data © OpenStreetMap contributors",
             ),
             style_css: AzString::from(""),
+            theme: MapTheme::System,
         }
     }
 }
 
-/// Centre + zoom + rotation state. The Leaflet shape
-/// (`map.setView([lat, lon], zoom)`). `bearing_deg` + `pitch_deg` are
-/// reserved for future 3D-camera work; most callers leave them at zero.
+/// Centre + zoom + camera state. The Leaflet shape
+/// (`map.setView([lat, lon], zoom)`) plus the `MapLibre` camera: `bearing_deg`
+/// rotates the map (clockwise, degrees), `pitch_deg` tilts it away from the
+/// viewer (0 = straight down, up to [`MAX_PITCH_DEG`]). Both render as a
+/// CSS `perspective() rotateX() rotate()` transform on the tile canvas —
+/// `MapWidget::with_pitch` / `with_bearing`, right-drag, or a rotate
+/// gesture drive them. Panning and tapping work in the un-tilted plane.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct MapViewport {
@@ -183,6 +339,28 @@ impl MapWidget {
 
     #[must_use] pub const fn with_viewport(mut self, viewport: MapViewport) -> Self {
         self.viewport = viewport;
+        self
+    }
+
+    /// Pick a look for the tile layer (see [`MapTheme`]); `System` follows
+    /// the window's light / dark theme.
+    #[must_use] pub fn with_theme(mut self, theme: MapTheme) -> Self {
+        self.layer = self.layer.with_theme(theme);
+        self
+    }
+
+    /// Tilt the camera: 0 looks straight down, [`MAX_PITCH_DEG`] is the
+    /// steepest 3D view (clamped). Rendered as a perspective transform on
+    /// the tile canvas; right-drag vertically changes it at runtime.
+    #[must_use] pub fn with_pitch(mut self, pitch_deg: f32) -> Self {
+        self.viewport.pitch_deg = clamp_pitch(pitch_deg);
+        self
+    }
+
+    /// Rotate the map (clockwise degrees, normalised to `-180..180`).
+    /// Right-drag horizontally or a rotate gesture changes it at runtime.
+    #[must_use] pub const fn with_bearing(mut self, bearing_deg: f32) -> Self {
+        self.viewport.bearing_deg = normalize_bearing(bearing_deg);
         self
     }
 
@@ -466,6 +644,15 @@ pub struct MapTileCache {
     /// Pixel position of the last pointer-down (the original press point, not
     /// overwritten by pan moves). Used to tell a tap from a drag in pointer-up.
     pub press_origin: Option<azul_core::geom::LogicalPosition>,
+    /// Pixel position of the last right-button press while a camera drag
+    /// (tilt / rotate) is in flight; `None` between drags.
+    pub tilt_anchor: Option<azul_core::geom::LogicalPosition>,
+    /// The RESOLVED theme the cached tiles were decoded with (see
+    /// [`MapTheme::resolve`]). The render callback compares it with the
+    /// window's current theme every frame; a mismatch re-queues every tile
+    /// (the decode happens on the fetch worker with the sheet of record)
+    /// and drops in-flight results decoded with the old sheet.
+    pub decoded_theme: MapTheme,
     /// The user's `on_pin_tap` hook, copied from the builder so pointer-up can
     /// fire it. Carried across relayout.
     pub on_pin_tap: OptionMapPinTap,
@@ -473,6 +660,7 @@ pub struct MapTileCache {
 
 impl MapTileCache {
     #[must_use] pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
+        let decoded_theme = layer.theme;
         Self {
             layer,
             viewport,
@@ -481,9 +669,27 @@ impl MapTileCache {
             drag_anchor: None,
             pinch_anchor: None,
             press_origin: None,
+            tilt_anchor: None,
+            decoded_theme,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
         }
+    }
+
+    /// Adopt a newly resolved theme: every decoded tile goes back to
+    /// `Pending` so the fetch worker re-decodes it with the new sheet.
+    /// `true` when something changed.
+    pub fn adopt_theme(&mut self, resolved: MapTheme) -> bool {
+        if self.decoded_theme == resolved {
+            return false;
+        }
+        self.decoded_theme = resolved;
+        for entry in self.tiles.values_mut() {
+            if matches!(entry, TileEntry::Ready { .. } | TileEntry::Failed { .. }) {
+                *entry = TileEntry::Pending;
+            }
+        }
+        true
     }
 
     /// Worker-thread → main-thread write path. Set the decoded SVG for
@@ -511,34 +717,14 @@ impl MapTileCache {
     /// space), and the farthest are dropped first. IN-FLIGHT tiles
     /// (`Pending`/`Fetching`) are never evicted (their worker would write into a
     /// gone entry), and on-screen tiles score near-zero so they survive.
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
     pub fn prune_distant_tiles(&mut self) {
         const MAX_CACHED_TILES: usize = 192;
         if self.tiles.len() <= MAX_CACHED_TILES {
             return;
         }
 
-        let z = (self.viewport.zoom.floor() as i32)
-            .clamp(i32::from(self.layer.min_zoom), i32::from(self.layer.max_zoom))
-            as u8;
-        let tile_count = 1u32 << u32::from(z);
-        let cx = lon_to_tile_x(self.viewport.centre_lon_deg, f64::from(tile_count));
-        let cy = lat_to_tile_y(self.viewport.centre_lat_deg, f64::from(tile_count));
-
-        // Higher score = evict sooner.
-        let score = |id: &MapTileId| -> f64 {
-            let zt_count = 1u32 << u32::from(id.z);
-            // Project the tile's centre into the CURRENT zoom's tile space so
-            // distances across zoom levels are comparable.
-            let scale = f64::from(tile_count) / f64::from(zt_count);
-            let tx = (f64::from(id.x) + 0.5) * scale;
-            let ty = (f64::from(id.y) + 0.5) * scale;
-            let dz = f64::from((i32::from(id.z) - i32::from(z)).abs());
-            let dx = tx - cx;
-            let dy = ty - cy;
-            dz * 10_000.0 + dx * dx + dy * dy
-        };
+        // Higher score = farther from what the user sees = evict sooner.
+        let score = |id: &MapTileId| tile_viewport_score(&self.viewport, &self.layer, *id);
 
         let mut evictable: Vec<(f64, MapTileId)> = self
             .tiles
@@ -558,6 +744,61 @@ impl MapTileCache {
             to_remove -= 1;
         }
     }
+
+    /// Every `Pending` tile, NEAREST TO THE VIEWPORT CENTRE FIRST — the
+    /// order fetches are spawned in (`spawn_pending_tile_fetches` takes the
+    /// head of this list each sweep).
+    ///
+    /// The sweep used to walk the `BTreeMap` in key order, `(z, x, y)`
+    /// ascending: the first column spawned was the INVISIBLE west margin,
+    /// and a lower-zoom leftover was fetched before anything at the current
+    /// zoom — tiles visibly loaded from the left edge inwards. Ordering by
+    /// [`tile_viewport_score`] puts the tile under the user's eyes first and
+    /// the margin and stale zooms last, with nothing cancelled or lost.
+    #[must_use]
+    pub fn pending_tiles_nearest_first(&self) -> Vec<MapTileId> {
+        let mut pending: Vec<(f64, MapTileId)> = self
+            .tiles
+            .iter()
+            .filter(|(_, e)| matches!(e, TileEntry::Pending))
+            .map(|(id, _)| (tile_viewport_score(&self.viewport, &self.layer, *id), *id))
+            .collect();
+        // Nearest first; the `(z, x, y)` key order breaks exact ties so the
+        // result is deterministic.
+        pending.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(core::cmp::Ordering::Equal)
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        pending.into_iter().map(|(_, id)| id).collect()
+    }
+}
+
+/// How far a tile is from what the viewport shows (lower = nearer).
+///
+/// Zoom mismatch first (10 000 per level), then the squared distance of the
+/// tile's centre from the viewport centre, both measured in the CURRENT
+/// zoom's tile space so tiles of different zooms compare. One function for
+/// both the fetch order (nearest first) and the cache eviction (farthest
+/// first), so the two can never disagree about what "near the user" means.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+fn tile_viewport_score(viewport: &MapViewport, layer: &MapTileLayer, id: MapTileId) -> f64 {
+    let z = (viewport.zoom.floor() as i32)
+        .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
+    let tile_count = 1u32 << u32::from(z);
+    let cx = lon_to_tile_x(viewport.centre_lon_deg, f64::from(tile_count));
+    let cy = lat_to_tile_y(viewport.centre_lat_deg, f64::from(tile_count));
+    let zt_count = 1u32 << u32::from(id.z);
+    // Project the tile's centre into the CURRENT zoom's tile space so
+    // distances across zoom levels are comparable.
+    let scale = f64::from(tile_count) / f64::from(zt_count);
+    let tx = (f64::from(id.x) + 0.5) * scale;
+    let ty = (f64::from(id.y) + 0.5) * scale;
+    let dz = f64::from((i32::from(id.z) - i32::from(z)).abs());
+    let dx = tx - cx;
+    let dy = ty - cy;
+    dz * 10_000.0 + dx * dx + dy * dy
 }
 
 #[derive(Debug, Clone)]
@@ -585,8 +826,13 @@ pub enum TileEntry {
 pub struct TileFetchInit {
     pub tile: MapTileId,
     pub url: AzString,
-    /// Copy of `MapTileLayer::style_css` (empty = default palette).
+    /// The `MapCSS` to decode with: `MapTileLayer::effective_style_css` for
+    /// the resolved theme (empty = the built-in palette).
     pub style_css: AzString,
+    /// The resolved theme `style_css` belongs to — echoed back in
+    /// `TileReadyMsg` so a result decoded for a theme the widget has since
+    /// left is dropped instead of painted.
+    pub theme: MapTheme,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -600,6 +846,8 @@ pub struct TileReadyMsg {
     pub svg: AzString,
     /// Empty on success; an error message on failure.
     pub error: AzString,
+    /// The theme the SVG was decoded for (from `TileFetchInit::theme`).
+    pub theme: MapTheme,
 }
 
 // ────────── Merge callback — cache survives relayout ─────────────────
@@ -640,7 +888,17 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
                 old_g.fetch_callback.clone_from(&new_g.fetch_callback);
             }
             old_g.viewport = new_g.viewport;
+            let theme_changed = old_g.layer.theme != new_g.layer.theme
+                || old_g.layer.style_css != new_g.layer.style_css;
             old_g.layer = new_g.layer.clone();
+            if theme_changed {
+                // The app picked another look (or another custom sheet):
+                // the decoded tiles are the OLD look. Re-queue them; the
+                // render resolves `System` against the window next frame.
+                let resolved = new_g.layer.theme;
+                old_g.decoded_theme = MapTheme::Custom; // force adopt
+                old_g.adopt_theme(resolved);
+            }
             old_g.on_viewport_changed = new_g.on_viewport_changed.clone();
         }
     }
@@ -685,6 +943,13 @@ azul_core::impl_managed_callback! {
 
 /// Invoke a map widget's optional `on_viewport_changed` hook with the new
 /// viewport, returning the user's `Update` (`DoNothing` if no hook is set).
+///
+/// `#[must_use]`: the crate denies `unused_must_use`, so a handler that
+/// calls the hook and throws its answer away no longer compiles. Every
+/// pointer / wheel handler used to do exactly that and return `DoNothing`
+/// itself, so an app's `RefreshDom` from the hook never happened — the
+/// demo's zoom/centre readout froze during drags and wheel zooms.
+#[must_use]
 fn invoke_viewport_changed(
     hook: &OptionMapViewportChanged,
     info: &CallbackInfo,
@@ -727,11 +992,34 @@ azul_core::impl_managed_callback! {
 }
 
 /// Invoke a map widget's optional `on_pin_tap` hook with the tapped coordinate.
+/// `#[must_use]` for the same reason as [`invoke_viewport_changed`].
+#[must_use]
 fn invoke_pin_tap(hook: &OptionMapPinTap, info: &CallbackInfo, coord: MapLatLon) -> Update {
     match hook {
         OptionMapPinTap::Some(h) => (h.callback.cb)(h.refany.clone(), *info, coord),
         OptionMapPinTap::None => Update::DoNothing,
     }
+}
+
+/// The tail every viewport-changing handler shares: fire the user's
+/// `on_viewport_changed` hook and RETURN ITS `Update`.
+///
+/// A hook that asks for `RefreshDom` gets it — the merge callback keeps the
+/// tile cache across the rebuild and the full layout path re-invokes the
+/// `VirtualView`. A hook that answers `DoNothing` (or no hook at all) gets
+/// the cheap in-place re-render instead, so the new viewport's tiles compute
+/// without a DOM rebuild (see `map_tile_writeback` for why that path avoids
+/// `RefreshDom`). Doing both on a `RefreshDom` would render the view twice.
+fn finish_viewport_change(
+    hook: &OptionMapViewportChanged,
+    info: &mut CallbackInfo,
+    viewport: MapViewport,
+) -> Update {
+    let user = invoke_viewport_changed(hook, info, viewport);
+    if user == Update::DoNothing {
+        info.trigger_all_virtual_view_rerender();
+    }
+    user
 }
 
 /// Pointer down → record the drag anchor. The widget knows nothing
@@ -791,12 +1079,7 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
         let hook = cache.on_viewport_changed.clone();
         let vp = cache.viewport;
         drop(cache);
-        invoke_viewport_changed(&hook, &info, vp);
-        // Re-render the VirtualView in place so the new zoom's tiles compute
-        // immediately, without a DOM rebuild. (See map_tile_writeback for why
-        // RefreshDom is avoided.)
-        info.trigger_all_virtual_view_rerender();
-        return Update::DoNothing;
+        return finish_viewport_change(&hook, &mut info, vp);
     }
 
     let pos = match info.get_cursor_relative_to_node().into_option() {
@@ -806,6 +1089,26 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let Some(mut cache_guard) = data.downcast_mut::<MapTileCache>() else {
         return Update::DoNothing;
     };
+    // A camera drag (right button held) tilts / rotates instead of panning.
+    if let Some(tilt_anchor) = cache_guard.tilt_anchor {
+        let (ddx, ddy) = (pos.x - tilt_anchor.x, pos.y - tilt_anchor.y);
+        if ddx.abs() < 0.5 && ddy.abs() < 0.5 {
+            return Update::DoNothing;
+        }
+        let (bearing, pitch) = camera_drag(
+            cache_guard.viewport.bearing_deg,
+            cache_guard.viewport.pitch_deg,
+            ddx,
+            ddy,
+        );
+        cache_guard.viewport.bearing_deg = bearing;
+        cache_guard.viewport.pitch_deg = pitch;
+        cache_guard.tilt_anchor = Some(pos);
+        let hook = cache_guard.on_viewport_changed.clone();
+        let vp = cache_guard.viewport;
+        drop(cache_guard);
+        return finish_viewport_change(&hook, &mut info, vp);
+    }
     let Some(anchor) = cache_guard.drag_anchor else {
         return Update::DoNothing; // no active drag
     };
@@ -830,11 +1133,63 @@ extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> U
     let hook = cache_guard.on_viewport_changed.clone();
     let vp = cache_guard.viewport;
     drop(cache_guard);
-    invoke_viewport_changed(&hook, &info, vp);
-    // Pan moved the viewport — re-render the VirtualView in place so the newly
-    // visible tiles are computed (and marked Pending) right away. No RefreshDom.
-    info.trigger_all_virtual_view_rerender();
+    finish_viewport_change(&hook, &mut info, vp)
+}
+
+/// A right-button drag moves the camera: horizontal pixels turn the
+/// bearing (0.5 deg/px, clockwise when dragging right), vertical pixels
+/// change the pitch (dragging UP tilts the view — `MapLibre`'s direction),
+/// clamped to `0..=MAX_PITCH_DEG`. Pure, so the convention is pinned by a
+/// test and shared by every backend.
+#[must_use]
+pub fn camera_drag(bearing_deg: f32, pitch_deg: f32, dx_px: f32, dy_px: f32) -> (f32, f32) {
+    const DEG_PER_PX: f32 = 0.5;
+    (
+        normalize_bearing(bearing_deg + dx_px * DEG_PER_PX),
+        clamp_pitch(pitch_deg - dy_px * DEG_PER_PX),
+    )
+}
+
+/// Right button down on the canvas: start a camera drag (tilt / rotate).
+extern "C" fn map_on_tilt_down(mut data: RefAny, info: CallbackInfo) -> Update {
+    let pos = match info.get_cursor_relative_to_node().into_option() {
+        Some(p) => azul_core::geom::LogicalPosition::new(p.x, p.y),
+        None => return Update::DoNothing,
+    };
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        cache.tilt_anchor = Some(pos);
+        // a camera drag is not a pan and not a tap
+        cache.drag_anchor = None;
+        cache.press_origin = None;
+    }
     Update::DoNothing
+}
+
+/// Right button up: end the camera drag.
+extern "C" fn map_on_tilt_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut cache) = data.downcast_mut::<MapTileCache>() {
+        cache.tilt_anchor = None;
+    }
+    Update::DoNothing
+}
+
+/// A two-finger rotate gesture turns the bearing by the detected angle.
+extern "C" fn map_on_rotate_gesture(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(rotation) = info.get_rotation().into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(mut cache_guard) = data.downcast_mut::<MapTileCache>() else {
+        return Update::DoNothing;
+    };
+    let delta = rotation.angle_radians.to_degrees();
+    if !delta.is_finite() || delta.abs() < 0.01 {
+        return Update::DoNothing;
+    }
+    cache_guard.viewport.bearing_deg = normalize_bearing(cache_guard.viewport.bearing_deg + delta);
+    let hook = cache_guard.on_viewport_changed.clone();
+    let vp = cache_guard.viewport;
+    drop(cache_guard);
+    finish_viewport_change(&hook, &mut info, vp)
 }
 
 /// Pointer up / pointer leave → end the drag *and* the pinch. Either
@@ -855,25 +1210,33 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
             cache.drag_anchor = None;
             cache.pinch_anchor = None;
             cache.press_origin = None;
+            // a pointer leaving the canvas ends a camera drag too
+            cache.tilt_anchor = None;
             out
         });
     // A press + release at ~the same point (no pan/pinch) is a tap: project it
-    // to lat/lon and fire the user's on_pin_tap hook.
+    // to lat/lon and fire the user's on_pin_tap hook — and carry its answer
+    // out, so a hook that drops a pin with `RefreshDom` sees the pin now, not
+    // after the next unrelated rebuild.
+    let mut user = Update::DoNothing;
     if let (Some(origin), Some(up)) = (press, up_pos) {
         let dx = f64::from(up.x - origin.x);
         let dy = f64::from(up.y - origin.y);
         if dx * dx + dy * dy < 36.0 {
             let coord = MapWidget::latlon_at_px(viewport, up, container);
-            invoke_pin_tap(&hook, &info, coord);
+            user = invoke_pin_tap(&hook, &info, coord);
         }
     }
     // After a pan / pinch settles, kick off fetches for any tiles the new
     // viewport needs. (Only a `CallbackInfo`-bearing callback can spawn them.)
     spawn_pending_tile_fetches(&mut data, &mut info);
     // Re-render in place so Fetching/Ready states show as tiles arrive. The
-    // worker writebacks will trigger further re-renders themselves. No RefreshDom.
-    info.trigger_all_virtual_view_rerender();
-    Update::DoNothing
+    // worker writebacks will trigger further re-renders themselves. A hook
+    // that asked for a rebuild gets the re-render from the full path instead.
+    if user == Update::DoNothing {
+        info.trigger_all_virtual_view_rerender();
+    }
+    user
 }
 
 /// Mouse-wheel / trackpad scroll over the map = ZOOM (Leaflet / Google-Maps
@@ -907,9 +1270,10 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         };
         let min = f32::from(cache.layer.min_zoom);
         let max = f32::from(cache.layer.max_zoom);
-        // ~0.5 zoom levels per wheel notch. X11 delivers wheel-up as dy > 0;
-        // wheel-up zooms IN, wheel-down zooms OUT (Leaflet / Google-Maps).
-        let dz = dy.signum() * 0.5;
+        // Wheel-up (dy > 0) zooms IN, wheel-down zooms OUT (Leaflet /
+        // Google-Maps). Proportional to the delta and bounded per event —
+        // see `wheel_zoom_step` for why `signum() * 0.5` was a runaway.
+        let dz = wheel_zoom_step(dy);
         cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
         let vp = cache.viewport;
         let layer = cache.layer.clone();
@@ -918,10 +1282,31 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         (vp, cache.on_viewport_changed.clone())
     };
-    invoke_viewport_changed(&hook, &info, vp);
     spawn_pending_tile_fetches(&mut data, &mut info);
-    info.trigger_all_virtual_view_rerender();
-    Update::DoNothing
+    finish_viewport_change(&hook, &mut info, vp)
+}
+
+/// Wheel pixels per zoom level: one mouse notch (3 lines × 20 px on every
+/// desktop backend) is half a level, the feel the map always had.
+const WHEEL_PX_PER_ZOOM_LEVEL: f32 = 120.0;
+/// No single wheel event moves more than this, whatever its delta.
+const MAX_ZOOM_STEP_PER_WHEEL_EVENT: f32 = 0.5;
+
+/// Wheel / trackpad delta (px, sign = direction) → zoom-level step.
+///
+/// A trackpad reports one two-finger flick as dozens of small precise
+/// deltas plus a momentum tail — 20-40 events. The old `dy.signum() * 0.5`
+/// charged every one of them a full half-level, so one flick ran from zoom
+/// 2 to the layer's cap (where "+" then did nothing: the first symptom the
+/// user reported). Proportional to the delta and bounded per event, a 60 px
+/// notch is still 0.5, a 300 px flick is 2.5 levels, and a momentum tail of
+/// 2-px events barely moves.
+fn wheel_zoom_step(dy_px: f32) -> f32 {
+    if !dy_px.is_finite() {
+        return 0.0;
+    }
+    (dy_px / WHEEL_PX_PER_ZOOM_LEVEL)
+        .clamp(-MAX_ZOOM_STEP_PER_WHEEL_EVENT, MAX_ZOOM_STEP_PER_WHEEL_EVENT)
 }
 
 fn wrap_lon(lon: f64) -> f64 {
@@ -938,6 +1323,75 @@ fn wrap_lon(lon: f64) -> f64 {
 // exact inverses of each other and are the single source of truth for
 // the widget's projection — `map_widget_render` forward-projects the
 // viewport centre through them; tap-to-pin will inverse-project taps.
+
+/// The steepest tilt the camera allows (`MapLibre`'s default maximum).
+pub const MAX_PITCH_DEG: f32 = 60.0;
+
+/// `pitch_deg` clamped to `0..=MAX_PITCH_DEG` (NaN -> 0).
+#[must_use]
+#[allow(clippy::missing_const_for_fn)] // `f32::clamp` is not const on the CI toolchain
+pub fn clamp_pitch(pitch_deg: f32) -> f32 {
+    if pitch_deg.is_finite() {
+        pitch_deg.clamp(0.0, MAX_PITCH_DEG)
+    } else {
+        0.0
+    }
+}
+
+/// `bearing_deg` wrapped into `-180..180` (NaN -> 0).
+#[must_use]
+pub const fn normalize_bearing(bearing_deg: f32) -> f32 {
+    if !bearing_deg.is_finite() {
+        return 0.0;
+    }
+    let mut b = bearing_deg % 360.0;
+    if b >= 180.0 {
+        b -= 360.0;
+    } else if b < -180.0 {
+        b += 360.0;
+    }
+    b
+}
+
+/// The CSS transform that tilts / rotates the tile canvas for a viewport,
+/// `None` for the flat view (no transform, no layer promotion, no cost).
+/// `perspective()` is the camera distance — 1.5x the larger viewport side,
+/// a natural "standing above the map" look; `rotateX` leans the top edge
+/// away (`MapLibre`'s pitch), `rotate` applies the bearing; all about the
+/// canvas centre.
+#[must_use]
+pub fn camera_transform_css(viewport: &MapViewport, width_px: f32, height_px: f32) -> Option<String> {
+    let pitch = clamp_pitch(viewport.pitch_deg);
+    let bearing = normalize_bearing(viewport.bearing_deg);
+    if pitch.abs() < 0.01 && bearing.abs() < 0.01 {
+        return None;
+    }
+    let distance = (width_px.max(height_px) * 1.5).max(100.0);
+    Some(format!(
+        "transform: perspective({distance:.0}px) rotateX({pitch:.2}deg) rotate({bearing:.2}deg); \
+         transform-origin: 50% 50%;"
+    ))
+}
+
+/// How much MORE of the flat plane a tilted / rotated camera can see than
+/// the straight-down one, as `(width, height)` multipliers for the tile
+/// range: a rotation's axis-aligned bounding box (`w|cos| + h|sin|`), and
+/// a pitch that shows the far ground at the top (up to 2x the rows at
+/// [`MAX_PITCH_DEG`]). `(1, 1)` for the flat view.
+#[must_use]
+pub fn camera_overscan(viewport: &MapViewport, width_px: f32, height_px: f32) -> (f32, f32) {
+    let pitch = clamp_pitch(viewport.pitch_deg);
+    let bearing = normalize_bearing(viewport.bearing_deg);
+    if pitch.abs() < 0.01 && bearing.abs() < 0.01 {
+        return (1.0, 1.0);
+    }
+    let (w, h) = (width_px.max(1.0), height_px.max(1.0));
+    let (s, c) = bearing.to_radians().sin_cos();
+    let rot_w = (w * c.abs() + h * s.abs()) / w;
+    let rot_h = (w * s.abs() + h * c.abs()) / h;
+    let tilt = 1.0 + pitch / MAX_PITCH_DEG;
+    (rot_w * (1.0 + pitch / (2.0 * MAX_PITCH_DEG)), rot_h * tilt)
+}
 
 /// Longitude (deg) → fractional tile-x at the given `tile_count`.
 fn lon_to_tile_x(lon_deg: f64, tile_count: f64) -> f64 {
@@ -1124,12 +1578,13 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             return; // no worker wired — leave tiles Pending (placeholder grid)
         }
         let template = cache.layer.url_template.as_str().to_string();
-        let style_css = cache.layer.style_css.clone();
+        let theme = cache.decoded_theme;
+        let style_css = cache.layer.effective_style_css(theme);
+        // Centre-out: the tiles under the user's eyes first, the off-screen
+        // margin and other-zoom leftovers last (see `pending_tiles_nearest_first`).
         let pending: Vec<MapTileId> = cache
-            .tiles
-            .iter()
-            .filter(|(_, e)| matches!(e, TileEntry::Pending))
-            .map(|(id, _)| *id)
+            .pending_tiles_nearest_first()
+            .into_iter()
             .take(MAX_SPAWN_PER_CALL)
             .collect();
         for tile in pending {
@@ -1139,6 +1594,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
                 tile,
                 url: AzString::from(url),
                 style_css: style_css.clone(),
+                theme,
             });
         }
         // Now that the current view's tiles are queued (Fetching, so eviction
@@ -1235,7 +1691,7 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
         }
         return Update::DoNothing;
     };
-    let msg = (m.tile, m.svg.clone(), m.error.clone());
+    let msg = (m.tile, m.svg.clone(), m.error.clone(), m.theme);
     drop(m);
     {
         let Some(mut cache) = cache_dataset.downcast_mut::<MapTileCache>() else {
@@ -1259,7 +1715,13 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
                 msg.2.as_str().is_empty(), msg.1.as_str().len(), msg.2.as_str()
             );
         }
-        if msg.2.as_str().is_empty() {
+        if msg.3 != cache.decoded_theme {
+            // Decoded with the sheet of a theme the widget has since left
+            // (the window flipped light/dark mid-fetch): painting it would
+            // mix palettes. Back to Pending; the next sweep refetches it
+            // with the sheet of record.
+            cache.tiles.insert(msg.0, TileEntry::Pending);
+        } else if msg.2.as_str().is_empty() {
             cache.mark_tile_ready(msg.0, msg.1);
         } else {
             cache.mark_tile_failed(msg.0, msg.2);
@@ -1382,8 +1844,16 @@ extern "C" fn map_widget_render(
         };
     }
 
-    let (layer, viewport) = match data.downcast_ref::<MapTileCache>() {
-        Some(c) => (c.layer.clone(), c.viewport),
+    let (layer, viewport) = match data.downcast_mut::<MapTileCache>() {
+        Some(mut c) => {
+            // THE THEME FOLLOWS THE WINDOW: `System` resolves against the
+            // window's light / dark theme here, every frame, so an OS theme
+            // flip re-decodes the visible tiles with the other palette (no
+            // rebuild, no app code). A preset resolves to itself.
+            let resolved = c.layer.theme.resolve(info.window_theme);
+            c.adopt_theme(resolved);
+            (c.layer.clone(), c.viewport)
+        }
         None => {
             return VirtualViewReturn {
                 dom: OptionDom::None,
@@ -1410,8 +1880,17 @@ extern "C" fn map_widget_render(
     // 256 is the Mercator tile pixel size at integer zoom; tile_px is also
     // used below to position each tile div.
     let tile_px = 256.0 * zoom_scale;
-    let (x_min, x_max, y_min, y_max) =
-        visible_tile_range(centre_x, centre_y, width_px, height_px, zoom_scale, tile_count);
+    // A tilted / rotated camera sees more of the flat plane than the
+    // straight-down one: fetch the tiles the transform will reveal.
+    let (over_w, over_h) = camera_overscan(&viewport, width_px, height_px);
+    let (x_min, x_max, y_min, y_max) = visible_tile_range(
+        centre_x,
+        centre_y,
+        width_px * over_w,
+        height_px * over_h,
+        zoom_scale,
+        tile_count,
+    );
 
     // Opt-in render trace (`AZ_MAP_DEBUG=1`): the VirtualView callback fires only
     // when the framework finds this node with real bounds — so seeing this line at
@@ -1466,9 +1945,19 @@ extern "C" fn map_widget_render(
     // Build the visible-tile grid. Each tile div is GPU-translated
     // into its screen position; the (CSS-driven) `transform` keeps
     // pan / zoom O(1) — no relayout per frame.
-    let mut grid = Dom::create_div().with_css(
-        "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;",
-    );
+    // THE CAMERA: pitch / bearing are one CSS transform on the tile canvas
+    // (`camera_transform_css`). The flat view carries no transform at all,
+    // so nothing changes for the default map; a tilt promotes the canvas to
+    // a reference frame the compositor projects (CPU: the projective blit;
+    // GPU: WebRender's 3D transforms).
+    let grid_css = match camera_transform_css(&viewport, width_px, height_px) {
+        Some(camera) => format!(
+            "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; {camera}"
+        ),
+        None => "position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden;"
+            .to_string(),
+    };
+    let mut grid = Dom::create_div().with_css(grid_css.as_str());
 
     // Pan / zoom handlers live HERE, on the VirtualView content — NOT on the
     // outer widget div. The VirtualView renders as a separate DomId painted on
@@ -1504,6 +1993,63 @@ extern "C" fn map_widget_render(
                 EventFilter::Hover(HoverEventFilter::Scroll),
                 data.clone(),
                 Callback::from_ptr(map_on_scroll),
+            )
+            // Touch + pinch were registered on the OUTER div only, which the
+            // same shadowing above made unreachable: a trackpad pinch
+            // (PinchIn/PinchOut target the hovered node = a tile in THIS dom)
+            // could never reach a handler. Same handlers, same data.
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchStart),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_down),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchMove),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_move),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchEnd),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_up),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::TouchCancel),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_up),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::PinchIn),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_move),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::PinchOut),
+                data.clone(),
+                Callback::from_ptr(map_on_pointer_move),
+            )
+            // THE CAMERA: right-drag tilts (vertical) and rotates
+            // (horizontal) — MapLibre's convention; a two-finger rotate
+            // gesture turns the bearing.
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::RightMouseDown),
+                data.clone(),
+                Callback::from_ptr(map_on_tilt_down),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::RightMouseUp),
+                data.clone(),
+                Callback::from_ptr(map_on_tilt_up),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::RotateClockwise),
+                data.clone(),
+                Callback::from_ptr(map_on_rotate_gesture),
+            )
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::RotateCounterClockwise),
+                data.clone(),
+                Callback::from_ptr(map_on_rotate_gesture),
             );
     }
 
@@ -1573,7 +2119,7 @@ extern "C" fn map_widget_render(
                     }
                     None => {
                         tile_div = tile_div.with_child(
-                            Dom::create_p_with_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
+                            crate::widgets::widget_p_with_text(alloc::format!("✓? z{z_int}/{x}/{y}"))
                                 .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                         );
                     }
@@ -1584,7 +2130,7 @@ extern "C" fn map_widget_render(
                         _ => "",
                     };
                     tile_div = tile_div.with_child(
-                        Dom::create_p_with_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
+                        crate::widgets::widget_p_with_text(alloc::format!("{state_tag} z{z_int}/{x}/{y}"))
                             .with_css("position: absolute; left: 4px; top: 4px; font-size: 11px; color: #888;"),
                     );
                 }
@@ -1598,6 +2144,127 @@ extern "C" fn map_widget_render(
         dom: OptionDom::Some(grid),
         materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
         virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+    }
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+
+    fn vp(pitch: f32, bearing: f32) -> MapViewport {
+        MapViewport {
+            pitch_deg: pitch,
+            bearing_deg: bearing,
+            ..MapViewport::default()
+        }
+    }
+
+    #[test]
+    fn the_flat_view_has_no_transform_and_no_overscan() {
+        assert_eq!(camera_transform_css(&vp(0.0, 0.0), 800.0, 600.0), None);
+        assert_eq!(camera_overscan(&vp(0.0, 0.0), 800.0, 600.0), (1.0, 1.0));
+        assert_eq!(camera_transform_css(&vp(0.001, -0.001), 800.0, 600.0), None, "sub-0.01deg is flat");
+    }
+
+    #[test]
+    fn pitch_and_bearing_become_one_perspective_transform_about_the_centre() {
+        let css = camera_transform_css(&vp(45.0, 30.0), 800.0, 600.0).expect("a tilt transforms");
+        assert!(css.contains("perspective(1200px)"), "{css}");
+        assert!(css.contains("rotateX(45.00deg)"), "{css}");
+        assert!(css.contains("rotate(30.00deg)"), "{css}");
+        assert!(css.contains("transform-origin: 50% 50%"), "{css}");
+        // the widget API clamps and normalises
+        let w = MapWidget::create(MapTileLayer::default()).with_pitch(95.0).with_bearing(370.0);
+        assert_eq!(w.viewport.pitch_deg, MAX_PITCH_DEG);
+        assert!((w.viewport.bearing_deg - 10.0).abs() < 1e-4);
+        assert_eq!(clamp_pitch(f32::NAN), 0.0);
+        assert_eq!(normalize_bearing(-190.0), 170.0);
+        assert_eq!(normalize_bearing(180.0), -180.0);
+    }
+
+    #[test]
+    fn a_tilted_camera_fetches_more_rows_and_a_rotated_one_a_bounding_box() {
+        let (w, h) = camera_overscan(&vp(60.0, 0.0), 800.0, 600.0);
+        assert!((h - 2.0).abs() < 1e-4, "max pitch doubles the rows: {h}");
+        assert!(w > 1.0 && w < 2.0, "{w}");
+        let (w, h) = camera_overscan(&vp(0.0, 90.0), 800.0, 600.0);
+        assert!((w - 600.0 / 800.0).abs() < 1e-4 && (h - 800.0 / 600.0).abs() < 1e-4, "a 90deg turn swaps the sides: {w} {h}");
+        let (w, h) = camera_overscan(&vp(0.0, 45.0), 800.0, 800.0);
+        assert!((w - core::f32::consts::SQRT_2).abs() < 1e-3 && (h - core::f32::consts::SQRT_2).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_right_drag_tilts_up_and_turns_clockwise_within_the_limits() {
+        let (b, p) = camera_drag(0.0, 0.0, 40.0, -20.0);
+        assert!((b - 20.0).abs() < 1e-4, "40 px right = +20deg bearing: {b}");
+        assert!((p - 10.0).abs() < 1e-4, "20 px up = +10deg pitch: {p}");
+        let (_, p) = camera_drag(0.0, 55.0, 0.0, -100.0);
+        assert_eq!(p, MAX_PITCH_DEG, "pitch is clamped");
+        let (_, p) = camera_drag(0.0, 5.0, 0.0, 100.0);
+        assert_eq!(p, 0.0, "…at both ends");
+        let (b, _) = camera_drag(170.0, 0.0, 40.0, 0.0);
+        assert!((b + 170.0).abs() < 1e-4, "bearing wraps: {b}");
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use azul_core::window::WindowTheme;
+
+    #[test]
+    fn system_follows_the_window_theme_and_presets_resolve_to_themselves() {
+        let light = MapTheme::System.resolve(WindowTheme::LightMode);
+        let dark = MapTheme::System.resolve(WindowTheme::DarkMode);
+        assert!(!light.is_dark_look() && dark.is_dark_look(), "{light:?} / {dark:?}");
+        assert_ne!(light, MapTheme::System);
+        assert!(!light.sheet().is_empty() && !dark.sheet().is_empty());
+        for preset in [MapTheme::Positron, MapTheme::Dark, MapTheme::GoogleNight, MapTheme::AppleLight, MapTheme::Custom] {
+            assert_eq!(preset.resolve(WindowTheme::DarkMode), preset);
+            assert_eq!(preset.resolve(WindowTheme::LightMode), preset);
+        }
+        assert!(MapTheme::Custom.sheet().is_empty());
+        assert_eq!(MapTheme::Dark.stylesheet().as_str(), MapTheme::Dark.sheet());
+    }
+
+    #[test]
+    fn a_custom_sheet_wins_over_a_preset_and_with_theme_credits_the_design() {
+        let layer = MapTileLayer::default().with_theme(MapTheme::Positron);
+        assert_eq!(layer.effective_style_css(MapTheme::Positron).as_str(), super::super::map_themes::POSITRON);
+        assert!(
+            layer.attribution.as_str().contains("CC BY 4.0"),
+            "the CC BY design credit must reach the attribution: {}",
+            layer.attribution.as_str()
+        );
+        // with_theme twice does not duplicate the credit
+        let twice = layer.clone().with_theme(MapTheme::Positron);
+        assert_eq!(twice.attribution.as_str().matches("CC BY 4.0").count(), 1);
+
+        let mut custom = MapTileLayer::default().with_theme(MapTheme::Dark);
+        custom.style_css = AzString::from("water { fill: #123456; }");
+        assert_eq!(custom.effective_style_css(MapTheme::Dark).as_str(), "water { fill: #123456; }");
+        // authored looks carry no third-party credit
+        assert!(MapTheme::AppleLight.credit_str().is_empty() && MapTheme::GoogleLight.credit_str().is_empty());
+        assert_eq!(MapTheme::Positron.credit().as_str(), MapTheme::Positron.credit_str());
+        // System credits BOTH resolutions' designs where they have one
+        let sys = MapTileLayer::default().with_theme(MapTheme::System);
+        let l = MapTheme::System.resolve(WindowTheme::LightMode).credit_str();
+        let d = MapTheme::System.resolve(WindowTheme::DarkMode).credit_str();
+        assert!(l.is_empty() || sys.attribution.as_str().contains(l));
+        assert!(d.is_empty() || sys.attribution.as_str().contains(d));
+    }
+
+    #[test]
+    fn adopting_another_theme_requeues_decoded_tiles_and_the_fetch_carries_the_sheet() {
+        let mut cache = MapTileCache::new(MapTileLayer::default(), MapViewport::default());
+        let id = MapTileId { z: 1, x: 0, y: 0 };
+        cache.mark_tile_ready(id, AzString::from("<svg/>"));
+        assert!(!cache.adopt_theme(cache.decoded_theme), "same theme: nothing to do");
+        assert!(matches!(cache.tiles[&id], TileEntry::Ready { .. }));
+        assert!(cache.adopt_theme(MapTheme::Dark));
+        assert!(matches!(cache.tiles[&id], TileEntry::Pending), "a decoded tile is re-queued for the new look");
+        assert_eq!(cache.decoded_theme, MapTheme::Dark);
+        assert_eq!(cache.layer.effective_style_css(cache.decoded_theme).as_str(), super::super::map_themes::DARK);
     }
 }
 
@@ -1681,6 +2348,82 @@ mod tests {
                 approx(tile_y_to_lat(y, tc), lat, 1e-6);
             }
         }
+    }
+
+    #[test]
+    fn pan_up_reveals_north_in_both_hemispheres() {
+        // The drag convention the demo's arrow buttons must follow: dragging
+        // the CONTENT down (+dy) recentres on a HIGHER latitude (reveals the
+        // north); dragging it up reveals the south — in both hemispheres.
+        // The demo's "↑" once added a tile-space dy (y grows south) straight
+        // to latitude and panned south.
+        for lat in [37.7749, -33.8688, 0.0] {
+            let (_, down) = pan_viewport(lat, 0.0, 4.0, 0.0, 128.0);
+            let (_, up) = pan_viewport(lat, 0.0, 4.0, 0.0, -128.0);
+            assert!(down > lat, "content dragged down must reveal the north: {lat} → {down}");
+            assert!(up < lat, "content dragged up must reveal the south: {lat} → {up}");
+        }
+    }
+
+    #[test]
+    fn wheel_zoom_step_is_proportional_and_bounded() {
+        // A mouse notch (3 lines × 20 px) keeps the half-level it always had.
+        approx(f64::from(wheel_zoom_step(60.0)), 0.5, 1e-6);
+        approx(f64::from(wheel_zoom_step(-60.0)), -0.5, 1e-6);
+        // A precise trackpad delta is charged for what it is.
+        approx(f64::from(wheel_zoom_step(6.0)), 0.05, 1e-6);
+        // No event moves more than half a level, however violent.
+        approx(f64::from(wheel_zoom_step(10_000.0)), 0.5, 1e-6);
+        approx(f64::from(wheel_zoom_step(-10_000.0)), -0.5, 1e-6);
+        // Nothing in, nothing out.
+        assert_eq!(wheel_zoom_step(0.0), 0.0);
+        assert_eq!(wheel_zoom_step(f32::NAN), 0.0);
+    }
+
+    #[test]
+    fn a_trackpad_flick_no_longer_runs_to_the_zoom_cap() {
+        // One two-finger flick: ~40 events of a few px each plus momentum.
+        let events: Vec<f32> = (0..40).map(|i| if i < 20 { 8.0 } else { 2.0 }).collect();
+        let total: f32 = events.iter().map(|d| wheel_zoom_step(*d)).sum();
+        // The old signum() * 0.5 charged 40 × 0.5 = 20 levels — past any cap.
+        assert!(total < 3.0, "a flick must stay within a couple of levels, got {total}");
+        assert!(total > 0.5, "a flick must still zoom noticeably, got {total}");
+    }
+
+    #[test]
+    fn pending_tiles_are_fetched_centre_out() {
+        // Viewport centred on the middle of tile (2, 2) at zoom 2 (4×4 world):
+        // x = 2.5 → lon 45°, y = 2.5 → its latitude via the inverse projection.
+        let layer = MapTileLayer::default();
+        let viewport = MapViewport {
+            centre_lat_deg: tile_y_to_lat(2.5, 4.0),
+            centre_lon_deg: tile_x_to_lon(2.5, 4.0),
+            zoom: 2.0,
+            ..MapViewport::default()
+        };
+        let mut cache = MapTileCache::new(layer, viewport);
+        for x in 0..4 {
+            for y in 0..4 {
+                cache.tiles.insert(MapTileId { z: 2, x, y }, TileEntry::Pending);
+            }
+        }
+        // A leftover from the previous zoom, which the (z, x, y) key order
+        // used to fetch FIRST.
+        cache.tiles.insert(MapTileId { z: 1, x: 0, y: 0 }, TileEntry::Pending);
+        // Tiles already in flight / ready are not re-queued.
+        cache.tiles.insert(MapTileId { z: 2, x: 9, y: 9 }, TileEntry::Fetching);
+
+        let order = cache.pending_tiles_nearest_first();
+        assert_eq!(order.len(), 17, "{order:?}");
+        assert_eq!(order[0], MapTileId { z: 2, x: 2, y: 2 }, "the tile under the centre first");
+        let ring: std::collections::BTreeSet<MapTileId> = order[..9].iter().copied().collect();
+        for x in 1..=3 {
+            for y in 1..=3 {
+                assert!(ring.contains(&MapTileId { z: 2, x, y }), "3×3 ring before the edge: {order:?}");
+            }
+        }
+        assert_eq!(*order.last().unwrap(), MapTileId { z: 1, x: 0, y: 0 }, "another zoom's leftover last");
+        assert!(!order.contains(&MapTileId { z: 2, x: 9, y: 9 }), "in-flight tiles are not pending");
     }
 
     #[test]
@@ -1869,6 +2612,7 @@ mod tests {
             max_zoom: 19,
             attribution: AzString::from(""),
             style_css: AzString::from(""),
+            theme: MapTheme::System,
         };
         let viewport = MapViewport {
             centre_lat_deg: 0.0,
@@ -1986,6 +2730,7 @@ mod autotest_generated {
             max_zoom,
             attribution: AzString::from("attr"),
             style_css: AzString::from(""),
+            theme: MapTheme::System,
         }
     }
 
@@ -2775,6 +3520,7 @@ mod autotest_generated {
             max_zoom: 0,
             attribution: AzString::from(""),
             style_css: AzString::from(""),
+            theme: MapTheme::System,
         });
         assert_eq!(widget.layer.min_zoom, 30);
         assert_eq!(widget.layer.max_zoom, 0);
@@ -3449,6 +4195,59 @@ mod autotest_generated {
         assert_eq!(hook_log(&mut log), (1, 0));
     }
 
+    extern "C" fn record_viewport_and_refresh(
+        mut data: RefAny,
+        _: CallbackInfo,
+        viewport: MapViewport,
+    ) -> Update {
+        if let Some(mut log) = data.downcast_mut::<HookLog>() {
+            log.viewports.push(viewport);
+        }
+        Update::RefreshDom
+    }
+
+    #[test]
+    fn finish_viewport_change_returns_the_hooks_update_and_rerenders_only_without_a_rebuild() {
+        // No hook: the handler owes the in-place VirtualView re-render itself.
+        let (update, changes) = with_callback_info(|mut info| {
+            finish_viewport_change(&OptionMapViewportChanged::None, &mut info, view(1.0, 2.0, 3.0))
+        });
+        assert_eq!(update, Update::DoNothing);
+        assert!(
+            changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)),
+            "without a rebuild the view must be re-rendered in place: {changes:?}"
+        );
+
+        // A hook that answers DoNothing: same, plus the hook saw the viewport.
+        let mut log = RefAny::new(HookLog::default());
+        let hook = OptionMapViewportChanged::Some(MapViewportChanged {
+            refany: log.clone(),
+            callback: (record_viewport as MapViewportChangedCallbackType).into(),
+        });
+        let (update, changes) =
+            with_callback_info(|mut info| finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0)));
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)));
+        assert_eq!(hook_log(&mut log), (1, 0));
+
+        // A hook that asks for RefreshDom: the handler RETURNS it (the bug:
+        // every handler returned DoNothing and the app's readout froze), and
+        // does not also queue the in-place re-render — the full path renders.
+        let mut log = RefAny::new(HookLog::default());
+        let hook = OptionMapViewportChanged::Some(MapViewportChanged {
+            refany: log.clone(),
+            callback: (record_viewport_and_refresh as MapViewportChangedCallbackType).into(),
+        });
+        let (update, changes) =
+            with_callback_info(|mut info| finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0)));
+        assert_eq!(update, Update::RefreshDom, "the user's Update must come out of the handler");
+        assert!(
+            !changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)),
+            "a rebuild already re-invokes the view; rendering it twice is waste: {changes:?}"
+        );
+        assert_eq!(hook_log(&mut log), (1, 0));
+    }
+
     #[test]
     fn invoke_pin_tap_without_a_hook_is_do_nothing() {
         let (update, _) = with_callback_info(|info| {
@@ -3781,6 +4580,7 @@ mod autotest_generated {
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
 
         let ok = RefAny::new(TileReadyMsg {
+            theme: MapTheme::System,
             tile,
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
@@ -3798,6 +4598,7 @@ mod autotest_generated {
         }
 
         let failed = RefAny::new(TileReadyMsg {
+            theme: MapTheme::System,
             tile,
             svg: AzString::from(""),
             error: AzString::from("404"),
@@ -3819,6 +4620,7 @@ mod autotest_generated {
         };
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
         let msg = RefAny::new(TileReadyMsg {
+            theme: MapTheme::System,
             tile,
             svg: AzString::from("<svg/>".repeat(50_000)),
             error: AzString::from(""),
@@ -3845,6 +4647,7 @@ mod autotest_generated {
     #[test]
     fn tile_writeback_with_a_wrong_typed_cache_is_a_no_op() {
         let msg = RefAny::new(TileReadyMsg {
+            theme: MapTheme::System,
             tile: MapTileId { z: 1, x: 0, y: 0 },
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),

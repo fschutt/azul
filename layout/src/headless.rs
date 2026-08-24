@@ -560,13 +560,32 @@ fn resolve_virtual_view_placements(
                     I::VirtualView {
                         child_dom_id,
                         bounds,
+                        content_offset,
                         ..
                     } => {
                         let b = *bounds.inner();
+                        // THREE rects decide where a VirtualView's child lives:
+                        // the outer `bounds`, the MATERIALIZED window inside it,
+                        // and the virtual document. The renderer places the
+                        // child at `bounds.origin + content_offset`, where
+                        // content_offset is `materialized_origin -
+                        // scroll_offset` (raster.rs subtracts exactly those two
+                        // terms). This hit-test placement used `bounds.origin`
+                        // alone and dropped content_offset on the floor, so
+                        // clicks were mapped into the child as if the
+                        // materialized window began at row 0 and nothing had
+                        // scrolled.
+                        //
+                        // The caret still landed — the right text node was hit —
+                        // just at the wrong CHARACTER, off by exactly
+                        // `materialized_origin - scroll_offset`. That is zero on
+                        // the first screenful and grows as you scroll, which is
+                        // why clicking looked "heavily broken" further down a
+                        // document and why dragging selected the wrong range.
                         let absolute = LogicalRect {
                             origin: LogicalPosition {
-                                x: b.origin.x + host_offset.x,
-                                y: b.origin.y + host_offset.y,
+                                x: b.origin.x + host_offset.x + content_offset.x,
+                                y: b.origin.y + host_offset.y + content_offset.y,
                             },
                             size: b.size,
                         };

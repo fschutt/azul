@@ -123,6 +123,44 @@ fn vidioc_qbuf() -> c_ulong {
 fn vidioc_dqbuf() -> c_ulong {
     iowr(VIDIOC_TYPE, 17, core::mem::size_of::<v4l2_buffer>() as u32)
 }
+fn vidioc_s_parm() -> c_ulong {
+    iowr(VIDIOC_TYPE, 22, core::mem::size_of::<v4l2_streamparm>() as u32)
+}
+
+/// `struct v4l2_fract`.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+#[allow(non_camel_case_types)]
+struct v4l2_fract {
+    numerator: u32,
+    denominator: u32,
+}
+
+/// `struct v4l2_captureparm` (the capture half of `v4l2_streamparm`'s union).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+#[allow(non_camel_case_types)]
+struct v4l2_captureparm {
+    capability: u32,
+    capturemode: u32,
+    timeperframe: v4l2_fract,
+    extendedmode: u32,
+    readbuffers: u32,
+    reserved: [u32; 4],
+}
+
+/// `struct v4l2_streamparm`: `type` + a 200-byte union of which the capture
+/// parameters occupy the first 40 bytes.
+#[repr(C)]
+#[allow(non_camel_case_types)]
+struct v4l2_streamparm {
+    type_: u32,
+    capture: v4l2_captureparm,
+    _pad: [u8; 200 - core::mem::size_of::<v4l2_captureparm>()],
+}
+
+/// `V4L2_CAP_TIMEPERFRAME`: the device lets the frame interval be set.
+const V4L2_CAP_TIMEPERFRAME: u32 = 0x1000;
 // STREAMON / STREAMOFF take a plain `int` (the buffer type), via _IOW.
 fn vidioc_streamon() -> c_ulong {
     ioc(IOC_WRITE, VIDIOC_TYPE, 18, core::mem::size_of::<c_int>() as u32)
@@ -254,7 +292,8 @@ struct V4l2Cam {
 /// starts the stream. Returns a boxed `V4l2Cam` as the opaque handle, or `0` on
 /// any failure (no libv4l2, no device, format/streaming rejected) so the worker
 /// falls back to the test pattern.
-pub fn open(index: u32, width: u32, height: u32) -> u64 {
+pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u64 {
+    let (index, width, height, fps) = (request.index, request.width, request.height, request.fps);
     let f = match v4l2() {
         Some(f) => f,
         None => {
@@ -333,6 +372,31 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
         // The driver may adjust the resolution; honor what it returned.
         let width = fmt.pix.width;
         let height = fmt.pix.height;
+
+        // VIDIOC_S_PARM - the requested frame rate (0 = the driver's default).
+        // Best effort: a driver that cannot set it keeps its own rate, which
+        // is not a reason to fall back to the test pattern.
+        if fps > 0 {
+            let mut parm = v4l2_streamparm {
+                type_: V4L2_BUF_TYPE_VIDEO_CAPTURE,
+                capture: v4l2_captureparm {
+                    capability: V4L2_CAP_TIMEPERFRAME,
+                    timeperframe: v4l2_fract {
+                        numerator: 1,
+                        denominator: fps,
+                    },
+                    ..Default::default()
+                },
+                _pad: [0; 200 - core::mem::size_of::<v4l2_captureparm>()],
+            };
+            if (f.ioctl)(fd, vidioc_s_parm(), &mut parm as *mut _ as *mut c_void) < 0 {
+                crate::plog_info!(
+                    "[camera] /dev/video{}: VIDIOC_S_PARM ({} fps) not honoured — keeping the driver's rate",
+                    index,
+                    fps
+                );
+            }
+        }
         let bytesperline = if fmt.pix.bytesperline != 0 {
             fmt.pix.bytesperline
         } else {
@@ -401,17 +465,18 @@ pub fn open(index: u32, width: u32, height: u32) -> u64 {
 }
 
 /// Capture the next frame: dequeue a filled mmap buffer, expand its RGB24 rows
-/// to tightly-packed RGBA8 into `out`, then re-queue the buffer. Returns the
-/// frame `(width, height)`, or `(0, 0)` on error (worker stops). EAGAIN (no
-/// frame ready yet on the non-blocking fd) is retried briefly.
-pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
+/// to tightly-packed RGBA8 into `out`, then re-queue the buffer. `Frame` on
+/// success, `Idle` when no frame arrived within ~1 s (a stalled device is
+/// not the end of the stream), `Ended` on an error (worker stops).
+pub fn read(handle: u64, out: &mut Vec<u8>) -> azul_layout::widgets::capture_common::CaptureRead {
+    use azul_layout::widgets::capture_common::CaptureRead;
     let f = match v4l2() {
         Some(f) => f,
-        None => return (0, 0),
+        None => return CaptureRead::Ended,
     };
     let cam = match unsafe { (handle as *mut V4l2Cam).as_mut() } {
         Some(c) => c,
-        None => return (0, 0),
+        None => return CaptureRead::Ended,
     };
 
     unsafe {
@@ -430,14 +495,15 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
             // sleep so we don't spin forever or block the worker indefinitely.
             attempts += 1;
             if attempts > 200 {
-                return (0, 0);
+                // ~1 s without a frame: a stall, not end-of-stream.
+                return CaptureRead::Idle;
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
 
         let idx = buf.index as usize;
         if idx >= cam.buffers.len() {
-            return (0, 0);
+            return CaptureRead::Ended;
         }
         let mbuf = &cam.buffers[idx];
 
@@ -450,7 +516,10 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> (u32, u32) {
         // Re-queue the buffer for reuse.
         let _ = (f.ioctl)(cam.fd, vidioc_qbuf(), &mut buf as *mut _ as *mut c_void);
 
-        (w, h)
+        CaptureRead::Frame {
+            width: w,
+            height: h,
+        }
     }
 }
 

@@ -194,6 +194,10 @@ pub struct CpuBackend {
     /// Previous display list for damage rect computation.
     #[cfg(feature = "cpurender")]
     pub previous_display_list: Option<std::sync::Arc<azul_layout::solver3::display_list::DisplayList>>,
+    /// `LayoutCache::build_seq` at the last present — what
+    /// `LayoutCache::pending_patch_damage` drains the patch log from, so two
+    /// patched builds between presents both get repainted.
+    pub last_consumed_build_seq: u64,
     /// PAINT damage of the most recent `render_frame` — the region actually
     /// re-rasterised (for scroll this is just the thin exposed strip). This is the
     /// "pixels repainted" metric. Recorded so the headless test harness can assert
@@ -335,6 +339,7 @@ impl CpuBackend {
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             #[cfg(feature = "cpurender")]
             previous_display_list: None,
+            last_consumed_build_seq: 0,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
             last_patch_shift_dl: 0,
@@ -674,24 +679,50 @@ impl CpuBackend {
         let diff_path_ran = self.previous_display_list.is_some()
             && can_reuse_previous_frame
             && !gpu_damage.needs_full;
+        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            eprintln!(
+                "[HLDMG-PRE] item_diff={:?} prev_is_same_arc={} prev_items={:?} new_items={}",
+                dl_damage,
+                self.previous_display_list
+                    .as_ref()
+                    .is_some_and(|p| std::sync::Arc::ptr_eq(p, display_list)),
+                self.previous_display_list.as_ref().map(|p| p.items.len()),
+                display_list.items.len(),
+            );
+        }
+        // EVERY patched build since this backend last presented, not just
+        // the last one: a css patch and the RefreshDom it returns are two
+        // patched builds in one pass, each damaged relative to the layout
+        // before it, and the second knows nothing about the rect the first
+        // vacated. Replaying only the last one left a thumb behind on every
+        // slider drag.
+        let pending = layout_window
+            .layout_cache
+            .pending_patch_damage(self.last_consumed_build_seq);
         let dl_damage = if diff_path_ran && layout_window.layout_cache.last_build_was_patched {
+            use azul_layout::solver3::cache::PendingPatchDamage as P;
             // On a PATCHED build the patch's own damage AUGMENTS the item
             // diff (union), and stands alone when the diff bails to None on
             // an item-count change. Never replace a Some(diff) wholesale:
             // unpatched-equal frames keep baseline damage exactly.
-            match (dl_damage, layout_window.layout_cache.last_patch_damage.clone()) {
+            match (dl_damage, pending) {
                 // An EMPTY diff on a patched build means the splice produced a
                 // byte-identical list (same-text re-shape) — the frame is IDLE
                 // and must stay idle; painting patch rects here flips the
                 // idle-skip and drifts the frame scheduling (scrollbar-fade
                 // clock) off the baseline.
-                (Some(d), Some(_)) if d.is_empty() => Some(d),
-                (Some(mut d), Some(p)) => {
+                (Some(d), P::Rects(_)) if d.is_empty() => Some(d),
+                (Some(mut d), P::Rects(p)) => {
                     d.extend(p);
                     Some(d)
                 }
-                (None, p) => p,
-                (d, None) => d,
+                (None, P::Rects(p)) => Some(p),
+                // A full emission went unpresented: the item diff is the
+                // authority, and its bail is a full repaint.
+                (d, P::FullBuildSincePresent) => d,
+                (d, P::None) => d,
+                // Fell behind the log: nothing to replay, repaint in full.
+                (_, P::Unknown) => None,
             }
         } else {
             dl_damage
@@ -729,6 +760,7 @@ impl CpuBackend {
                 // keeps us out of this branch when only a VirtualView child DOM
                 // changed — that case must still re-composite, see below.)
                 self.previous_display_list = Some(display_list.clone());
+                self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
                 // Nothing painted: baseline keeps accumulating dropped
                 // sub-pixel scroll deltas (see next_scroll_baseline above).
                 self.previous_scroll_offsets = next_scroll_baseline;
@@ -1184,6 +1216,7 @@ impl CpuBackend {
 
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
+        self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
         // Full render paints EVERY frame at its current offset → baseline is
         // the current offsets. Incremental: only shifted frames advanced.
         self.previous_scroll_offsets = if is_incremental {
@@ -1458,11 +1491,7 @@ impl HeadlessWindow {
         // through `common.cpu_hit_tester`. Without this rebuild that tester stays
         // empty, so every click hit-tests to nothing and widget callbacks (e.g. a
         // button's on_click) never fire — clicks silently do nothing in headless.
-        if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
-            if let Some(lw) = self.common.layout_window.as_ref() {
-                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-            }
-        }
+        self.common.rebuild_cpu_hit_tester();
 
         // Drain any lifecycle events produced by reconciliation (Mount/Unmount/
         // Update/Resize) and dispatch them through the normal callback pipeline.
@@ -1604,16 +1633,13 @@ impl HeadlessWindow {
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
         let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
 
-        {
-            let borrows = self.common.layout_borrows();
-            let layout_window = borrows.layout_window.ok_or("No layout window")?;
-            crate::desktop::shell2::common::layout::incremental_relayout(
-                layout_window,
-                borrows.current_window_state,
-                borrows.renderer_resources,
-                &mut debug_messages,
-            )?;
-        }
+        // The common method owns the finalize tail (the CPU hit-tester
+        // rebuild) and the trait wrapper delivers the lifecycle events the
+        // pass produced — see `PlatformWindow::incremental_relayout_dispatching`.
+        self.incremental_relayout_dispatching(
+            crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+            &mut debug_messages,
+        )?;
 
         if let Some(msgs) = debug_messages {
             for msg in msgs {
@@ -1626,14 +1652,11 @@ impl HeadlessWindow {
             }
         }
 
-        // Same finalize tail as regenerate_layout: hit-testers, CPU frame, damage.
+        // Same finalize tail as regenerate_layout: the backend's own
+        // hit-tester (common's was rebuilt inside `incremental_relayout`),
+        // CPU frame, damage.
         if let Some(lw) = self.common.layout_window.as_ref() {
             self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-        }
-        if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
-            if let Some(lw) = self.common.layout_window.as_ref() {
-                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
-            }
         }
 
         #[cfg(feature = "cpurender")]
@@ -2419,20 +2442,17 @@ impl HeadlessWindow {
             // the full regenerate below, which resets invocation flags and
             // re-invokes everything as InitialRender (queue never drained,
             // reasons untestable in E2E).
-            if let Some(lw) = self.common.layout_window.as_mut() {
-                if !lw.pending_virtual_view_updates.is_empty() {
-                    let system_callbacks =
-                        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-                    let current_window_state = lw.current_window_state.clone();
-                    let renderer_resources = std::mem::take(&mut lw.renderer_resources);
-                    let _ = lw.process_pending_virtual_view_updates(
-                        &current_window_state,
-                        &renderer_resources,
-                        &system_callbacks,
-                    );
-                    lw.renderer_resources = renderer_resources;
-                    events_need_redraw = true;
-                }
+            // One drain for every backend (re-invoke in place + CPU hit-tester
+            // rebuild). A non-empty queue owes a frame even if a view declined
+            // to rebuild, as before.
+            let had_virtual_view_updates = self
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| !lw.pending_virtual_view_updates.is_empty());
+            self.common.drain_virtual_view_updates();
+            if had_virtual_view_updates {
+                events_need_redraw = true;
             }
 
             if events_need_redraw {
@@ -4879,6 +4899,1641 @@ mod tests {
             2,
             "the second click fires exactly once more"
         );
+    }
+
+    // --- Slider drag -----------------------------------------------------
+    //
+    // REPORTED: "dragging the slider leaves old thumbs on the track". The
+    // widget slides its thumb with `set_css_property(thumb, margin-left)` on
+    // every pointer move, and the AzWidgets demo's `on_value_change` bumps a
+    // RENDERED interactions counter and returns `RefreshDom` — so each move
+    // is an in-place relayout followed by a full DOM regeneration, through
+    // the same `headless::CpuBackend` every desktop shell presents with.
+
+    #[derive(Debug, Clone)]
+    struct SliderUiState {
+        slider_value: f32,
+        interactions: usize,
+    }
+
+    extern "C" fn slider_demo_on_change(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+        _state: azul_layout::widgets::slider::SliderState,
+    ) -> azul_core::callbacks::Update {
+        if let Some(mut s) = data.downcast_mut::<SliderUiState>() {
+            // Exactly what examples/azul-widgets does: count the callback,
+            // do NOT store the value, refresh.
+            s.interactions += 1;
+        }
+        azul_core::callbacks::Update::RefreshDom
+    }
+
+    extern "C" fn slider_demo_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::refany::OptionRefAny;
+        use azul_css::dynamic_selector::CssPropertyWithConditions as C;
+        use azul_css::props::layout::spacing::{
+            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+        };
+        use azul_css::props::property::CssProperty;
+        use azul_layout::widgets::slider::{Slider, SliderOnValueChangeCallback};
+
+        let (value, interactions) = data
+            .downcast_ref::<SliderUiState>()
+            .map(|s| (s.slider_value, s.interactions))
+            .unwrap_or((0.0, 0));
+        let caption = format!("callbacks fired so far: {interactions}");
+        Dom::create_body()
+            .with_css_props(
+                vec![
+                    C::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(20))),
+                    C::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(20))),
+                    C::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(20))),
+                    C::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(20))),
+                ]
+                .into(),
+            )
+            .with_child(
+                Dom::create_div().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper(caption.as_str()),
+                ),
+            )
+            .with_child(
+                Slider::create(value, 0.0, 100.0)
+                    .with_on_value_change(
+                        data.clone(),
+                        SliderOnValueChangeCallback {
+                            cb: slider_demo_on_change,
+                            ctx: OptionRefAny::None,
+                        },
+                    )
+                    .dom(),
+            )
+    }
+
+    /// The slider's live `dragging` flag, read from the callback state on the
+    /// CURRENT DOM's track node — i.e. whatever the reconciler left there
+    /// after the app's last `RefreshDom`. `None` when no track node exists.
+    fn slider_dragging(window: &HeadlessWindow) -> Option<bool> {
+        use azul_core::dom::{DomId, IdOrClass};
+        use azul_layout::widgets::slider::SliderStateWrapper;
+
+        let lw = window.common.layout_window.as_ref()?;
+        let dom = lw.layout_results.get(&DomId { inner: 0 })?;
+        for data in dom.styled_dom.node_data.as_container().internal.iter() {
+            let is_track = data.get_ids_and_classes().iter().any(|c| match c {
+                IdOrClass::Class(s) => s.as_str() == "__azul-native-slider",
+                IdOrClass::Id(_) => false,
+            });
+            if !is_track {
+                continue;
+            }
+            let mut state = data.callbacks.as_ref().first()?.refany.clone();
+            let w = state.downcast_ref::<SliderStateWrapper>()?;
+            return Some(w.dragging);
+        }
+        None
+    }
+
+    /// Pixel-diff the window's INCREMENTALLY presented frame against a full
+    /// repaint of the SAME display list by a fresh backend (no retained
+    /// pixels, nothing to blit or skip). Returns (differing px, first diff).
+    fn incremental_vs_full(window: &mut HeadlessWindow) -> (usize, Option<(u32, u32)>) {
+        let incremental = window
+            .cpu_backend
+            .last_frame
+            .as_ref()
+            .expect("incremental frame")
+            .clone_pixmap();
+        let ws = window.common.current_window_state();
+        let (w, h, dpi) = (
+            ws.size.dimensions.width,
+            ws.size.dimensions.height,
+            ws.size.dpi as f32 / 96.0,
+        );
+        let mut fresh = CpuBackend::new();
+        let lw = window.common.layout_window.as_ref().expect("layout window");
+        fresh.render_frame(lw, &window.common.renderer_resources, w, h, dpi);
+        let full = fresh.last_frame.as_ref().expect("full frame").clone_pixmap();
+        assert_eq!(incremental.width(), full.width());
+        assert_eq!(incremental.height(), full.height());
+        let (a, b) = (incremental.data(), full.data());
+        let mut diffs = 0usize;
+        let mut first: Option<(u32, u32)> = None;
+        for i in (0..a.len().min(b.len())).step_by(4) {
+            if a[i] != b[i] || a[i + 1] != b[i + 1] || a[i + 2] != b[i + 2] {
+                diffs += 1;
+                if first.is_none() {
+                    let px = (i / 4) as u32;
+                    first = Some((px % incremental.width(), px / incremental.width()));
+                }
+            }
+        }
+        (diffs, first)
+    }
+
+    #[test]
+    fn dragging_the_slider_leaves_no_thumb_behind() {
+        use azul_core::events::MouseButton;
+
+        let state = Arc::new(RefCell::new(RefAny::new(SliderUiState {
+            slider_value: 40.0,
+            interactions: 0,
+        })));
+        let mut window = make_window_sized(&state, slider_demo_layout, 400.0, 160.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let thumb = rects_by_class(&window, "__azul-native-slider-thumb");
+        assert_eq!(thumb.len(), 1, "one thumb: {thumb:?}");
+        let thumb0 = thumb[0];
+        let track = rects_by_class(&window, "__azul-native-slider");
+        assert_eq!(track.len(), 1, "one track: {track:?}");
+        let track = track[0];
+        let y = thumb0.origin.y + thumb0.size.height / 2.0;
+        let x0 = thumb0.origin.x + thumb0.size.width / 2.0;
+        println!("[slider] track={track:?} thumb={thumb0:?}");
+
+        step(&mut window, HeadlessEvent::MouseMove { x: x0, y });
+        let press_damage = step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        println!(
+            "[slider] press: dragging={:?} damage={press_damage:?} thumb={:?}",
+            slider_dragging(&window),
+            rects_by_class(&window, "__azul-native-slider-thumb")
+        );
+        let (d, f) = incremental_vs_full(&mut window);
+        assert_eq!(d, 0, "after the press: {d} stale px, first at {f:?}");
+
+        // A drag: the cursor walks right across the rail in steps, like a
+        // real pointer does, and every presented frame must match a full
+        // repaint of what layout says is on screen.
+        let mut prev_thumb = thumb0;
+        for (i, dx) in [24.0f32, 48.0, 72.0, 96.0].iter().enumerate() {
+            let x = x0 + dx;
+            let damage = step(&mut window, HeadlessEvent::MouseMove { x, y });
+            let now = rects_by_class(&window, "__azul-native-slider-thumb");
+            let fired = state
+                .borrow_mut()
+                .downcast_ref::<SliderUiState>()
+                .map(|s| s.interactions)
+                .unwrap_or(0);
+            println!(
+                "[slider] move {i}: cursor x={x} thumb={now:?} (was {prev_thumb:?}) \
+                 callbacks={fired} damage={damage:?} dragging={:?}",
+                slider_dragging(&window)
+            );
+            let (diffs, first) = incremental_vs_full(&mut window);
+            assert_eq!(
+                diffs, 0,
+                "drag step {i} (cursor x={x}): the presented frame differs from a full \
+                 repaint of the same display list in {diffs} px, first at {first:?} — a \
+                 thumb ghost / stale pixels on a real screen. thumb now {now:?}, before \
+                 {prev_thumb:?}, damage {damage:?}"
+            );
+            if let Some(r) = now.first() {
+                prev_thumb = *r;
+            }
+        }
+        // The drag must FOLLOW the pointer across the app's RefreshDom
+        // rebuilds, not die after the press. The widget maps the cursor's
+        // fraction of the track onto a travel of (track − thumb): for the
+        // last in-track cursor x that is where the thumb must sit. Before
+        // the slider carried its `dragging` flag across a rebuild (and
+        // before a bubbled MouseLeave from the thumb stopped ending the
+        // drag), it followed for exactly one move in any app that refreshes
+        // on change.
+        let last_x = x0 + 96.0;
+        let fraction = ((last_x - track.origin.x) / track.size.width).clamp(0.0, 1.0);
+        let expected_x = track.origin.x + (fraction * (track.size.width - thumb0.size.width)).round();
+        assert!(
+            (prev_thumb.origin.x - expected_x).abs() <= 1.0,
+            "the thumb did not follow the drag: at {prev_thumb:?}, expected x≈{expected_x} for \
+             cursor x={last_x} (started at {thumb0:?})"
+        );
+        assert_eq!(slider_dragging(&window), Some(true), "still dragging inside the track");
+
+        // Leaving the TRACK ends the drag (the widget's rule); the thumb
+        // stays where the last in-track move put it, and the frame is still
+        // exact.
+        let outside_x = track.origin.x + track.size.width + 2.0;
+        step(&mut window, HeadlessEvent::MouseMove { x: outside_x, y });
+        let (diffs, first) = incremental_vs_full(&mut window);
+        assert_eq!(diffs, 0, "after leaving the track: {diffs} stale px, first at {first:?}");
+        assert_eq!(
+            slider_dragging(&window),
+            Some(false),
+            "leaving the track ends the drag"
+        );
+        let parked = rects_by_class(&window, "__azul-native-slider-thumb");
+        assert_eq!(parked.first().map(|r| r.origin.x), Some(prev_thumb.origin.x));
+
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(slider_dragging(&window), Some(false), "released");
+    }
+
+    // --- A text selection survives a relayout ---------------------------
+    //
+    // REPORTED (demo test 2026-08-21): selecting from the heading into the
+    // subtitle "flickers" the subtitle but nothing stays selected. The
+    // selection was computed correctly; only the DISPLAY-LIST-ONLY rebuild
+    // painted `SelectionRect`s, while the layout path handed
+    // `layout_document` an empty selection map — so every relayout (a
+    // resize, a restyle, an app's RefreshDom, a css patch) erased the band
+    // until the next drag move repainted it, and the first relayout after the
+    // release erased it for good. The class: two builders of the same
+    // display list fed different inputs. This drags a selection across two
+    // paragraphs, forces the LAYOUT path with a resize, and expects the band
+    // to still be there.
+
+    extern "C" fn selection_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body()
+            .with_child(
+                Dom::create_p_with_text("Azul Widget Showcase")
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("h".into())].into())
+                    .with_css("font-size: 24px; margin: 10px;"),
+            )
+            .with_child(
+                Dom::create_p_with_text("Every built-in widget (callbacks fired so far: 0)")
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("sub".into())].into())
+                    .with_css("font-size: 14px; margin: 10px;"),
+            )
+    }
+
+    fn selection_rect_count(window: &HeadlessWindow) -> usize {
+        use azul_core::dom::DomId;
+        let Some(lw) = window.common.layout_window.as_ref() else { return 0 };
+        let Some(lr) = lw.layout_results.get(&DomId { inner: 0 }) else { return 0 };
+        lr.display_list
+            .items
+            .iter()
+            .filter(|it| matches!(it, DisplayListItem::SelectionRect { .. }))
+            .count()
+    }
+
+    #[test]
+    fn a_text_selection_survives_a_relayout() {
+        use azul_core::events::MouseButton;
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, selection_layout, 500.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let heading = rects_by_class(&window, "h");
+        let subtitle = rects_by_class(&window, "sub");
+        assert_eq!(heading.len(), 1, "{heading:?}");
+        assert_eq!(subtitle.len(), 1, "{subtitle:?}");
+        let (h, sub) = (heading[0], subtitle[0]);
+
+        // Press inside the heading's first glyphs, drag into the subtitle.
+        let start = (h.origin.x + 6.0, h.origin.y + h.size.height / 2.0);
+        let end = (sub.origin.x + sub.size.width * 0.5, sub.origin.y + sub.size.height / 2.0);
+        step(&mut window, HeadlessEvent::MouseMove { x: start.0, y: start.1 });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        for i in 1..=6 {
+            let t = i as f32 / 6.0;
+            step(
+                &mut window,
+                HeadlessEvent::MouseMove {
+                    x: start.0 + (end.0 - start.0) * t,
+                    y: start.1 + (end.1 - start.1) * t,
+                },
+            );
+        }
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+
+        let cross_block = window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.text_edit_manager.get_cross_block_selection().cloned());
+        assert!(
+            cross_block.is_some(),
+            "dragging from the heading into the subtitle must produce a cross-block selection"
+        );
+        let before = selection_rect_count(&window);
+        assert!(before > 0, "the selection must be painted after the drag");
+
+        // Force the LAYOUT path: a resize is a relayout with the same DOM.
+        window.snapshot_window_state_baseline("headless.test.selection_resize");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 560.0;
+            });
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        let _ = window.process_window_events(0);
+        window.regenerate_layout().expect("relayout after resize");
+
+        let after = selection_rect_count(&window);
+        assert!(
+            after > 0,
+            "the selection band vanished on relayout ({before} SelectionRect(s) before, {after} after): \
+             the layout path must paint the live selection, not an empty map"
+        );
+        assert!(
+            window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.text_edit_manager.get_cross_block_selection())
+                .is_some(),
+            "the selection state itself must survive the relayout"
+        );
+    }
+
+    // --- A relayout-only pass keeps the hit-tester in sync ----------------
+    //
+    // REPORTED (demo test 2026-08-21): AzWidgets' scroll area stopped reacting
+    // to the wheel after a window resize and AzMap's "+" went dead, both
+    // "healing" on the next widget click. The class: a RELAYOUT-ONLY pass
+    // (the coalesced resize fast path, a restyle, a runtime edit) re-runs
+    // layout on the existing StyledDom, but the CPU hit-tester is a CACHE of
+    // that layout and was rebuilt only by the full `regenerate_layout()`. On
+    // macOS and X11 nothing else rebuilt it, so input over a node that had
+    // moved went to whatever used to be there. `CommonWindowState::
+    // incremental_relayout` now owns that finalize tail (and the bare layout
+    // function is private to `common`); this drives the resize path through
+    // it and asks the hit-tester where a right-aligned box went.
+
+    extern "C" fn right_aligned_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        Dom::create_body()
+            .with_css(
+                "display: flex; flex-direction: row; justify-content: flex-end; \
+                 width: 100%; height: 100%; margin: 0;",
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("target".into())].into(),
+                    )
+                    .with_css(
+                        "width: 40px; height: 40px; flex-grow: 0; flex-shrink: 0; \
+                         background: red;",
+                    ),
+            )
+    }
+
+    /// Does the window's CPU hit-tester report a `.target` node at (x, y)?
+    fn cpu_hit_tester_hits_class(window: &HeadlessWindow, class: &str, x: f32, y: f32) -> bool {
+        use azul_core::dom::IdOrClass;
+        use azul_core::geom::LogicalPosition;
+
+        let Some(ht) = window.common.cpu_hit_tester.as_ref() else {
+            panic!("the headless window must own a CPU hit-tester");
+        };
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return false;
+        };
+        ht.hit_test(LogicalPosition::new(x, y))
+            .into_iter()
+            .any(|(dom, node)| {
+                lw.layout_results
+                    .get(&dom)
+                    .and_then(|lr| {
+                        lr.styled_dom
+                            .node_data
+                            .as_container()
+                            .internal
+                            .get(node.index())
+                            .map(|data| {
+                                data.get_ids_and_classes().iter().any(|c| match c {
+                                    IdOrClass::Class(s) => s.as_str() == class,
+                                    IdOrClass::Id(_) => false,
+                                })
+                            })
+                    })
+                    .unwrap_or(false)
+            })
+    }
+
+    #[test]
+    fn a_relayout_only_pass_rebuilds_the_hit_tester() {
+        use crate::desktop::shell2::common::event::{IncrementalRelayout, PlatformWindow};
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, right_aligned_layout, 300.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let before = rects_by_class(&window, "target");
+        assert_eq!(before.len(), 1, "{before:?}");
+        assert!(
+            (before[0].origin.x - 260.0).abs() < 1.0,
+            "a 40 px box right-aligned in a 300 px window starts at x = 260: {before:?}"
+        );
+        assert!(
+            cpu_hit_tester_hits_class(&window, "target", 280.0, 20.0),
+            "after the full layout the hit-tester must find the box at its position"
+        );
+
+        // Widen the window through the RELAYOUT-ONLY path: the coalesced
+        // resize fast path, no DOM rebuild — exactly what a live window does
+        // on every drag of the window edge.
+        window.snapshot_window_state_baseline("headless.test.relayout_only_hit_tester");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 500.0;
+            });
+        let mut debug_messages = None;
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize fast path");
+
+        let after = rects_by_class(&window, "target");
+        assert_eq!(after.len(), 1, "{after:?}");
+        assert!(
+            (after[0].origin.x - 460.0).abs() < 1.0,
+            "layout itself must have moved the box to x = 460: {after:?}"
+        );
+        assert!(
+            cpu_hit_tester_hits_class(&window, "target", 480.0, 20.0),
+            "STALE HIT-TESTER: layout moved the box to x = 460 but the hit-tester still \
+             answers for the 300 px window — the relayout-only path skipped the rebuild"
+        );
+        assert!(
+            !cpu_hit_tester_hits_class(&window, "target", 280.0, 20.0),
+            "the box's OLD position must no longer hit it"
+        );
+
+        // The restyle flavour takes the same tail.
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 400.0;
+            });
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
+            .expect("restyle relayout");
+        assert!(
+            cpu_hit_tester_hits_class(&window, "target", 380.0, 20.0),
+            "the restyle relayout must rebuild the hit-tester too"
+        );
+    }
+
+    // --- An unchanged RefreshDom still re-renders VirtualViews -------------
+    //
+    // REPORTED (AzMap "+" analysis, 2026-08-22): a RefreshDom whose only
+    // change lives inside a dataset or a VirtualView's refany rebuilds an
+    // IDENTICAL DOM, so regenerate_layout takes an unchanged exit — and the
+    // view that renders that data was never re-invoked. The full path
+    // re-invokes every view (reset_all_invocation_flags); the two unchanged
+    // exits re-invoked none. The class: "the DOM did not change" is not
+    // "the data did not change". Both exits now queue every view, and the
+    // one frame-path drain re-invokes them in place AND rebuilds the CPU
+    // hit-tester (macOS and headless used to skip that rebuild).
+
+    /// What the VirtualView renders from: a model the app mutates in place.
+    struct VvCounter {
+        value: u32,
+    }
+
+    /// The app state: holds the SAME RefAny across builds, the shape that
+    /// fingerprints equal (a map's tile cache, a virtual list's rows).
+    struct VvAppState {
+        content: RefAny,
+    }
+
+    static VV_INVOCATIONS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    extern "C" fn counter_view_render(
+        data: RefAny,
+        info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        use azul_core::geom::{LogicalPosition, LogicalRect};
+        VV_INVOCATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut data = data;
+        let value = data
+            .downcast_ref::<VvCounter>()
+            .map(|c| c.value)
+            .unwrap_or(u32::MAX);
+        let size = info.get_bounds().get_logical_size();
+        let rect = LogicalRect::new(LogicalPosition::zero(), size);
+        azul_core::callbacks::VirtualViewReturn {
+            dom: azul_core::dom::OptionDom::Some(
+                Dom::create_div()
+                    .with_child(Dom::create_p_with_text(format!("value {value}").as_str())),
+            ),
+            materialized: rect,
+            virtual_rect: rect,
+        }
+    }
+
+    extern "C" fn counter_view_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let content = data
+            .downcast_ref::<VvAppState>()
+            .map(|s| s.content.clone())
+            .expect("app state");
+        Dom::create_body().with_child(
+            Dom::create_virtual_view(
+                content,
+                azul_core::callbacks::VirtualViewCallback::create(counter_view_render),
+            )
+            .with_css("width: 200px; height: 100px;"),
+        )
+    }
+
+    /// Every text node in every NESTED dom (a VirtualView's content), debug-formatted.
+    fn nested_dom_texts(window: &HeadlessWindow) -> Vec<String> {
+        use azul_core::dom::NodeType;
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for (dom_id, lr) in &lw.layout_results {
+            if dom_id.inner == 0 {
+                continue;
+            }
+            for nd in lr.styled_dom.node_data.as_container().internal.iter() {
+                if let NodeType::Text(_) = nd.get_node_type() {
+                    out.push(format!("{:?}", nd.get_node_type()));
+                }
+            }
+        }
+        out
+    }
+
+    fn pending_virtual_view_updates(window: &HeadlessWindow) -> usize {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .map_or(0, |lw| lw.pending_virtual_view_updates.values().map(|m| m.len()).sum())
+    }
+
+    #[test]
+    fn an_unchanged_refresh_dom_still_reinvokes_virtual_views() {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        use crate::desktop::shell2::common::layout::LayoutRegenerateResult;
+        use azul_core::geom::LogicalPosition;
+        use std::sync::atomic::Ordering;
+
+        let state = Arc::new(RefCell::new(RefAny::new(VvAppState {
+            content: RefAny::new(VvCounter { value: 0 }),
+        })));
+        let mut window = make_window_sized(&state, counter_view_layout, 300.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        // Settle the queue the identical second build just raised, so the
+        // count below starts from a drained state.
+        window.common.drain_virtual_view_updates();
+        assert!(
+            nested_dom_texts(&window).iter().any(|t| t.contains("value 0")),
+            "the view must have rendered the initial model: {:?}",
+            nested_dom_texts(&window)
+        );
+        let invocations_before = VV_INVOCATIONS.load(Ordering::SeqCst);
+        assert!(invocations_before >= 1);
+
+        // The app mutates its model IN PLACE and asks for a RefreshDom. The
+        // rebuilt DOM is identical (same RefAny, same callback, same CSS).
+        {
+            let mut g = state.borrow_mut();
+            let r: &mut RefAny = &mut g;
+            let mut app = r.downcast_mut::<VvAppState>().expect("app state");
+            let mut counter = app.content.downcast_mut::<VvCounter>().expect("counter");
+            counter.value = 1;
+        }
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout().expect("refresh");
+        assert!(
+            matches!(result, LayoutRegenerateResult::LayoutUnchanged),
+            "this test exercises the UNCHANGED exit — an identical rebuild must take it"
+        );
+        assert!(
+            pending_virtual_view_updates(&window) > 0,
+            "an unchanged RefreshDom must queue the VirtualViews for a re-invoke: the DOM \
+             did not change, the data behind the view did"
+        );
+
+        // The frame path drains the queue before it paints.
+        assert!(
+            window.common.drain_virtual_view_updates(),
+            "the drain must report that a view was rebuilt"
+        );
+        assert_eq!(pending_virtual_view_updates(&window), 0, "the drain empties the queue");
+        assert!(
+            VV_INVOCATIONS.load(Ordering::SeqCst) > invocations_before,
+            "the view's callback must run again after the RefreshDom"
+        );
+        let texts = nested_dom_texts(&window);
+        assert!(
+            texts.iter().any(|t| t.contains("value 1")),
+            "the view must now render the mutated model, not last frame's: {texts:?}"
+        );
+
+        // The hit-tester was rebuilt by the drain and still resolves the view's
+        // host node (the nested content carries no hit-test tags of its own).
+        let ht = window
+            .common
+            .cpu_hit_tester
+            .as_ref()
+            .expect("headless owns a CPU hit-tester");
+        let hits = ht.hit_test(LogicalPosition::new(100.0, 50.0));
+        assert!(
+            hits.iter().any(|(dom, node)| dom.inner == 0 && node.index() == 1),
+            "after the drain the hit-tester must still resolve the VirtualView host: {hits:?}"
+        );
+    }
+
+    // --- A native pinch reaches the callbacks of its own pass --------------
+    //
+    // REPORTED (AzMap, 2026-08-21): a trackpad pinch over the map did nothing.
+    // The class: per-pass input that callbacks read LIVE from a manager
+    // (the wheel delta via get_scroll_delta, the injected native gesture via
+    // get_pinch) must be cleared AFTER dispatch. The native gesture was
+    // cleared with the other manager flags during determination, so the
+    // PinchIn/PinchOut event it produced was dispatched to a callback that
+    // read `None`. The clear now sits next to the wheel delta's, after
+    // dispatch; this injects a magnify the way macOS does and checks what
+    // the callback saw — and that it does not re-fire on the next pass.
+
+    #[derive(Debug, Clone)]
+    struct PinchLog {
+        /// (callbacks invoked, callbacks that saw a pinch, last scale × 1000)
+        seen: Arc<core::sync::atomic::AtomicUsize>,
+        invoked: Arc<core::sync::atomic::AtomicUsize>,
+        scale_milli: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn log_pinch(
+        mut refany: RefAny,
+        info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        use core::sync::atomic::Ordering;
+        if let Some(log) = refany.downcast_ref::<PinchLog>() {
+            log.invoked.fetch_add(1, Ordering::SeqCst);
+            if let Some(p) = info.get_pinch().into_option() {
+                log.seen.fetch_add(1, Ordering::SeqCst);
+                log.scale_milli
+                    .store((p.scale * 1000.0).round() as usize, Ordering::SeqCst);
+            }
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn pinch_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        let log = data
+            .downcast_ref::<PinchLog>()
+            .map(|l| l.clone())
+            .expect("pinch log");
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css("width: 300px; height: 200px;")
+                .with_callbacks(
+                    vec![
+                        CoreCallbackData {
+                            event: EventFilter::Hover(HoverEventFilter::PinchOut),
+                            callback: CoreCallback {
+                                cb: log_pinch as usize,
+                                ctx: azul_core::refany::OptionRefAny::None,
+                            },
+                            refany: RefAny::new(log.clone()),
+                        },
+                        CoreCallbackData {
+                            event: EventFilter::Hover(HoverEventFilter::PinchIn),
+                            callback: CoreCallback {
+                                cb: log_pinch as usize,
+                                ctx: azul_core::refany::OptionRefAny::None,
+                            },
+                            refany: RefAny::new(log),
+                        },
+                    ]
+                    .into(),
+                ),
+        )
+    }
+
+    #[test]
+    fn a_native_pinch_is_visible_to_the_callbacks_of_its_own_pass() {
+        use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let log = PinchLog {
+            seen: Arc::new(AtomicUsize::new(0)),
+            invoked: Arc::new(AtomicUsize::new(0)),
+            scale_milli: Arc::new(AtomicUsize::new(0)),
+        };
+        let state = Arc::new(RefCell::new(RefAny::new(log.clone())));
+        let mut window = make_window_sized(&state, pinch_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+
+        // Hover the box (PinchIn/PinchOut target the hovered node), then inject
+        // a magnify exactly like macOS's magnify handler does, and run a pass.
+        step(&mut window, HeadlessEvent::MouseMove { x: 150.0, y: 100.0 });
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("layout window")
+            .gesture_drag_manager
+            .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
+                scale: 1.5,
+                center: azul_core::geom::LogicalPosition::new(150.0, 100.0),
+                initial_distance: 100.0,
+                current_distance: 150.0,
+                duration_ms: 0,
+            }));
+        window.snapshot_window_state_baseline("headless.test.magnify");
+        let _ = window.process_window_events(0);
+
+        assert_eq!(
+            log.invoked.load(Ordering::SeqCst),
+            1,
+            "the injected magnify must dispatch exactly one PinchOut callback"
+        );
+        assert_eq!(
+            log.seen.load(Ordering::SeqCst),
+            1,
+            "the callback must be able to READ the pinch it was dispatched for: \
+             clearing the native gesture before dispatch hands it `None`"
+        );
+        assert_eq!(log.scale_milli.load(Ordering::SeqCst), 1500);
+
+        // The gesture is consumed by its pass: a later pass with nothing new
+        // must not re-fire it.
+        window.snapshot_window_state_baseline("headless.test.magnify_idle");
+        let _ = window.process_window_events(0);
+        assert_eq!(
+            log.invoked.load(Ordering::SeqCst),
+            1,
+            "an ended pinch must not re-fire on the next pass"
+        );
+    }
+
+    // --- NodeResized fires when a node's box changes ----------------------
+    //
+    // REPORTED (AzPaint): "do we have a working 'node was resized' event?"
+    // `ComponentEventFilter::NodeResized` is public API (the video widget
+    // resizes its decoder target on it) and had NEVER fired in a running
+    // app: its only emitter compared layout maps production passed EMPTY,
+    // ran before the new tree was solved, and was not reached by a window
+    // resize at all. The class: a lifecycle event derived from layout must
+    // be derived from the SOLVED layout, after every pass — and the relayout
+    // paths must deliver it. This resizes through the fast path, through a
+    // no-op restyle, and through a full rebuild.
+
+    #[derive(Debug, Clone)]
+    struct ResizeLog {
+        hits: Arc<core::sync::atomic::AtomicUsize>,
+        last_width: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn on_node_resized(
+        mut refany: RefAny,
+        info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        use core::sync::atomic::Ordering;
+        if let Some(log) = refany.downcast_ref::<ResizeLog>() {
+            log.hits.fetch_add(1, Ordering::SeqCst);
+            if let Some(size) = info.get_node_size(info.get_hit_node()) {
+                log.last_width.store(size.width.round() as usize, Ordering::SeqCst);
+            }
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn node_resized_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
+        use azul_core::dom::{ComponentEventFilter, EventFilter};
+        let log = data
+            .downcast_ref::<ResizeLog>()
+            .map(|l| l.clone())
+            .expect("resize log");
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: row; width: 100%; height: 100%; margin: 0;")
+            .with_child(
+                Dom::create_div().with_css("width: 100px; height: 50px; flex-grow: 0; flex-shrink: 0;"),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css("flex-grow: 1; height: 50px;")
+                    .with_callbacks(
+                        vec![CoreCallbackData {
+                            event: EventFilter::Component(ComponentEventFilter::NodeResized),
+                            callback: CoreCallback {
+                                cb: on_node_resized as usize,
+                                ctx: azul_core::refany::OptionRefAny::None,
+                            },
+                            refany: RefAny::new(log),
+                        }]
+                        .into(),
+                    ),
+            )
+    }
+
+    #[test]
+    fn node_resized_fires_after_a_relayout() {
+        use crate::desktop::shell2::common::event::{IncrementalRelayout, PlatformWindow};
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let log = ResizeLog {
+            hits: Arc::new(AtomicUsize::new(0)),
+            last_width: Arc::new(AtomicUsize::new(0)),
+        };
+        let state = Arc::new(RefCell::new(RefAny::new(log.clone())));
+        let mut window = make_window_sized(&state, node_resized_layout, 400.0, 100.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        assert_eq!(log.hits.load(Ordering::SeqCst), 0, "a mount is not a resize");
+
+        // Widen through the RESIZE FAST PATH (no rebuild): 400 → 600 px grows
+        // the flex child from 300 to 500 px.
+        window.snapshot_window_state_baseline("headless.test.node_resized");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 600.0;
+            });
+        let mut debug_messages = None;
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize fast path");
+        assert_eq!(
+            log.hits.load(Ordering::SeqCst),
+            1,
+            "NodeResized must fire once for the child whose box grew (and not for \
+             the fixed-width sibling)"
+        );
+        assert_eq!(log.last_width.load(Ordering::SeqCst), 500, "the callback sees the NEW size");
+
+        // A relayout that changes nothing is not a resize.
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
+            .expect("restyle");
+        assert_eq!(log.hits.load(Ordering::SeqCst), 1, "an unchanged box must not re-fire");
+
+        // A FULL regeneration at yet another size fires too: the node keeps
+        // its identity across the rebuild, so its baseline follows it.
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 500.0;
+            });
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        window.regenerate_layout().expect("full regeneration");
+        assert_eq!(log.hits.load(Ordering::SeqCst), 2, "the full path delivers NodeResized as well");
+        assert_eq!(log.last_width.load(Ordering::SeqCst), 400);
+    }
+
+    // --- A capture tile tells its worker its DEVICE size ---------------------
+    //
+    // REPORTED (AzMeet CPU, 2026-08-22): the camera captured at the device's
+    // 1080p default for a 300x200 tile, and nothing ever told the worker the
+    // tile's size. The class: a capture widget's size must come from LAYOUT
+    // (device pixels: the laid-out size times the hidpi factor), at mount and
+    // on every resize, so the worker captures at the covering size and cuts
+    // the preview to exactly the tile. This drives a CameraWidget (no backend
+    // in the test binary -> the test pattern, through the same loop) through
+    // mount + a resize + a DPI change and reads the size the widget recorded
+    // for its worker.
+
+    extern "C" fn camera_tile_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::camera::CameraWidget;
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: row; width: 100%; height: 100%;")
+            .with_child(
+                CameraWidget::create(azul_core::camera::CameraConfig::default())
+                    .dom()
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("cam".into())].into(),
+                    )
+                    .with_css("width: 50%; height: 90px; flex-grow: 0; flex-shrink: 0;"),
+            )
+    }
+
+    /// The `(preview, has_thread)` the camera widget's state holds.
+    fn camera_state_of(window: &HeadlessWindow) -> (Option<(u32, u32)>, bool) {
+        use azul_core::dom::DomId;
+        use azul_layout::widgets::camera::CameraWidgetState;
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            panic!("layout window");
+        };
+        let Some(dom) = lw.layout_results.get(&DomId { inner: 0 }) else {
+            panic!("root dom");
+        };
+        for data in dom.styled_dom.node_data.as_container().internal.iter() {
+            // `get_dataset` hands out `Option<&RefAny>`; clone the RefAny
+            // itself (not the reference) to downcast it.
+            let Some(ds) = data.get_dataset() else {
+                continue;
+            };
+            let mut ds: RefAny = RefAny::clone(ds);
+            // Copy the two fields out so the `Ref` guard is dropped before
+            // `ds` goes out of scope (E0597 otherwise: the guard's destructor
+            // runs after the local it borrows).
+            let found = ds
+                .downcast_ref::<CameraWidgetState>()
+                .map(|s| (s.preview, s.thread_id.is_some()));
+            if let Some(found) = found {
+                return found;
+            }
+        }
+        panic!("no CameraWidgetState in the DOM");
+    }
+
+    #[test]
+    fn a_capture_tile_reports_its_device_size_to_its_worker() {
+        use crate::desktop::shell2::common::event::{IncrementalRelayout, PlatformWindow};
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, camera_tile_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let tile = rects_by_class(&window, "cam");
+        assert_eq!(tile.len(), 1, "{tile:?}");
+        assert!((tile[0].size.width - 200.0).abs() < 1.0, "50% of 400: {tile:?}");
+
+        let (preview, has_thread) = camera_state_of(&window);
+        assert!(has_thread, "AfterMount starts the capture worker");
+        assert_eq!(
+            preview,
+            Some((200, 90)),
+            "AT MOUNT the widget already knows its laid-out size (AfterMount has the \
+             hit node), so the camera is opened at the tile's size, not a 1080p default"
+        );
+
+        // Widen the window through the resize fast path: the tile grows to
+        // 300 px and NodeResized must hand the worker the new size. Each
+        // mutation follows the shells' snapshot -> mutate -> PASS contract
+        // (the pass consumes the size delta and advances the event baseline;
+        // AZ_VALIDATE panics on the next snapshot otherwise), and the frame
+        // loop's reaction — the resize fast path — is then driven explicitly.
+        let mut debug_messages = None;
+        window.snapshot_window_state_baseline("headless.test.capture_tile_size");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 600.0;
+            });
+        let _ = window.process_window_events(0);
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize fast path");
+        assert_eq!(camera_state_of(&window).0, Some((300, 90)), "NodeResized re-targets the worker");
+
+        // A Retina display: the same 300x90 LOGICAL tile is 600x180 DEVICE
+        // pixels — the size the preview must be cut at (logical px undersized
+        // a Retina preview by 2x before).
+        window.snapshot_window_state_baseline("headless.test.capture_tile_dpi");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dpi = 192;
+            });
+        let _ = window.process_window_events(0);
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        // A DPI change is a FULL regeneration, and `regenerate_layout` runs
+        // the lifecycle loop itself: the NodeResized the DPI change queues
+        // (`resize_watch_dpi`) is dispatched before it returns.
+        window.regenerate_layout().expect("full regeneration at 2x");
+        assert_eq!(
+            camera_state_of(&window).0,
+            Some((600, 180)),
+            "the worker is told DEVICE pixels: logical 300x90 at 2x is 600x180"
+        );
+
+        // And the resize FAST PATH still works after that full regeneration
+        // (a DPI change clears the caches; the next OS resize must not fail
+        // on the rebuilt tree): 700 wide -> a 350 px tile -> 700x180 device.
+        window.snapshot_window_state_baseline("headless.test.capture_tile_size_2x");
+        window
+            .common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions.width = 700.0;
+            });
+        let _ = window.process_window_events(0);
+        window
+            .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
+            .expect("resize fast path at 2x");
+        assert_eq!(
+            camera_state_of(&window).0,
+            Some((700, 180)),
+            "a resize after the DPI change re-targets the worker in device pixels"
+        );
+    }
+
+    // --- Menu accelerators fire on every backend ---------------------------
+    //
+    // REPORTED (AzPaint, 2026-08-21): the File menu's Ctrl+O / Ctrl+S chords
+    // did nothing outside the macOS menu bar — a menu item's accelerator was
+    // display-only everywhere else. The class: the chord -> item lookup and
+    // the item's invocation lived in AppKit alone. `PlatformWindow::
+    // dispatch_menu_accelerators` now runs in every event pass (the root
+    // menu bar unless the backend's bar is native, then the focused node's
+    // context menus), with `azul_core::menu::accelerator_matches` as the one
+    // chord rule. Headless has no native menus, so this exercises exactly the
+    // shared path Windows / X11 / Wayland use.
+
+    struct AccelLog {
+        saved: Arc<core::sync::atomic::AtomicUsize>,
+        deleted: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn accel_save(mut data: RefAny, _info: azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update {
+        if let Some(s) = data.downcast_ref::<AccelLog>() {
+            s.saved.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+    extern "C" fn accel_delete(mut data: RefAny, _info: azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update {
+        if let Some(s) = data.downcast_ref::<AccelLog>() {
+            s.deleted.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    extern "C" fn accel_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::callbacks::CoreCallback;
+        use azul_core::dom::{IdOrClass, TabIndex};
+        use azul_core::menu::{Menu, MenuItem, StringMenuItem};
+        use azul_core::window::{VirtualKeyCode as K, VirtualKeyCodeCombo, VirtualKeyCodeVec};
+
+        let log = data.downcast_ref::<AccelLog>().map(|l| AccelLog {
+            saved: l.saved.clone(),
+            deleted: l.deleted.clone(),
+        });
+        let Some(log) = log else {
+            return Dom::create_body();
+        };
+        let state = RefAny::new(log);
+        let chord = |keys: &[K]| VirtualKeyCodeCombo {
+            keys: VirtualKeyCodeVec::from_vec(keys.to_vec()),
+        };
+        let item = |label: &str, cb: extern "C" fn(RefAny, azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update, keys: &[K]| {
+            let mut it = StringMenuItem::create(label.into()).with_callback(
+                state.clone(),
+                CoreCallback {
+                    cb: cb as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+            );
+            it.accelerator = Some(chord(keys)).into();
+            MenuItem::String(it)
+        };
+        // File > Save (primary+S) in the MENU BAR; Delete (Del) in the
+        // CONTEXT MENU of a focusable box.
+        let file = StringMenuItem::create("File".into())
+            .with_children(vec![item("Save", accel_save, &[K::LWin, K::S])].into());
+        let menu_bar = Menu::create(vec![MenuItem::String(file)].into());
+        let context = Menu::create(vec![item("Delete", accel_delete, &[K::Delete])].into());
+        Dom::create_body()
+            .with_menu_bar(menu_bar)
+            .with_css("width: 100%; height: 100%;")
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
+                    .with_tab_index(TabIndex::Auto)
+                    .with_context_menu(context)
+                    .with_css("width: 100px; height: 60px; background: #ddd;"),
+            )
+    }
+
+    #[test]
+    fn a_menu_accelerator_runs_the_items_callback_once_per_chord_on_the_shared_path() {
+        use azul_core::events::MouseButton;
+        use azul_core::window::VirtualKeyCode as K;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let log = AccelLog {
+            saved: Arc::new(AtomicUsize::new(0)),
+            deleted: Arc::new(AtomicUsize::new(0)),
+        };
+        let (saved, deleted) = (log.saved.clone(), log.deleted.clone());
+        let state = Arc::new(RefCell::new(RefAny::new(log)));
+        let mut window = make_window_sized(&state, accel_layout, 300.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        // The platform's primary modifier: Cmd on macOS, Ctrl elsewhere — the
+        // `[LWin, S]` combo means exactly that on each (one definition).
+        let primary = if cfg!(target_os = "macos") { K::LWin } else { K::LControl };
+
+        // Ctrl+S -> Save, once.
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: primary });
+        assert_eq!(saved.load(Ordering::SeqCst), 0, "a lone modifier is not a chord");
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        assert_eq!(saved.load(Ordering::SeqCst), 1, "Ctrl+S runs File > Save through the shared dispatch");
+        // A pass without a new key-down (a redraw, a timer tick) must not re-fire.
+        window.regenerate_layout().expect("an unrelated pass");
+        assert_eq!(saved.load(Ordering::SeqCst), 1, "the chord fires on the key-down, not on every pass");
+        // Release + press again = a second chord.
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        assert_eq!(saved.load(Ordering::SeqCst), 2);
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: primary });
+        // S alone is typing, not a chord; Shift+Ctrl+S is a DIFFERENT chord.
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::LShift });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: primary });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        assert_eq!(saved.load(Ordering::SeqCst), 2, "exact modifiers: Ctrl+Shift+S is not Ctrl+S");
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: primary });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::LShift });
+
+        // The context menu's Delete fires only while its node is focused.
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::Delete });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::Delete });
+        assert_eq!(deleted.load(Ordering::SeqCst), 0, "nothing focused: no context menu applies");
+        let boxes = rects_by_class(&window, "box");
+        assert_eq!(boxes.len(), 1, "{boxes:?}");
+        let (x, y) = (boxes[0].origin.x + 10.0, boxes[0].origin.y + 10.0);
+        step(&mut window, HeadlessEvent::MouseMove { x, y });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::Delete });
+        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::Delete });
+        assert_eq!(
+            deleted.load(Ordering::SeqCst),
+            1,
+            "the focused node's context-menu accelerator runs its callback"
+        );
+        assert_eq!(saved.load(Ordering::SeqCst), 2, "…and nothing else fired");
+    }
+
+    // --- An empty, focused editable shows a caret --------------------------
+    //
+    // REPORTED (AzWidgets, 2026-08-21): "TextInput not working" — clicking
+    // the field hid the placeholder and painted no caret, so the focused
+    // field was a blank box. The class: the caret builder anchored the caret
+    // to a text cluster, and an editable with NO text has none; with the
+    // placeholder hidden on focus there was nothing to see at all. The empty
+    // editable now gets the strut caret (content-box origin, one line tall)
+    // and the placeholder stays until the first character. This clicks the
+    // real widget and looks for the caret item.
+
+    extern "C" fn empty_text_input_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::text_input::TextInput;
+        Dom::create_body()
+            .with_css("padding: 20px;")
+            .with_child(TextInput::create().with_placeholder("Type something...".into()).dom())
+    }
+
+    fn caret_items(window: &HeadlessWindow) -> Vec<azul_core::geom::LogicalRect> {
+        use azul_core::dom::DomId;
+        let Some(lw) = window.common.layout_window.as_ref() else { return Vec::new() };
+        let Some(lr) = lw.layout_results.get(&DomId { inner: 0 }) else { return Vec::new() };
+        lr.display_list
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                DisplayListItem::CursorRect { bounds, .. } => Some(*bounds.inner()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_empty_focused_text_input_shows_a_caret() {
+        use azul_core::events::MouseButton;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, empty_text_input_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        assert!(caret_items(&window).is_empty(), "no caret before focus");
+
+        let containers = rects_by_class(&window, "__azul-native-text-input-container");
+        assert_eq!(containers.len(), 1, "{containers:?}");
+        let c = containers[0];
+
+        // Click into the empty field.
+        let (x, y) = (c.origin.x + c.size.width * 0.5, c.origin.y + c.size.height * 0.5);
+        step(&mut window, HeadlessEvent::MouseMove { x, y });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        window.regenerate_layout().expect("layout after focus");
+
+        // THE FIELD IS NOT BLANK ON FOCUS. Before, focus hid the placeholder
+        // and the empty editable painted no caret, so a focused empty field
+        // was a blank box — "the TextInput is not working". The placeholder
+        // now stays until the first character (it hides on insert, not on
+        // focus), the field keeps a line, and the caret is PAINTED: an empty
+        // IFC inside an editing host keeps a strut line box (fc.rs
+        // `editing_host_strut_height`), which is the line the caret stands
+        // on and the height the value `<p>` keeps.
+        assert!(c.size.height > 12.0, "an empty field keeps a line, not just its chrome: {c:?}");
+        let placeholder = rects_by_class(&window, "__azul-native-text-input-placeholder");
+        assert!(
+            placeholder.first().is_some_and(|r| r.size.height > 0.0),
+            "the placeholder stays visible while the focused field is empty (not hidden on focus): \
+             {placeholder:?}"
+        );
+        let carets = caret_items(&window);
+        assert!(
+            !carets.is_empty(),
+            "NO CARET: a focused EMPTY editable must paint the strut caret (the empty value \
+             <p> keeps a strut line box inside the editing host)"
+        );
+        let caret = carets[carets.len() - 1];
+        assert!(
+            caret.size.height >= 8.0 && caret.size.height <= 40.0,
+            "the strut caret is one line tall: {caret:?} in {c:?}"
+        );
+        assert!(
+            caret.origin.x >= c.origin.x - 0.5 && caret.origin.x <= c.origin.x + c.size.width,
+            "the caret stands inside the field: {caret:?} in {c:?}"
+        );
+        assert!(
+            caret.origin.y >= c.origin.y - 0.5
+                && caret.origin.y + caret.size.height <= c.origin.y + c.size.height + 0.5,
+            "…vertically too: {caret:?} in {c:?}"
+        );
+    }
+
+    // --- A flex item is sized by one authority ------------------------------
+    //
+    // REPORTED (AzWidgets, 2026-08-21): "multi-line text area bleeding into
+    // Slider". The textarea is a flex item with `min-height: 64px`; its
+    // container reserved a slot from the item's content (~36 px) while the
+    // item itself, re-laid-out as a STANDALONE layout root on every
+    // RefreshDom (its fresh dataset allocation fingerprinted as a layout
+    // change), applied its min-height — 64 px painted into a 36 px slot,
+    // over the widget beneath. Two fixes, one test: the dataset is no longer
+    // layout, and a dirty flex item promotes its container to the layout
+    // root. The invariant is the class: a flex item's painted box never
+    // overlaps the sibling its container placed after it — on the first
+    // layout and after a rebuild.
+
+    extern "C" fn text_area_over_next_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::text_area::TextArea;
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; padding: 20px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
+                    .with_child(
+                        TextArea::create().with_placeholder("Multi line text area".into()).dom(),
+                    ),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("next".into())].into())
+                    .with_css("height: 24px;"),
+            )
+    }
+
+    fn assert_text_area_does_not_overlap_its_next_sibling(window: &HeadlessWindow, when: &str) {
+        let area = rects_by_class(window, "__azul-native-text-area-container");
+        let next = rects_by_class(window, "next");
+        assert_eq!(area.len(), 1, "{when}: {area:?}");
+        assert_eq!(next.len(), 1, "{when}: {next:?}");
+        let (a, n) = (area[0], next[0]);
+        assert!(
+            a.size.height >= 63.5,
+            "{when}: the textarea's painted box honours its min-height: {a:?}"
+        );
+        assert!(
+            n.origin.y >= a.origin.y + a.size.height - 0.5,
+            "{when}: the textarea's painted box ({a:?}) overlaps the sibling its flex container \
+             placed after it ({n:?}) — the item was sized by two authorities"
+        );
+    }
+
+    #[test]
+    fn a_flex_items_painted_box_never_overlaps_the_sibling_its_container_placed() {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, text_area_over_next_layout, 400.0, 400.0);
+        window.regenerate_layout().expect("initial layout");
+        assert_text_area_does_not_overlap_its_next_sibling(&window, "first layout");
+
+        // Every RefreshDom rebuilds the widget with a FRESH dataset allocation;
+        // that must not make the item a standalone layout root.
+        for pass in 0..3 {
+            window
+                .common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            window.regenerate_layout().expect("refresh");
+            assert_text_area_does_not_overlap_its_next_sibling(&window, &format!("after RefreshDom #{pass}"));
+        }
+    }
+
+    // --- The patched display list equals the wholesale build -----------------
+    //
+    // REPORTED (AzWidgets, 2026-08-21): "the placeholder text jumps when I
+    // hover over the slider". Two builders produce a frame over the same
+    // tree: a PATCHED build (the previous list spliced, each node's items
+    // translated by its position delta — every structure-preserved
+    // RefreshDom) and a WHOLESALE build (a paint-only restyle such as a
+    // `:hover` re-emits everything from the layout results). They disagreed,
+    // so the SAME layout painted text in two places depending on which
+    // builder ran last. The class invariant is that the two builders agree
+    // item for item; `LayoutWindow::verify_patched_display_list` is the
+    // checker (also behind `AZ_PATCH_VERIFY=1` for every layout pass), and
+    // this drives the report's exact scene — TextArea with a placeholder
+    // (an absolutely positioned box whose interior is re-run every pass)
+    // plus a Slider — through the passes the report named.
+
+    extern "C" fn text_area_and_slider_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::slider::Slider;
+        use azul_layout::widgets::text_area::TextArea;
+        let slider_value = data
+            .downcast_ref::<SliderUiState>()
+            .map_or(40.0, |s| s.slider_value);
+        let labelled = |label: &str, class: &str, widget: Dom| {
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
+                .with_child(
+                    Dom::create_span_with_text(label)
+                        .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class(class.into())].into())
+                        .with_css("font-size: 13px; margin-bottom: 4px;"),
+                )
+                .with_child(widget)
+        };
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; padding: 20px;")
+            .with_child(labelled(
+                "TextArea",
+                "cap-ta",
+                TextArea::create().with_placeholder("Multi line text area".into()).dom(),
+            ))
+            .with_child(labelled(
+                "Slider",
+                "cap-slider",
+                Slider::create(slider_value, 0.0, 100.0)
+                    .with_on_value_change(
+                        data.clone(),
+                        azul_layout::widgets::slider::SliderOnValueChangeCallback {
+                            cb: slider_demo_on_change,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                    )
+                    .dom(),
+            ))
+    }
+
+    /// The rects the report watched: textarea box, its placeholder, the
+    /// caption under it (the slider's label).
+    fn watched_rects(window: &HeadlessWindow, when: &str) -> (azul_core::geom::LogicalRect, azul_core::geom::LogicalRect, azul_core::geom::LogicalRect) {
+        let ta = rects_by_class(window, "__azul-native-text-area-container");
+        let ph = rects_by_class(window, "__azul-native-text-area-placeholder");
+        let cap = rects_by_class(window, "cap-slider");
+        assert_eq!(ta.len(), 1, "{when}: {ta:?}");
+        assert_eq!(ph.len(), 1, "{when}: {ph:?}");
+        assert_eq!(cap.len(), 1, "{when}: {cap:?}");
+        (ta[0], ph[0], cap[0])
+    }
+
+    fn assert_builders_agree(window: &mut HeadlessWindow, when: &str) {
+        let lw = window.common.layout_window.as_mut().expect("layout window");
+        let was_patched = lw.layout_cache.last_build_was_patched;
+        let mismatches = lw.verify_patched_display_list(azul_core::dom::DomId::ROOT_ID);
+        assert!(
+            mismatches.is_empty(),
+            "{when} (patched build = {was_patched}): the PATCHED display list differs from the \
+             WHOLESALE build of the same layout results — two builders, two pictures:\n{}",
+            mismatches.join("\n")
+        );
+    }
+
+    #[test]
+    fn the_patched_display_list_equals_the_wholesale_build_for_the_widgets_scene() {
+        use azul_core::events::MouseButton;
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(SliderUiState {
+            slider_value: 40.0,
+            interactions: 0,
+        })));
+        let mut window = make_window_sized(&state, text_area_and_slider_layout, 400.0, 400.0);
+        window.regenerate_layout().expect("initial layout");
+        let first = watched_rects(&window, "first layout");
+        // The second pass is the structure-preserved one: a PATCHED build.
+        window.regenerate_layout().expect("settle");
+        let second = watched_rects(&window, "settle");
+        assert_eq!(first, second, "pass 1 and pass 2 must place the textarea, its placeholder and the caption identically");
+        assert!(
+            second.1.origin.y >= second.0.origin.y && second.1.origin.y < second.0.origin.y + 30.0,
+            "the placeholder sits at the top of its textarea: {second:?}"
+        );
+        assert_builders_agree(&mut window, "after the settle pass");
+
+        // Hover the slider thumb (a paint-only restyle: wholesale re-emit),
+        // then a RefreshDom rebuild under that hover (a patched build).
+        let thumbs = rects_by_class(&window, "__azul-native-slider-thumb");
+        assert_eq!(thumbs.len(), 1, "{thumbs:?}");
+        let t = thumbs[0];
+        step(&mut window, HeadlessEvent::MouseMove { x: t.origin.x + t.size.width / 2.0, y: t.origin.y + t.size.height / 2.0 });
+        let hovered = watched_rects(&window, "hovering the thumb");
+        assert_eq!(second, hovered, "a hover on the slider must not move the textarea's placeholder");
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window.regenerate_layout().expect("RefreshDom under hover");
+        assert_eq!(second, watched_rects(&window, "RefreshDom under hover"));
+        assert_builders_agree(&mut window, "after a RefreshDom under the thumb hover");
+
+        // Drag the slider (the widget's own RefreshDom + dataset merge), then
+        // hover the textarea itself (its :hover border) — every frame agrees.
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseMove { x: t.origin.x + 40.0, y: t.origin.y + t.size.height / 2.0 });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(second, watched_rects(&window, "after the drag"));
+        assert_builders_agree(&mut window, "after the slider drag");
+        let ta = second.0;
+        step(&mut window, HeadlessEvent::MouseMove { x: ta.origin.x + 10.0, y: ta.origin.y + 10.0 });
+        assert_eq!(second, watched_rects(&window, "hovering the textarea"));
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window.regenerate_layout().expect("RefreshDom under the textarea hover");
+        assert_eq!(second, watched_rects(&window, "RefreshDom under the textarea hover"));
+        assert_builders_agree(&mut window, "after a RefreshDom under the textarea hover");
+    }
+
+    // --- The pressed node gets its release ------------------------------------
+    //
+    // REPORTED (demo test 2026-08-21, the whole "stuck input" family): a
+    // slider drag that died off the thumb, a map pan cut at a tile edge, a
+    // paint stroke that kept painting on plain moves. Events are derived
+    // from window-state diffs and targeted at whatever is under the pointer
+    // NOW, so a widget that latched on MouseDown only saw its MouseUp if the
+    // pointer was still over it. Press-target capture: the pressed node gets
+    // the release wherever the pointer is — and its ancestors do not see it
+    // twice.
+
+    #[derive(Debug, Clone)]
+    struct PressLog {
+        a_down: Arc<core::sync::atomic::AtomicUsize>,
+        a_up: Arc<core::sync::atomic::AtomicUsize>,
+        b_up: Arc<core::sync::atomic::AtomicUsize>,
+        body_up: Arc<core::sync::atomic::AtomicUsize>,
+    }
+
+    extern "C" fn press_log_bump(
+        mut refany: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        if let Some(counter) = refany.downcast_ref::<Arc<core::sync::atomic::AtomicUsize>>() {
+            counter.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+        }
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    fn counting_callback(
+        filter: azul_core::events::HoverEventFilter,
+        counter: &Arc<core::sync::atomic::AtomicUsize>,
+    ) -> azul_core::callbacks::CoreCallbackData {
+        use azul_core::callbacks::{CoreCallback, CoreCallbackData};
+        CoreCallbackData {
+            event: azul_core::events::EventFilter::Hover(filter),
+            callback: CoreCallback {
+                cb: press_log_bump as usize,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
+            refany: RefAny::new(counter.clone()),
+        }
+    }
+
+    extern "C" fn press_capture_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::HoverEventFilter;
+        let log = data.downcast_ref::<PressLog>().map(|l| l.clone()).expect("press log");
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: row; width: 100%; height: 100%;")
+            .with_callbacks(vec![counting_callback(HoverEventFilter::MouseUp, &log.body_up)].into())
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("a".into())].into())
+                    .with_css("width: 100px; height: 100px;")
+                    .with_callbacks(
+                        vec![
+                            counting_callback(HoverEventFilter::MouseDown, &log.a_down),
+                            counting_callback(HoverEventFilter::MouseUp, &log.a_up),
+                        ]
+                        .into(),
+                    ),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("b".into())].into())
+                    .with_css("width: 100px; height: 100px;")
+                    .with_callbacks(vec![counting_callback(HoverEventFilter::MouseUp, &log.b_up)].into()),
+            )
+    }
+
+    #[test]
+    fn the_pressed_node_gets_its_release_wherever_the_pointer_let_go() {
+        use azul_core::events::MouseButton;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let log = PressLog {
+            a_down: Arc::new(AtomicUsize::new(0)),
+            a_up: Arc::new(AtomicUsize::new(0)),
+            b_up: Arc::new(AtomicUsize::new(0)),
+            body_up: Arc::new(AtomicUsize::new(0)),
+        };
+        let state = Arc::new(RefCell::new(RefAny::new(log.clone())));
+        let mut window = make_window_sized(&state, press_capture_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+
+        // Press on A, drag onto B, release there.
+        step(&mut window, HeadlessEvent::MouseMove { x: 50.0, y: 50.0 });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        assert_eq!(log.a_down.load(Ordering::SeqCst), 1);
+        step(&mut window, HeadlessEvent::MouseMove { x: 150.0, y: 50.0 });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+
+        assert_eq!(
+            log.a_up.load(Ordering::SeqCst),
+            1,
+            "the node that was PRESSED must get the release although the pointer let go over B"
+        );
+        assert_eq!(log.b_up.load(Ordering::SeqCst), 1, "the hovered node's release is unchanged");
+        assert_eq!(
+            log.body_up.load(Ordering::SeqCst),
+            1,
+            "the shared ancestor sees the release ONCE — the captured release is at-target-only"
+        );
+
+        // Press and release on the same node: exactly one release, as before.
+        step(&mut window, HeadlessEvent::MouseMove { x: 50.0, y: 50.0 });
+        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        assert_eq!(log.a_up.load(Ordering::SeqCst), 2);
+        assert_eq!(log.body_up.load(Ordering::SeqCst), 2);
+    }
+
+    // --- Indicator marks are centred ------------------------------------
+    //
+    // REPORTED (demo test 2026-08-21): "CheckBox not centered" — the 8 px mark
+    // sat in the top-left of the box. The class: an indicator widget (check
+    // box, radio dot, switch knob) positions its mark with its CONTAINER's
+    // layout, and a container that is not a centring flex box parks the mark
+    // at its content origin. This lays the indicator widgets out for real
+    // and measures, so a container style edit that drops the centring fails
+    // here rather than in a screenshot.
+
+    extern "C" fn indicator_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::{check_box::CheckBox, radio_group::RadioGroup, switch::Switch};
+        let options: azul_css::StringVec =
+            vec![azul_css::AzString::from("a"), azul_css::AzString::from("b")].into();
+        Dom::create_body()
+            .with_child(CheckBox::create(true).dom())
+            .with_child(RadioGroup::create(options).dom())
+            .with_child(Switch::create(true).dom())
+    }
+
+    #[test]
+    fn indicator_marks_are_centred_in_their_boxes() {
+        fn centre(r: &azul_core::geom::LogicalRect) -> (f32, f32) {
+            (r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)
+        }
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, indicator_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        // (widget, container class, mark class, horizontally centred too?)
+        // A switch knob sits at one END of its track by design; only its
+        // vertical centring is a layout invariant.
+        for (widget, container, mark, both_axes) in [
+            ("CheckBox", "__azul-native-checkbox-container", "__azul-native-checkbox-content", true),
+            ("RadioGroup", "__azul-native-radio-group-circle", "__azul-native-radio-group-dot", true),
+            ("Switch", "__azul-native-switch", "__azul-native-switch-knob", false),
+        ] {
+            let boxes = rects_by_class(&window, container);
+            let marks = rects_by_class(&window, mark);
+            assert!(
+                !boxes.is_empty() && boxes.len() == marks.len(),
+                "{widget}: {} boxes vs {} marks ({boxes:?} / {marks:?})",
+                boxes.len(),
+                marks.len()
+            );
+            for (b, m) in boxes.iter().zip(marks.iter()) {
+                let (bx, by) = centre(b);
+                let (mx, my) = centre(m);
+                assert!(
+                    (by - my).abs() <= 0.5,
+                    "{widget}: mark {m:?} is not vertically centred in its box {b:?}"
+                );
+                if both_axes {
+                    assert!(
+                        (bx - mx).abs() <= 0.5,
+                        "{widget}: mark {m:?} is not horizontally centred in its box {b:?}"
+                    );
+                }
+            }
+        }
     }
 
     // --- Ribbon tab switching -------------------------------------------

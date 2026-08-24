@@ -62,6 +62,14 @@ const MAX_SCROLL_EVENTS_PER_TICK: usize = 100;
 /// Used both in wheel impulse conversion and friction decay so the two stay coupled.
 const ASSUMED_FPS: f32 = 60.0;
 
+/// Ticks without a delta after which a finger's raw accumulator is dropped
+/// (≈ 200 ms at the 16 ms tick; X11 synthesises its gesture end after
+/// 100 ms).
+///
+/// A lost `TrackpadEnd` must not pin the timer and must not leave
+/// a stretched view without a spring-back.
+const GESTURE_STALE_TICKS: u32 = 12;
+
 /// State stored in the timer's `RefAny` data.
 ///
 /// Contains the shared input queue, per-node velocity state, and the global
@@ -76,6 +84,22 @@ pub struct ScrollPhysicsState {
     pub pending_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
     /// Per-node "forced position" from trackpad scroll (rubber-band clamped)
     pub pending_trackpad_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
+    /// The UNCLAMPED finger offset per node for the gesture in flight, with
+    /// the number of ticks since its last delta.
+    ///
+    /// THE OVERSCROLL STRETCH IS A FUNCTION OF HOW FAR THE FINGER TRAVELLED
+    /// PAST THE EDGE (`D(Σ deltas)`, what AppKit/UIKit do) — not of how much
+    /// delta arrived in the current tick. The accumulator used to be the
+    /// committed offset, i.e. the DISPLAYED, already-banded value, so every
+    /// tick computed `x ← D(x + d)`: a contraction (`D' ≈ 0.3`) that forgets
+    /// its history in two ticks and whose fixed point tracks the per-tick
+    /// batch. A 120 Hz trackpad against the 62.5 Hz timer alternates one and
+    /// two events per tick, and that beat came out as a ±1 px sawtooth at
+    /// ~31 Hz — the macOS overscroll jitter. Seeded from the committed offset
+    /// (inverted through the band if it is already overscrolled) on the first
+    /// delta, advanced by every delta, dropped at `TrackpadEnd` or after
+    /// [`GESTURE_STALE_TICKS`] without one.
+    pub trackpad_raw_positions: BTreeMap<(DomId, NodeId), (LogicalPosition, u32)>,
     /// Absolute offsets that `AnimateTo` / wheel-glide inputs are seeking,
     /// per node, together with the DEVICE that asked for the seek (device
     /// picks the spring duration: physical wheel clicks get the short
@@ -108,6 +132,7 @@ impl ScrollPhysicsState {
             node_velocities: BTreeMap::new(),
             pending_positions: BTreeMap::new(),
             pending_trackpad_positions: BTreeMap::new(),
+            trackpad_raw_positions: BTreeMap::new(),
             animate_targets: BTreeMap::new(),
             scroll_physics,
         }
@@ -125,6 +150,11 @@ impl ScrollPhysicsState {
             })
             || !self.pending_positions.is_empty()
             || !self.pending_trackpad_positions.is_empty()
+            // A finger that is down but still (sparse events, empty ticks)
+            // keeps the timer — and its accumulator — alive. A 60 Hz device
+            // against the 62.5 Hz tick used to terminate the timer on every
+            // empty tick and restart it with a fresh state on the next event.
+            || !self.trackpad_raw_positions.is_empty()
     }
 }
 
@@ -222,43 +252,122 @@ pub extern "C" fn scroll_physics_timer_callback(
     let bounce_back_duration_ms = sp.bounce_back_duration_ms;
     let wheel_animate_bounce_ms = sp.wheel_animate_bounce_ms;
 
+    // 0. Age the raw finger accumulators. One that saw no delta for
+    // GESTURE_STALE_TICKS lost its `TrackpadEnd`: drop it, and give an
+    // overshot node the spring-back the End would have armed.
+    let mut stale: Vec<(DomId, NodeId)> = Vec::new();
+    for (key, (_, idle)) in &mut physics.trackpad_raw_positions {
+        *idle += 1;
+        if *idle > GESTURE_STALE_TICKS {
+            stale.push(*key);
+        }
+    }
+    for key in stale {
+        physics.trackpad_raw_positions.remove(&key);
+        if let Some(info) = timer_info.get_scroll_node_info(key.0, key.1) {
+            let ox = calculate_overshoot(info.current_offset.x, 0.0, info.max_scroll_x);
+            let oy = calculate_overshoot(info.current_offset.y, 0.0, info.max_scroll_y);
+            if ox.abs() > 0.01 || oy.abs() > 0.01 {
+                let np = physics
+                    .node_velocities
+                    .entry(key)
+                    .or_insert_with(NodeScrollPhysics::default);
+                np.is_rubber_banding = true;
+            }
+        }
+    }
+
     // 1. Take at most MAX_SCROLL_EVENTS_PER_TICK recent inputs from the shared queue
     let inputs = physics.input_queue.take_recent(MAX_SCROLL_EVENTS_PER_TICK);
 
     for input in inputs {
         let key = (input.dom_id, input.node_id);
         match input.source {
-            ScrollInputSource::TrackpadContinuous => {
-                // Trackpad: OS handles momentum. Apply delta directly as position change.
-                //
-                // ACCUMULATE onto whatever this tick already staged for the
-                // node, falling back to the committed offset. `current_offset`
-                // does NOT move while this callback runs — the ScrollTo changes
-                // are applied after it returns — so basing every event of the
-                // batch on it and then `insert`ing meant N events in one tick
-                // collapsed to the LAST delta. A 120 Hz trackpad against the
-                // 16 ms tick routinely queues two events, i.e. half the gesture
-                // was silently dropped, which is what "scrolling fights itself"
-                // feels like from the outside.
-                let current = physics
-                    .pending_trackpad_positions
+            ScrollInputSource::TrackpadContinuous | ScrollInputSource::TrackpadMomentum => {
+                let is_momentum = input.source == ScrollInputSource::TrackpadMomentum;
+                // Once the rubber-band spring owns the node, the OS momentum
+                // tail is dropped: it knows nothing about our edge, and a
+                // spring it kept killing was never seen (the view "wobbled
+                // back" along the momentum decay instead).
+                if is_momentum
+                    && physics
+                        .node_velocities
+                        .get(&key)
+                        .is_some_and(|v| v.is_rubber_banding)
+                {
+                    continue;
+                }
+                let info = timer_info.get_scroll_node_info(input.dom_id, input.node_id);
+
+                // ACCUMULATE ON THE RAW FINGER OFFSET (see
+                // `trackpad_raw_positions`), never on the displayed one. The
+                // first delta of a gesture seeds it from the committed offset,
+                // inverted through the band if that offset is already past an
+                // edge. `current_offset` does NOT move while this callback
+                // runs — the ScrollTo changes are applied after it returns —
+                // so every event of a tick's batch accumulates here (N events
+                // in one tick used to collapse to the LAST delta).
+                let raw_base = physics
+                    .trackpad_raw_positions
                     .get(&key)
-                    .copied()
+                    .map(|(p, _)| *p)
                     .or_else(|| {
-                        timer_info
-                            .get_scroll_node_info(input.dom_id, input.node_id)
-                            .map(|info| info.current_offset)
+                        info.as_ref().map(|info| LogicalPosition {
+                            x: rubber_band_unclamp(
+                                info.current_offset.x,
+                                0.0,
+                                info.max_scroll_x,
+                                max_overscroll_distance,
+                                overscroll_elasticity,
+                            ),
+                            y: rubber_band_unclamp(
+                                info.current_offset.y,
+                                0.0,
+                                info.max_scroll_y,
+                                max_overscroll_distance,
+                                overscroll_elasticity,
+                            ),
+                        })
                     })
                     .unwrap_or_default();
-
-                let new_pos = LogicalPosition {
-                    x: current.x + input.delta.x,
-                    y: current.y + input.delta.y,
+                let new_raw = LogicalPosition {
+                    x: raw_base.x + input.delta.x,
+                    y: raw_base.y + input.delta.y,
                 };
-                physics.pending_trackpad_positions.insert(key, new_pos);
 
-                // Kill any existing velocity for this node (trackpad overrides momentum)
-                physics.node_velocities.remove(&key);
+                // The first MOMENTUM delta that pushes past an edge hands the
+                // node to the spring: the delta's velocity is the bump, the
+                // spring brings it back, later momentum deltas are dropped
+                // above. A finger (Continuous) past the edge just stretches.
+                let mut handed_to_spring = false;
+                if is_momentum {
+                    if let Some(info) = info.as_ref() {
+                        let over_x = calculate_overshoot(new_raw.x, 0.0, info.max_scroll_x);
+                        let over_y = calculate_overshoot(new_raw.y, 0.0, info.max_scroll_y);
+                        if over_x.abs() > 0.01 || over_y.abs() > 0.01 {
+                            let np = physics
+                                .node_velocities
+                                .entry(key)
+                                .or_insert_with(NodeScrollPhysics::default);
+                            np.velocity = LogicalPosition {
+                                x: if over_x.abs() > 0.01 { input.delta.x / dt } else { 0.0 },
+                                y: if over_y.abs() > 0.01 { input.delta.y / dt } else { 0.0 },
+                            };
+                            np.is_rubber_banding = true;
+                            handed_to_spring = true;
+                        }
+                    }
+                }
+
+                // Step 3 bands this for display; the raw value stays here.
+                physics.pending_trackpad_positions.insert(key, new_raw);
+                if handed_to_spring {
+                    physics.trackpad_raw_positions.remove(&key);
+                } else {
+                    physics.trackpad_raw_positions.insert(key, (new_raw, 0));
+                    // The finger overrides any momentum or spring in flight.
+                    physics.node_velocities.remove(&key);
+                }
             }
             ScrollInputSource::WheelDiscrete => {
                 // Input provenance decides the math. A PHYSICAL wheel click
@@ -299,6 +408,7 @@ pub extern "C" fn scroll_physics_timer_callback(
                         // in-flight velocity so a retarget stays continuous.
                         physics.node_velocities.entry(key).or_default();
                         physics.pending_trackpad_positions.remove(&key);
+                        physics.trackpad_raw_positions.remove(&key);
                         wheel_glided = true;
                     }
                 }
@@ -351,9 +461,13 @@ pub extern "C" fn scroll_physics_timer_callback(
                     physics.animate_targets.insert(key, (target, input.device));
                     physics.node_velocities.entry(key).or_default();
                     physics.pending_trackpad_positions.remove(&key);
+                    physics.trackpad_raw_positions.remove(&key);
                 }
             }
             ScrollInputSource::TrackpadEnd => {
+                // The gesture is over: the raw accumulator goes with it (the
+                // next gesture seeds afresh from the committed offset).
+                physics.trackpad_raw_positions.remove(&key);
                 // Trackpad gesture ended (fingers lifted).
                 // If the scroll position is past the bounds (rubber-banding overshoot),
                 // start a spring-back animation to snap back to the boundary.
@@ -383,10 +497,14 @@ pub extern "C" fn scroll_physics_timer_callback(
                             let node_phys = physics.node_velocities
                                 .entry(key)
                                 .or_insert_with(NodeScrollPhysics::default);
-                            // Zero out velocity — the spring-back force in the
-                            // velocity integration loop (step 2) will pull the
-                            // position back to the boundary.
-                            node_phys.velocity = LogicalPosition::zero();
+                            // A fresh arm starts from rest — the spring-back
+                            // in the integration loop (step 2) pulls the
+                            // position back to the boundary. A spring already
+                            // in flight (a momentum bump) keeps its velocity:
+                            // the momentum tail's own End arrives while it runs.
+                            if !node_phys.is_rubber_banding {
+                                node_phys.velocity = LogicalPosition::zero();
+                            }
                             node_phys.is_rubber_banding = true;
                         }
 
@@ -436,10 +554,22 @@ pub extern "C" fn scroll_physics_timer_callback(
             continue;
         };
 
+        // The displacement this tick commits, per axis. `None` means plain
+        // momentum: `velocity · dt`. A spring (seek or rubber band) on an
+        // axis sets it to the EXACT position change of its closed-form step
+        // — see `critically_damped_step` for why the spring must not go
+        // through `v += F·dt; x += v·dt`.
+        let mut spring_disp_x: Option<f32> = None;
+        let mut spring_disp_y: Option<f32> = None;
+        // The rubber-band spring's EXACT new overshoot on an axis it ran on
+        // this tick. Committed directly — see `commit_spring_back`.
+        let mut spring_back_x: Option<f32> = None;
+        let mut spring_back_y: Option<f32> = None;
+
         // Target-seeking spring (scroll_to_animated): a critically-damped
-        // pull toward the absolute target — the same F = -k*x - c*v the
-        // rubber-band uses, with x measured from the TARGET instead of the
-        // boundary. Close enough + slow enough snaps EXACTLY onto the
+        // pull toward the absolute target — the same spring the rubber band
+        // uses, with the displacement measured from the TARGET instead of
+        // the boundary. Close enough + slow enough snaps EXACTLY onto the
         // target and retires it (no asymptotic crawl).
         let seek_target = animate_targets.get(&(*dom_id, *node_id)).copied();
         if let Some((target, seek_device)) = seek_target {
@@ -463,10 +593,14 @@ pub extern "C" fn scroll_physics_timer_callback(
                 }
                 _ => bounce_back_duration_ms,
             };
-            let spring_k = spring_constant_from_bounce_duration(seek_duration_ms);
-            let damping = 2.0 * spring_k.sqrt();
-            node_physics.velocity.x += (-spring_k * err_x - damping * node_physics.velocity.x) * dt;
-            node_physics.velocity.y += (-spring_k * err_y - damping * node_physics.velocity.y) * dt;
+            let omega = spring_constant_from_bounce_duration(seek_duration_ms).sqrt();
+            let (err_x_after, vx) =
+                critically_damped_step(err_x, node_physics.velocity.x, omega, dt);
+            let (err_y_after, vy) =
+                critically_damped_step(err_y, node_physics.velocity.y, omega, dt);
+            node_physics.velocity = LogicalPosition { x: vx, y: vy };
+            spring_disp_x = Some(err_x_after - err_x);
+            spring_disp_y = Some(err_y_after - err_y);
         }
 
         // Determine if this node allows rubber-banding
@@ -480,20 +614,27 @@ pub extern "C" fn scroll_physics_timer_callback(
         let is_overshooting_x = overshoot_x.abs() > 0.01;
         let is_overshooting_y = overshoot_y.abs() > 0.01;
 
-        // If we're in a rubber-band overshoot, apply critically-damped spring force.
-        // F = -k*x - c*v  where c = 2*sqrt(k) for critical damping (no oscillation).
+        // If we're in a rubber-band overshoot, run the critically-damped
+        // spring-back: the overshoot IS the displacement, and one exact step
+        // gives both the new overshoot and the new velocity (no oscillation
+        // at any tick length — the Euler form rang at the Windows preset's
+        // 200 ms bounce and diverged at the 50 ms floor).
         if is_overshooting_x && rubber_band_x {
-            let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
-            let damping = 2.0 * spring_k.sqrt(); // critical damping coefficient
-            let spring_force_x = -spring_k * overshoot_x - damping * node_physics.velocity.x;
-            node_physics.velocity.x += spring_force_x * dt;
+            let omega = spring_constant_from_bounce_duration(bounce_back_duration_ms).sqrt();
+            let (overshoot_after, vx) =
+                critically_damped_step(overshoot_x, node_physics.velocity.x, omega, dt);
+            node_physics.velocity.x = vx;
+            spring_disp_x = Some(overshoot_after - overshoot_x);
+            spring_back_x = Some(overshoot_after);
             node_physics.is_rubber_banding = true;
         }
         if is_overshooting_y && rubber_band_y {
-            let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
-            let damping = 2.0 * spring_k.sqrt(); // critical damping coefficient
-            let spring_force_y = -spring_k * overshoot_y - damping * node_physics.velocity.y;
-            node_physics.velocity.y += spring_force_y * dt;
+            let omega = spring_constant_from_bounce_duration(bounce_back_duration_ms).sqrt();
+            let (overshoot_after, vy) =
+                critically_damped_step(overshoot_y, node_physics.velocity.y, omega, dt);
+            node_physics.velocity.y = vy;
+            spring_disp_y = Some(overshoot_after - overshoot_y);
+            spring_back_y = Some(overshoot_after);
             node_physics.is_rubber_banding = true;
         }
 
@@ -507,10 +648,11 @@ pub extern "C" fn scroll_physics_timer_callback(
             continue;
         }
 
-        // Apply velocity to position
+        // Apply velocity to position. A spring axis commits its exact step;
+        // a free-momentum axis integrates `v · dt`.
         let displacement = LogicalPosition {
-            x: node_physics.velocity.x * dt,
-            y: node_physics.velocity.y * dt,
+            x: spring_disp_x.unwrap_or(node_physics.velocity.x * dt),
+            y: spring_disp_y.unwrap_or(node_physics.velocity.y * dt),
         };
 
         let raw_new_x = info.current_offset.x + displacement.x;
@@ -535,18 +677,42 @@ pub extern "C" fn scroll_physics_timer_callback(
             );
         }
 
-        // Clamp with or without rubber-banding
-        let new_x = if rubber_band_x && max_overscroll_distance > 0.0 {
-            // Allow overshoot with diminishing returns (elasticity)
-            rubber_band_clamp(raw_new_x, 0.0, info.max_scroll_x, max_overscroll_distance, overscroll_elasticity)
-        } else {
-            raw_new_x.clamp(0.0, info.max_scroll_x)
+        // Commit. An axis the rubber-band spring ran on commits the spring's
+        // OWN output (`commit_spring_back`) — the band models the finger's
+        // resistance, not the spring; passing the spring's exact step through
+        // `rubber_band_clamp` again shrank the overshoot ~70 % per tick on top
+        // of the spring's own ~3 %, turning the configured 400 ms bounce into
+        // a 3-frame snap and leaking the crossing velocity into a free drift
+        // into the content. Free momentum reaching an edge is banded as
+        // before; next tick the spring takes over with that velocity (the
+        // natural bump) and commits directly from then on.
+        let new_x = match spring_back_x {
+            Some(after) => commit_spring_back(
+                overshoot_x,
+                after,
+                info.max_scroll_x,
+                max_overscroll_distance,
+                &mut node_physics.velocity.x,
+            ),
+            None if rubber_band_x && max_overscroll_distance > 0.0 => {
+                // Allow overshoot with diminishing returns (elasticity)
+                rubber_band_clamp(raw_new_x, 0.0, info.max_scroll_x, max_overscroll_distance, overscroll_elasticity)
+            }
+            None => raw_new_x.clamp(0.0, info.max_scroll_x),
         };
 
-        let new_y = if rubber_band_y && max_overscroll_distance > 0.0 {
-            rubber_band_clamp(raw_new_y, 0.0, info.max_scroll_y, max_overscroll_distance, overscroll_elasticity)
-        } else {
-            raw_new_y.clamp(0.0, info.max_scroll_y)
+        let new_y = match spring_back_y {
+            Some(after) => commit_spring_back(
+                overshoot_y,
+                after,
+                info.max_scroll_y,
+                max_overscroll_distance,
+                &mut node_physics.velocity.y,
+            ),
+            None if rubber_band_y && max_overscroll_distance > 0.0 => {
+                rubber_band_clamp(raw_new_y, 0.0, info.max_scroll_y, max_overscroll_distance, overscroll_elasticity)
+            }
+            None => raw_new_y.clamp(0.0, info.max_scroll_y),
         };
 
         let new_pos = LogicalPosition { x: new_x, y: new_y };
@@ -598,31 +764,49 @@ pub extern "C" fn scroll_physics_timer_callback(
             node_physics.is_rubber_banding = false;
         }
 
-        // Snap to zero if below threshold after decay
-        if node_physics.velocity.x.abs() < velocity_threshold {
+        // Snap to zero if below threshold after decay — FREE MOMENTUM ONLY.
+        // A spring's velocity is meaningful all the way down to its landing:
+        // zeroing it once it dropped under the threshold restarted the
+        // closed form from rest on every tick, and the last ~2 px of a
+        // spring-back became a 50-tick crawl (`commit_spring_back` lands it).
+        if spring_back_x.is_none() && node_physics.velocity.x.abs() < velocity_threshold {
             node_physics.velocity.x = 0.0;
         }
-        if node_physics.velocity.y.abs() < velocity_threshold {
+        if spring_back_y.is_none() && node_physics.velocity.y.abs() < velocity_threshold {
             node_physics.velocity.y = 0.0;
         }
 
         velocity_updates.push(((*dom_id, *node_id), new_pos));
     }
 
-    // Clean up nodes with zero velocity and not rubber-banding
-    physics
-        .node_velocities
-        .retain(|_, v| v.velocity.x.abs() > 0.0 || v.velocity.y.abs() > 0.0 || v.is_rubber_banding);
+    // Retire converged AnimateTo targets (snapped exactly this tick).
+    for key in converged_targets {
+        physics.animate_targets.remove(&key);
+    }
+
+    // Clean up nodes with zero velocity that are neither rubber-banding nor
+    // still SEEKING a target. The seek spring is integrated from the
+    // `node_velocities` entry, so evicting a seeking node the moment its
+    // velocity dips under the threshold froze the glide short of its target
+    // (119.2 of 120 px) with the target still armed: `is_active()` kept the
+    // timer ticking against a node the loop no longer visited, and the next
+    // wheel click extended a target the view never reached. The Euler
+    // integrator's ringing kept |v| large until arrival and hid this; a
+    // proper critically-damped tail is slow, and lands in exactly this gap.
+    let seeking: alloc::collections::BTreeSet<(DomId, NodeId)> =
+        physics.animate_targets.keys().copied().collect();
+    physics.node_velocities.retain(|key, v| {
+        v.velocity.x.abs() > 0.0
+            || v.velocity.y.abs() > 0.0
+            || v.is_rubber_banding
+            || seeking.contains(key)
+    });
 
     // MWA-C-scroll: transfer residual momentum up the scroll chain — walk the
     // scroll-parent chain to the nearest ancestor that can still consume in
     // the fling's direction and seed it with the leftover velocity (picked up
     // by the integration loop on the next tick; is_active() keeps the timer
     // alive because the entry lands in node_velocities).
-    // Retire converged AnimateTo targets (snapped exactly this tick).
-    for key in converged_targets {
-        physics.animate_targets.remove(&key);
-    }
 
     for ((dom_id, node_id), vel) in momentum_handoffs {
         let mut cur = node_id;
@@ -711,6 +895,24 @@ pub extern "C" fn scroll_physics_timer_callback(
     for ((dom_id, node_id), position) in velocity_updates {
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         timer_info.scroll_to_unclamped(dom_id, hierarchy_id, position);
+
+        // A VirtualView materialises only the rows around the CURRENT offset,
+        // so moving that offset must re-invoke its callback. The discrete
+        // ScrollTo path does this (check_and_queue_virtual_view_reinvoke in
+        // common/event.rs), but SMOOTH scrolling never did — and smooth is what
+        // a wheel or trackpad actually produces. The result: the pages scrolled
+        // while the VirtualView stayed frozen on its first window, so scrolling
+        // past the materialised rows showed empty background and the view never
+        // "caught up".
+        //
+        // Targeted rather than trigger_all_virtual_view_rerender(): this runs on
+        // every physics tick of every scrolling node, and re-materialising every
+        // VirtualView in the window 60 times a second is not the same cost.
+        // Nodes that are not VirtualViews are ignored downstream.
+        timer_info
+            .callback_info
+            .trigger_virtual_view_rerender(dom_id, node_id);
+
         any_changes = true;
     }
 
@@ -801,6 +1003,68 @@ fn rubber_band_clamp(
     }
 }
 
+/// Inverse of [`rubber_band_clamp`]: the RAW (unbanded) position that would
+/// display as `displayed`.
+///
+/// In range it is the identity; past an edge it
+/// inverts `D(o) = M·(1 − e^(−e·o/M))` into `o = −(M/e)·ln(1 − shown/M)`.
+/// The band's asymptote `M` is unreachable, so `shown` is capped just inside
+/// it. Used to seed a gesture's raw accumulator from a committed offset that
+/// is already overscrolled (a second gesture starting mid-stretch).
+fn rubber_band_unclamp(
+    displayed: f32,
+    min: f32,
+    max: f32,
+    max_overscroll: f32,
+    elasticity: f32,
+) -> f32 {
+    if displayed >= min && displayed <= max {
+        return displayed;
+    }
+    if max_overscroll <= 0.0 || elasticity <= 0.0 {
+        return displayed.clamp(min, max);
+    }
+    let (boundary, shown) = if displayed < min {
+        (min, min - displayed)
+    } else {
+        (max, displayed - max)
+    };
+    let frac = (shown / max_overscroll).clamp(0.0, 0.999);
+    let raw = -(max_overscroll / elasticity) * (1.0 - frac).ln();
+    if displayed < min {
+        boundary - raw
+    } else {
+        boundary + raw
+    }
+}
+
+/// The offset a rubber-band spring-back axis commits this tick, given the
+/// overshoot it started from and the exact overshoot its closed-form step
+/// produced.
+///
+/// Lands EXACTLY: a step that crosses the boundary (only the
+/// band/threshold interplay can make a critically-damped spring do that)
+/// or ends within half a pixel snaps onto the boundary with the velocity
+/// zeroed — never a crossing velocity falling through to free momentum
+/// (~60 px of drift into the content after a 40 px release), never a view
+/// parked at `max + 0.3` forever. Bounded by the band's envelope.
+fn commit_spring_back(
+    overshoot_before: f32,
+    overshoot_after: f32,
+    max_scroll: f32,
+    max_overscroll: f32,
+    velocity: &mut f32,
+) -> f32 {
+    let boundary = if overshoot_before > 0.0 { max_scroll } else { 0.0 };
+    let crossed = overshoot_after != 0.0 && overshoot_after.signum() != overshoot_before.signum();
+    if crossed || overshoot_after.abs() < 0.5 {
+        *velocity = 0.0;
+        boundary
+    } else {
+        boundary + overshoot_after.clamp(-max_overscroll, max_overscroll)
+    }
+}
+
 /// Convert `deceleration_rate` (0.0 - 1.0) to a friction constant for exponential decay.
 /// Higher `deceleration_rate` = less friction (slower deceleration).
 fn friction_from_deceleration(deceleration_rate: f32) -> f32 {
@@ -817,6 +1081,38 @@ fn spring_constant_from_bounce_duration(duration_ms: u32) -> f32 {
     let duration_s = duration_ms.max(50) as f32 / 1000.0;
     let omega = core::f32::consts::TAU / duration_s;
     omega * omega
+}
+
+/// One EXACT step of a critically-damped spring pulling a displacement back
+/// to zero.
+///
+/// `x` is the displacement from the rest position (the overshoot past an
+/// edge, or the distance left to an animate-to target), `v` the velocity,
+/// `omega` the spring's natural frequency (`sqrt(k)`), `dt` the step. Returns
+/// `(x, v)` at the end of the step, from the closed-form solution of
+/// `x'' + 2ω·x' + ω²·x = 0`:
+///
+/// ```text
+/// x(t) = (x₀ + (v₀ + ω·x₀)·t) · e^(−ωt)
+/// v(t) = (v₀ − (v₀ + ω·x₀)·ω·t) · e^(−ωt)
+/// ```
+///
+/// WHY NOT `v += (−k·x − c·v)·dt; x += v·dt`: explicit Euler on this spring
+/// is stable only for `c·dt < 2` and monotone only for `c·dt < 1`. The wheel
+/// glide (120 ms spring, `ω ≈ 52/s`, `c = 2ω`) at the 16 ms tick sits at
+/// `c·dt ≈ 1.68`, so `v ← v·(1 − c·dt)` FLIPPED the velocity's sign on every
+/// tick: a 120 px wheel flick went 0 → 84 → 55 → 119 → 78 → 134 → 88 → …
+/// ringing around its target instead of landing on it — the "smooths, then
+/// jumps back and forward" reported on X11/Wayland, where a physical wheel
+/// is the everyday device (a trackpad never enters the spring, which is why
+/// macOS looked fine). The 50 ms minimum duration is worse still
+/// (`c·dt = 4`, divergent). The closed form is exact for any `dt` and any
+/// stiffness, and its cost is one `exp`.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma
+fn critically_damped_step(x: f32, v: f32, omega: f32, dt: f32) -> (f32, f32) {
+    let decay = (-omega * dt).exp();
+    let a = v + omega * x;
+    ((x + a * dt) * decay, (v - a * omega * dt) * decay)
 }
 
 // ============================================================================
@@ -897,8 +1193,16 @@ mod autotest_generated {
         /// Drain the change log, asserting every entry is a `ScrollTo`, and
         /// return `(node index, position, unclamped)` for each.
         fn take_scroll_tos(&self) -> Vec<(usize, LogicalPosition, bool)> {
+            // Every committed offset is now accompanied by an
+            // UpdateVirtualView for the same node: a VirtualView materialises
+            // only the rows around the current offset, so moving the offset
+            // without re-invoking it leaves the view frozen on its first
+            // window — pages scroll past and show empty background. Skip those
+            // here; `scroll_commits_pair_with_a_virtual_view_retrigger` below
+            // asserts the pairing itself.
             self.take_changes()
                 .iter()
+                .filter(|c| !matches!(c, CallbackChange::UpdateVirtualView { .. }))
                 .map(|change| {
                     let CallbackChange::ScrollTo {
                         node_id,
@@ -2325,8 +2629,16 @@ mod autotest_generated {
         layout_window: &mut LayoutWindow,
         data: &RefAny,
     ) -> Vec<(usize, LogicalPosition, bool)> {
+        closed_loop_tick_full(layout_window, data).0
+    }
+
+    /// [`closed_loop_tick`] plus the timer's own verdict (continue / terminate).
+    fn closed_loop_tick_full(
+        layout_window: &mut LayoutWindow,
+        data: &RefAny,
+    ) -> (Vec<(usize, LogicalPosition, bool)>, TerminateTimer) {
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
-        {
+        let verdict = {
             let renderer_resources = RendererResources::default();
             let previous_window_state: Option<FullWindowState> = None;
             let current_window_state = FullWindowState::default();
@@ -2362,13 +2674,16 @@ mod autotest_generated {
             );
             let timer_info =
                 TimerCallbackInfo::create(info, OptionDomNodeId::None, Instant::now(), 0, false);
-            let _ = scroll_physics_timer_callback(data.clone(), timer_info);
-        }
+            scroll_physics_timer_callback(data.clone(), timer_info).should_terminate
+        };
 
         let emitted: Vec<(usize, LogicalPosition, bool)> = changes
             .lock()
             .map(|c| {
                 c.iter()
+                    // Companion of every commit — see the note on the other
+                    // drain helper above.
+                    .filter(|ch| !matches!(ch, CallbackChange::UpdateVirtualView { .. }))
                     .map(|change| {
                         let CallbackChange::ScrollTo {
                             node_id,
@@ -2410,7 +2725,7 @@ mod autotest_generated {
                 );
             }
         }
-        emitted
+        (emitted, verdict)
     }
 
     fn offset_of(layout_window: &LayoutWindow, idx: usize) -> LogicalPosition {
@@ -2418,6 +2733,58 @@ mod autotest_generated {
             .scroll_manager
             .get_current_offset(DomId::ROOT_ID, NodeId::new(idx))
             .unwrap_or_default()
+    }
+
+    /// A committed scroll offset must be accompanied by a VirtualView
+    /// re-trigger for the same node.
+    ///
+    /// A VirtualView materialises only the rows around the CURRENT offset. The
+    /// discrete ScrollTo path re-invokes it (check_and_queue_virtual_view_reinvoke
+    /// in dll/.../common/event.rs), but the SMOOTH physics path never did — and
+    /// smooth is what a wheel or trackpad actually produces. AzWriter showed the
+    /// result: the pages scrolled, the VirtualView stayed frozen on its first
+    /// window, and scrolling past the materialised pages showed bare background
+    /// that never filled in.
+    #[test]
+    fn a_committed_scroll_offset_retriggers_that_nodes_virtual_view() {
+        let (data, queue) = state_with(ScrollPhysics::default());
+        queue.push(input(3, (0.0, 120.0), ScrollInputSource::WheelDiscrete));
+
+        with_env(
+            |w| register_node(w, 3, (100.0, 100.0), (100.0, 500.0)),
+            |env| {
+                let _ = env.tick(&data);
+                let changes = env.take_changes();
+
+                let scrolled: Vec<usize> = changes
+                    .iter()
+                    .filter_map(|c| match c {
+                        CallbackChange::ScrollTo { node_id, .. } => {
+                            node_id.into_crate_internal().map(|n| n.index())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert!(
+                    !scrolled.is_empty(),
+                    "the wheel delta committed no offset, so this test proves nothing"
+                );
+
+                for idx in scrolled {
+                    assert!(
+                        changes.iter().any(|c| matches!(
+                            c,
+                            CallbackChange::UpdateVirtualView { node_id, .. }
+                                if node_id.index() == idx
+                        )),
+                        "node {idx} committed a new scroll offset with no \
+                         UpdateVirtualView beside it — a VirtualView on that node \
+                         would stay frozen on its first window while the content \
+                         scrolled past it. changes={changes:?}"
+                    );
+                }
+            },
+        );
     }
 
     /// REGRESSION (B1): one finger gesture must land on a STABLE offset.
@@ -2641,5 +3008,393 @@ mod autotest_generated {
             "the rubber band must pull the view back to max_scroll_y=100, \
              it stayed at {settled}"
         );
+    }
+
+    /// REGRESSION: a physical wheel click glides to its target WITHOUT ever
+    /// moving backwards, and lands on it.
+    ///
+    /// Reported on X11/Wayland as "wheel scroll smooths, then jumps back and
+    /// forward, damping toward the middle". The glide is a critically-damped
+    /// spring, which in continuous time cannot oscillate — but it was
+    /// integrated with explicit Euler (`v += (-k·e - c·v)·dt; x += v·dt`) at
+    /// the 16 ms tick, where the wheel spring's damping step is
+    /// `c·dt = 2ω·dt ≈ 1.68`. `v ← v·(1 - c·dt)` then FLIPS the velocity's
+    /// sign every tick: three 40 px notches went 0 → 84 → 55 → 119 → 78 →
+    /// 134 → 88 → … and never settled (run the old integrator through this
+    /// test to see it). It showed on Linux because that is where a physical
+    /// wheel is the everyday device; a trackpad never enters the spring.
+    /// The closed-form integrator (`critically_damped_step`) is exact at any
+    /// `dt`, so the same trace is now monotone and converges.
+    #[test]
+    fn a_wheel_click_glides_to_its_target_without_ever_moving_backwards() {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 2000.0));
+        let queue = layout_window.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(
+            queue.clone(),
+            ScrollPhysics::default(),
+        ));
+
+        // Three notches of a 40 px wheel, queued before the first tick — a
+        // quick flick. The target is their sum: 120 px.
+        for _ in 0..3 {
+            queue.push(input_dev(
+                1,
+                (0.0, 40.0),
+                ScrollInputSource::WheelDiscrete,
+                ScrollInputDevice::MouseWheel,
+            ));
+        }
+
+        let mut trace = Vec::new();
+        for _ in 0..60 {
+            let _ = closed_loop_tick(&mut layout_window, &data);
+            trace.push(offset_of(&layout_window, 1).y);
+        }
+
+        for (i, w) in trace.windows(2).enumerate() {
+            assert!(
+                w[1] >= w[0] - 1e-3,
+                "the glide moved BACKWARDS at tick {}: {} -> {} (trace: {trace:?})",
+                i + 1,
+                w[0],
+                w[1]
+            );
+        }
+        assert!(
+            trace.iter().all(|y| *y <= 120.0 + 0.01),
+            "the glide overshot its 120 px target: {trace:?}"
+        );
+        let settled = trace[trace.len() - 1];
+        assert!(
+            (settled - 120.0).abs() < 0.5,
+            "three 40 px notches must land on 120 px within a second, landed on \
+             {settled} (trace: {trace:?})"
+        );
+        // The timer must not keep ticking against a retired target.
+        let mut data = data;
+        with_state(&mut data, |st| {
+            assert!(
+                st.animate_targets.is_empty(),
+                "the target is retired once reached: {:?}",
+                st.animate_targets
+            );
+        });
+    }
+
+    /// REGRESSION: the rubber band's spring-back must be monotone too — it is
+    /// the same spring, with the overshoot as the displacement. The Windows
+    /// preset's 200 ms bounce sits right at `c·dt ≈ 1.0` under explicit Euler,
+    /// where each tick flipped the velocity and the edge "vibrated".
+    #[test]
+    fn a_rubber_band_spring_back_is_monotone_at_every_preset() {
+        // (`default` and `windows` have elasticity 0: they hard-clamp and never
+        // overshoot, so there is no spring-back to check there.)
+        for (name, physics) in [
+            ("macos", ScrollPhysics::macos()),
+            ("ios", ScrollPhysics::ios()),
+            ("android", ScrollPhysics::android()),
+            (
+                "windows+elastic",
+                ScrollPhysics {
+                    overscroll_elasticity: 0.5,
+                    max_overscroll_distance: 100.0,
+                    ..ScrollPhysics::windows()
+                },
+            ),
+        ] {
+            let mut layout_window =
+                LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+            register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 200.0));
+            let queue = layout_window.scroll_manager.get_input_queue();
+            let data = RefAny::new(ScrollPhysicsState::new(queue.clone(), physics));
+
+            queue.push(input_dev(
+                1,
+                (0.0, 150.0),
+                ScrollInputSource::TrackpadContinuous,
+                ScrollInputDevice::Touchpad,
+            ));
+            queue.push(input_dev(
+                1,
+                (0.0, 0.0),
+                ScrollInputSource::TrackpadEnd,
+                ScrollInputDevice::Touchpad,
+            ));
+            let _ = closed_loop_tick(&mut layout_window, &data);
+            let start = offset_of(&layout_window, 1).y;
+            assert!(start > 100.0, "[{name}] the gesture overshoots first: {start}");
+
+            let mut trace = vec![start];
+            for _ in 0..240 {
+                let _ = closed_loop_tick(&mut layout_window, &data);
+                trace.push(offset_of(&layout_window, 1).y);
+            }
+            for (i, w) in trace.windows(2).enumerate() {
+                assert!(
+                    w[1] <= w[0] + 1e-3,
+                    "[{name}] the spring-back moved AWAY from the edge at tick {}: \
+                     {} -> {} (trace head: {:?})",
+                    i + 1,
+                    w[0],
+                    w[1],
+                    &trace[..trace.len().min(12)]
+                );
+            }
+            let settled = trace[trace.len() - 1];
+            assert!(
+                (settled - 100.0).abs() < 1e-3,
+                "[{name}] must land EXACTLY on max_scroll_y=100 (the spring snaps its last \
+                 half-pixel), settled at {settled}"
+            );
+        }
+    }
+
+    // ==================================================================
+    // REPORTED (macOS trackpad, 2026-08-21): "overscroll jitters".
+    // ==================================================================
+    //
+    // The stretch must be a function of how far the finger travelled past
+    // the edge, not of how much delta arrived in the current tick. Every
+    // trackpad test above pushed a whole gesture into ONE tick; these drive
+    // N deltas across N ticks, which is where the per-tick map `x ← D(x + d)`
+    // showed as a sawtooth. The harness is closed-loop: tick N+1 reads what
+    // tick N committed, exactly like the shell.
+
+    /// `D(o)`: the displayed overshoot for a raw overshoot `o` under `physics`.
+    fn band(physics: &ScrollPhysics, raw_overshoot: f32) -> f32 {
+        let m = physics.max_overscroll_distance;
+        let e = physics.overscroll_elasticity;
+        m * (1.0 - (-e * raw_overshoot / m).exp())
+    }
+
+    /// A (100×100) viewport over (100×200) content — `max_scroll_y = 100` —
+    /// parked exactly at its bottom edge by one in-range programmatic scroll.
+    fn window_at_the_bottom_edge(physics: ScrollPhysics) -> (LayoutWindow, RefAny, ScrollInputQueue) {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 200.0));
+        let queue = layout_window.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(queue.clone(), physics));
+        queue.push(input_dev(1, (0.0, 100.0), ScrollInputSource::Programmatic, ScrollInputDevice::Touchpad));
+        let _ = closed_loop_tick(&mut layout_window, &data);
+        assert_eq!(offset_of(&layout_window, 1).y, 100.0, "seeded at the edge");
+        (layout_window, data, queue)
+    }
+
+    fn finger(delta_y: f32) -> ScrollInput {
+        input_dev(1, (0.0, delta_y), ScrollInputSource::TrackpadContinuous, ScrollInputDevice::Touchpad)
+    }
+
+    fn momentum(delta_y: f32) -> ScrollInput {
+        input_dev(1, (0.0, delta_y), ScrollInputSource::TrackpadMomentum, ScrollInputDevice::Touchpad)
+    }
+
+    fn lift() -> ScrollInput {
+        input_dev(1, (0.0, 0.0), ScrollInputSource::TrackpadEnd, ScrollInputDevice::Touchpad)
+    }
+
+    #[test]
+    fn a_held_finger_past_the_edge_stretches_monotonically_and_independently_of_batching() {
+        let physics = ScrollPhysics::macos();
+        let expected_final = 100.0 + band(&physics, 200.0);
+        let mut finals = Vec::new();
+        // Twenty 10 px deltas: one per tick (60 Hz device), two per tick
+        // (120 Hz device), alternating 1/2 (120 Hz device vs the 62.5 Hz timer —
+        // the real macOS case, which produced a ±1 px sawtooth at ~31 Hz).
+        let patterns: [(&str, Vec<usize>); 3] = [
+            ("1/tick", vec![1; 20]),
+            ("2/tick", vec![2; 10]),
+            ("2,1,2,1", (0..13).map(|i| if i % 2 == 0 { 2 } else { 1 }).collect()),
+        ];
+        for (name, per_tick) in patterns {
+            let total: usize = per_tick.iter().sum();
+            assert_eq!(total, 20, "{name}: every pattern carries the same 20 deltas");
+            let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
+            let mut trace = vec![offset_of(&lw, 1).y];
+            for n in per_tick {
+                for _ in 0..n {
+                    queue.push(finger(10.0));
+                }
+                let _ = closed_loop_tick(&mut lw, &data);
+                let y = offset_of(&lw, 1).y;
+                let prev = *trace.last().unwrap();
+                assert!(
+                    y > prev + 1e-3,
+                    "[{name}] a tick with finger input must stretch further: {prev} -> {y} \
+                     (trace {trace:?})"
+                );
+                trace.push(y);
+            }
+            let last = *trace.last().unwrap();
+            assert!(
+                (last - expected_final).abs() < 0.05,
+                "[{name}] the stretch is D(Σ deltas) = {expected_final}, got {last} (trace {trace:?})"
+            );
+            finals.push(last);
+        }
+        let spread = finals.iter().cloned().fold(f32::MIN, f32::max)
+            - finals.iter().cloned().fold(f32::MAX, f32::min);
+        assert!(spread < 0.05, "batching must not change the stretch: {finals:?}");
+    }
+
+    #[test]
+    fn a_finger_that_pauses_or_creeps_keeps_its_stretch() {
+        let physics = ScrollPhysics::macos();
+        let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
+        let mut trace = vec![offset_of(&lw, 1).y];
+        let step = |lw: &mut LayoutWindow, deltas: &[f32], trace: &mut Vec<f32>| {
+            for d in deltas {
+                queue.push(finger(*d));
+            }
+            let (_, verdict) = closed_loop_tick_full(lw, &data);
+            assert_eq!(
+                verdict,
+                TerminateTimer::Continue,
+                "the timer must stay alive while a finger is down (trace {trace:?})"
+            );
+            let y = offset_of(lw, 1).y;
+            let prev = *trace.last().unwrap();
+            assert!(
+                y >= prev - 1e-3,
+                "the stretch must never shrink while the finger is down: {prev} -> {y} (trace {trace:?})"
+            );
+            trace.push(y);
+        };
+        for _ in 0..6 {
+            step(&mut lw, &[10.0], &mut trace);
+        }
+        let held = *trace.last().unwrap();
+        assert!((held - (100.0 + band(&physics, 60.0))).abs() < 0.05, "{held}");
+        // The finger rests: empty ticks...
+        for _ in 0..3 {
+            step(&mut lw, &[], &mut trace);
+        }
+        // ...and creeps (deltas that pass the 0.01 px gate).
+        for _ in 0..3 {
+            step(&mut lw, &[0.02], &mut trace);
+        }
+        assert!(
+            (*trace.last().unwrap() - held).abs() < 0.1,
+            "a resting finger keeps its stretch (it used to collapse 4.1 -> 1.2 -> 0.4): {trace:?}"
+        );
+        for _ in 0..3 {
+            step(&mut lw, &[10.0], &mut trace);
+        }
+        let end = *trace.last().unwrap();
+        assert!((end - (100.0 + band(&physics, 90.06))).abs() < 0.05, "{end} (trace {trace:?})");
+    }
+
+    #[test]
+    fn the_spring_back_takes_the_configured_bounce_duration_and_lands_exactly() {
+        let physics = ScrollPhysics::macos();
+        let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
+        // Nineteen 10 px deltas: raw 190 px past the edge, a displayed ≈ 40 px.
+        for _ in 0..19 {
+            queue.push(finger(10.0));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        let start = offset_of(&lw, 1).y - 100.0;
+        assert!((start - band(&physics, 190.0)).abs() < 0.05, "{start}");
+        assert!(start > 35.0, "the stretch must reach tens of px now: {start}");
+
+        queue.push(lift());
+        let mut trace = Vec::new();
+        for _ in 0..60 {
+            let _ = closed_loop_tick(&mut lw, &data);
+            trace.push(offset_of(&lw, 1).y - 100.0);
+        }
+        for (i, w) in trace.windows(2).enumerate() {
+            assert!(w[1] <= w[0] + 1e-3, "not monotone at tick {}: {trace:?}", i + 1);
+        }
+        assert!(
+            trace[2] > 0.5 * start,
+            "the bounce is {} ms, not a 3-frame snap: {trace:?}",
+            physics.bounce_back_duration_ms
+        );
+        let landed_at = trace.iter().position(|o| o.abs() < 0.5).expect("the spring lands");
+        assert!(
+            (10..=36).contains(&landed_at),
+            "a {} ms critically-damped bounce lands after ~27 ticks, not {landed_at}: {trace:?}",
+            physics.bounce_back_duration_ms
+        );
+        assert!(
+            trace.iter().all(|o| *o >= -0.01),
+            "the spring must never cross into the content (the old crossing velocity became ~60 px \
+             of drift): {trace:?}"
+        );
+        assert_eq!(trace[trace.len() - 1], 0.0, "lands EXACTLY on the boundary: {trace:?}");
+    }
+
+    #[test]
+    fn momentum_deltas_after_the_finger_lifts_do_not_kill_the_spring_back() {
+        let physics = ScrollPhysics::macos();
+
+        // A: a stretch, a lift, then the OS momentum tail (15 px decaying ×0.93).
+        let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
+        for _ in 0..5 {
+            queue.push(finger(10.0));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        let lifted = offset_of(&lw, 1).y;
+        assert!(lifted > 110.0, "{lifted}");
+        queue.push(lift());
+        let mut trace = vec![lifted];
+        let mut d = 15.0f32;
+        for _ in 0..20 {
+            queue.push(momentum(d));
+            d *= 0.93;
+            let _ = closed_loop_tick(&mut lw, &data);
+            trace.push(offset_of(&lw, 1).y);
+        }
+        queue.push(lift()); // momentumPhase = Ended
+        for _ in 0..40 {
+            let _ = closed_loop_tick(&mut lw, &data);
+            trace.push(offset_of(&lw, 1).y);
+        }
+        for (i, w) in trace.windows(2).enumerate() {
+            assert!(
+                w[1] <= w[0] + 1e-3,
+                "from the lift on the view only returns (a momentum delta used to restart the \
+                 band every tick) — tick {}: {trace:?}",
+                i + 1
+            );
+        }
+        assert_eq!(*trace.last().unwrap(), 100.0, "lands exactly: {trace:?}");
+
+        // B: an in-range fling whose momentum reaches the edge: a bump past
+        // it, then a monotone return — the spring owns the axis from the
+        // first over-edge momentum delta on.
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        register_node(&mut lw, 1, (100.0, 100.0), (100.0, 200.0));
+        let queue = lw.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(queue.clone(), physics));
+        let mut trace = Vec::new();
+        for _ in 0..12 {
+            queue.push(momentum(20.0));
+            let _ = closed_loop_tick(&mut lw, &data);
+            trace.push(offset_of(&lw, 1).y);
+        }
+        queue.push(lift());
+        for _ in 0..80 {
+            let _ = closed_loop_tick(&mut lw, &data);
+            trace.push(offset_of(&lw, 1).y);
+        }
+        let peak = trace.iter().cloned().fold(f32::MIN, f32::max);
+        assert!(peak > 105.0, "the momentum bumps past the edge: {trace:?}");
+        assert!(
+            peak <= 100.0 + physics.max_overscroll_distance + 1e-3,
+            "the bump stays inside the band envelope: {peak}"
+        );
+        let peak_at = trace.iter().position(|y| *y == peak).unwrap();
+        for (i, w) in trace[peak_at..].windows(2).enumerate() {
+            assert!(
+                w[1] <= w[0] + 1e-3,
+                "after the bump the view only returns — tick {}: {trace:?}",
+                peak_at + i + 1
+            );
+        }
+        assert_eq!(*trace.last().unwrap(), 100.0, "lands exactly: {trace:?}");
     }
 }

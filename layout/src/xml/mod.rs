@@ -439,8 +439,21 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     }
                 }
                 "contenteditable" => {
-                    if parse_bool(value.as_str()).unwrap_or(false) {
-                        nd.set_contenteditable(true);
+                    match parse_bool(value.as_str()) {
+                        Some(true) => nd.set_contenteditable(true),
+                        // An explicit `false` is NOT "no attribute": inside an
+                        // editable host it walls its subtree off (HTML's
+                        // inheritance rule, `is_node_contenteditable_inherited`)
+                        // and keeps that subtree out of the host's edit buffer
+                        // and out of the block the edit is shaped into. Dropped
+                        // here, a mounted `<p contenteditable="false">` island
+                        // behaved like any other child — the Rust API's
+                        // `with_attribute(ContentEditable(false))` and the HTML
+                        // loader disagreed on the same document.
+                        Some(false) => attr_vec.push(
+                            azul_core::dom::AttributeType::ContentEditable(false),
+                        ),
+                        None => {}
                     }
                 }
                 _ => {}
@@ -1941,6 +1954,23 @@ mod autotest_generated {
         assert!(!editable("TRUE"));
         assert!(!editable(""));
         assert!(!editable("1"));
+
+        // `contenteditable="false"` is kept as the attribute the editable
+        // inheritance walk and the edit-buffer collector wall a subtree off
+        // by; anything that is not the literal `false` is not.
+        let walled = |v: &str| {
+            let dom = parse_xml_to_fast_dom(&doc(&format!(r#"<div contenteditable="{v}"></div>"#)))
+                .expect("valid");
+            nodes(&dom)[2]
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|a| matches!(a, azul_core::dom::AttributeType::ContentEditable(false)))
+        };
+        assert!(walled("false"));
+        assert!(!walled("true"));
+        assert!(!walled("FALSE"));
+        assert!(!walled(""));
     }
 
     #[test]

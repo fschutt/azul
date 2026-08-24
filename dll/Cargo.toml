@@ -251,6 +251,9 @@ objc2-av-foundation = { version = "0.3.0", default-features = false, optional = 
     "AVCaptureVideoDataOutput",
     "AVCaptureAudioDataOutput",
     "AVMediaFormat",
+    # AVCaptureSession presets (640x480 / 960x540 / 1280x720): the camera
+    # backend captures at the size the widget asked for, not at 1080p.
+    "AVCaptureSessionPreset",
     # requestAccessForMediaType:completionHandler: (TCC prompt) takes an
     # ObjC completion block — gated behind objc2-av-foundation's block2 flag.
     "block2",
@@ -445,6 +448,9 @@ objc2-av-foundation = { version = "0.3.0", default-features = false, optional = 
     "AVCaptureVideoDataOutput",
     "AVCaptureAudioDataOutput",
     "AVMediaFormat",
+    # AVCaptureSession presets (640x480 / 960x540 / 1280x720): the camera
+    # backend captures at the size the widget asked for, not at 1080p.
+    "AVCaptureSessionPreset",
     # requestAccessForMediaType:completionHandler: (TCC prompt) takes an
     # ObjC completion block — gated behind objc2-av-foundation's block2 flag.
     "block2",

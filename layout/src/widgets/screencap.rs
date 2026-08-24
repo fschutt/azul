@@ -8,6 +8,15 @@
 //! re-upload + recomposite). The shared core lives in `capture_common`; this
 //! widget is its config + worker. Test-pattern worker (a moving band) stands
 //! in for the real ScreenCaptureKit / MediaProjection / PipeWire worker.
+//!
+//! ONE CAPTURE, MANY CONSUMERS — exactly as the camera widget: the stream is
+//! opened at the covering size of the tile (device px, via `NodeResized`)
+//! and every registered [`FrameConsumer`]; each frame is cut per consumer
+//! off the main thread (`capture_common::run_capture_loop`). The request
+//! also carries `config.source` (display index / window id) and
+//! `config.fps`, and asks the backend to leave this app's own windows out
+//! of the picture (`exclude_self`), so sharing the desktop that shows the
+//! sharing app does not loop at 30 fps.
 
 use alloc::vec::Vec;
 
@@ -15,19 +24,29 @@ use azul_core::callbacks::Update;
 use azul_core::dom::{ComponentEventFilter, DatasetMergeCallbackType, Dom, EventFilter};
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::{ImageRef, RawImageFormat};
-use azul_core::screencap::ScreenCaptureConfig;
-use azul_core::task::{ThreadId, ThreadReceiver};
-
-use azul_core::video::VideoFrame;
+use azul_core::screencap::{ScreenCaptureConfig, ScreenCaptureSource};
+use azul_core::task::{ThreadId, ThreadReceiver, ThreadSendMsg};
+use azul_core::video::{FrameConsumer, FrameConsumerVec};
 
 use super::capture_common::{
-    invoke_on_frame, present_frame, screen_backend, terminate_requested, OnVideoFrame,
-    OnVideoFrameCallback, OptionOnVideoFrame,
+    frame_resampler, present_captured, preview_size_for_node, run_capture_loop, screen_backend,
+    send_capture_targets, test_pattern_vtable, CaptureRequest, CaptureSession, CaptureTargets,
+    CapturedFrames, OnConsumerFrame, OnConsumerFrameCallback, OnVideoFrame, OnVideoFrameCallback,
+    OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern, REOPEN_COOLDOWN_MS,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
-use crate::thread::{
-    Thread, ThreadCallback, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg, WriteBackCallback,
-};
+use crate::thread::{Thread, ThreadCallback, ThreadSender};
+
+/// Init data handed to the capture worker thread.
+struct ScreencapThreadInit {
+    /// The request's source + fps + exclusion (size filled in per reopen).
+    request: CaptureRequest,
+    /// Who wants frames at mount time.
+    targets: CaptureTargets,
+    /// The size the capture never drops below (an `on_frame` hook expects
+    /// frames "as configured": the default size).
+    floor: Option<(u32, u32)>,
+}
 
 /// Default capture size for the test pattern (the real backend reports the
 /// source's actual size).
@@ -47,6 +66,30 @@ pub struct ScreenCaptureWidgetState {
     /// Optional user hook invoked with each captured frame (effects / save /
     /// send). Re-set on every fresh build (see [`merge_screencap_state`]).
     pub on_frame: OptionOnVideoFrame,
+    /// Every registered consumer (see [`FrameConsumer`]). Re-set on every
+    /// fresh build; a change is pushed to the running worker.
+    pub consumers: FrameConsumerVec,
+    /// Optional hook receiving every consumer's cut of every frame.
+    pub on_consumer_frame: OptionOnConsumerFrame,
+    /// The capture worker, once started (`NodeResized` messages it).
+    pub thread_id: Option<ThreadId>,
+    /// The main->worker sender, cloned at mount so the merge callback can
+    /// push a changed consumer list without a `CallbackInfo`.
+    pub control: Option<std::sync::mpsc::Sender<ThreadSendMsg>>,
+    /// The tile's last reported device size.
+    pub preview: Option<(u32, u32)>,
+}
+
+impl ScreenCaptureWidgetState {
+    /// The worker's view of who wants frames, from this state.
+    #[must_use]
+    pub fn targets(&self) -> CaptureTargets {
+        CaptureTargets {
+            preview: self.preview,
+            consumers: self.consumers.as_ref().to_vec(),
+            wants_source: self.on_frame.is_some(),
+        }
+    }
 }
 
 /// A screen-capture widget. `create(config).dom()` yields an `<img>` the
@@ -58,6 +101,11 @@ pub struct ScreenCaptureWidget {
     pub config: ScreenCaptureConfig,
     /// Optional per-frame user hook (effects / save / send - azul-meet).
     pub on_frame: OptionOnVideoFrame,
+    /// Consumers of the captured frames beyond the on-screen tile: each gets
+    /// its own cut of every frame at its requested size.
+    pub consumers: FrameConsumerVec,
+    /// Optional hook receiving each consumer's cut (see `consumers`).
+    pub on_consumer_frame: OptionOnConsumerFrame,
 }
 
 impl ScreenCaptureWidget {
@@ -66,7 +114,47 @@ impl ScreenCaptureWidget {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
+            consumers: FrameConsumerVec::from_const_slice(&[]),
+            on_consumer_frame: OptionOnConsumerFrame::None,
         }
+    }
+
+    /// Register a consumer of the captured frames (see
+    /// `CameraWidget::add_consumer` - identical semantics: one capture at
+    /// the covering size, one cut per consumer, same-id replaces).
+    pub fn add_consumer(&mut self, consumer: FrameConsumer) {
+        let mut all: Vec<FrameConsumer> = self.consumers.as_ref().to_vec();
+        all.retain(|c| c.id != consumer.id);
+        all.push(consumer);
+        self.consumers = all.into();
+    }
+
+    /// Builder form of [`add_consumer`](Self::add_consumer).
+    #[must_use]
+    pub fn with_consumer(mut self, consumer: FrameConsumer) -> Self {
+        self.add_consumer(consumer);
+        self
+    }
+
+    /// Set the hook that receives every consumer's cut of every captured
+    /// frame (route on `frame.consumer.id`).
+    pub fn set_on_consumer_frame<C: Into<OnConsumerFrameCallback>>(&mut self, data: RefAny, on_consumer_frame: C) {
+        self.on_consumer_frame = Some(OnConsumerFrame {
+            refany: data,
+            callback: on_consumer_frame.into(),
+        })
+        .into();
+    }
+
+    /// Builder form of [`set_on_consumer_frame`](Self::set_on_consumer_frame).
+    #[must_use]
+    pub fn with_on_consumer_frame<C: Into<OnConsumerFrameCallback>>(
+        mut self,
+        data: RefAny,
+        on_consumer_frame: C,
+    ) -> Self {
+        self.set_on_consumer_frame(data, on_consumer_frame);
+        self
     }
 
     /// Set a hook invoked with every captured frame - for live effects, saving
@@ -99,6 +187,11 @@ impl ScreenCaptureWidget {
             started: false,
             gl_texture_id: None,
             on_frame: self.on_frame,
+            consumers: self.consumers,
+            on_consumer_frame: self.on_consumer_frame,
+            thread_id: None,
+            control: None,
+            preview: None,
         };
         let dataset = RefAny::new(state);
 
@@ -114,15 +207,52 @@ impl ScreenCaptureWidget {
             .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_screencap_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
-                dataset,
+                dataset.clone(),
                 Callback::from_ptr(screencap_on_after_mount),
+            )
+            // The tile's device size feeds the stream size + the preview cut.
+            .with_callback(
+                EventFilter::Component(ComponentEventFilter::NodeResized),
+                dataset,
+                Callback::from_ptr(screencap_on_resize),
             )
     }
 }
 
-/// `AfterMount`: start the background capture thread exactly once.
+/// The backend request for a config: `source` -> display index / window id,
+/// `fps`, and this app's own windows excluded (the feedback-loop fix).
+const fn capture_request(config: &ScreenCaptureConfig) -> CaptureRequest {
+    let (index, window) = match config.source {
+        ScreenCaptureSource::PrimaryDisplay => (0, 0),
+        ScreenCaptureSource::Display(i) => (i, 0),
+        ScreenCaptureSource::Window(id) => (0, id),
+    };
+    CaptureRequest {
+        index,
+        window,
+        width: 0,
+        height: 0,
+        fps: config.fps,
+        exclude_self: true,
+    }
+}
+
+/// The size the stream never drops below: the default size when an
+/// `on_frame` hook expects frames as before; otherwise the tile and the
+/// consumers decide (a 320x180 share tile streams 320x180, not 1280x720).
+const fn capture_floor(wants_source: bool) -> Option<(u32, u32)> {
+    if wants_source {
+        Some((DEFAULT_W, DEFAULT_H))
+    } else {
+        None
+    }
+}
+
+/// `AfterMount`: start the background capture thread exactly once, telling
+/// it who wants frames (the tile's size if layout already produced one).
 extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    {
+    let preview = preview_size_for_node(&info);
+    let init = {
         let Some(mut s) = data.downcast_mut::<ScreenCaptureWidgetState>() else {
             return Update::DoNothing;
         };
@@ -130,134 +260,88 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
             return Update::DoNothing;
         }
         s.started = true;
+        s.preview = preview;
+        ScreencapThreadInit {
+            request: capture_request(&s.config),
+            targets: s.targets(),
+            floor: capture_floor(s.on_frame.is_some()),
+        }
+    };
+    let tid = ThreadId::unique();
+    let thread = Thread::create(RefAny::new(init), data.clone(), ThreadCallback::new(screencap_worker));
+    let control = thread.clone_sender();
+    info.add_thread(tid, thread);
+    if let Some(mut s) = data.downcast_mut::<ScreenCaptureWidgetState>() {
+        s.thread_id = Some(tid);
+        s.control = control;
     }
-    info.add_thread(
-        ThreadId::unique(),
-        Thread::create(
-            RefAny::new(()),
-            data.clone(),
-            ThreadCallback::new(screencap_worker),
-        ),
-    );
     Update::DoNothing
 }
 
-/// Background worker (test pattern): a downward-moving white band on dark grey,
-/// ~30x/s. Replaced by the real `ScreenCaptureKit` / `MediaProjection` worker.
+/// `NodeResized`: the tile's device size changed — tell the worker (see
+/// `camera_on_resize`). A message, not a relayout: returns `DoNothing`.
+extern "C" fn screencap_on_resize(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(preview) = preview_size_for_node(&info) else {
+        return Update::DoNothing;
+    };
+    let (tid, targets) = {
+        let Some(mut s) = data.downcast_mut::<ScreenCaptureWidgetState>() else {
+            return Update::DoNothing;
+        };
+        if s.preview == Some(preview) {
+            return Update::DoNothing;
+        }
+        s.preview = Some(preview);
+        (s.thread_id, s.targets())
+    };
+    if let Some(tid) = tid {
+        send_capture_targets(&info, tid, targets);
+    }
+    Update::DoNothing
+}
+
+/// Background worker: the shared capture loop over the registered screen
+/// backend (`ScreenCaptureKit` / `PipeWire` / X11 / DXGI), else the moving-band
+/// test pattern — see `capture_common::run_capture_loop`.
 extern "C" fn screencap_worker(
-    _init: RefAny,
+    mut init: RefAny,
     mut sender: ThreadSender,
     mut recv: ThreadReceiver,
 ) {
-    // Real platform capture if the dll registered a screen backend
-    // (ScreenCaptureKit / X11 / DXGI; Wayland stays a dummy); else the test pattern.
-    if let Some(backend) = screen_backend() {
-        let handle = (backend.open)(0, DEFAULT_W, DEFAULT_H);
-        if handle != 0 {
-            let mut buf: Vec<u8> = Vec::new();
-            loop {
-                // See `capture_common::terminate_requested`: without this the
-                // screen worker never observed `TerminateThread` and was
-                // DETACHED at shutdown.
-                if terminate_requested(&mut recv) {
-                    break;
-                }
-                let (fw, fh) = (backend.read)(handle, &mut buf);
-                if fw == 0 || fh == 0 {
-                    break;
-                }
-                let frame = VideoFrame {
-                    width: fw,
-                    height: fh,
-                    bytes: buf.clone().into(),
-                };
-                if !sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
-                    WriteBackCallback::new(screencap_writeback),
-                    RefAny::new(frame),
-                ))) {
-                    break;
-                }
-            }
-            (backend.close)(handle);
-            return;
-        }
-    }
-
-    // Reaching here means a ScreenCaptureWidget is on screen and about to show
-    // the TEST PATTERN instead of the screen — say why, once. The dll-side
-    // [screencap] lines (if any) carry the detailed cause right above.
-    {
-        static TEST_PATTERN_ANNOUNCE: std::sync::Once = std::sync::Once::new();
-        let have_backend = screen_backend().is_some();
-        TEST_PATTERN_ANNOUNCE.call_once(|| {
-            if have_backend {
-                eprintln!(
-                    "[azul][screencap] the platform screen-capture backend failed to \
-                     open (see [screencap] lines above for the cause) — showing the \
-                     moving-band TEST PATTERN instead of the screen"
-                );
-            } else {
-                eprintln!(
-                    "[azul][screencap] no screen-capture backend is registered in this \
-                     build/OS — showing the moving-band TEST PATTERN instead of the \
-                     screen"
-                );
-            }
-        });
-    }
-
-    let (w, h) = (DEFAULT_W as usize, DEFAULT_H as usize);
-    let mut tick: u32 = 0;
-    loop {
-        if terminate_requested(&mut recv) {
-            break;
-        }
-        let band = (tick as usize) % h;
-        let mut bytes = Vec::with_capacity(w * h * 4);
-        for y in 0..h {
-            let v = if y.abs_diff(band) < 8 { 235u8 } else { 28u8 };
-            for _ in 0..w {
-                bytes.extend_from_slice(&[v, v, v, 255]);
-            }
-        }
-        let frame = VideoFrame {
-            width: u32::try_from(w).unwrap_or(0),
-            height: u32::try_from(h).unwrap_or(0),
-            bytes: bytes.into(),
-        };
-        let sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
-            WriteBackCallback::new(screencap_writeback),
-            RefAny::new(frame),
-        )));
-        if !sent {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(33));
-        tick = tick.wrapping_add(12);
-    }
+    let (targets, request, floor) = match init.downcast_ref::<ScreencapThreadInit>() {
+        Some(i) => (i.targets.clone(), i.request, i.floor),
+        None => (CaptureTargets::default(), CaptureRequest::new(0, 0, 0), None),
+    };
+    let session = CaptureSession {
+        backend: screen_backend(),
+        test_pattern: test_pattern_vtable(TestPattern::MovingBand),
+        request,
+        floor,
+        fallback: (DEFAULT_W, DEFAULT_H),
+        writeback: screencap_writeback,
+        resample: frame_resampler(),
+        reopen_cooldown_ms: REOPEN_COOLDOWN_MS,
+    };
+    run_capture_loop(session, targets, &mut sender, &mut recv);
 }
 
-/// Writeback (main thread): hand the frame to the shared GL presenter and
-/// store the (stable) texture id.
+/// Writeback (main thread): run the hooks and put the preview cut (else the
+/// captured frame) on the node — `capture_common::present_captured`.
 extern "C" fn screencap_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let (current, hook) = writeback_data.downcast_ref::<ScreenCaptureWidgetState>().map_or_else(|| (None, OptionOnVideoFrame::None), |s| (s.gl_texture_id, s.on_frame.clone()));
-    let mut user_update = Update::DoNothing;
-    let new_id = match frame_data.downcast_ref::<VideoFrame>() {
-        Some(frame) => {
-            let id = present_frame(&mut info, writeback_data.clone(), current, &frame);
-            user_update = invoke_on_frame(&hook, &mut info, &frame);
-            id
-        }
-        None => return Update::DoNothing,
+    let (on_frame, on_consumer_frame) = writeback_data
+        .downcast_ref::<ScreenCaptureWidgetState>()
+        .map_or_else(
+            || (OptionOnVideoFrame::None, OptionOnConsumerFrame::None),
+            |s| (s.on_frame.clone(), s.on_consumer_frame.clone()),
+        );
+    let Some(mut captured) = frame_data.downcast_mut::<CapturedFrames>() else {
+        return Update::DoNothing;
     };
-    if let Some(mut s) = writeback_data.downcast_mut::<ScreenCaptureWidgetState>() {
-        s.gl_texture_id = new_id;
-    }
-    user_update
+    present_captured(&mut info, writeback_data.clone(), &on_frame, &on_consumer_frame, &mut captured)
 }
 
 /// Carry live state forward across relayout.
@@ -273,8 +357,18 @@ extern "C" fn merge_screencap_state(mut new_data: RefAny, mut old_data: RefAny) 
         let new_guard = new_data.downcast_ref::<ScreenCaptureWidgetState>();
         let old_guard = old_data.downcast_mut::<ScreenCaptureWidgetState>();
         if let (Some(new_g), Some(mut old_g)) = (new_guard, old_guard) {
+            let worker_cares = old_g.consumers != new_g.consumers
+                || old_g.on_frame.is_some() != new_g.on_frame.is_some();
             old_g.config = new_g.config;
             old_g.on_frame = new_g.on_frame.clone();
+            old_g.consumers = new_g.consumers.clone();
+            old_g.on_consumer_frame = new_g.on_consumer_frame.clone();
+            if worker_cares {
+                let targets = old_g.targets();
+                if let Some(snd) = old_g.control.as_ref() {
+                    drop(snd.send(ThreadSendMsg::Custom(RefAny::new(targets))));
+                }
+            }
             true
         } else {
             // Foreign / mismatched payloads (one side is not this widget's
@@ -313,12 +407,12 @@ mod autotest_generated {
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
         resources::{DecodedImage, RendererResources},
-        screencap::ScreenCaptureSource,
         styled_dom::NodeHierarchyItemId,
         task::{
             OptionThreadSendMsg, ThreadReceiverDestructorCallback, ThreadReceiverInner,
-            ThreadRecvCallback, ThreadSendMsg,
+            ThreadRecvCallback,
         },
+        video::VideoFrame,
         window::{MonitorVec, RawWindowHandle},
     };
     use azul_css::system::SystemStyle;
@@ -329,7 +423,7 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
-        thread::{ThreadSendCallback, ThreadSenderDestructorCallback, ThreadSenderInner},
+        thread::{ThreadReceiveMsg, ThreadSendCallback, ThreadSenderDestructorCallback, ThreadSenderInner},
         widgets::capture_common::OnVideoFrameCallbackType,
         window::LayoutWindow,
         window_state::FullWindowState,
@@ -405,6 +499,21 @@ mod autotest_generated {
             started,
             gl_texture_id,
             on_frame: OptionOnVideoFrame::None,
+            consumers: FrameConsumerVec::from_const_slice(&[]),
+            on_consumer_frame: OptionOnConsumerFrame::None,
+            thread_id: None,
+            control: None,
+            preview: None,
+        })
+    }
+
+    /// The writeback payload the worker queues for one captured `frame`.
+    fn captured(frame: VideoFrame) -> RefAny {
+        RefAny::new(CapturedFrames {
+            source: Some(frame),
+            preview: None,
+            consumers: Vec::new(),
+            in_flight: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
         })
     }
 
@@ -488,6 +597,11 @@ mod autotest_generated {
                 callback: (record_frame as OnVideoFrameCallbackType).into(),
             })
             .into(),
+            consumers: FrameConsumerVec::from_const_slice(&[]),
+            on_consumer_frame: OptionOnConsumerFrame::None,
+            thread_id: None,
+            control: None,
+            preview: None,
         })
     }
 
@@ -588,7 +702,10 @@ mod autotest_generated {
     /// 33 ms while doing so).
     extern "C" fn record_and_stop(_sender: *const core::ffi::c_void, msg: ThreadReceiveMsg) -> bool {
         if let ThreadReceiveMsg::WriteBack(mut wb) = msg {
-            if let Some(f) = wb.refany.downcast_ref::<VideoFrame>() {
+            if let Some(c) = wb.refany.downcast_ref::<CapturedFrames>() {
+                let Some(f) = c.preview.as_ref().or(c.source.as_ref()) else {
+                    return false;
+                };
                 let bytes = f.bytes.as_ref();
                 let stride = (f.width as usize) * 4;
                 let mut row_values = Vec::new();
@@ -885,8 +1002,8 @@ mod autotest_generated {
         let callbacks = dom.root.get_callbacks();
         assert_eq!(
             callbacks.as_ref().len(),
-            1,
-            "exactly one callback: the AfterMount capture-thread starter"
+            2,
+            "two callbacks: the AfterMount capture-thread starter + the NodeResized re-targeter"
         );
         assert_eq!(
             callbacks.as_ref()[0].event,
@@ -1059,6 +1176,31 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
+    // capture_request / capture_floor — the config reaches the backend
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn the_config_source_and_fps_reach_the_backend_request_with_self_excluded() {
+        // `config.source` and `config.fps` used to be ignored: the worker
+        // opened display 0 at a hard-coded size and the backend ran at a
+        // hard-coded 30 fps.
+        let mut cfg = ScreenCaptureConfig {
+            fps: 15,
+            source: ScreenCaptureSource::Display(2),
+            ..ScreenCaptureConfig::default()
+        };
+        let r = capture_request(&cfg);
+        assert_eq!((r.index, r.window, r.fps), (2, 0, 15));
+        assert!(r.exclude_self, "a share never shows the sharing app to itself");
+        cfg.source = ScreenCaptureSource::Window(0xABCD);
+        assert_eq!(capture_request(&cfg).window, 0xABCD);
+        cfg.source = ScreenCaptureSource::PrimaryDisplay;
+        assert_eq!(capture_request(&cfg).index, 0);
+        assert_eq!(capture_floor(false), None, "no hook: the tile + consumers size the stream");
+        assert_eq!(capture_floor(true), Some((DEFAULT_W, DEFAULT_H)));
+    }
+
+    // ------------------------------------------------------------------
     // screencap_worker
     // ------------------------------------------------------------------
 
@@ -1158,7 +1300,7 @@ mod autotest_generated {
         ] {
             let mut log = frame_log(reply);
             let mut data = state_with_hook(DEFAULT_CFG, &log);
-            let frame_data = RefAny::new(frame(2, 2));
+            let frame_data = captured(frame(2, 2));
 
             let (update, _) = with_callback_info(|info| {
                 screencap_writeback(data.clone(), frame_data.clone(), info)
@@ -1193,7 +1335,7 @@ mod autotest_generated {
     #[test]
     fn writeback_survives_a_writeback_dataset_that_is_not_a_screencap_state() {
         let (update, changes) = with_callback_info(|info| {
-            screencap_writeback(RefAny::new(0_u32), RefAny::new(frame(1, 1)), info)
+            screencap_writeback(RefAny::new(0_u32), captured(frame(1, 1)), info)
         });
 
         assert_eq!(
@@ -1211,7 +1353,7 @@ mod autotest_generated {
     fn writeback_keeps_a_preexisting_texture_id_on_the_cpu_path() {
         for current in [Some(0_u32), Some(42), Some(u32::MAX)] {
             let mut data = state(DEFAULT_CFG, true, current);
-            let frame_data = RefAny::new(frame(2, 2));
+            let frame_data = captured(frame(2, 2));
 
             let (update, _) = with_callback_info(|info| {
                 screencap_writeback(data.clone(), frame_data.clone(), info)
@@ -1237,7 +1379,7 @@ mod autotest_generated {
             (2, 2, Vec::new()),
         ] {
             let mut data = state(DEFAULT_CFG, true, None);
-            let bogus = RefAny::new(frame_raw(w, h, bytes.clone()));
+            let bogus = captured(frame_raw(w, h, bytes.clone()));
 
             let (update, changes) =
                 with_callback_info(|info| screencap_writeback(data.clone(), bogus.clone(), info));
@@ -1260,7 +1402,7 @@ mod autotest_generated {
         // so `on_frame` is NOT a "this frame was valid" signal.
         let mut log = frame_log(Update::RefreshDom);
         let mut data = state_with_hook(DEFAULT_CFG, &log);
-        let bogus = RefAny::new(frame_raw(u32::MAX, 1, Vec::new()));
+        let bogus = captured(frame_raw(u32::MAX, 1, Vec::new()));
 
         let (update, changes) =
             with_callback_info(|info| screencap_writeback(data.clone(), bogus.clone(), info));
@@ -1280,7 +1422,7 @@ mod autotest_generated {
         // is installed as a degenerate image. Pin that it stays panic-free and
         // leaves the texture id alone.
         let mut data = state(DEFAULT_CFG, true, Some(2));
-        let empty = RefAny::new(frame_raw(0, 0, Vec::new()));
+        let empty = captured(frame_raw(0, 0, Vec::new()));
 
         let (update, _) =
             with_callback_info(|info| screencap_writeback(data.clone(), empty.clone(), info));
@@ -1300,7 +1442,7 @@ mod autotest_generated {
         // hold in both modes is that the widget's stored texture id is never
         // corrupted and the process is still usable afterwards.
         let mut data = state(DEFAULT_CFG, true, Some(11));
-        let huge = RefAny::new(frame_raw(1_u32 << 31, 1_u32 << 31, Vec::new()));
+        let huge = captured(frame_raw(1_u32 << 31, 1_u32 << 31, Vec::new()));
 
         let (result, _) = with_callback_info(|info| {
             catch_unwind(AssertUnwindSafe(|| {
@@ -1359,6 +1501,11 @@ mod autotest_generated {
             started: true,
             gl_texture_id: Some(77),
             on_frame: OptionOnVideoFrame::None,
+            consumers: FrameConsumerVec::from_const_slice(&[]),
+            on_consumer_frame: OptionOnConsumerFrame::None,
+            thread_id: None,
+            control: None,
+            preview: None,
         });
         let old_data = state(DEFAULT_CFG, false, None);
 

@@ -62,11 +62,18 @@ fn labelled(label: &str, widget: Dom) -> Dom {
         .with_child(
             // The caption is one of two flex items, so the styling has to land
             // on a real box: a bare text node has none, and the margin, weight
-            // and colour would all be inert.
-            Dom::create_div_with_text(label)
+            // and colour would all be inert. A SPAN rather than a div — this is
+            // a label, and a div says nothing about what the text is.
+            Dom::create_span_with_text(label)
                 .with_css("font-size: 12px; font-weight: bold; color: #667085; margin-bottom: 6px;"),
         )
-        .with_child(widget)
+        // The caption a sighted user reads IS the control's name, so give it to
+        // the accessibility tree too. A slider is a track and a thumb with no
+        // text of its own, and an icon-only button's label is a glyph: the
+        // widget genuinely cannot know what it is called, only this call site
+        // does. `with_accessibility_name` MERGES, so the role and live value
+        // the widget declared survive.
+        .with_child(widget.with_accessibility_name(label))
 }
 
 /// A titled card grouping several labelled widgets.
@@ -493,16 +500,35 @@ extern "C" fn on_dropdown(mut data: RefAny, _: CallbackInfo, choice: usize) -> U
 }
 
 // High-level widgets — wrapper-struct callbacks (third arg is the widget State).
-extern "C" fn on_switch(mut data: RefAny, _: CallbackInfo, _: SwitchState) -> Update {
+//
+// THE CONTROLLED-WIDGET RULE: a widget reports its new state through the
+// callback, the app STORES it, and the `RefreshDom` rebuilds the widget from
+// the stored value. A callback that only counts and refreshes rebuilds the
+// widget at the OLD value — which is what made the Switch look like it did
+// not respond to clicks, and the slider leave a thumb at 40 under the
+// pointer (demo test 2026-08-21). Every stateful widget below stores first.
+extern "C" fn on_switch(mut data: RefAny, _: CallbackInfo, state: SwitchState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.switch_on = state.checked;
+    }
     bump(&mut data)
 }
-extern "C" fn on_slider(mut data: RefAny, _: CallbackInfo, _: SliderState) -> Update {
+extern "C" fn on_slider(mut data: RefAny, _: CallbackInfo, state: SliderState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.slider_value = state.value;
+    }
     bump(&mut data)
 }
-extern "C" fn on_segmented(mut data: RefAny, _: CallbackInfo, _: SegmentedState) -> Update {
+extern "C" fn on_segmented(mut data: RefAny, _: CallbackInfo, state: SegmentedState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.selected_segment = state.selected_index;
+    }
     bump(&mut data)
 }
-extern "C" fn on_radio(mut data: RefAny, _: CallbackInfo, _: RadioGroupState) -> Update {
+extern "C" fn on_radio(mut data: RefAny, _: CallbackInfo, state: RadioGroupState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.selected_radio = state.selected_index;
+    }
     bump(&mut data)
 }
 extern "C" fn on_textarea_focus_lost(mut data: RefAny, _: CallbackInfo, _: TextAreaState) -> Update {
@@ -529,10 +555,16 @@ extern "C" fn on_accordion(mut data: RefAny, _: CallbackInfo, _: usize) -> Updat
 extern "C" fn on_breadcrumb(mut data: RefAny, _: CallbackInfo, _: BreadcrumbState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_pagination(mut data: RefAny, _: CallbackInfo, _: PaginationState) -> Update {
+extern "C" fn on_pagination(mut data: RefAny, _: CallbackInfo, state: PaginationState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.current_page = state.current_page;
+    }
     bump(&mut data)
 }
-extern "C" fn on_stepper(mut data: RefAny, _: CallbackInfo, _: StepperState) -> Update {
+extern "C" fn on_stepper(mut data: RefAny, _: CallbackInfo, state: StepperState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.current_step = state.current_step;
+    }
     bump(&mut data)
 }
 extern "C" fn on_popover(mut data: RefAny, _: CallbackInfo, _: PopoverState) -> Update {

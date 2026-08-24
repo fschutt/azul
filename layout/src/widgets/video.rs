@@ -307,8 +307,10 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
 /// the running decode worker the new target size via its `ThreadSender` so it scales
 /// frames to fit OFF the main thread - the UI then does a cheap image swap with no
 /// interpolation. This is a message, NOT a relayout: returns `DoNothing`.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
-extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Update {
+///
+/// The size is in DEVICE pixels (`capture_common::preview_size_for_node`):
+/// the logical size undersized a Retina video by 2x.
+extern "C" fn video_on_resize(mut data: RefAny, info: CallbackInfo) -> Update {
     let tid = match data.downcast_ref::<VideoWidgetState>() {
         Some(s) => s.thread_id,
         None => return Update::DoNothing,
@@ -316,11 +318,9 @@ extern "C" fn video_on_resize(mut data: RefAny, mut info: CallbackInfo) -> Updat
     let Some(tid) = tid else {
         return Update::DoNothing;
     };
-    let node = info.get_hit_node();
-    let Some(size) = info.get_node_size(node) else {
+    let Some(target) = super::capture_common::preview_size_for_node(&info) else {
         return Update::DoNothing;
     };
-    let target = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
     if let Some(thread) = info.get_thread(&tid) {
         // Best-effort resize notification: if the decode worker has already
         // exited, the send fails and there is nothing to do here.

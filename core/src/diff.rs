@@ -25,6 +25,7 @@ use crate::{
     },
     geom::LogicalRect,
     id::NodeId,
+    refany::RefAny,
     styled_dom::{ChangedCssProperty, NodeHierarchyItemId, NodeHierarchyItem, RestyleResult, StyledNodeState},
     task::Instant,
     OrderedMap,
@@ -764,6 +765,7 @@ fn create_lifecycle_event(
         stopped: false,
         stopped_immediate: false,
         prevented_default: false,
+        at_target_only: false,
     }
 }
 
@@ -835,6 +837,128 @@ fn has_update_callback(node: &NodeData) -> bool {
     map
 }
 
+/// Suppression tag for the image-churn lint, honored from `AZ_SUPPRESS`.
+pub const IMAGE_CHURN_SUPPRESS_TAG: &str = "image_churn";
+
+/// Re-initialisations per second above which an image node is churning.
+///
+/// A widget legitimately rebuilds its image node with a placeholder now and
+/// then — the first build after mount has no frame yet. Doing it dozens of
+/// times a second means a LIVE image is being discarded and re-awaited on every
+/// frame, which is a bug in how the node is built, not in the content.
+const IMAGE_CHURN_PER_SEC: u32 = 10;
+
+/// The framework notices, by itself, when an image node re-initialises at frame
+/// rate — and says what is almost always wrong.
+///
+/// The symptom is a video or capture node that flickers: it holds a real frame,
+/// the DOM rebuilds, the fresh node carries only a placeholder, and the live
+/// image is thrown away until the next frame arrives 16-33ms later. On a
+/// resizing window, which rebuilds continuously, that is a continuous flash.
+///
+/// The cause is almost always a missing DATASET + merge callback. Without one
+/// the reconciler cannot tell that the rebuilt node is the same widget, so it
+/// has nothing to carry forward — see `transfer_states`, which does carry the
+/// previous frame when a merge callback exists.
+///
+/// Detection lives HERE, in the reconciler, because neither DOM shows it alone:
+/// the old build has a frame, the new build has a placeholder, and only the
+/// pair reveals the churn. No user code has to opt in.
+/// Per-node churn bookkeeping: `(count, window_start, warned)`.
+///
+/// Shared with the tests so the detector can be asserted on directly, instead
+/// of only through a message on stderr that nothing can observe.
+#[cfg(feature = "std")]
+type ImageChurnMap = BTreeMap<usize, (u32, std::time::Instant, bool)>;
+
+#[cfg(feature = "std")]
+fn image_churn_state() -> &'static std::sync::Mutex<ImageChurnMap> {
+    use std::sync::{Mutex, OnceLock};
+    static CHURN: OnceLock<Mutex<ImageChurnMap>> = OnceLock::new();
+    CHURN.get_or_init(|| Mutex::new(ImageChurnMap::new()))
+}
+
+/// How many times this node has re-initialised inside the current window.
+#[cfg(all(feature = "std", test))]
+pub(crate) fn image_churn_count(node_index: usize) -> u32 {
+    image_churn_state()
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&node_index).map(|e| e.0))
+        .unwrap_or(0)
+}
+
+#[cfg(feature = "std")]
+fn note_image_reinitialised(node_index: usize, carried: bool) {
+    use std::{
+        collections::BTreeMap,
+        sync::{Mutex, OnceLock},
+        time::Instant,
+    };
+
+    static SUPPRESSED: OnceLock<bool> = OnceLock::new();
+    if *SUPPRESSED.get_or_init(|| {
+        let v = std::env::var("AZ_SUPPRESS")
+            .or_else(|_| std::env::var("AZ_SUPRESS"))
+            .unwrap_or_default();
+        v.split(',')
+            .any(|t| t.trim().eq_ignore_ascii_case(IMAGE_CHURN_SUPPRESS_TAG))
+    }) {
+        return;
+    }
+
+    // Per node: how many times it re-initialised, when that window started, and
+    // whether we have already said so. "The time it was last updated and how
+    // much" is the whole state — no history, no allocation per event.
+    let churn = image_churn_state();
+    let Ok(mut map) = churn.lock() else {
+        return; // a poisoned lint counter must never take the app down
+    };
+
+    let now = Instant::now();
+    let entry = map.entry(node_index).or_insert((0, now, false));
+    if now.duration_since(entry.1).as_secs_f32() >= 1.0 {
+        *entry = (1, now, entry.2);
+        return;
+    }
+    entry.0 += 1;
+
+    // Warn once per node. This runs on every rebuild of a resizing window; a
+    // warning per frame would bury the message it is trying to deliver.
+    if entry.0 < IMAGE_CHURN_PER_SEC || entry.2 {
+        return;
+    }
+    entry.2 = true;
+    let rate = entry.0;
+
+    if carried {
+        crate::diagnostics::emit(format!(
+            "[azul][image-churn] node {node_index} rebuilt its image as a \
+             PLACEHOLDER {rate}x in one second. The previous frame was carried \
+             forward each time, so nothing flickers — but a live image node is \
+             being reconstructed every frame. If this is not a capture widget, \
+             build the node once and update it through the image cache. \
+             (suppress with AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
+        ));
+    } else {
+        crate::diagnostics::emit(format!(
+            "[azul][image-churn] node {node_index} rebuilt its image as a \
+             PLACEHOLDER {rate}x in one second and the previous frame could NOT \
+             be carried forward: this node has NO DATASET + merge callback, so \
+             the reconciler cannot tell the rebuilt node is the same widget. The \
+             live image is discarded every frame and the node falls back to its \
+             placeholder until the next one arrives — a continuous flicker. If \
+             this is a video or camera node, it is almost certainly missing its \
+             dataset: attach one with a DatasetMergeCallback (see MapWidget / \
+             ScreenCaptureWidget). \
+             (suppress with AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
+        ));
+    }
+}
+
+#[cfg(not(feature = "std"))]
+fn note_image_reinitialised(_node_index: usize, _carried: bool) {}
+
 /// Executes state migration between the old DOM and the new DOM based on diff results.
 ///
 /// This iterates through matched nodes. If a match has BOTH a merge callback AND a dataset,
@@ -875,6 +999,17 @@ pub fn transfer_states(
 
         // 1. Check if the NEW node has requested a merge callback
         let Some(merge_callback) = new_node_data[new_idx].get_merge_callback() else {
+            // No merge callback — nothing can be carried forward. If this node
+            // is an image that just reverted to a placeholder while the old
+            // build held a real frame, that live frame is being DISCARDED, and
+            // at frame rate it is a visible flicker. This is the "forgot the
+            // dataset on a video node" case, and the framework can see it
+            // without anyone asking.
+            if new_node_data[new_idx].image_is_placeholder()
+                && !old_node_data[old_idx].image_is_placeholder()
+            {
+                note_image_reinitialised(new_idx, false);
+            }
             continue; // No merge callback, skip
         };
 
@@ -903,6 +1038,40 @@ pub fn transfer_states(
                 // The callback receives both datasets and returns the merged result
                 let merged = (merge_callback.cb)(new_data, old_data);
 
+                // 3b. CARRY THE LIVE IMAGE FORWARD.
+                //
+                // A merge callback ran, so this is the SAME logical widget as
+                // before — the reconciler matched them and the widget asked for
+                // its state to persist. A capture widget rebuilds its node with
+                // a PLACEHOLDER every time (`Dom::create_image(null_image)`),
+                // because the fresh widget struct has no frame yet; the live
+                // frame arrives later by writeback. So on every DOM rebuild the
+                // node reverted to the placeholder and stayed there until the
+                // next frame landed ~16-33ms later.
+                //
+                // That is the flash reported when resizing a window while
+                // screensharing: "the screen flickers, like it is
+                // re-initializing". Nothing was re-initialising — the last frame
+                // was simply thrown away and re-awaited.
+                //
+                // NARROW ON PURPOSE: only when the NEW image is a null/
+                // placeholder image and the OLD one is not. An app that
+                // deliberately swaps in a real image still wins, and one that
+                // deliberately clears to a placeholder is the only case this
+                // changes — which is indistinguishable from "has not produced a
+                // frame yet" and is what the widget itself does every rebuild.
+                if new_node_data[new_idx].image_is_placeholder()
+                    && !old_node_data[old_idx].image_is_placeholder()
+                {
+                    if let Some(prev) = old_node_data[old_idx].get_image_ref_cloned() {
+                        new_node_data[new_idx].set_image_ref(prev);
+                    }
+                    // Handled — but still worth saying if it happens every
+                    // frame, because rebuilding a live image node at 60 Hz is
+                    // work nobody asked for.
+                    note_image_reinitialised(new_idx, true);
+                }
+
                 // 4. Store the merged result back in the new node
                 new_node_data[new_idx].set_dataset(OptionRefAny::Some(merged.clone()));
 
@@ -914,24 +1083,7 @@ pub fn transfer_states(
                 // only re-pointed a VirtualView ON the merge node itself — the
                 // MapWidget puts its VirtualView in a CHILD and its pan/zoom
                 // callbacks on the parent, which that case missed.)
-                for nd in new_node_data.iter_mut() {
-                    if let Some(vv) = nd.get_virtual_view_node() {
-                        if vv.refany.sharing_info.ptr as usize == orphan_alloc {
-                            vv.refany = merged.clone();
-                        }
-                    }
-                    for cb in nd.callbacks.as_mut().iter_mut() {
-                        if cb.refany.sharing_info.ptr as usize == orphan_alloc {
-                            cb.refany = merged.clone();
-                        }
-                    }
-                    let ds_is_orphan = nd
-                        .get_dataset()
-                        .is_some_and(|ds| ds.sharing_info.ptr as usize == orphan_alloc);
-                    if ds_is_orphan {
-                        nd.set_dataset(OptionRefAny::Some(merged.clone()));
-                    }
-                }
+                repoint_orphaned_refanys(new_node_data, orphan_alloc, &merged);
             }
             (new_ds, old_ds) => {
                 // One or both datasets missing - restore what we had
@@ -944,6 +1096,73 @@ pub fn transfer_states(
             }
         }
     }
+}
+
+/// Re-point every `RefAny` across `node_data` that is a clone of the
+/// allocation `orphan_alloc` (a dataset the merge discarded) at `merged`.
+///
+/// The whole widget then reads ONE state: `VirtualView` content refanys,
+/// event callback refanys and datasets cloned from the same source. The
+/// `MapWidget` puts its `VirtualView` in a CHILD and its pan/zoom callbacks
+/// on the parent, which is why this scans the whole arena and not just the
+/// merge node.
+fn repoint_orphaned_refanys(node_data: &mut [NodeData], orphan_alloc: usize, merged: &RefAny) {
+    use crate::refany::OptionRefAny;
+    if merged.sharing_info.ptr as usize == orphan_alloc {
+        return; // the merge kept the fresh allocation: nothing is orphaned
+    }
+    for nd in node_data.iter_mut() {
+        if let Some(vv) = nd.get_virtual_view_node() {
+            if vv.refany.sharing_info.ptr as usize == orphan_alloc {
+                vv.refany = merged.clone();
+            }
+        }
+        for cb in nd.callbacks.as_mut().iter_mut() {
+            if cb.refany.sharing_info.ptr as usize == orphan_alloc {
+                cb.refany = merged.clone();
+            }
+        }
+        let ds_is_orphan = nd
+            .get_dataset()
+            .is_some_and(|ds| ds.sharing_info.ptr as usize == orphan_alloc);
+        if ds_is_orphan {
+            nd.set_dataset(OptionRefAny::Some(merged.clone()));
+        }
+    }
+}
+
+/// The pre-cascade fast path's half of [`transfer_states`].
+///
+/// When the fresh build's fingerprints equal the retained DOM's, the cascade
+/// is skipped and the retained `StyledDom` is kept; the fresh build's event
+/// callbacks are installed on it (they may reference new app state). That
+/// left the DATASETS behind: the fresh callbacks' `RefAny`s were clones of
+/// the fresh build's dataset, the retained node kept last frame's, and no
+/// merge callback ever ran — so a `RefreshDom` that rebuilt an identical DOM
+/// reset every stateful widget's callback state (a slider's drag died on its
+/// second move) and split the widget across two allocations, the exact
+/// fragmentation [`repoint_orphaned_refanys`] exists to prevent.
+///
+/// Same rules as `transfer_states`, with the retained node as "old" and the
+/// fresh dataset as "new": merge through the node's merge callback when it
+/// has one, otherwise the fresh dataset wins; then re-point everything on the
+/// retained DOM that was a clone of the fresh dataset at the result. Call it
+/// AFTER the fresh callbacks have been installed on `node_data`, once per
+/// fresh dataset, with `idx` the node's flattened index.
+pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny) {
+    use crate::refany::OptionRefAny;
+    let Some(nd) = node_data.get_mut(idx) else {
+        return;
+    };
+    let orphan_alloc = fresh.sharing_info.ptr as usize;
+    let merge_callback = nd.get_merge_callback();
+    let retained = nd.take_dataset();
+    let result = match (merge_callback, retained) {
+        (Some(cb), Some(old)) => (cb.cb)(fresh, old),
+        _ => fresh,
+    };
+    nd.set_dataset(OptionRefAny::Some(result.clone()));
+    repoint_orphaned_refanys(node_data, orphan_alloc, &result);
 }
 
 /// Calculate a stable key for a contenteditable node using the hierarchy:
@@ -1599,8 +1818,20 @@ pub struct NodeDataFingerprint {
     pub ids_classes_hash: u64,
     /// Hash of callbacks (event types + function pointers)
     pub callbacks_hash: u64,
-    /// Hash of other attributes (contenteditable, `tab_index`, dataset)
+    /// Hash of the layout-relevant attributes (contenteditable, flags)
     pub attrs_hash: u64,
+    /// Hash of the dataset's PRESENCE and TYPE — never its allocation.
+    ///
+    /// A widget's dataset is state, not layout. Most widgets allocate a fresh
+    /// `RefAny` on every build, and `RefAny` hashes by pointer, so hashing the
+    /// dataset into `attrs_hash` (which maps to `CONTENTEDITABLE`, a layout
+    /// change) made every `with_dataset` node LAYOUT-DIRTY on every
+    /// `RefreshDom`: the `TextArea` became a standalone layout root on each
+    /// callback, was re-laid-out with its `min-height` while its flex
+    /// container kept the old slot, and painted 64 px into a 36 px slot — over
+    /// the slider beneath it. A dataset change is [`NodeChangeSet::DATASET`],
+    /// which affects neither layout nor paint.
+    pub dataset_hash: u64,
 }
 
 
@@ -1665,12 +1896,24 @@ impl NodeDataFingerprint {
             h.finish()
         };
 
-        // Attributes hash
+        // Attributes hash — the layout-relevant ones only
         let attrs_hash = {
             let mut h = crate::hash::DefaultHasher::new();
             node.is_contenteditable().hash(&mut h);
             node.flags.hash(&mut h);
-            node.get_dataset().hash(&mut h);
+            h.finish()
+        };
+
+        // Dataset hash: presence + type, NOT the allocation (see the field doc).
+        let dataset_hash = {
+            let mut h = crate::hash::DefaultHasher::new();
+            match node.get_dataset() {
+                Some(ds) => {
+                    true.hash(&mut h);
+                    ds.get_type_id().hash(&mut h);
+                }
+                None => false.hash(&mut h),
+            }
             h.finish()
         };
 
@@ -1681,11 +1924,12 @@ impl NodeDataFingerprint {
             ids_classes_hash,
             callbacks_hash,
             attrs_hash,
+            dataset_hash,
         }
     }
 
     /// Returns a quick `NodeChangeSet` by comparing two fingerprints.
-    /// This is O(1) — just comparing 6 u64s.
+    /// This is O(1) — just comparing 7 u64s.
     ///
     /// The result is *conservative*: if a field hash differs, we set the
     /// broadest applicable flag. For precise classification (e.g., which
@@ -1723,6 +1967,10 @@ impl NodeDataFingerprint {
         if self.attrs_hash != other.attrs_hash {
             changes.insert(NodeChangeSet::TAB_INDEX);
             changes.insert(NodeChangeSet::CONTENTEDITABLE);
+        }
+
+        if self.dataset_hash != other.dataset_hash {
+            changes.insert(NodeChangeSet::DATASET);
         }
 
         changes
@@ -3305,6 +3553,62 @@ mod autotest_generated {
         old_data
     }
 
+    /// The framework must NOTICE an image node re-initialising every frame,
+    /// with no cooperation from user code.
+    ///
+    /// The case this exists for: a video node built without a dataset. Each
+    /// rebuild hands back a placeholder, the live frame is discarded, and the
+    /// node flickers. Nothing in either DOM shows it — the old build has a
+    /// frame, the new one has a placeholder — so only the reconciler, which
+    /// sees the pair, can detect it.
+    #[test]
+    fn autotest_the_reconciler_counts_an_image_node_that_reinitialises() {
+        use crate::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+
+        let real = || {
+            ImageRef::new_rawimage(RawImage {
+                pixels: RawImageData::U8(vec![9, 9, 9, 9].into()),
+                width: 1,
+                height: 1,
+                premultiplied_alpha: false,
+                data_format: RawImageFormat::RGBA8,
+                tag: b"frame".to_vec().into(),
+            })
+            .expect("raw image")
+        };
+        let placeholder =
+            || ImageRef::null_image(1, 1, RawImageFormat::BGRA8, b"ph".to_vec());
+
+        // A node index this test owns exclusively, so a parallel test cannot
+        // move the counter under it.
+        const NODE: usize = 4242;
+        let before = image_churn_count(NODE);
+
+        for _ in 0..4 {
+            let mut old = vec![NodeData::create_div(); NODE + 1];
+            old[NODE] = NodeData::create_image(real());
+            let mut new = vec![NodeData::create_div(); NODE + 1];
+            new[NODE] = NodeData::create_image(placeholder());
+            // NO dataset and NO merge callback — exactly the "forgot the
+            // dataset on the video node" mistake.
+            transfer_states(
+                &mut old,
+                &mut new,
+                &[NodeMove {
+                    old_node_id: NodeId::new(NODE),
+                    new_node_id: NodeId::new(NODE),
+                }],
+            );
+        }
+
+        assert!(
+            image_churn_count(NODE) > before,
+            "the reconciler did not notice an image node reverting to a \
+             placeholder while the previous build held a real frame — the \
+             flicker this lint exists to name would go unreported"
+        );
+    }
+
     #[test]
     fn autotest_transfer_states_out_of_range_moves_are_skipped() {
         // The bounds guard must swallow a corrupt NodeMove instead of indexing
@@ -3329,6 +3633,119 @@ mod autotest_generated {
 
         transfer_states(&mut old, &mut new, &moves); // must not panic
         assert!(new[0].get_dataset().is_none());
+    }
+
+    /// A live capture frame must survive a DOM rebuild.
+    ///
+    /// Capture widgets rebuild their node with `ImageRef::null_image(...)`
+    /// every time — the fresh widget struct holds no frame; frames arrive later
+    /// by writeback. Without carrying the previous image across the merge, every
+    /// rebuild reverted the node to the placeholder until the next frame landed
+    /// ~16-33ms later. That is the flash seen when resizing a window while
+    /// screensharing, which looks exactly like the capture re-initialising.
+    #[test]
+    fn autotest_a_live_image_survives_a_rebuild_that_merges_state() {
+        use crate::resources::{image_ref_get_hash, ImageRef};
+
+        // A DELIVERED frame is a raw image — capture_common::present_frame builds
+        // it with `ImageRef::new_rawimage`. The placeholder the widget rebuilds
+        // its node with is a `null_image`. That difference is exactly what the
+        // carry-forward keys on, so the fixture must use both constructors; an
+        // earlier version of this test used null_image for BOTH and failed,
+        // correctly, because there was then nothing to distinguish.
+        let real = ImageRef::new_rawimage(crate::resources::RawImage {
+            pixels: crate::resources::RawImageData::U8(vec![1, 2, 3, 4].into()),
+            width: 1,
+            height: 1,
+            premultiplied_alpha: false,
+            data_format: crate::resources::RawImageFormat::RGBA8,
+            tag: b"frame".to_vec().into(),
+        })
+        .expect("raw image");
+        let mut old = vec![NodeData::create_image(real.clone())];
+        old[0].set_dataset(OptionRefAny::Some(RefAny::new(TestState(1))));
+
+        let mut new = vec![NodeData::create_image(ImageRef::null_image(
+            1, 1, crate::resources::RawImageFormat::BGRA8, b"placeholder".to_vec(),
+        ))];
+        new[0].set_dataset(OptionRefAny::Some(RefAny::new(TestState(2))));
+        new[0].set_merge_callback(crate::dom::DatasetMergeCallback::from_ptr(merge_keep_old));
+
+        transfer_states(
+            &mut old,
+            &mut new,
+            &[NodeMove { old_node_id: NodeId::new(0), new_node_id: NodeId::new(0) }],
+        );
+
+        // Both are null images here (null_image is how the widget builds BOTH
+        // its placeholder and, in this harness, its frame), so assert on the
+        // payload that distinguishes them rather than on the flag.
+        let carried = new[0].get_image_ref_cloned().expect("still an image node");
+        assert_eq!(
+            image_ref_get_hash(&carried),
+            image_ref_get_hash(&real),
+            "the rebuilt node did not inherit the previous frame — it will show \
+             the placeholder until the next writeback, which is the flicker"
+        );
+    }
+
+    /// The pre-cascade skip path: fresh callbacks were installed on the
+    /// retained node, then the fresh dataset arrives. With a merge callback
+    /// the retained state wins (the widget's rule), and the fresh callbacks
+    /// must end up on the SAME allocation as the node's dataset — the
+    /// fragmentation this guards against is a callback mutating one
+    /// allocation while the next merge reads another.
+    #[test]
+    fn autotest_merge_fresh_dataset_unifies_fresh_callbacks_with_the_retained_state() {
+        use crate::callbacks::{CoreCallback, CoreCallbackData};
+        use crate::dom::{EventFilter, HoverEventFilter};
+
+        // Never invoked here; `CoreCallback::cb` is a type-erased fn address.
+        fn noop_cb() {}
+
+        let mut nodes = vec![NodeData::create_div()];
+        let retained = RefAny::new(TestState(7));
+        let retained_ptr = retained.sharing_info.ptr as usize;
+        nodes[0].set_dataset(OptionRefAny::Some(retained));
+        nodes[0].set_merge_callback(merge_keep_old as DatasetMergeCallbackType);
+
+        // The fresh build: a new dataset, and callbacks cloned from it — which
+        // the skip path installs on the retained node before merging.
+        let fresh = RefAny::new(TestState(0));
+        let fresh_ptr = fresh.sharing_info.ptr as usize;
+        nodes[0].callbacks = vec![CoreCallbackData {
+            event: EventFilter::Hover(HoverEventFilter::MouseDown),
+            callback: CoreCallback {
+                cb: noop_cb as usize,
+                ctx: OptionRefAny::None,
+            },
+            refany: fresh.clone(),
+        }]
+        .into();
+        assert_ne!(retained_ptr, fresh_ptr);
+
+        merge_fresh_dataset(&mut nodes, 0, fresh);
+
+        let ds_ptr = nodes[0].get_dataset().unwrap().sharing_info.ptr as usize;
+        assert_eq!(ds_ptr, retained_ptr, "merge_keep_old keeps the retained allocation");
+        let cb_ptr = nodes[0].callbacks.as_ref()[0].refany.sharing_info.ptr as usize;
+        assert_eq!(
+            cb_ptr, ds_ptr,
+            "the fresh callback must be re-pointed at the merged dataset, or the widget \
+             mutates one allocation and the next merge reads another"
+        );
+
+        // Without a merge callback the fresh dataset wins (same as transfer_states'
+        // skip), and the callbacks already point at it.
+        let mut plain = vec![NodeData::create_div()];
+        plain[0].set_dataset(OptionRefAny::Some(RefAny::new(TestState(1))));
+        let fresh2 = RefAny::new(TestState(2));
+        let fresh2_ptr = fresh2.sharing_info.ptr as usize;
+        merge_fresh_dataset(&mut plain, 0, fresh2);
+        assert_eq!(plain[0].get_dataset().unwrap().sharing_info.ptr as usize, fresh2_ptr);
+
+        // An index past the arena is a no-op, not a panic.
+        merge_fresh_dataset(&mut plain, 99, RefAny::new(TestState(3)));
     }
 
     #[test]
@@ -3994,6 +4411,40 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_fresh_dataset_allocation_is_not_a_layout_change() {
+        // REPORTED (TextArea bleeding into the Slider): every `with_dataset`
+        // widget allocates a fresh RefAny per build, RefAny hashes by pointer,
+        // and the dataset sat in `attrs_hash` → CONTENTEDITABLE → layout
+        // dirty on every RefreshDom. The dataset is state: same type, new
+        // allocation, IDENTICAL fingerprint.
+        let a = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_dataset(crate::refany::OptionRefAny::Some(RefAny::new(42u32))),
+            None,
+        );
+        let b = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_dataset(crate::refany::OptionRefAny::Some(RefAny::new(43u32))),
+            None,
+        );
+        assert!(a.is_identical(&b), "a new allocation of the same dataset type is not a change");
+        assert!(a.diff(&b).is_empty());
+        assert!(!a.might_affect_layout(&b));
+
+        // A dataset of another TYPE (or none) is a DATASET change — and
+        // still not a layout one.
+        let c = NodeDataFingerprint::compute(
+            &NodeData::create_div().with_dataset(crate::refany::OptionRefAny::Some(RefAny::new(String::from("x")))),
+            None,
+        );
+        let changes = a.diff(&c);
+        assert!(changes.contains(NodeChangeSet::DATASET));
+        assert!(!changes.needs_layout(), "a dataset change must never relayout: {changes:?}");
+        assert!(!a.might_affect_layout(&c));
+        let d = NodeDataFingerprint::compute(&NodeData::create_div(), None);
+        assert!(a.diff(&d).contains(NodeChangeSet::DATASET));
+        assert!(!a.diff(&d).needs_layout());
+    }
+
+    #[test]
     fn autotest_fingerprint_diff_is_symmetric() {
         let a = NodeDataFingerprint::compute(&NodeData::create_text_do_not_use_without_block_level_wrapper("a"), None);
         let b = NodeDataFingerprint::compute(&class_node("x").with_css("width: 1px"), None);
@@ -4199,6 +4650,12 @@ pub struct PreCascadeTransfers {
     /// `(flattened NodeId index, fresh event callbacks)` for every node with
     /// a non-empty callback list.
     pub callbacks: Vec<(usize, crate::callbacks::CoreCallbackDataVec)>,
+    /// `(flattened NodeId index, fresh dataset)` for every node that carries
+    /// one. Merged onto the retained DOM by [`merge_fresh_dataset`] — the
+    /// skip path's equivalent of `transfer_states` — so a widget's state
+    /// survives an identical rebuild and its callbacks (installed from
+    /// `callbacks` above) end up on the SAME allocation as its dataset.
+    pub datasets: Vec<(usize, RefAny)>,
 }
 
 /// Walk a recursive [`crate::dom::Dom`] once, pre-order.
@@ -4322,6 +4779,9 @@ pub struct PreCascadeTransfers {
         }
         if !dom.root.callbacks.as_ref().is_empty() {
             transfers.callbacks.push((idx, dom.root.callbacks.clone()));
+        }
+        if let Some(ds) = dom.root.get_dataset() {
+            transfers.datasets.push((idx, ds.clone()));
         }
 
         for child in dom.children.as_ref() {

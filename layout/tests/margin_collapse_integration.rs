@@ -30,6 +30,10 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
 
 fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
     let styled_dom = Dom::from_xml_string(html);
+    run_layout_styled(&styled_dom, w, h)
+}
+
+fn run_layout_styled(styled_dom: &azul_core::styled_dom::StyledDom, w: f32, h: f32) -> Solver3LayoutCache {
     let fc_cache = build_font_cache();
     let mut font_manager = FontManager::new(fc_cache).expect("Failed to create FontManager");
     let mut layout_cache = Solver3LayoutCache {
@@ -69,7 +73,7 @@ fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        &styled_dom,
+        styled_dom,
         viewport,
         &mut font_manager,
         &BTreeMap::new(),

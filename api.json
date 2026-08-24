@@ -2058,7 +2058,7 @@
                     "displayName": "Lua",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace — arm64 is the verified path)",
+                            "description": "Download the prebuilt library, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace - arm64 is the verified path)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2100,7 +2100,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace — arm64 is the verified path)",
+                            "description": "Download the prebuilt DLL, generate the azul.lua binding, then run with LuaJIT (vanilla Lua has no ffi) (note: on x86-64, LuaJIT currently aborts at App.create with an NYI trace - arm64 is the verified path)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2782,7 +2782,7 @@
                     "displayName": "Python",
                     "platforms": {
                         "linux": {
-                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index - a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2799,7 +2799,7 @@
                             ]
                         },
                         "macos": {
-                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index - a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -2816,7 +2816,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Install the abi3 wheel from the azul.rs package index — a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
+                            "description": "Install the abi3 wheel from the azul.rs package index - a standard PEP 503 simple index, so it works with pip, uv, poetry or pdm (e.g. `uv pip install azul --index-url $HOSTNAME/ui`)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3069,7 +3069,7 @@
                     "displayName": "Scala",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3102,7 +3102,7 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -3135,7 +3135,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings — Scala rides on them directly — plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6135,6 +6135,99 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "MapTheme": {
+                        "external": "azul_layout::widgets::map::MapTheme",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "System": {},
+                                "Positron": {},
+                                "Bright": {},
+                                "Liberty": {},
+                                "Dark": {},
+                                "GoogleLight": {},
+                                "GoogleNight": {},
+                                "AppleLight": {},
+                                "AppleDark": {},
+                                "Custom": {}
+                            }
+                        ],
+                        "functions": {
+                            "stylesheet": {
+                                "doc": [
+                                    "The MapCSS sheet of a preset; empty for `Custom` and the unresolved",
+                                    "`System` (resolve it with [`Self::resolve`] first)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.stylesheet()"
+                            },
+                            "is_dark_look": {
+                                "doc": [
+                                    "Is this a dark look? (`System` answers for the dark resolution.)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_dark_look()"
+                            },
+                            "resolve": {
+                                "doc": [
+                                    "`System` resolved against the window's theme; every other preset",
+                                    "is its own resolution."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "window_theme": "WindowTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapTheme"
+                                },
+                                "fn_body": "object.resolve(window_theme)"
+                            },
+                            "credit": {
+                                "doc": [
+                                    "The credit line a preset's licence asks for (CC BY 4.0 for the",
+                                    "OpenFreeMap designs, Apache-2.0 for Google's sample); empty for the",
+                                    "authored looks and `Custom`. Appended to the layer's attribution by",
+                                    "[`MapTileLayer::with_theme`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.credit()"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -6857,6 +6950,76 @@
                                     "type": "OptionString"
                                 },
                                 "fn_body": "azul_layout::desktop::dialogs::FileDialog::save_file(title, default_path)"
+                            },
+                            "open_file_async": {
+                                "doc": [
+                                    "Open a file WITHOUT blocking: returns a [`FilePickerHandle`] to poll",
+                                    "from a later callback (a timer, the next event, the layout callback).",
+                                    "",
+                                    "- iOS / Android: the OS picker is presented and the handle resolves",
+                                    "  when its delegate / activity result fires.",
+                                    "- Desktop: the synchronous dialog runs here (it is modal anyway) and",
+                                    "  the handle comes back already answered, so the same polling code",
+                                    "  sees `Selected` / `Cancelled` on its first `poll`.",
+                                    "- A mobile build whose shell never registered a backend: `Error`,",
+                                    "  immediately - never a handle that stays `Pending` forever.",
+                                    "",
+                                    "`allow_multiple` resolves to `SelectedMultiple` instead of `Selected`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "default_path": "OptionString"
+                                    },
+                                    {
+                                        "filter_list": "OptionFileTypeList"
+                                    },
+                                    {
+                                        "allow_multiple": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePickerHandle"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FileDialog::open_file_async(title, default_path, filter_list, allow_multiple)"
+                            },
+                            "save_file_async": {
+                                "doc": [
+                                    "Save-file counterpart of [`Self::open_file_async`]; resolves to",
+                                    "`Selected` with the chosen path."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "default_path": "OptionString"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePickerHandle"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FileDialog::save_file_async(title, default_path)"
+                            },
+                            "open_directory_async": {
+                                "doc": [
+                                    "Directory counterpart of [`Self::open_file_async`]; resolves to",
+                                    "`Selected` with the chosen directory."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    },
+                                    {
+                                        "default_path": "OptionString"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePickerHandle"
+                                },
+                                "fn_body": "azul_layout::desktop::dialogs::FileDialog::open_directory_async(title, default_path)"
                             }
                         },
                         "repr": "C"
@@ -7106,6 +7269,84 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "FilePickerHandle": {
+                        "external": "azul_layout::desktop::dialogs::FilePickerHandle",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "poll": {
+                                "doc": [
+                                    "Sync read of the current status. Returns a clone so the caller can",
+                                    "destructure without holding the mutex."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePickerStatus"
+                                },
+                                "fn_body": "object.poll()"
+                            },
+                            "is_done": {
+                                "doc": [
+                                    "`true` once the picker has been answered (anything but `Pending`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_done()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FilePickerStatus": {
+                        "external": "azul_layout::desktop::dialogs::FilePickerStatus",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Pending": {},
+                                "Cancelled": {},
+                                "Selected": {
+                                    "type": "String"
+                                },
+                                "SelectedMultiple": {
+                                    "type": "StringVec"
+                                },
+                                "Error": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -12830,6 +13071,100 @@
                                     }
                                 ],
                                 "fn_body": "object.record_gauge(name, value, labels)"
+                            },
+                            "set_accessibility_value": {
+                                "doc": [
+                                    "Update a node's accessibility VALUE without rebuilding - a slider's",
+                                    "position, a progress bar's percentage, a field's contents."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_accessibility_value(node_id, value)"
+                            },
+                            "set_accessibility_state": {
+                                "doc": [
+                                    "Update a node's accessibility STATE and/or VALUE without rebuilding.",
+                                    "",
+                                    "Use it wherever a control changes what it announces but not its",
+                                    "structure - a toggle flipping checked, a section expanding, a slider",
+                                    "moving. Publishing only at build time leaves the accessibility tree",
+                                    "describing a state the widget left behind, and a screen-reader user has",
+                                    "no way to notice.",
+                                    "",
+                                    "```ignore",
+                                    "info.set_accessibility_state(",
+                                    "    node,",
+                                    "    vec![if open { AccessibilityState::Expanded }",
+                                    "         else     { AccessibilityState::Collapsed }],",
+                                    ");",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "states": "AccessibilityStateVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_accessibility_state(node_id, states)"
+                            },
+                            "warn": {
+                                "doc": [
+                                    "Emit a WARNING from inside a callback or a widget.",
+                                    "",
+                                    "Goes to the same place every engine lint goes: the installed diagnostic",
+                                    "sink (stderr by default, so it shows in a terminal), the in-process ring",
+                                    "that `assert_stderr` reads in e2e, and - once",
+                                    "`telemetry::install_diagnostics_bridge()` is called - the OTLP pipeline",
+                                    "behind Loki and Grafana, tagged with the running e2e scenario.",
+                                    "",
+                                    "Use it where a widget can SEE that it has been used wrongly and the",
+                                    "engine cannot: a slider handed min > max, a list told to select an index",
+                                    "it does not have, a control the app never named. One call, and the",
+                                    "message reaches a developer's console, a test assertion, and a",
+                                    "dashboard.",
+                                    "",
+                                    "```ignore",
+                                    "info.warn(format!(\"Slider: min ({min}) > max ({max}); clamping\"));",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.warn(message)"
+                            },
+                            "log": {
+                                "doc": [
+                                    "Emit an informational message. Same destinations as [`CallbackInfo::warn`];",
+                                    "use it for things worth seeing in a trace but not worth alarming anyone."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "message": "String"
+                                    }
+                                ],
+                                "fn_body": "object.log(message)"
                             }
                         },
                         "repr": "C"
@@ -15267,6 +15602,26 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OnConsumerFrameCallbackType": {
+                        "external": "azul_layout::widgets::capture_common::OnConsumerFrameCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "ConsumerFrame"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -18421,6 +18776,89 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.with_animation_callback(name, callback, data)"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Give this node an accessible NAME, keeping whatever else it already",
+                                    "declares.",
+                                    "",
+                                    "This is the override an application needs and `with_accessibility_info`",
+                                    "cannot give it. A widget fills in what it knows - a slider's role and",
+                                    "live value, a checkbox's checked state - and it CANNOT know what the",
+                                    "control is called: only the app does. Replacing the whole struct to add",
+                                    "a name would discard the role and the value with it, so the control",
+                                    "would gain a name and stop reporting its position.",
+                                    "",
+                                    "```ignore",
+                                    "Slider::new(volume).dom().with_accessibility_name(\"Volume\")",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "with_accessibility_labelled_by": {
+                                "doc": [
+                                    "Point this node at the node that already NAMES it, keeping the rest of",
+                                    "its declaration.",
+                                    "",
+                                    "Preferred over copying the label text: a duplicated name drifts the",
+                                    "moment someone edits the visible label and forgets the spoken one."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "label": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_accessibility_labelled_by(label)"
+                            },
+                            "with_accessibility_assign": {
+                                "doc": [
+                                    "Overlay a PARTIAL accessibility declaration, keeping every field the",
+                                    "patch does not set.",
+                                    "",
+                                    "The general form of the two helpers around it, and the one to reach for",
+                                    "when setting more than one thing at once:",
+                                    "",
+                                    "```ignore",
+                                    "slider.dom().with_accessibility_assign(&AccessibilityInfo {",
+                                    "    accessibility_name: Some(\"Volume\".into()).into(),",
+                                    "    description: Some(\"0 to 100\".into()).into(),",
+                                    "    ..Default::default()",
+                                    "})",
+                                    "// the widget's role, live value and states all survive",
+                                    "```",
+                                    "",
+                                    "See [`AccessibilityInfo::assign`] for exactly which fields count as",
+                                    "\"set\" - `None`, an empty vec and `Unknown` all mean \"not specified\"."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "patch": "AccessibilityInfo"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_accessibility_assign(patch)"
                             }
                         },
                         "repr": "C"
@@ -19432,6 +19870,9 @@
                         ],
                         "priority": 71.0,
                         "external": "azul_core::a11y::AccessibilityInfo",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "PartialEq",
@@ -19478,6 +19919,106 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "named": {
+                                "doc": [
+                                    "The common case: \"this control is a X called Y\".",
+                                    "",
+                                    "Exists because the struct has eleven fields and, from a binding, there",
+                                    "was no way to fill two of them without spelling out the other nine. A",
+                                    "developer who has just been told by the engine's a11y lint to name a",
+                                    "control should be one call away from doing it:",
+                                    "",
+                                    "```ignore",
+                                    "slider.with_accessibility_info(AccessibilityInfo::named(",
+                                    "    \"Volume\", AccessibilityRole::Slider,",
+                                    "))",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "role": "AccessibilityRole"
+                                    }
+                                ],
+                                "fn_body": "azul_core::a11y::AccessibilityInfo::named(name, role)"
+                            }
+                        },
+                        "functions": {
+                            "with_value": {
+                                "doc": [
+                                    "Attach a live value - a slider's position, a progress percentage."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "value": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AccessibilityInfo"
+                                },
+                                "fn_body": "object.with_value(value)"
+                            },
+                            "assign": {
+                                "doc": [
+                                    "Overlay `patch` onto `self`, taking only the fields `patch` actually",
+                                    "SETS - the accessibility equivalent of a struct assign/merge.",
+                                    "",
+                                    "The problem it solves: a widget declares what it knows (role, live",
+                                    "value, checked state) and an application knows the one thing the widget",
+                                    "cannot (what the control is CALLED). Replacing the struct to add a name",
+                                    "throws away the role and value; adding a dedicated setter per field does",
+                                    "not compose. This lets a caller hand over a partial declaration and keep",
+                                    "everything else:",
+                                    "",
+                                    "```ignore",
+                                    "info.assign(&AccessibilityInfo {",
+                                    "    accessibility_name: Some(\"Volume\".into()).into(),",
+                                    "    ..Default::default()",
+                                    "});",
+                                    "// role, value and states are untouched",
+                                    "```",
+                                    "",
+                                    "\"Actually sets\" is defined per field, and deliberately: `None` and an",
+                                    "EMPTY vec mean \"not specified\", `AccessibilityRole::Unknown` means \"not",
+                                    "specified\" (which is exactly why Default uses it), and `is_live_region`",
+                                    "is only ever turned ON by a patch - a `false` in a partial struct is",
+                                    "indistinguishable from an unset field, so it must not clear a `true`",
+                                    "that the widget set on purpose."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "patch": "AccessibilityInfo"
+                                    }
+                                ],
+                                "fn_body": "object.assign(patch)"
+                            },
+                            "assigned": {
+                                "doc": [
+                                    "[`AccessibilityInfo::assign`] as a builder: returns the merged value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "patch": "AccessibilityInfo"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "AccessibilityInfo"
+                                },
+                                "fn_body": "object.assigned(patch)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "AccessibilityRole": {
@@ -24960,6 +25501,38 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "OnConsumerFrameCallback": {
+                        "external": "azul_layout::widgets::capture_common::OnConsumerFrameCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "OnConsumerFrameCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -25954,6 +26527,9 @@
                                 },
                                 "BackfaceVisibility": {
                                     "type": "StyleBackfaceVisibilityValue"
+                                },
+                                "AppRegion": {
+                                    "type": "StyleAppRegionValue"
                                 },
                                 "MixBlendMode": {
                                     "type": "StyleMixBlendModeValue"
@@ -38497,6 +39073,7 @@
                                 "TransformOrigin": {},
                                 "PerspectiveOrigin": {},
                                 "BackfaceVisibility": {},
+                                "AppRegion": {},
                                 "MixBlendMode": {},
                                 "Filter": {},
                                 "BackdropFilter": {},
@@ -45738,6 +46315,36 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "StyleAppRegionValue": {
+                        "external": "azul_css::props::property::StyleAppRegionValue",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleAppRegion"
+                            ]
+                        }
+                    },
+                    "StyleAppRegion": {
+                        "external": "azul_css::props::style::transform::StyleAppRegion",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "NoDrag": {},
+                                "Drag": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -46080,29 +46687,63 @@
                             {
                                 "url_template": {
                                     "type": "String"
-                                }
-                            },
-                            {
+                                },
+                                "attribution": {
+                                    "type": "String"
+                                },
+                                "style_css": {
+                                    "type": "String"
+                                },
+                                "theme": {
+                                    "type": "MapTheme"
+                                },
                                 "min_zoom": {
                                     "type": "u8"
-                                }
-                            },
-                            {
+                                },
                                 "max_zoom": {
                                     "type": "u8"
                                 }
-                            },
-                            {
-                                "attribution": {
-                                    "type": "String"
-                                }
-                            },
-                            {
-                                "style_css": {
-                                    "type": "String"
-                                }
                             }
                         ],
+                        "functions": {
+                            "with_theme": {
+                                "doc": [
+                                    "Pick a look. Appends the preset's licence credit (if any) to the",
+                                    "attribution so an app that shows `attribution` complies with CC BY."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "MapTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapTileLayer"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "effective_style_css": {
+                                "doc": [
+                                    "The MapCSS the tiles are decoded with for `resolved` (a resolved",
+                                    "theme, see [`MapTheme::resolve`]): a non-empty `style_css` always",
+                                    "wins; else the preset's sheet; else the built-in palette (empty)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "resolved": "MapTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.effective_style_css(resolved).into()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "MapViewport": {
@@ -46409,6 +47050,61 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom_with_fetch(cb)"
+                            },
+                            "with_theme": {
+                                "doc": [
+                                    "Pick a look for the tile layer (see [`MapTheme`]); `System` follows",
+                                    "the window's light / dark theme."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "theme": "MapTheme"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_theme(theme)"
+                            },
+                            "with_pitch": {
+                                "doc": [
+                                    "Tilt the camera: 0 looks straight down, [`MAX_PITCH_DEG`] is the",
+                                    "steepest 3D view (clamped). Rendered as a perspective transform on",
+                                    "the tile canvas; right-drag vertically changes it at runtime."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "pitch_deg": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_pitch(pitch_deg)"
+                            },
+                            "with_bearing": {
+                                "doc": [
+                                    "Rotate the map (clockwise degrees, normalised to `-180..180`).",
+                                    "Right-drag horizontally or a rotate gesture changes it at runtime."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "bearing_deg": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MapWidget"
+                                },
+                                "fn_body": "object.with_bearing(bearing_deg)"
                             }
                         },
                         "repr": "C"
@@ -46703,6 +47399,9 @@
                                 },
                                 "content_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -46771,6 +47470,23 @@
                                     "type": "CheckBox"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CheckBox"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -46886,6 +47602,9 @@
                                 },
                                 "arrow_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -46970,6 +47689,24 @@
                                     "type": "DropDown"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new `DropDown` with the given choices and no callback.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDown"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -47023,6 +47760,9 @@
                                 },
                                 "style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -47106,6 +47846,24 @@
                                     "type": "ColorInput"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new `ColorInput` displaying the given color.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ColorInput"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -47254,6 +48012,9 @@
                                 },
                                 "label_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -47509,6 +48270,23 @@
                                     "type": "TextInput"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextInput"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -47786,6 +48564,9 @@
                                 },
                                 "style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -48026,6 +48807,24 @@
                                     "type": "NumberInput"
                                 },
                                 "fn_body": "object.swap_with_default()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new `NumberInput` with the given initial value.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NumberInput"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -50113,6 +50912,12 @@
                                 },
                                 "on_frame": {
                                     "type": "OptionOnVideoFrame"
+                                },
+                                "consumers": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "on_consumer_frame": {
+                                    "type": "OptionOnConsumerFrame"
                                 }
                             }
                         ],
@@ -50183,6 +50988,82 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_frame(data, on_frame)"
+                            },
+                            "add_consumer": {
+                                "doc": [
+                                    "Register a consumer of the captured frames: every frame is cut to",
+                                    "`consumer`'s size (off the main thread) and handed to the",
+                                    "`on_consumer_frame` hook with `consumer.id`. The camera is opened at",
+                                    "the smallest size covering every consumer and the tile, so \"client",
+                                    "Bob wants 500x200 while the local preview is 100x200\" captures ONE",
+                                    "500x200 frame and samples it twice - nothing larger is captured, and",
+                                    "nothing larger than asked is sent. A consumer with a zero size or the",
+                                    "reserved preview id 0 is ignored."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    }
+                                ],
+                                "fn_body": "object.add_consumer(consumer)"
+                            },
+                            "with_consumer": {
+                                "doc": [
+                                    "Builder form of [`add_consumer`](Self::add_consumer)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CameraWidget"
+                                },
+                                "fn_body": "object.with_consumer(consumer)"
+                            },
+                            "set_on_consumer_frame": {
+                                "doc": [
+                                    "Set the hook that receives every consumer's cut of every captured",
+                                    "frame (route on `frame.consumer.id`; send Bob his, record the other)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_consumer_frame": "OnConsumerFrameCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_consumer_frame(data, on_consumer_frame)"
+                            },
+                            "with_on_consumer_frame": {
+                                "doc": [
+                                    "Builder form of [`set_on_consumer_frame`](Self::set_on_consumer_frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_consumer_frame": "OnConsumerFrameCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "CameraWidget"
+                                },
+                                "fn_body": "object.with_on_consumer_frame(data, on_consumer_frame)"
                             }
                         },
                         "repr": "C"
@@ -50199,6 +51080,12 @@
                                 },
                                 "on_frame": {
                                     "type": "OptionOnVideoFrame"
+                                },
+                                "consumers": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "on_consumer_frame": {
+                                    "type": "OptionOnConsumerFrame"
                                 }
                             }
                         ],
@@ -50269,6 +51156,77 @@
                                     }
                                 ],
                                 "fn_body": "object.set_on_frame(data, on_frame)"
+                            },
+                            "add_consumer": {
+                                "doc": [
+                                    "Register a consumer of the captured frames (see",
+                                    "`CameraWidget::add_consumer` - identical semantics: one capture at",
+                                    "the covering size, one cut per consumer, same-id replaces)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    }
+                                ],
+                                "fn_body": "object.add_consumer(consumer)"
+                            },
+                            "with_consumer": {
+                                "doc": [
+                                    "Builder form of [`add_consumer`](Self::add_consumer)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScreenCaptureWidget"
+                                },
+                                "fn_body": "object.with_consumer(consumer)"
+                            },
+                            "set_on_consumer_frame": {
+                                "doc": [
+                                    "Set the hook that receives every consumer's cut of every captured",
+                                    "frame (route on `frame.consumer.id`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_consumer_frame": "OnConsumerFrameCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_consumer_frame(data, on_consumer_frame)"
+                            },
+                            "with_on_consumer_frame": {
+                                "doc": [
+                                    "Builder form of [`set_on_consumer_frame`](Self::set_on_consumer_frame)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_consumer_frame": "OnConsumerFrameCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScreenCaptureWidget"
+                                },
+                                "fn_body": "object.with_on_consumer_frame(data, on_consumer_frame)"
                             }
                         },
                         "repr": "C"
@@ -50755,6 +51713,9 @@
                                 },
                                 "knob_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -50826,6 +51787,24 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new switch in the given on/off state with default styling.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Switch"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -51430,6 +52409,9 @@
                                 },
                                 "thumb_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -51538,6 +52520,33 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a slider with the given current value and `[min, max]` range.",
+                                    "Name this slider for assistive technology.",
+                                    "",
+                                    "```ignore",
+                                    "Slider::create(vol, 0.0, 100.0).with_accessibility_name(\"Volume\").dom()",
+                                    "```",
+                                    "",
+                                    "Prefer this over patching the finished `Dom`: the widget forwards it",
+                                    "into the accessibility declaration it builds anyway, alongside the role",
+                                    "and the live value, and knowing the name at build time is what lets the",
+                                    "widget tell you when it is missing without crying wolf."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Slider"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -51837,6 +52846,9 @@
                                 },
                                 "container_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -51968,6 +52980,24 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a radio group from the given options, with the first one selected.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "RadioGroup"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -52129,6 +53159,9 @@
                                 },
                                 "label_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -52335,6 +53368,23 @@
                                     "type": "TextArea"
                                 },
                                 "fn_body": "object.with_on_virtual_key_down(refany, callback)"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextArea"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -53872,6 +54922,9 @@
                                 },
                                 "list_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -54057,6 +55110,24 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new combobox with the given options (no callback, nothing typed).",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ComboBox"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -55616,6 +56687,9 @@
                                 },
                                 "container_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -55701,6 +56775,25 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new `DatePicker` showing `year`/`month` with `day` selected.",
+                                    "`month` is clamped to `1..=12` and `day` to `1..=days_in_month`.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DatePicker"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -55803,6 +56896,9 @@
                                 },
                                 "container_style": {
                                     "type": "CssPropertyWithConditionsVec"
+                                },
+                                "accessibility_name": {
+                                    "type": "OptionString"
                                 }
                             }
                         ],
@@ -55948,6 +57044,25 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_accessibility_name": {
+                                "doc": [
+                                    "Creates a new 24-hour `TimePicker` with the given initial hour (`0..=23`)",
+                                    "and minute (`0..=59`), both clamped into range.",
+                                    "Name this control for assistive technology."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "name": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TimePicker"
+                                },
+                                "fn_body": "object.with_accessibility_name(name)"
                             }
                         },
                         "repr": "C"
@@ -57335,6 +58450,164 @@
                             {
                                 "ptr": {
                                     "type": "Keyframes",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ConsumerFrame": {
+                        "external": "azul_core::video::ConsumerFrame",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "consumer": {
+                                    "type": "FrameConsumer"
+                                },
+                                "frame": {
+                                    "type": "VideoFrame"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Pair a cut frame with the consumer it was cut for."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "consumer": "FrameConsumer"
+                                    },
+                                    {
+                                        "frame": "VideoFrame"
+                                    }
+                                ],
+                                "fn_body": "azul_core::video::ConsumerFrame::new(consumer, frame)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "OnConsumerFrame": {
+                        "external": "azul_layout::widgets::capture_common::OnConsumerFrame",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "OnConsumerFrameCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FrameConsumer": {
+                        "external": "azul_core::video::FrameConsumer",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "u32"
+                                },
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "A consumer `id` that wants `width` x `height` frames."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "id": "u32"
+                                    },
+                                    {
+                                        "width": "u32"
+                                    },
+                                    {
+                                        "height": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_core::video::FrameConsumer::new(id, width, height)"
+                            }
+                        },
+                        "functions": {
+                            "is_valid": {
+                                "doc": [
+                                    "`false` for a zero-sized request (skipped by the fan-out) or the",
+                                    "reserved preview id."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_valid()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FrameConsumerVecSlice": {
+                        "external": "azul_core::video::FrameConsumerVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FrameConsumer",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -75254,6 +76527,23 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "CssAppRegionParseErrorOwned": {
+                        "external": "azul_css::props::style::transform::CssAppRegionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -98095,6 +99385,219 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "FrameConsumerVec": {
+                        "external": "azul_core::video::FrameConsumerVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "FrameConsumer",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "FrameConsumerVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `FrameConsumerVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `FrameConsumerVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "frame_consumer_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "frame_consumer_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "frame_consumer_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `FrameConsumerVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "FrameConsumer"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `FrameConsumerVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const FrameConsumer"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFrameConsumer"
+                                },
+                                "fn_body": "frame_consumer_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `FrameConsumerVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVecSlice"
+                                },
+                                "fn_body": "frame_consumer_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FrameConsumerVecSlice"
+                                },
+                                "fn_body": "frame_consumer_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FrameConsumerVecDestructor": {
+                        "external": "azul_core::video::FrameConsumerVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "FrameConsumerVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FrameConsumerVecDestructorType": {
+                        "external": "azul_core::video::FrameConsumerVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "FrameConsumerVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -103509,6 +105012,65 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionOnConsumerFrame": {
+                        "external": "azul_layout::widgets::capture_common::OptionOnConsumerFrame",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "OnConsumerFrame"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionFrameConsumer": {
+                        "external": "azul_core::video::OptionFrameConsumer",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "FrameConsumer",
+                                    "doc": [
+                                        "Some value of type FrameConsumer"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -105772,6 +107334,9 @@
                                 },
                                 "BackfaceVisibility": {
                                     "type": "CssBackfaceVisibilityParseErrorOwned"
+                                },
+                                "AppRegion": {
+                                    "type": "CssAppRegionParseErrorOwned"
                                 },
                                 "MixBlendMode": {
                                     "type": "MixBlendModeParseErrorOwned"
