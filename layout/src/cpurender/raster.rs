@@ -2918,7 +2918,13 @@ fn render_text_prerendered_lcd(
     }
     let effective_px = font_size_px * dpi_factor;
     let scale = effective_px / units_per_em;
-    let ppem = effective_px.round() as u16;
+    // ppem = 0 selects the UNHINTED font-unit path in the glyph cache — the
+    // platform-faithful default on macOS (see `text_hinting_enabled`).
+    let ppem = if crate::glyph_cache::text_hinting_enabled() {
+        effective_px.round() as u16
+    } else {
+        0
+    };
     let hint_correction = if ppem > 0 { effective_px / f32::from(ppem) } else { 1.0 };
     let lut = LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32));
 
@@ -3161,7 +3167,13 @@ fn render_text(
 
     let effective_px = font_size_px * dpi_factor;
     let scale = effective_px / units_per_em;
-    let ppem = effective_px.round() as u16;
+    // ppem = 0 selects the UNHINTED font-unit path in the glyph cache — the
+    // platform-faithful default on macOS (see `text_hinting_enabled`).
+    let ppem = if crate::glyph_cache::text_hinting_enabled() {
+        effective_px.round() as u16
+    } else {
+        0
+    };
     // A hinted outline is produced at the integer `ppem`. `hint_correction`
     // rescales it back to the true (possibly fractional) effective size so hinted
     // glyphs match unhinted fallbacks and animate smoothly instead of snapping.

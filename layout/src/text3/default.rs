@@ -919,7 +919,8 @@ fn shape_text_internal(
         // cpurender-less build honest about AZ_HINT_LIGHT=0 being a
         // raster-side knob it cannot honor.
         #[cfg(feature = "cpurender")]
-        let hint_light = crate::glyph_cache::hint_light_enabled();
+        let hint_light = crate::glyph_cache::hint_light_enabled()
+            || !crate::glyph_cache::text_hinting_enabled();
         #[cfg(not(feature = "cpurender"))]
         let hint_light = true;
         let advance = if hint_light {

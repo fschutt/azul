@@ -54,7 +54,10 @@ use crate::{
 };
 
 const DEFAULT_EM_SIZE: f32 = 16.0;
-const DEFAULT_CARET_WIDTH_PX: f32 = 2.0;
+// The web model: the caret is a HAIRLINE — 1 CSS px in every browser (there
+// is no standard property for its width; azul's `caret-width` can still
+// thicken it). 2px read as a block next to 1px glyph stems.
+const DEFAULT_CARET_WIDTH_PX: f32 = 1.0;
 // ONE authority for the default blink period: the manager's constant.
 // This and CURSOR_BLINK_INTERVAL_MS disagreeing (500 vs 530) is what made
 // the "which default wins" question unanswerable — do not fork it again.

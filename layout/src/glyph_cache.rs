@@ -633,6 +633,25 @@ fn build_hinted_path(
     build_path_from_contours(&hinted, &hinted_on_curve, raw_contour_ends)
 }
 
+/// Whether to run the font's TrueType hinting bytecode AT ALL.
+///
+/// Platform default: OFF on macOS, ON elsewhere. CoreText never executes TT
+/// instructions (no macOS browser hints text), so running the untuned
+/// programs of Apple system fonts snapped individual glyphs' stems and
+/// x-heights to DIFFERENT pixel rows than their neighbours — the reported
+/// "the r is out of line with the ea", "the u is not tall enough".
+/// `FreeType` and `ClearType` conventions expect grid-fitting, so Linux and
+/// Windows keep
+/// it. Override with `AZ_TEXT_HINTING=1` / `0`. Read once.
+pub(crate) fn text_hinting_enabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("AZ_TEXT_HINTING").map_or(cfg!(not(target_os = "macos")), |s| {
+            !(s == "0" || s.eq_ignore_ascii_case("false"))
+        })
+    })
+}
+
 /// Whether to apply CoreText-style "light" hinting (grid-fit Y only, fractional X).
 /// ON by default (matches CoreText / modern browser grayscale rendering); set
 /// `AZ_HINT_LIGHT=0` (or `false`) to force Windows-style full grid-fit. Read once.
