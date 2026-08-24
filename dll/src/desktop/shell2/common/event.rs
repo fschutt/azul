@@ -8442,6 +8442,18 @@ pub trait PlatformWindow {
                     post_system_changes.push(SystemChange::ActivateWindowDrag);
                 }
             }
+
+            // Record the drag SOURCE (the node under the PRESS point) so
+            // DragStart/Drag/DragEnd stick to it for the whole gesture, W3C
+            // style — resolved here, where the hit-tester is, and held in the
+            // gesture manager (remapped across rebuilds). Without it the drag
+            // followed the live hover and "stopped" when the cursor left the
+            // dragged element.
+            if let Some(source) = self.drag_source_node() {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.gesture_drag_manager.set_drag_source_node(source);
+                }
+            }
         }
 
         // SET :drag-over PSEUDO-STATE ON DragEnter / DragLeave TARGETS

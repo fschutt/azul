@@ -887,19 +887,30 @@ pub fn determine_all_events(
     if let Some(manager) = gesture_manager {
         let event_was_mouse_release = !current_mouse_down && previous_mouse_down;
 
-        // Detect DragStart (targeted at hovered node)
+        // W3C: DragStart / Drag / DragEnd fire on the drag SOURCE — the node
+        // the gesture began on — for the WHOLE gesture, not on whatever the
+        // cursor is over now (only DragEnter/Over/Leave/Drop follow the
+        // cursor). The source is resolved once at DragStart (dll, from the
+        // press point) and held in the manager; before it is set the cursor
+        // is still on the source (within the drag threshold), so the hover
+        // node is the correct fallback. Without this a drag whose cursor
+        // leaves the dragged element stopped receiving Drag events — the
+        // "drag suddenly stops" desync.
+        let drag_source = manager.drag_source_node().unwrap_or(mouse_target);
+
+        // Detect DragStart (on the drag source)
         if manager.detect_drag().is_some()
             && !manager.is_dragging() {
                 events.push(SyntheticEvent::new(
                     EventType::DragStart,
                     EventSource::User,
-                    mouse_target,
+                    drag_source,
                     timestamp.clone(),
                     make_mouse_data(MouseButton::Left),
                 ));
             }
 
-        // Detect Drag (continuous movement, targeted at hovered node)
+        // Detect Drag (continuous movement, on the drag source)
         if manager.is_dragging() && current_mouse_down {
             let current_pos = current_state.mouse_state.cursor_position.get_position();
             let previous_pos = previous_state.mouse_state.cursor_position.get_position();
@@ -908,19 +919,19 @@ pub fn determine_all_events(
                 events.push(SyntheticEvent::new(
                     EventType::Drag,
                     EventSource::User,
-                    mouse_target,
+                    drag_source,
                     timestamp.clone(),
                     make_mouse_data(MouseButton::Left),
                 ));
             }
         }
 
-        // Detect DragEnd (targeted at hovered node)
+        // Detect DragEnd (on the drag source)
         if manager.is_dragging() && event_was_mouse_release {
             events.push(SyntheticEvent::new(
                 EventType::DragEnd,
                 EventSource::User,
-                mouse_target,
+                drag_source,
                 timestamp.clone(),
                 make_mouse_data(MouseButton::Left),
             ));
@@ -2576,6 +2587,56 @@ mod autotest_generated {
             duration_ms: 0,
         }));
         g
+    }
+
+    /// A node-drag active + a source recorded: Drag / DragEnd fire on the
+    /// SOURCE for the whole gesture, even after the cursor moved onto a
+    /// different node. This is the "the drag no longer stops when the
+    /// cursor leaves the dragged element" guarantee.
+    fn dragging_from(source: DomNodeId) -> GestureAndDragManager {
+        use azul_core::drag::{DragContext, DragData};
+        let mut g = GestureAndDragManager::new();
+        g.active_drag = Some(DragContext::node_drag(
+            source.dom,
+            source.node.into_crate_internal().unwrap(),
+            LogicalPosition::new(5.0, 5.0),
+            DragData::new(),
+            1,
+        ));
+        g.set_drag_source_node(source);
+        g
+    }
+
+    #[test]
+    fn drag_and_drag_end_fire_on_the_source_not_the_node_under_the_cursor() {
+        let source = node(0, 1);
+        let over = node(0, 9); // the cursor is over a DIFFERENT node now
+        // The hover reports node 9 as current; the drag moved (pos changed).
+        let hover = hover_with(hits(&[(0, 1)]), hits(&[(0, 9)]));
+        let mut prev = cursor_at(5.0, 5.0);
+        prev.mouse_state.left_down = true;
+        let mut cur = cursor_at(400.0, 400.0);
+        cur.mouse_state.left_down = true; // still held → this is a Drag move
+        let g = dragging_from(source);
+
+        let drag = only(&run(&cur, &prev, &hover, Some(&g), None), EventType::Drag);
+        assert_eq!(drag.target, source, "Drag sticks to the source, not {over:?}");
+
+        // Release: DragEnd on the source; Drop (node-drag) on the hover.
+        let up_prev = { let mut s = cursor_at(400.0, 400.0); s.mouse_state.left_down = true; s };
+        let up_cur = cursor_at(400.0, 400.0); // left_down false = release
+        let ev = run(&up_cur, &up_prev, &hover, Some(&g), None);
+        assert_eq!(only(&ev, EventType::DragEnd).target, source, "DragEnd on the source");
+        assert_eq!(only(&ev, EventType::Drop).target, over, "Drop on the node under the cursor");
+    }
+
+    #[test]
+    fn a_finished_drag_stops_reporting_a_source() {
+        // The getter is gated on an active drag: once it ends, no stale source.
+        let mut g = dragging_from(node(0, 1));
+        assert_eq!(g.drag_source_node(), Some(node(0, 1)));
+        g.active_drag = None;
+        assert_eq!(g.drag_source_node(), None);
     }
 
     #[test]

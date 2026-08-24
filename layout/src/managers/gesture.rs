@@ -449,6 +449,15 @@ pub struct GestureAndDragManager {
     pub input_sessions: Vec<InputSession>,
     /// **NEW**: Unified drag context for all drag types
     pub active_drag: Option<DragContext>,
+    /// The node the CURRENT drag GESTURE began on (the press target),
+    /// resolved once at DragStart and held for the whole gesture. `Drag` /
+    /// `DragStart` / `DragEnd` fire on THIS node, not on whatever the cursor
+    /// is over now (W3C: those three target the drag source; only
+    /// DragEnter/Over/Leave/Drop follow the cursor). Without it a drag whose
+    /// cursor leaves the dragged element stops receiving Drag events — the
+    /// "the drag suddenly stops" desync. Remapped across DOM rebuilds,
+    /// cleared when the button releases / the gesture ends.
+    drag_source_node: azul_core::dom::OptionDomNodeId,
     /// Current pen/stylus state
     pub pen_state: Option<PenState>,
     /// Pen state as of the previous determine-events pass (for diffing pen events).
@@ -535,6 +544,8 @@ impl GestureAndDragManager {
             input_sessions: Vec::new(),
             next_session_id: 1,
             active_drag: None,
+            drag_source_node: azul_core::dom::OptionDomNodeId::None,
+           
             pen_state: None,
             previous_pen_state: None,
             pen_event_pending: false,
@@ -1501,6 +1512,23 @@ impl GestureAndDragManager {
     // paths (zero callers) and were removed.
 
     /// Activate a node drag-and-drop
+    /// Record the node a drag gesture started on (the press target). The dll
+    /// resolves it once when the first DragStart fires. See the field doc.
+    pub fn set_drag_source_node(&mut self, node: azul_core::dom::DomNodeId) {
+        self.drag_source_node = azul_core::dom::OptionDomNodeId::Some(node);
+    }
+
+    /// The node the current drag gesture began on, if a drag is active
+    /// (`None` once the button releases, so a stale source is never reused).
+    #[must_use]
+    pub fn drag_source_node(&self) -> Option<azul_core::dom::DomNodeId> {
+        if self.active_drag.is_some() {
+            self.drag_source_node.into_option()
+        } else {
+            None
+        }
+    }
+
     pub fn activate_node_drag(
         &mut self,
         dom_id: DomId,
@@ -1571,6 +1599,7 @@ impl GestureAndDragManager {
             drag.cancelled = true;
         }
         self.active_drag = None;
+        self.drag_source_node = azul_core::dom::OptionDomNodeId::None;
     }
 
     // ========================================================================
@@ -1685,6 +1714,22 @@ impl crate::managers::NodeIdRemap for GestureAndDragManager {
                 // Critical node removed — cancel the drag
                 drag.cancelled = true;
                 self.active_drag = None;
+            }
+        }
+        // The drag SOURCE follows its node; an unmounted source ends the
+        // gesture's targeting (Drag events fall back to the hover node).
+        if let azul_core::dom::OptionDomNodeId::Some(src) = self.drag_source_node {
+            if src.dom == dom_id {
+                self.drag_source_node = src
+                    .node
+                    .into_crate_internal()
+                    .and_then(|n| map.resolve(n))
+                    .map_or(azul_core::dom::OptionDomNodeId::None, |n| {
+                        azul_core::dom::OptionDomNodeId::Some(azul_core::dom::DomNodeId {
+                            dom: src.dom,
+                            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+                        })
+                    });
             }
         }
     }
