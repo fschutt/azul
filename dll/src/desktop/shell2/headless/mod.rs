@@ -5867,14 +5867,19 @@ mod tests {
         );
 
         // Widen the window through the resize fast path: the tile grows to
-        // 300 px and NodeResized must hand the worker the new size.
+        // 300 px and NodeResized must hand the worker the new size. Each
+        // mutation follows the shells' snapshot -> mutate -> PASS contract
+        // (the pass consumes the size delta and advances the event baseline;
+        // AZ_VALIDATE panics on the next snapshot otherwise), and the frame
+        // loop's reaction — the resize fast path — is then driven explicitly.
+        let mut debug_messages = None;
         window.snapshot_window_state_baseline("headless.test.capture_tile_size");
         window
             .common
             .update_window_state(event::WindowStateSource::Os, |ws| {
                 ws.size.dimensions.width = 600.0;
             });
-        let mut debug_messages = None;
+        let _ = window.process_window_events(0);
         window
             .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
             .expect("resize fast path");
@@ -5883,11 +5888,13 @@ mod tests {
         // A Retina display: the same 300x90 LOGICAL tile is 600x180 DEVICE
         // pixels — the size the preview must be cut at (logical px undersized
         // a Retina preview by 2x before).
+        window.snapshot_window_state_baseline("headless.test.capture_tile_dpi");
         window
             .common
             .update_window_state(event::WindowStateSource::Os, |ws| {
                 ws.size.dpi = 192;
             });
+        let _ = window.process_window_events(0);
         window
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
@@ -5910,6 +5917,7 @@ mod tests {
             .update_window_state(event::WindowStateSource::Os, |ws| {
                 ws.size.dimensions.width = 700.0;
             });
+        let _ = window.process_window_events(0);
         window
             .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
             .expect("resize fast path at 2x");
