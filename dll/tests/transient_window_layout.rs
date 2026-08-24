@@ -823,13 +823,14 @@ fn dragging_the_grip_tears_the_picker_off_and_dragging_it_back_docks_it() {
     assert!(tm.torn);
     assert_eq!(tm.content_size, popup_opts.window_state.size.dimensions, "same content, same size");
 
-    // The toplevel lays the same panel out; Escape does NOT dismiss a palette.
+    // The toplevel lays the same panel out. It is FRAMELESS (no OS close
+    // button), so Escape is what closes it — the only affordance it has.
     let mut top = headless(top_opts.clone(), app_data.clone());
     top.regenerate_layout().expect("toplevel layout");
     top.snapshot_window_state_baseline("t.escape");
     top.common.keyboard_state_mut().pressed_virtual_keycodes = vec![VirtualKeyCode::Escape].into();
     let _ = top.process_window_events(0);
-    assert!(!close_requested(&top), "a torn-off palette ignores Escape");
+    assert!(close_requested(&top), "a frameless torn-off palette closes on Escape");
     top.snapshot_window_state_baseline("t.escape_up");
     top.common.keyboard_state_mut().pressed_virtual_keycodes = vec![].into();
     let _ = top.process_window_events(0);

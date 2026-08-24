@@ -844,13 +844,18 @@ pub fn popup_dismiss_cause(
     // "lift Menu's window into TransientWindow" step is for: Escape and
     // focus loss close a fallback menu on every backend the same way.
     let policy = match mailbox_of(current) {
-        // A torn-off toplevel is a palette: it closes by its close button.
         Some(m) => {
             let (torn, dismiss) = read(&m, |d| (d.torn, d.placement.dismiss))?;
             if torn {
-                return None;
+                // A torn-off palette is FRAMELESS (a Menu-type drag proxy —
+                // no OS close button), so Escape is the only way to close it.
+                // It must NOT light-dismiss on focus loss, though: the user
+                // parked it to work next to the document. Force Escape-only,
+                // whatever policy the docked form carried.
+                TransientDismiss::Escape
+            } else {
+                dismiss
             }
-            dismiss
         }
         None if current.flags.window_type == WindowType::Menu => TransientDismiss::Outside,
         None => return None,
