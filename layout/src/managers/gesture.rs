@@ -1138,11 +1138,16 @@ impl GestureAndDragManager {
         // how many consecutive clicks fall within the time+distance
         // thresholds.
 
-        // Collect the last up-to-3 ended sessions (most-recent first).
+        // Collect the last up-to-3 click sessions (most-recent first). The
+        // click IN PROGRESS counts: `detect_click_count` runs on mouse-DOWN,
+        // which has already started a new (still-live) session for THIS click,
+        // so a double-click's second press sees `[click1(ended),
+        // click2(LIVE)]` — the live one is the current click and must be
+        // counted. Only EARLIER clicks have to be ended.
         let mut recent: Vec<&InputSession> = Vec::new();
         for s in sessions.iter().rev() {
-            if !s.ended {
-                continue;
+            if !s.ended && !recent.is_empty() {
+                break;
             }
             recent.push(s);
             if recent.len() >= 3 {
