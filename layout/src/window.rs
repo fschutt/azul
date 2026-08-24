@@ -4404,8 +4404,9 @@ impl LayoutWindow {
 
         // A tween in flight forces the caret solid: the framework suppresses
         // blinking while the caret / selection is animating (user directive).
-        let cursor_is_visible = self.text_edit_manager.should_draw_cursor()
-            || self.text_edit_manager.tween.is_active();
+        let cursor_is_visible = self.caret_editable_is_focused()
+            && (self.text_edit_manager.should_draw_cursor()
+                || self.text_edit_manager.tween.is_active());
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         // The live selection goes through the LAYOUT path too. Only the
         // display-list-only path (`regenerate_display_list_for_dom`) painted
@@ -7740,6 +7741,37 @@ impl LayoutWindow {
         self.ifc_candidate_children(dom_id, node_id)
             .into_iter()
             .find(|&c| self.get_inline_layout_for_node(dom_id, c).is_some())
+    }
+
+    /// Whether the caret should be PAINTED at all: the node being edited must
+    /// live inside the currently-focused subtree.
+    ///
+    /// The editing session (`multi_cursor`) outlives focus — a blurred field
+    /// keeps its cursor so refocusing resumes where it was — but the caret must
+    /// NOT keep painting once focus leaves. It used to: `should_draw_cursor()`
+    /// only checks `has_active_editing()` + blink, never focus, so after a
+    /// blur the caret item stayed in the display list unchanged. With the list
+    /// then byte-identical, `compute_display_list_damage` reported no change and
+    /// the frame was skipped, so the caret (and the whole focused look) stuck on
+    /// screen — the "focus doesn't get unset" report. Gating the caret's
+    /// visibility on focus flips its alpha on blur, which DOES change the list
+    /// and damages the caret region. (The editable HOST is the focused node;
+    /// the caret is on a value CHILD, so test descendant-of-focus, not equality.)
+    #[must_use]
+    pub fn caret_editable_is_focused(&self) -> bool {
+        let Some(focus) = self.focus_manager.get_focused_node() else {
+            return false;
+        };
+        let (Some(edom), Some(enode)) = (
+            self.text_edit_manager.get_editing_dom_id(),
+            self.text_edit_manager.get_editing_node_id(),
+        ) else {
+            return false;
+        };
+        let Some(fnode) = focus.node.into_crate_internal() else {
+            return false;
+        };
+        focus.dom == edom && self.node_is_self_or_descendant(edom, enode, fnode)
     }
 
     /// Apply a unified selection operation (navigation, extend, or delete).
@@ -13346,8 +13378,9 @@ impl LayoutWindow {
 
         // Get cursor state for display list generation. A tween in flight
         // forces the caret solid (blinking is suppressed while animating).
-        let cursor_is_visible = self.text_edit_manager.should_draw_cursor()
-            || self.text_edit_manager.tween.is_active();
+        let cursor_is_visible = self.caret_editable_is_focused()
+            && (self.text_edit_manager.should_draw_cursor()
+                || self.text_edit_manager.tween.is_active());
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let text_selections_map = self.text_edit_manager.build_text_selections_map();
 

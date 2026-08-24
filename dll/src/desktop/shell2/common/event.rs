@@ -595,7 +595,16 @@ fn apply_focus_restyle(
     );
 
     if restyle_result.changed_nodes.is_empty() {
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
+        // A focus change with no detected resolved-style delta STILL needs the
+        // display list REBUILT, not merely re-presented. Two focus visuals are
+        // not captured in `changed_nodes`: (1) the caret, painted from focus /
+        // editing state at build time (not a restyle property), and (2)
+        // `:focus`-CONDITIONAL properties like the text input's focus border,
+        // re-evaluated against the node's focused flag when the display list is
+        // built. Returning `ShouldReRenderCurrentWindow` re-presented the STALE
+        // list, so after a blur the caret and the blue focus border stayed on
+        // screen ("focus doesn't get unset"). Rebuild so both re-resolve.
+        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
     }
 
     if restyle_result.gpu_only_changes {
