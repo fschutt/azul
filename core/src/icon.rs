@@ -1054,6 +1054,35 @@ pub fn resolve_icons_in_styled_dom(
             }
         }
     }
+
+    // Step 4: rebuild the compact cache, because step 3 invalidated it.
+    //
+    // `apply_cached_resolution` rewrites a node's `NodeType` and inline `style`
+    // — a font icon's replacement carries `font-family: StyleFontFamily::Ref`,
+    // which is the ONLY place that face is named. But the compact cache is a
+    // PRECOMPUTED per-node array, built when the `StyledDom` was cascaded, and
+    // nothing above touches it. So after the splice it still describes the
+    // pre-resolution `<icon>` node.
+    //
+    // That matters because the compact cache is the source of truth for font
+    // resolution: `collect_font_stacks_from_styled_dom` keys on
+    // `tier2b_text[i].font_family_hash` and looks the families up in
+    // `font_hash_to_families`. With a stale hash it finds the ORIGINAL
+    // families, never sees the `Ref`, and so never registers the face as an
+    // embedded font. Shaping then falls back to a system face which has no
+    // glyph at the icon's private-use codepoint, and the icon rasterises to a
+    // `.notdef` tofu box — with every step in between reporting success.
+    //
+    // This was previously masked in the engine's own path: `regenerate_layout`
+    // wraps the DOM for client-side decorations right after this call, and that
+    // rebuild happened to refresh the cache. Anything that resolved icons
+    // WITHOUT a later rebuild — a frameless window, or rendering an icon
+    // straight to a bitmap, which is how this was found — got the tofu.
+    //
+    // Cost is bounded by the `icons.is_empty()` early return above: a DOM with
+    // no icons never reaches here, and one with icons pays a single rebuild
+    // rather than one per icon.
+    styled_dom.recompute_inheritance_and_compact_cache();
 }
 
 // FFI Option Types

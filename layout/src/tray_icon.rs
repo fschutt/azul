@@ -106,29 +106,6 @@ pub fn render_icon_to_rgba(
             StyleFontSize::px(size)
         ))),
     ];
-    // Seed the icon's own font into the cascade, BEFORE the StyledDom is built.
-    //
-    // This is the difference between a visible icon and a `.notdef` tofu box.
-    // `resolve_icons_in_styled_dom` writes the resolved font family into the
-    // node's INLINE style (`apply_cached_resolution` -> `node.set_style`) and
-    // its `styled_nodes` entry, but it does NOT touch the CSS property cache -
-    // which was cascaded when the StyledDom was built and still describes the
-    // original `<icon>` node. `collect_font_stacks_from_styled_dom` reads that
-    // cache, so the resolver's `StyleFontFamily::Ref(font)` is invisible to it:
-    // measured, zero FontRefs are collected, nothing is registered as an
-    // embedded font, and the shaper falls back to a system face with no glyph
-    // at the icon's private-use codepoint.
-    //
-    // Putting the family in before the cascade makes it visible to collection,
-    // registration and shaping alike. Resolution still supplies the GLYPH.
-    if let Some(font) = font_of_spec(spec, provider) {
-        props.push(CssPropertyWithConditions::simple(CssProperty::FontFamily(
-            CssPropertyValue::Exact(azul_css::props::basic::StyleFontFamilyVec::from_vec(
-                alloc::vec![azul_css::props::basic::StyleFontFamily::Ref(font)],
-            )),
-        )));
-    }
-
     if let Some(c) = tint {
         props.push(CssPropertyWithConditions::simple(CssProperty::TextColor(
             CssPropertyValue::Exact(StyleTextColor { inner: c }),
@@ -202,28 +179,6 @@ pub fn render_icon_to_rgba(
     })
 }
 
-/// The `FontRef` behind a font-backed icon spec, if it is one.
-///
-/// An image-backed icon (`ImageIconData`) has no font and returns `None`; it
-/// needs no seeding because it resolves to an image node, not to text.
-fn font_of_spec(
-    spec: &str,
-    provider: &SharedIconProvider,
-) -> Option<azul_css::props::basic::FontRef> {
-    for alt in spec.split(',') {
-        let alt = alt.trim();
-        if alt.is_empty() {
-            continue;
-        }
-        if let Some(mut data) = provider.lookup(alt) {
-            if let Some(f) = data.downcast_ref::<crate::icon::FontIconData>() {
-                return Some(f.font.clone());
-            }
-        }
-    }
-    None
-}
-
 /// Does any pack hold this spec? Mirrors the registry's own lookup, including
 /// the comma-separated fallback list, so a spec that `<icon>` would resolve is
 /// never rejected here.
@@ -261,6 +216,68 @@ mod tests {
         assert!(!spec_resolves("missing:x", &p));
         assert!(!spec_resolves("", &p));
         assert!(!spec_resolves(" , ", &p));
+    }
+
+    /// REGRESSION (tray icons rendered as `.notdef` tofu boxes).
+    ///
+    /// `resolve_icons_in_styled_dom` rewrites a font icon's inline style to
+    /// carry `font-family: StyleFontFamily::Ref(face)` — the only place that
+    /// face is ever named. But the compact CSS cache is precomputed at cascade
+    /// time, so before the fix it still described the pre-resolution `<icon>`
+    /// node. `collect_font_stacks_from_styled_dom` reads that cache, so it
+    /// never saw the `Ref`, never registered the face as an embedded font, and
+    /// shaping silently fell back to a system face with no glyph at the icon's
+    /// private-use codepoint.
+    ///
+    /// The invariant this pins: **after resolving a font-backed icon, the face
+    /// is visible to font-stack collection.** Everything downstream — embedded
+    /// registration, shaping, rasterisation — depends on it, and every one of
+    /// those steps reported success while producing a tofu box, so this is the
+    /// only place the failure is cheap to catch.
+    #[test]
+    fn resolving_a_font_icon_leaves_its_face_visible_to_font_collection() {
+        use azul_core::{
+            dom::Dom, icon::IconProviderHandle, refany::RefAny, styled_dom::StyledDom,
+        };
+        use azul_css::{css::Css, props::basic::FontRef};
+
+        // A FontRef needs no real font data here: collection only reports which
+        // faces are referenced, it does not parse them.
+        static DUMMY: u8 = 0;
+        extern "C" fn noop(_: *mut core::ffi::c_void) {}
+        let face = FontRef::new(
+            core::ptr::addr_of!(DUMMY).cast::<core::ffi::c_void>(),
+            noop,
+        );
+
+        let mut handle = IconProviderHandle::with_resolver(crate::icon::default_icon_resolver);
+        handle.register_icon(
+            "testpack",
+            "gear",
+            RefAny::new(crate::icon::FontIconData {
+                font: face.clone(),
+                icon_char: "\u{e8b8}".into(),
+            }),
+        );
+        let provider = SharedIconProvider::from_handle(handle);
+
+        let dom = Dom::create_icon(String::from("gear"));
+        let mut styled = StyledDom::create_from_dom(dom);
+        azul_core::icon::resolve_icons_in_styled_dom(
+            &mut styled,
+            &provider,
+            &SystemStyle::default(),
+        );
+
+        let collected = crate::solver3::getters::collect_font_stacks_from_styled_dom(
+            &styled,
+            &SystemStyle::default().platform,
+        );
+        assert!(
+            !collected.font_refs.is_empty(),
+            "the resolved icon's FontRef must reach font-stack collection; \
+             an empty set is the tofu-box bug (stale compact cache)"
+        );
     }
 
     #[test]
