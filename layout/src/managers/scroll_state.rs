@@ -1136,6 +1136,26 @@ impl ScrollManager {
         };
 
         if let Some(existing) = self.states.get_mut(&key) {
+            // Was the current offset an OUT-of-bounds overscroll under the OLD
+            // bounds? Capture that BEFORE the rects are overwritten. An
+            // out-of-bounds value here is a LIVE rubber-band the physics timer
+            // owns: snapping it back on a DOM regen makes the next physics tick
+            // compute a discontinuous delta that tears the content and drags the
+            // overlay scrollbar (the "only on DOM re-generation" artifact) — so
+            // preserve it. But an offset that was IN bounds and only exceeds the
+            // new max because the CONTENT SHRANK MUST re-clamp, or a shrunk
+            // scroller keeps a bogus offset until the next set_scroll_position.
+            // (The earlier `if clamped == current_offset { current = clamped }`
+            // guard was a no-op that re-clamped NOTHING, so a shrink was never
+            // honored.)
+            // A real rubber-band is a FINITE out-of-bounds value. Non-finite
+            // garbage (a NaN/inf written through set_scroll_position_unclamped)
+            // is NOT an overscroll to protect — it must be re-clamped to a sane
+            // finite value (clamp maps NaN/inf → 0 / max_travel).
+            let off = existing.current_offset;
+            let was_overscrolling =
+                off.x.is_finite() && off.y.is_finite() && existing.clamp(off) != off;
+
             // Update rects, keep scroll offset
             existing.container_rect = container_rect;
             existing.content_rect = content_rect;
@@ -1143,17 +1163,9 @@ impl ScrollManager {
             existing.visual_width_px = visual_width_px;
             existing.has_horizontal_scrollbar = has_horizontal_scrollbar;
             existing.has_vertical_scrollbar = has_vertical_scrollbar;
-            // Re-clamp the current offset to the new bounds — but ONLY when it
-            // is already in bounds. An OUT-of-bounds value here is a live
-            // rubber-band overscroll owned by the physics timer, not the
-            // layout pass; snapping it back on a DOM regen makes the next
-            // physics tick compute a discontinuous scroll delta that tears the
-            // content and drags the overlay scrollbar (the "only on DOM
-            // re-generation" artifact). A stale in-idle offset beyond a shrunk
-            // max self-corrects on the next set_scroll_position.
-            let clamped = existing.clamp(existing.current_offset);
-            if clamped == existing.current_offset {
-                existing.current_offset = clamped;
+
+            if !was_overscrolling {
+                existing.current_offset = existing.clamp(existing.current_offset);
             }
         } else {
             // +spec:overflow:8c7aa1 - initial scroll position is zero (scroll origin for LTR/TTB)
