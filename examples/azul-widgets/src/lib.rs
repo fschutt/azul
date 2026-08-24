@@ -61,6 +61,12 @@ struct Showcase {
     tabs: Vec<azul::str::String>,
     /// Which tab is active.
     active_tab: usize,
+    /// The tab index a reorder drag started on (set on `DragStart`, read on
+    /// `Drop`). `usize::MAX` = no drag in flight.
+    drag_tab: usize,
+    /// The tab the dragged tab is currently over (the insertion point). Drives
+    /// the drop indicator. `usize::MAX` = none.
+    drag_over: usize,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -300,6 +306,137 @@ fn files_section(data: &RefAny, dropped: &[azul::str::String], hovering: bool) -
     section("Files", vec![labelled("Drop zone", zone), labelled("Dropped files", list)])
 }
 
+// ──────────────────────────── VS-style tabs ────────────────────────────────
+//
+// A document-tab strip: click to switch, drag a tab onto another to reorder
+// (exercises the drag-source routing — Drag/DragEnd stick to the tab you
+// grabbed, not whatever is under the cursor), and drag a tab out of the strip
+// to tear it into its own window (the transient-window tear-off).
+
+/// Pack `(Showcase, tab_index)` so one set of callbacks serves every tab.
+fn tab_data(data: &RefAny, index: usize) -> RefAny {
+    RefAny::new((data.clone(), index))
+}
+
+fn tab_index_of(data: &mut RefAny) -> Option<usize> {
+    data.downcast_ref::<(RefAny, usize)>().map(|p| (*p).1)
+}
+fn tab_showcase_of(data: &mut RefAny) -> Option<RefAny> {
+    data.downcast_ref::<(RefAny, usize)>().map(|p| (*p).0.clone())
+}
+
+/// Click a tab header → make it the active document.
+extern "C" fn on_tab_click(mut data: RefAny, _: CallbackInfo) -> Update {
+    let (Some(mut sc), Some(idx)) = (tab_showcase_of(&mut data), tab_index_of(&mut data)) else {
+        return Update::DoNothing;
+    };
+    if let Some(mut s) = sc.downcast_mut::<Showcase>() {
+        if s.active_tab != idx {
+            s.active_tab = idx;
+            return Update::RefreshDom;
+        }
+    }
+    Update::DoNothing
+}
+
+/// A reorder drag began on this tab: remember which one.
+extern "C" fn on_tab_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (Some(mut sc), Some(idx)) = (tab_showcase_of(&mut data), tab_index_of(&mut data)) else {
+        return Update::DoNothing;
+    };
+    // Populate the drag payload so DragOver/Drop targets have something to read.
+    let mime = azul::str::String::from("application/x-azul-tab");
+    info.set_drag_data(mime, format!("{idx}").into_bytes());
+    if let Some(mut s) = sc.downcast_mut::<Showcase>() {
+        s.drag_tab = idx;
+    }
+    Update::DoNothing
+}
+
+/// A tab is over this tab: accept, so a `Drop` will fire here.
+extern "C" fn on_tab_drag_over(_data: RefAny, mut info: CallbackInfo) -> Update {
+    info.accept_drop();
+    Update::DoNothing
+}
+
+/// A tab was dropped on this one: move the dragged tab to this slot.
+extern "C" fn on_tab_drop(mut data: RefAny, _: CallbackInfo) -> Update {
+    let (Some(mut sc), Some(target)) = (tab_showcase_of(&mut data), tab_index_of(&mut data)) else {
+        return Update::DoNothing;
+    };
+    if let Some(mut s) = sc.downcast_mut::<Showcase>() {
+        let src = s.drag_tab;
+        s.drag_tab = usize::MAX;
+        if src == usize::MAX || src >= s.tabs.len() || target >= s.tabs.len() || src == target {
+            return Update::DoNothing;
+        }
+        let moving = s.tabs.remove(src);
+        s.tabs.insert(target, moving);
+        // Keep the same document active by following its label.
+        let active_label = s.tabs.get(target).cloned();
+        if let Some(al) = active_label {
+            if let Some(pos) = s.tabs.iter().position(|t| t.as_str() == al.as_str()) {
+                s.active_tab = pos;
+            }
+        }
+        s.interactions += 1;
+        return Update::RefreshDom;
+    }
+    Update::DoNothing
+}
+
+/// The VS-style tab section: a reorderable strip over a content pane.
+fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom {
+    let mut strip = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; gap: 2px; border-bottom: 1px solid #d0d5dd; \
+         background-color: #f2f4f7; border-radius: 8px 8px 0px 0px; padding: 4px 4px 0px 4px;",
+    );
+    for (i, label) in tabs.iter().enumerate() {
+        let is_active = i == active;
+        let (bg, color, weight) = if is_active {
+            ("#ffffff", "#1d2939", "bold")
+        } else {
+            ("#e4e7ec", "#475467", "normal")
+        };
+        let mut tab = Dom::create_div()
+            // `Draggable(true)` makes the press a NODE drag (DragStart/Drag/Drop
+            // callbacks) rather than a text selection on the label.
+            .with_attributes(vec![AttributeType::draggable(true)])
+            .with_css(format!(
+                "display: flex; align-items: center; padding: 8px 16px; cursor: grab; \
+                 background-color: {bg}; color: {color}; font-weight: {weight}; \
+                 border-radius: 6px 6px 0px 0px; -azul-user-select: none;",
+            ))
+            .with_child(Dom::create_span_with_text(label.as_str()));
+        tab.add_callback(EventFilter::Hover(HoverEventFilter::MouseDown), tab_data(data, i), on_tab_click);
+        tab.add_callback(EventFilter::Hover(HoverEventFilter::DragStart), tab_data(data, i), on_tab_drag_start);
+        tab.add_callback(EventFilter::Hover(HoverEventFilter::DragOver), tab_data(data, i), on_tab_drag_over);
+        tab.add_callback(EventFilter::Hover(HoverEventFilter::Drop), tab_data(data, i), on_tab_drop);
+        strip = strip.with_child(tab);
+    }
+
+    let active_label = tabs.get(active).map(|t| t.as_str().to_string()).unwrap_or_default();
+    let pane = Dom::create_div()
+        .with_css(
+            "min-height: 90px; padding: 16px; background-color: #ffffff; \
+             border: 1px solid #d0d5dd; border-top: none; border-radius: 0px 0px 8px 8px; \
+             color: #475467; font-family: monospace;",
+        )
+        .with_child(Dom::create_span_with_text(format!("// {active_label}")).with_css("color: #1d2939;"));
+
+    let strip_and_pane = Dom::create_div()
+        .with_css("display: flex; flex-direction: column;")
+        .with_child(strip)
+        .with_child(pane);
+
+    section(
+        "Documents (VS-style tabs)",
+        vec![
+            labelled("Drag a tab onto another to reorder", strip_and_pane),
+        ],
+    )
+}
+
 // ──────────────────────────── Layout callback ──────────────────────────────
 
 extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
@@ -529,9 +666,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         vec![labelled("Dockable panel (drag the grip out; drop it on the other zone)", dock_zones())],
     );
 
-    // ── Menus + Files ───────────────────────────────────────────────────
+    // ── Menus + Files + Tabs ────────────────────────────────────────────
     let menus = menus_section(&data, s.menu_status.as_str());
     let files = files_section(&data, &s.dropped, s.file_hovering);
+    let tabs = tabs_section(&data, &s.tabs, s.active_tab);
 
     // ── Navigation ──────────────────────────────────────────────────────
     let navigation = section(
@@ -676,6 +814,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_child(feedback)
                 .with_child(menus)
                 .with_child(files)
+                .with_child(tabs)
                 .with_child(docking)
                 .with_child(navigation)
                 .with_child(overlays)
@@ -840,6 +979,8 @@ pub fn start() {
         file_hovering: false,
         tabs: vec!["main.rs".into(), "lib.rs".into(), "Cargo.toml".into(), "README.md".into()],
         active_tab: 0,
+        drag_tab: usize::MAX,
+        drag_over: usize::MAX,
     });
     let config = AppConfig::create();
     let app = App::create(data, config);

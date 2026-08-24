@@ -273,6 +273,11 @@ pub fn toplevel_create_options(
     window_state.flags.window_type = WindowType::Normal;
     window_state.flags.is_visible = true;
     window_state.flags.is_resizable = false;
+    // A torn-off panel is a bare, borderless surface that follows the cursor
+    // and re-docks — a VS-style drag proxy, not an application window. No
+    // titlebar, no traffic-light / close buttons (the popup path is already
+    // frameless; the torn toplevel must match).
+    window_state.flags.decorations = WindowDecorations::None;
     window_state.title = title.into();
     window_state.window_id = "azul-transient-torn".into();
     window_state.size.dimensions = size;
