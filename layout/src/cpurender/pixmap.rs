@@ -41,6 +41,21 @@ pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
 /// Blit `src` onto `dst` at pixel position (`px_x`, `px_y`) with opacity.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opacity: f32) {
+    blit_pixmap_clipped(src, dst, px_x, px_y, opacity, None);
+}
+
+/// [`blit_pixmap`] with an optional DEST-space clip rect `(x0, y0, x1, y1)`
+/// in device pixels (half-open). What keeps a layer nested inside a scroll
+/// frame from painting outside that frame once the frame has scrolled it
+/// past an edge.
+pub fn blit_pixmap_clipped(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    px_x: i32,
+    px_y: i32,
+    opacity: f32,
+    clip: Option<(i32, i32, i32, i32)>,
+) {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
@@ -55,10 +70,20 @@ pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32,
         if dy < 0 || dy >= dh {
             continue;
         }
+        if let Some((_, cy0, _, cy1)) = clip {
+            if dy < cy0 || dy >= cy1 {
+                continue;
+            }
+        }
         for sx in 0..sw {
             let dx = px_x.saturating_add(sx);
             if dx < 0 || dx >= dw {
                 continue;
+            }
+            if let Some((cx0, _, cx1, _)) = clip {
+                if dx < cx0 || dx >= cx1 {
+                    continue;
+                }
             }
             let si = ((sy * sw + sx) * 4) as usize;
             let di = ((dy * dw + dx) * 4) as usize;
@@ -279,6 +304,22 @@ pub fn blit_pixmap_affine_clipped(
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 #[allow(clippy::many_single_char_names, clippy::similar_names, clippy::too_many_lines)]
 pub fn blit_pixmap_projective(src: &AzulPixmap, dst: &mut AzulPixmap, h: &[f64; 9], opacity: f32) {
+    blit_pixmap_projective_clipped(src, dst, h, opacity, None);
+}
+
+/// [`blit_pixmap_projective`] with an optional DEST-space clip rect
+/// `(x0, y0, x1, y1)` in device pixels (half-open), intersected with the
+/// projected bounding box.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+// bounded pixel/coord/colour casts
+#[allow(clippy::many_single_char_names)] // homography coefficients: a..i is THE notation
+pub fn blit_pixmap_projective_clipped(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    h: &[f64; 9],
+    opacity: f32,
+    clip: Option<(i32, i32, i32, i32)>,
+) {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
@@ -337,6 +378,10 @@ pub fn blit_pixmap_projective(src: &AzulPixmap, dst: &mut AzulPixmap, h: &[f64; 
             (max_x.ceil() as i32).min(dw),
             (max_y.ceil() as i32).min(dh),
         )
+    };
+    let (x0, y0, x1, y1) = match clip {
+        Some((cx0, cy0, cx1, cy1)) => (x0.max(cx0), y0.max(cy0), x1.min(cx1), y1.min(cy1)),
+        None => (x0, y0, x1, y1),
     };
 
     for dy in y0..y1 {

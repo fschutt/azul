@@ -96,6 +96,13 @@ pub struct Layer {
     pub children: Vec<LayerId>,
     /// Current scroll offset (for scroll-frame layers).
     pub scroll_offset: (f32, f32),
+    /// Intersection of the `PushClip` rects open around this layer's `Push*`
+    /// in the display list — the parent-content-space window this layer must
+    /// stay inside at composite time (an `overflow: hidden` or border-radius
+    /// clip WRAPPING a nested layer; radii are ignored for layer clipping).
+    /// `None` when nothing wraps the layer. Item-level clips inside one
+    /// layer's own range are the rasterizer's clip stack, not this.
+    pub static_clip: Option<LogicalRect>,
     /// Layer opacity (1.0 = fully opaque).
     pub opacity: f32,
     /// CSS filters applied at composite time. For a normal filter layer these
@@ -168,6 +175,22 @@ pub enum LayerReason {
     Opacity,
     /// Created for a `PushReferenceFrame` with non-identity transform.
     Transform,
+}
+
+/// Plain rect intersection; a disjoint pair yields a ZERO-SIZED rect (clip
+/// to nothing).
+fn intersect_logical_rects(a: LogicalRect, b: LogicalRect) -> LogicalRect {
+    let x0 = a.origin.x.max(b.origin.x);
+    let y0 = a.origin.y.max(b.origin.y);
+    let x1 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
+    let y1 = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
+    LogicalRect {
+        origin: LogicalPosition { x: x0, y: y0 },
+        size: LogicalSize {
+            width: (x1 - x0).max(0.0),
+            height: (y1 - y0).max(0.0),
+        },
+    }
 }
 
 impl CompositorState {
@@ -246,6 +269,11 @@ impl CompositorState {
         }
 
         let mut layer_stack: Vec<LayerId> = vec![root_id];
+        // The `PushClip`s open at each point of the walk. A layer created
+        // inside them is windowed by their intersection at composite time —
+        // the layer-boundary half of clip chaining (the rasterizer's clip
+        // stack handles items inside one layer).
+        let mut clip_stack: Vec<LogicalRect> = Vec::new();
         // One entry per open `PushReferenceFrame`, recording whether it actually
         // promoted a layer, so `PopReferenceFrame` pops exactly what was pushed.
         let mut ref_frame_promoted: Vec<bool> = Vec::new();
@@ -270,6 +298,7 @@ impl CompositorState {
                     if pw > 0 && ph > 0 {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, bounds, pw, ph);
+                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.scroll_id = Some(*scroll_id);
                         // Find the matching PopScrollFrame to set range
                         let end = find_matching_pop(&display_list.items, i, MatchKind::ScrollFrame);
@@ -305,6 +334,7 @@ impl CompositorState {
                     if promote {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
+                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.opacity = effective;
                         let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
                         layer.display_list_range = (i + 1, end);
@@ -335,6 +365,7 @@ impl CompositorState {
                         if pw > 0 && ph > 0 {
                             let new_id = self.alloc_layer_id();
                             let mut layer = Layer::new(new_id, b, pw, ph);
+                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
                             layer.filters.clone_from(filters);
                             let end = find_matching_pop(&display_list.items, i, MatchKind::Filter);
                             layer.display_list_range = (i + 1, end);
@@ -389,6 +420,7 @@ impl CompositorState {
                         let ph = (b.size.height * dpi_factor).ceil().max(1.0) as u32;
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
+                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.transform = TransAffine::new_custom(
                             f64::from(m[0][0]),
                             f64::from(m[0][1]),
@@ -436,6 +468,7 @@ impl CompositorState {
                     if pw > 0 && ph > 0 && !filters.is_empty() {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
+                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.filters.clone_from(filters);
                         layer.is_backdrop_filter = true;
                         // The layer's OWN content may be empty (e.g. an empty
@@ -469,6 +502,12 @@ impl CompositorState {
                 // `text-shadow` (Push/PopTextShadow) is a text-rasterization
                 // concern, not a layer boundary, so it is handled in
                 // `render_single_item`, not here.
+                DisplayListItem::PushClip { bounds, .. } => {
+                    clip_stack.push(*bounds.inner());
+                }
+                DisplayListItem::PopClip => {
+                    clip_stack.pop();
+                }
                 _ => {}
             }
             i += 1;
@@ -647,12 +686,27 @@ impl CompositorState {
                 // Child-local (0, 0) lands at `bounds.origin` in the parent's
                 // pixel space — the same placement `composite_layer_recursive`
                 // uses for an untransformed layer.
-                let ox = (layer_bounds.origin.x * dpi_factor).round() as i32;
-                let oy = (layer_bounds.origin.y * dpi_factor).round() as i32;
+                // The parent's pixbuf holds the parent's CONTENT: its (0,0)
+                // is the parent's origin plus its scroll offset in window
+                // space (items render at `pos - origin - soff`). Sample the
+                // backdrop in THAT space — absolute coordinates grabbed the
+                // wrong patch for any layer nested in a non-root layer.
                 parent_of
                     .get(layer_id)
                     .and_then(|pid| self.layers.get(pid))
-                    .map(|parent| backdrop_under(&parent.pixbuf, ox, oy, w, h))
+                    .map(|parent| {
+                        let psoff = parent
+                            .scroll_id
+                            .and_then(|id| scroll_offsets.get(&id).copied())
+                            .unwrap_or((0.0, 0.0));
+                        let ox = ((layer_bounds.origin.x - parent.bounds.origin.x - psoff.0)
+                            * dpi_factor)
+                            .round() as i32;
+                        let oy = ((layer_bounds.origin.y - parent.bounds.origin.y - psoff.1)
+                            * dpi_factor)
+                            .round() as i32;
+                        backdrop_under(&parent.pixbuf, ox, oy, w, h)
+                    })
             } else {
                 None
             };
@@ -694,8 +748,8 @@ impl CompositorState {
 
     /// Composite all layers bottom-up into the final output pixmap.
     pub fn composite_frame(&self, output: &mut AzulPixmap, dpi_factor: f32) {
-        // Start from root layer, with an identity device transform.
-        self.composite_layer_recursive(self.root_layer, output, MAT3_IDENTITY, dpi_factor);
+        // Start from root layer, with an identity device transform, unclipped.
+        self.composite_layer_recursive(self.root_layer, output, MAT3_IDENTITY, None, dpi_factor);
     }
 
     /// `parent_m` maps the PARENT's local device-pixel space to output
@@ -723,6 +777,7 @@ impl CompositorState {
         layer_id: LayerId,
         output: &mut AzulPixmap,
         parent_h: Mat3,
+        clip: Option<(i32, i32, i32, i32)>,
         dpi_factor: f32,
     ) {
         let Some(layer) = self.layers.get(&layer_id) else {
@@ -766,6 +821,35 @@ impl CompositorState {
         let this_m = mat3_affine_part(&this_h);
         let is_affine = mat3_is_affine(&this_h);
 
+        // The clips WRAPPING this layer, recorded at allocation in the
+        // parent's content space: `parent_h` (the rebased chain handed down)
+        // is exactly the parent-content -> device mapping, so apply it and
+        // join the chain. Only tightened when that mapping is a pure
+        // translation — same policy as the scroll-frame window below.
+        let clip = match layer.static_clip {
+            Some(sc) if layer_id != self.root_layer => {
+                let pm = mat3_affine_part(&parent_h);
+                let translation_only = mat3_is_affine(&parent_h)
+                    && (pm.sx - 1.0).abs() < IDENTITY_EPSILON_F64
+                    && pm.shy.abs() < IDENTITY_EPSILON_F64
+                    && pm.shx.abs() < IDENTITY_EPSILON_F64
+                    && (pm.sy - 1.0).abs() < IDENTITY_EPSILON_F64;
+                if translation_only {
+                    let dpi = f64::from(dpi_factor);
+                    let r = (
+                        (f64::from(sc.origin.x) * dpi + pm.tx).round() as i32,
+                        (f64::from(sc.origin.y) * dpi + pm.ty).round() as i32,
+                        (f64::from(sc.origin.x + sc.size.width) * dpi + pm.tx).round() as i32,
+                        (f64::from(sc.origin.y + sc.size.height) * dpi + pm.ty).round() as i32,
+                    );
+                    Some(clip.map_or(r, |c| (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))))
+                } else {
+                    clip
+                }
+            }
+            _ => clip,
+        };
+
         // Pure-integer-translation fast path — bit-identical to the old
         // offset blit for every untransformed layer (which is all of them,
         // outside an active animation / drag).
@@ -800,7 +884,9 @@ impl CompositorState {
             };
             apply_layer_filters(&mut backdrop, &layer.filters, dpi_factor);
             write_region(output, &backdrop.data, w, h, px_x, px_y);
-            blit_pixmap(&layer.pixbuf, output, px_x, px_y, layer.opacity);
+            blit_pixmap_clipped(
+                &layer.pixbuf, output, px_x, px_y, layer.opacity, clip,
+            );
         } else {
             // Apply filters at composite time (to the layer's own content).
             let src = if layer.filters.is_empty() {
@@ -813,18 +899,66 @@ impl CompositorState {
 
             let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
             if is_pure_translation {
-                blit_pixmap(src_pixbuf, output, px_x, px_y, layer.opacity);
+                blit_pixmap_clipped(
+                    src_pixbuf, output, px_x, px_y, layer.opacity, clip,
+                );
             } else if is_affine {
-                blit_pixmap_affine(src_pixbuf, output, &this_m, layer.opacity);
+                blit_pixmap_affine_clipped(
+                    src_pixbuf, output, &this_m, layer.opacity, clip,
+                );
             } else {
-                blit_pixmap_projective(src_pixbuf, output, &this_h, layer.opacity);
+                blit_pixmap_projective_clipped(
+                    src_pixbuf, output, &this_h, layer.opacity, clip,
+                );
             }
         }
 
-        // Composite children in z-order, inheriting this layer's mapping.
+        // Composite children in z-order. A child's `bounds.origin` is
+        // WINDOW-absolute (every layer's is), so the mapping handed down
+        // REBASE-s it into THIS layer's content space: translate by
+        // -(this origin + this scroll offset). The root's origin and offset
+        // are zero, so direct children of the root keep the absolute
+        // placement they always had — but a layer nested in a NON-root layer
+        // used to inherit `this_h` (which already places this layer at its
+        // absolute origin) and then add its own absolute origin AGAIN: every
+        // ancestor origin was double-counted, and a parent's scroll offset
+        // never reached it at all. The TextArea widget was the visible case:
+        // its inner scroll frame, nested in the demo's scrollable body,
+        // painted its placeholder one body-clip-origin lower and to the
+        // right of where layout (and hit-testing) put it.
         let children: Vec<LayerId> = layer.children.clone();
+        if children.is_empty() {
+            return;
+        }
+        let dpi = f64::from(dpi_factor);
+        let child_base = mat3_mul(
+            &this_h,
+            &mat3_translation(
+                -(f64::from(layer.bounds.origin.x) + f64::from(layer.scroll_offset.0)) * dpi,
+                -(f64::from(layer.bounds.origin.y) + f64::from(layer.scroll_offset.1)) * dpi,
+            ),
+        );
+        // A scroll frame WINDOWS its children: pixels outside its device rect
+        // belong to whatever surrounds the frame. Tighten only on the
+        // pure-translation path — scroll frames are never transformed in
+        // practice, and an approximate tightening under a live transform
+        // would clip wrongly rather than loosely.
+        let child_clip = if layer_id != self.root_layer
+            && layer.scroll_id.is_some()
+            && is_pure_translation
+        {
+            let r = (
+                px_x,
+                px_y,
+                px_x.saturating_add(layer.pixbuf.width as i32),
+                px_y.saturating_add(layer.pixbuf.height as i32),
+            );
+            Some(clip.map_or(r, |c| (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))))
+        } else {
+            clip
+        };
         for child_id in &children {
-            self.composite_layer_recursive(*child_id, output, this_h, dpi_factor);
+            self.composite_layer_recursive(*child_id, output, child_base, child_clip, dpi_factor);
         }
     }
 
@@ -936,6 +1070,7 @@ impl Layer {
             damage: Vec::new(),
             children: Vec::new(),
             scroll_offset: (0.0, 0.0),
+            static_clip: None,
             opacity: 1.0,
             filters: Vec::new(),
             is_backdrop_filter: false,
@@ -5067,6 +5202,119 @@ mod autotest_generated {
             at(&out, 8, 8),
             [255, 255, 255, 255],
             "an opacity-0 layer must contribute nothing over the white root"
+        );
+    }
+
+    // ===================== nested scroll-frame compositing ===================
+
+    /// A `PushClip` WRAPPING a nested layer joins the chain: the layer's
+    /// pixels stay inside the clip at composite time (item-level clipping
+    /// inside one layer was always handled by the rasterizer; the layer
+    /// boundary was the hole).
+    #[test]
+    fn a_push_clip_wrapping_a_nested_layer_clips_it_at_composite() {
+        let mut c = CompositorState::new(64, 64);
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let list = dlist(vec![
+            DisplayListItem::PushClip {
+                bounds: wlr(10.0, 10.0, 20.0, 20.0),
+                border_radius: BorderRadius::default(),
+            },
+            push_scroll(1, 10.0, 10.0, 40.0, 40.0),
+            rect_item(10.0, 10.0, 40.0, 40.0, red),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopClip,
+        ]);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        let mut out = AzulPixmap::new(64, 64).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        assert_eq!(at(&out, 25, 25), [255, 0, 0, 255], "inside the wrapping clip");
+        assert_eq!(
+            at(&out, 35, 15),
+            [255, 255, 255, 255],
+            "the scroll layer's pixels outside the WRAPPING PushClip are clipped"
+        );
+        assert_eq!(at(&out, 15, 35), [255, 255, 255, 255], "both axes");
+    }
+
+
+    /// THE CLASS (AzWidgets TextArea, 2026-08-24): a layer nested inside a
+    /// NON-root layer composited at parent origin + its own absolute origin —
+    /// every ancestor origin double-counted — so its pixels landed below and
+    /// right of where layout and hit-testing put them.
+    #[test]
+    fn a_nested_scroll_frame_composites_parent_relative_not_double_offset() {
+        let mut c = CompositorState::new(64, 64);
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let list = dlist(vec![
+            push_scroll(1, 10.0, 10.0, 40.0, 40.0),
+            push_scroll(2, 20.0, 20.0, 20.0, 20.0),
+            rect_item(20.0, 20.0, 20.0, 20.0, red),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopScrollFrame,
+        ]);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        let mut out = AzulPixmap::new(64, 64).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        assert_eq!(
+            at(&out, 22, 22),
+            [255, 0, 0, 255],
+            "the nested frame's rect paints at its LAYOUT position (20..40)"
+        );
+        assert_eq!(
+            at(&out, 48, 48),
+            [255, 255, 255, 255],
+            "…and NOT at the double-offset position (30..50) the old absolute \
+             placement produced"
+        );
+    }
+
+    /// Scrolling the OUTER frame must move a nested frame's pixels with the
+    /// content, and clip them at the outer frame's edge — the nested layer's
+    /// pixels do not live in the outer layer's backing, so both effects come
+    /// from the composite step alone.
+    #[test]
+    fn scrolling_the_outer_frame_moves_and_clips_the_nested_frame() {
+        let mut c = CompositorState::new(64, 64);
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let list = dlist(vec![
+            push_scroll(1, 10.0, 10.0, 40.0, 40.0),
+            push_scroll(2, 20.0, 20.0, 20.0, 20.0),
+            rect_item(20.0, 20.0, 20.0, 20.0, red),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopScrollFrame,
+        ]);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        let (rr, mut gc, _st) = render_deps();
+        let mut offsets = ScrollOffsetMap::new();
+        offsets.insert(1, (0.0, 15.0));
+        let st = CpuRenderState::new(offsets);
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        let mut out = AzulPixmap::new(64, 64).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        // The rect's visual band moves from y 20..40 to y 5..25, clipped by
+        // the outer frame's rect to y 10..25.
+        assert_eq!(
+            at(&out, 22, 12),
+            [255, 0, 0, 255],
+            "scrolling the outer frame moves the nested frame's pixels up"
+        );
+        assert_eq!(
+            at(&out, 22, 8),
+            [255, 255, 255, 255],
+            "…and the part scrolled past the outer frame's top edge is CLIPPED"
+        );
+        assert_eq!(
+            at(&out, 22, 30),
+            [255, 255, 255, 255],
+            "…and the vacated band below is no longer red"
         );
     }
 
