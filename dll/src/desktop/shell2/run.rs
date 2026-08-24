@@ -617,7 +617,7 @@ pub fn run(
             None,
         );
         let mut window =
-            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), undo_manager.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), mtm)?;
+            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), undo_manager.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), None, mtm)?;
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::Window,
@@ -713,6 +713,11 @@ pub fn run(
                                     shared_icon_provider.clone(),
                                     fc_cache.clone(),
                                     font_registry.clone(),
+                                    // A queued create is always a CHILD of this
+                                    // window (a transient popup / torn panel) —
+                                    // share its warmed font pool so text/icons
+                                    // are not tofu.
+                                    window.common.layout_window.as_ref(),
                                     mtm,
                                 ) {
                                     Ok(new_window) => unsafe {
@@ -889,6 +894,9 @@ pub fn run(
                                         shared_icon_provider.clone(),
                                         fc_cache.clone(),
                                         font_registry.clone(),
+                                        // A queued create is a CHILD of this
+                                        // window — share its warmed font pool.
+                                        window.common.layout_window.as_ref(),
                                         mtm,
                                     ) {
                                         Ok(new_window) => {

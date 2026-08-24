@@ -1607,7 +1607,14 @@ impl LayoutWindow {
     /// The single place every `LayoutWindow` field is initialized; the public
     /// constructors below are thin wrappers over this (deduplicated 2026-05-21,
     /// so adding a field touches one site instead of three).
-    fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
+    ///
+    /// `pub` so a shell can build a CHILD window (a `<transient-window>` popup /
+    /// torn panel) around the PARENT's shared font pool
+    /// (`parent.font_manager.clone_shared()`): the child then resolves every
+    /// font the parent can — its parsed system faces AND its embedded (icon)
+    /// fonts — instead of rebuilding an empty manager and rendering the macOS
+    /// last-resort "tofu" face for text and icons.
+    pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
             pending_css_dirty: None,
             e2e_mount: E2eMountOverride::default(),

@@ -4038,6 +4038,12 @@ impl MacOSWindow {
     }
 
     /// Create a new macOS window with given options and shared font cache.
+    ///
+    /// `parent_lw` is the parent window's `LayoutWindow` when this is a CHILD
+    /// window (a `<transient-window>` popup / torn panel): the child then
+    /// shares the parent's warmed font pool instead of a fresh empty one, so
+    /// its text and icons resolve instead of rendering as tofu. `None` for a
+    /// top-level application window.
     pub fn new_with_fc_cache(
         options: WindowCreateOptions,
         app_data: RefAny,
@@ -4046,9 +4052,10 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache: Arc<rust_fontconfig::FcFontCache>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
+        parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, Some(fc_cache), font_registry, mtm)
+        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, Some(fc_cache), font_registry, parent_lw, mtm)
     }
 
     /// Create a new macOS window with given options.
@@ -4060,7 +4067,7 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, None, None, mtm)
+        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, None, None, None, mtm)
     }
 
     /// Internal constructor with optional fc_cache parameter
@@ -4072,6 +4079,7 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
+        parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
@@ -4658,12 +4666,19 @@ impl MacOSWindow {
         // Initialize resource caches
         let renderer_resources = RendererResources::default();
 
-        // Initialize LayoutWindow with shared fc_cache or build a new one
+        // Initialize LayoutWindow. A CHILD window (a transient popup / torn
+        // panel) SHARES the parent's warmed font pool — its parsed system
+        // faces and its embedded (icon) fonts — so text and icons resolve
+        // instead of falling through to the macOS last-resort tofu face. A
+        // top-level window builds its own manager over the shared fc_cache.
         let fc_cache =
             fc_cache_opt.unwrap_or_else(|| Arc::new(rust_fontconfig::FcFontCache::build()));
-        let mut layout_window = LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
-            WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
-        })?;
+        let mut layout_window = match parent_lw {
+            Some(parent) => LayoutWindow::from_font_manager(parent.font_manager.clone_shared()),
+            None => LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
+                WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
+            })?,
+        };
 
         // Set document_id and id_namespace for this window (if GPU path)
         if let Some(did) = wr_document_id {
