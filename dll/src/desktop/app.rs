@@ -197,6 +197,32 @@ impl App {
         self.ptr.tray = Some(tray);
     }
 
+    /// Ask for an application icon  -  the macOS Dock tile, and elsewhere the
+    /// process-wide default window icon. Takes effect when `run()` starts.
+    ///
+    /// `spec` is an icon-registry spec, exactly what an `<icon>` node takes: a
+    /// bare name (`"settings"`), a pack-qualified name (`"mypack:logo"`), or a
+    /// comma-separated fallback list. It renders through the SAME pipeline as a
+    /// tray icon and an in-DOM `<icon>`, so all three can never disagree.
+    ///
+    /// Deferred for the same reason as `set_tray`: the icon registry has to be
+    /// published before a spec can resolve, and macOS needs `NSApplication`.
+    ///
+    /// Best-effort, and deliberately narrower than it looks:
+    ///
+    /// * macOS sets `applicationIconImage`, which Apple documents as TEMPORARY -
+    ///   it is process-local and resets on next launch. Persisting it needs an
+    ///   `NSDockTilePlugIn`, which the App Store bans, and writing the bundle
+    ///   icon breaks the code signature, so neither is offered.
+    /// * The Windows EXE icon CANNOT be changed at runtime at all
+    ///   (`BeginUpdateResource` requires the target not be executing, and
+    ///   rewriting resources invalidates Authenticode).
+    ///
+    /// See `scripts/APP_AND_WINDOW_ICON_RESEARCH_2026_08_24.md`.
+    pub fn set_app_icon(&mut self, spec: azul_css::AzString) {
+        self.ptr.app_icon = Some(spec);
+    }
+
     pub fn run(&self, root_window: WindowCreateOptions) {
         debug_server::log(
             debug_server::LogLevel::Info,
@@ -306,7 +332,7 @@ impl App {
         }
 
         // Use shell2 for the actual run loop
-        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window, self.ptr.tray.clone(), self.ptr.font_manager.clone());
+        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window, self.ptr.tray.clone(), self.ptr.font_manager.clone(), self.ptr.app_icon.clone());
 
         // Telemetry: persist + upload whatever the interval uploader has not
         // sent yet. Without this a SHORT run (an e2e drive, a screenshot
@@ -389,6 +415,9 @@ pub struct AppInternal {
     /// Owned by the App rather than a process global: it is per-App state, and
     /// a global would silently pick the wrong one if a process ever ran two.
     pub tray: Option<azul_core::tray::TrayIconData>,
+    /// App icon requested via `set_app_icon()`, applied once `run()` has a font
+    /// manager to render the spec with. `None` means leave the platform default.
+    pub app_icon: Option<azul_css::AzString>,
 }
 
 impl AppInternal {
@@ -497,6 +526,7 @@ impl AppInternal {
             data: initial_data,
             config: app_config,
             tray: None,
+            app_icon: None,
             // ONE manager, built here rather than per-window. `FcFontCache` is
             // internally Arc-shared, so the clone tracks whatever the scout
             // threads discover later.

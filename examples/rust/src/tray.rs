@@ -130,6 +130,9 @@ fn main() {
 
     let mut app = App::create(data, AppConfig::create());
     app.set_tray(tray);
+    // The Dock tile, from the same registry + pipeline as the tray icon. macOS
+    // documents this as temporary: it is process-local and resets next launch.
+    app.set_app_icon(String::from("favorite"));
 
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Azul - tray demo".into();

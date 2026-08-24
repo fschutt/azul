@@ -108437,6 +108437,30 @@
                                     }
                                 ],
                                 "fn_body": "object.set_tray(tray)"
+                            },
+                            "set_app_icon": {
+                                "doc": [
+                                    "Ask for an application icon  -  the macOS Dock tile, and elsewhere",
+                                    "the process-wide default window icon. Takes effect when `run()` starts.",
+                                    "",
+                                    "`spec` is an icon-registry spec, exactly what an `<icon>` node takes:",
+                                    "a bare name (\"settings\"), a pack-qualified name (\"mypack:logo\"), or a",
+                                    "comma-separated fallback list. It renders through the SAME pipeline as",
+                                    "a tray icon and an in-DOM `<icon>`, so all three can never disagree.",
+                                    "",
+                                    "Best-effort, and deliberately narrower than it looks: macOS documents",
+                                    "`applicationIconImage` as TEMPORARY (process-local, resets on next",
+                                    "launch), and the Windows EXE icon cannot be changed at runtime at all."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "spec": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_app_icon(spec)"
                             }
                         },
                         "repr": "C"

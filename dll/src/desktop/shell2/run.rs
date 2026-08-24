@@ -412,6 +412,8 @@ fn run_headless(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
     debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
     component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) -> Result<(), WindowError> {
@@ -527,6 +529,8 @@ pub fn run(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     crate::plog_info!(
         "[macOS] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, AZ_LOG=trace for everything)",
@@ -569,7 +573,7 @@ pub fn run(
 
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
     }
 
     use azul_core::icon::SharedIconProvider;
@@ -654,6 +658,26 @@ pub fn run(
         //    visible failure.
         //
         // By this point the window has laid out once, so the manager is warm.
+        // The app/Dock icon uses the SAME resolved manager as the tray, for the
+        // same reason: the icon renders through the DOM, so it needs a manager
+        // whose `embedded_fonts` pool holds the icon face.
+        if let Some(spec) = app_icon.as_ref() {
+            let fm_for_icon = font_manager.as_ref().map(|fm| fm.clone_shared());
+            if let Some(fm) = fm_for_icon
+                .as_ref()
+                .or_else(|| window.common.layout_window.as_ref().map(|lw| &lw.font_manager))
+            {
+                let outcome =
+                    crate::desktop::app_icon::set_app_icon(spec.as_str(), &shared_icon_provider, fm);
+                log_debug!(
+                    debug_server::LogCategory::Resources,
+                    "[app-icon] {:?} -> {:?}",
+                    spec.as_str(),
+                    outcome
+                );
+            }
+        }
+
         if let Some(tray) = tray {
             // ONE font universe. `font_manager` is the app-level manager built
             // in `AppInternal::create`; `clone_shared()` shares its `parsed_fonts`
@@ -1122,6 +1146,8 @@ pub fn run(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
@@ -1167,6 +1193,8 @@ pub fn run(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     if resolve_backend(&root_window) == super::AzBackend::Headless {
@@ -1197,6 +1225,8 @@ pub fn run(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
@@ -1204,7 +1234,7 @@ pub fn run(
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     crate::plog_info!(
@@ -1631,6 +1661,8 @@ pub fn run(
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
     font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     // Same reasoning as the environment dump below, for the knobs this build
     // cannot honour at all.
@@ -1671,7 +1703,7 @@ pub fn run(
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         crate::plog_info!("[Linux] backend resolved to Headless (AZ_BACKEND=headless)");
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
     }
     use std::cell::RefCell;
 
