@@ -12274,8 +12274,8 @@ impl LayoutWindow {
     /// p.value]` with the caret on the CONTAINER: no child "owns" the caret,
     /// document order put the placeholder first, and the typed text was
     /// shaped into the prompt — which the widget hides on the first
-    /// keystroke. A focused TextInput showed a caret and painted nothing for
-    /// whatever was typed (AzWidgets, 2026-08-22).
+    /// keystroke. A focused `TextInput` showed a caret and painted nothing for
+    /// whatever was typed (`AzWidgets`, 2026-08-22).
     fn ifc_candidate_children(&self, dom_id: DomId, node_id: NodeId) -> Vec<NodeId> {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return Vec::new();
@@ -12657,9 +12657,11 @@ impl LayoutWindow {
         if patched != wholesale {
             if let Some(dir) = std::env::var_os("AZ_PATCH_VERIFY_DUMP") {
                 let dir = std::path::PathBuf::from(dir);
-                let _ = std::fs::create_dir_all(&dir);
-                let _ = std::fs::write(dir.join("patched.txt"), patched.join("\n"));
-                let _ = std::fs::write(dir.join("wholesale.txt"), wholesale.join("\n"));
+                // Best effort: a dump that cannot be written must not fail
+                // the verification it documents.
+                drop(std::fs::create_dir_all(&dir));
+                drop(std::fs::write(dir.join("patched.txt"), patched.join("\n")));
+                drop(std::fs::write(dir.join("wholesale.txt"), wholesale.join("\n")));
             }
         }
         let mut out = Vec::new();

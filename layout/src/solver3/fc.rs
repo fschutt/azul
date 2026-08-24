@@ -3633,7 +3633,7 @@ fn layout_ifc<T: ParsedFontTrait>(
                     }),
                     constraints.available_width_type,
                     false,
-                    text3_constraints.clone(),
+                    text3_constraints,
                 )));
                 // A strut has no glyphs: its baseline sits where a line of
                 // this font would put one (ascent ~ 0.8 em within the line).
