@@ -1143,8 +1143,18 @@ impl ScrollManager {
             existing.visual_width_px = visual_width_px;
             existing.has_horizontal_scrollbar = has_horizontal_scrollbar;
             existing.has_vertical_scrollbar = has_vertical_scrollbar;
-            // Re-clamp current offset to new bounds
-            existing.current_offset = existing.clamp(existing.current_offset);
+            // Re-clamp the current offset to the new bounds — but ONLY when it
+            // is already in bounds. An OUT-of-bounds value here is a live
+            // rubber-band overscroll owned by the physics timer, not the
+            // layout pass; snapping it back on a DOM regen makes the next
+            // physics tick compute a discontinuous scroll delta that tears the
+            // content and drags the overlay scrollbar (the "only on DOM
+            // re-generation" artifact). A stale in-idle offset beyond a shrunk
+            // max self-corrects on the next set_scroll_position.
+            let clamped = existing.clamp(existing.current_offset);
+            if clamped == existing.current_offset {
+                existing.current_offset = clamped;
+            }
         } else {
             // +spec:overflow:8c7aa1 - initial scroll position is zero (scroll origin for LTR/TTB)
             self.states.insert(
