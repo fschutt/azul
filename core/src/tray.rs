@@ -117,41 +117,6 @@ impl_vec_debug!(TrayIconImage, TrayIconImageVec);
 impl_vec_clone!(TrayIconImage, TrayIconImageVec, TrayIconImageVecDestructor);
 impl_vec_partialeq!(TrayIconImage, TrayIconImageVec);
 
-/// A named icon from an icon pack — the same namespace `<icon>` DOM nodes and
-/// `Dom::create_icon()` resolve against.
-///
-/// This is the preferred way to give a tray an icon: a tray needs the SAME
-/// glyph at several different pixel sizes (Windows re-asks at every taskbar DPI,
-/// macOS wants 18pt = 36px on a 2x display, SNI publishes an array), and a
-/// name can be rasterized at any size on demand where a fixed bitmap cannot.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct TrayIconName {
-    /// Icon pack to look in. `None` searches every registered pack, first
-    /// match wins — which for a default build means `"material-icons"`.
-    pub pack: OptionString,
-    /// Icon name within the pack, e.g. `"settings"`, `"notifications"`.
-    pub name: AzString,
-}
-
-impl TrayIconName {
-    #[must_use]
-    pub fn new(name: &str) -> Self {
-        Self {
-            pack: OptionString::None,
-            name: AzString::from(String::from(name)),
-        }
-    }
-
-    #[must_use]
-    pub fn in_pack(pack: &str, name: &str) -> Self {
-        Self {
-            pack: OptionString::Some(AzString::from(String::from(pack))),
-            name: AzString::from(String::from(name)),
-        }
-    }
-}
-
 /// Where a tray icon's pixels come from.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -163,10 +128,29 @@ pub enum TrayIconSource {
     None,
     /// Explicit RGBA bitmaps, ideally at several sizes so each platform can
     /// pick — see [`TrayIconData::best_icon`].
+    ///
+    /// Only needed for an icon that genuinely is not in a pack — typically one
+    /// generated at runtime, since the icon registry is frozen once the
+    /// provider is shared (`App::run` consumes the handle).
     Rgba(TrayIconImageVec),
-    /// Resolved through the icon provider and rasterized at whatever size the
-    /// platform asks for.
-    Named(TrayIconName),
+    /// An **icon spec** — exactly the string an `<icon>` node takes: a bare
+    /// name (`"settings"`), a pack-qualified name (`"mypack:logo"`), or a
+    /// comma-separated fallback list (`"mypack:logo, settings"`).
+    ///
+    /// This is the preferred form, for two reasons.
+    ///
+    /// It resolves through the SAME registry and resolver `<icon>` DOM nodes
+    /// use, so anything registered there works with no tray-specific icon path
+    /// — Material Icons (the default pack), an image pack loaded from a ZIP, or
+    /// a custom resolver. Because resolution yields a `StyledDom` which is then
+    /// rendered, an icon can be anything expressible as a DOM: a font glyph, a
+    /// bitmap, later an SVG or an emoji.
+    ///
+    /// And a spec can be rendered at ANY size on demand, which a fixed bitmap
+    /// cannot — a tray needs the same icon at several sizes and cannot know
+    /// them up front (Windows re-asks at every taskbar DPI: 16/20/24/32; macOS
+    /// wants 18pt, which is 36px on a 2x display; SNI publishes an array).
+    Named(AzString),
 }
 
 /// Hint about what the tray item represents. Maps to SNI's `Category`; Windows
@@ -349,12 +333,12 @@ impl TrayIconData {
         }
     }
 
-    /// Use a named icon from an icon pack — `"settings"`, `"notifications"`,
-    /// any Material Icons name in a default build. This is the preferred form:
-    /// it can be rasterized at whatever size each platform asks for.
+    /// Use an icon from the icon registry, by the same spec an `<icon>` node
+    /// takes — `"settings"`, `"mypack:logo"`, or a fallback list. Preferred:
+    /// it renders at whatever size each platform asks for.
     #[must_use]
-    pub fn with_named_icon(mut self, name: &str) -> Self {
-        self.icon = TrayIconSource::Named(TrayIconName::new(name));
+    pub fn with_named_icon(mut self, spec: &str) -> Self {
+        self.icon = TrayIconSource::Named(AzString::from(String::from(spec)));
         self
     }
 
@@ -453,18 +437,17 @@ mod tests {
     }
 
     #[test]
-    fn named_icon_defaults_to_searching_every_pack() {
-        let d = TrayIconData::new("org.example.app", "App").with_named_icon("settings");
-        let TrayIconSource::Named(ref n) = d.icon else {
-            panic!("expected a named icon source");
-        };
-        // `None` pack = first match across all packs, which in a default build
-        // resolves to material-icons.
-        assert!(n.pack.is_none());
-        assert_eq!(n.name.as_str(), "settings");
-
-        let p = TrayIconName::in_pack("my-pack", "logo");
-        assert_eq!(p.pack.as_ref().map(|s| s.as_str()), Some("my-pack"));
+    fn named_icon_stores_the_spec_verbatim() {
+        // The spec is passed through untouched: parsing pack-qualification and
+        // fallback lists is the icon registry's job, not the tray's, so that
+        // `<icon>` and a tray icon can never disagree about what a spec means.
+        for spec in ["settings", "mypack:logo", "missing:x, settings"] {
+            let d = TrayIconData::new("org.example.app", "App").with_named_icon(spec);
+            let TrayIconSource::Named(ref s) = d.icon else {
+                panic!("expected a named icon source");
+            };
+            assert_eq!(s.as_str(), spec);
+        }
     }
 
     #[test]

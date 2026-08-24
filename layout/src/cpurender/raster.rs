@@ -3962,6 +3962,20 @@ impl Default for ComponentPreviewOptions {
 pub struct ComponentPreviewResult {
     /// PNG-encoded image data.
     pub png_data: Vec<u8>,
+    /// The same pixels, straight RGBA8, `pixel_width * pixel_height * 4` bytes,
+    /// top row first.
+    ///
+    /// Exposed alongside `png_data` because several consumers want pixels, not
+    /// a container: the system tray hands RGBA to `CreateIconIndirect`
+    /// (Windows), `NSBitmapImageRep` (macOS) and SNI's `IconPixmap` (Linux),
+    /// and encoding a PNG only to decode it again on the next line is pure
+    /// waste. It is a plain clone of the pixmap buffer, so the cost is one
+    /// memcpy for callers that ignore it.
+    pub rgba: Vec<u8>,
+    /// Width of `rgba` in DEVICE pixels (i.e. `content_width * dpi_factor`).
+    pub pixel_width: u32,
+    /// Height of `rgba` in DEVICE pixels.
+    pub pixel_height: u32,
     /// Actual content width (logical pixels).
     pub content_width: f32,
     /// Actual content height (logical pixels).
@@ -4175,6 +4189,9 @@ pub fn render_component_preview(
             None => {
                 return Ok(ComponentPreviewResult {
                     png_data: Vec::new(),
+                    rgba: Vec::new(),
+                    pixel_width: 0,
+                    pixel_height: 0,
                     content_width: 0.0,
                     content_height: 0.0,
                 });
@@ -4209,12 +4226,19 @@ pub fn render_component_preview(
         &preview_render_state,
     )?;
 
+    let rgba = pixmap.data.to_vec();
+    let pixel_width = pixmap.width;
+    let pixel_height = pixmap.height;
+
     let png_data = pixmap
         .encode_png()
         .map_err(|e| format!("PNG encoding failed: {e}"))?;
 
     Ok(ComponentPreviewResult {
         png_data,
+        rgba,
+        pixel_width,
+        pixel_height,
         content_width: render_width,
         content_height: render_height,
     })
