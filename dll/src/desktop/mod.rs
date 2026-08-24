@@ -134,6 +134,10 @@ pub mod menu;
 pub mod menu_renderer;
 /// New windowing backend (shell2) - modern, clean architecture
 pub mod shell2;
+/// Application / dock / taskbar icon, set at runtime from an icon-registry spec
+pub mod app_icon;
+/// System tray / status icon — NSStatusItem, Shell_NotifyIcon, StatusNotifierItem
+pub mod tray;
 /// WebRender type translations and hit-testing for shell2
 pub mod wr_translate2;
 /// Shader disk cache for WebRender program binaries

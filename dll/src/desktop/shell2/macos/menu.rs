@@ -208,6 +208,18 @@ impl MenuState {
         self.command_map.get(&tag)
     }
 
+    /// Every tag this menu owns.
+    ///
+    /// Menu clicks land in one process-wide queue shared by every window's menu
+    /// bar and by the tray, and `take_pending_menu_actions_matching` needs an
+    /// ownership predicate to route them. Callers build that predicate from
+    /// this — asking `get_callback_for_tag(t).is_some()` would work too, but
+    /// only for items that HAVE a callback, so a separator or a callback-less
+    /// parent would leak into another owner's drain.
+    pub fn known_tags(&self) -> impl Iterator<Item = isize> + '_ {
+        self.command_map.keys().copied()
+    }
+
     /// Register a callback and return a unique tag for it
     /// Used by context menus to register callbacks dynamically
     pub fn register_callback(&mut self, callback: azul_core::menu::CoreMenuCallback) -> isize {

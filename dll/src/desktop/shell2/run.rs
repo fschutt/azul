@@ -420,6 +420,10 @@ fn run_headless(
     // Extract icon_provider from config (same as real platforms do)
     let icon_provider_handle = core::mem::take(&mut config.icon_provider);
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
+    // Publish it for app-level consumers that outlive any window — the tray
+    // (and later the app icon), which resolve an icon spec through the same
+    // registry `<icon>` nodes use.
+    crate::desktop::tray::set_icon_provider(shared_icon_provider.clone());
 
     let app_data_arc = Arc::new(RefCell::new(app_data));
     let mut window = HeadlessWindow::new(root_window, app_data_arc, undo_manager, config, shared_icon_provider, fc_cache, font_registry)?;
@@ -578,6 +582,10 @@ pub fn run(
     
     // Convert IconProviderHandle to SharedIconProvider once - this will be cloned to all windows
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
+    // Publish it for app-level consumers that outlive any window — the tray
+    // (and later the app icon), which resolve an icon spec through the same
+    // registry `<icon>` nodes use.
+    crate::desktop::tray::set_icon_provider(shared_icon_provider.clone());
 
     autoreleasepool(|_| {
         let mtm = MainThreadMarker::new()

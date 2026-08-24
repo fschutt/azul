@@ -91,7 +91,7 @@ mod coregraphics;
 mod corevideo;
 mod events;
 mod gl;
-mod menu;
+pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;
 mod tooltip;
