@@ -1005,6 +1005,7 @@ pub struct InlineTear {
 }
 
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct LayoutWindow {
     /// E2E `mount` override for this window (debug-server `mount` / `unmount`).
     /// Empty and untouched in every normal build — see [`E2eMountOverride`].
@@ -3620,7 +3621,7 @@ impl LayoutWindow {
     /// dom was last laid out? The layout fast path (identical DOM -> keep
     /// the retained layout) must not skip a pass that has to re-graft.
     #[must_use]
-    pub fn transient_docks_changed(&self) -> bool {
+    pub const fn transient_docks_changed(&self) -> bool {
         self.transient_windows.dock_generation() != self.laid_out_dock_generation
     }
 
@@ -3644,7 +3645,7 @@ impl LayoutWindow {
                     .any(|w| w.source_node == n && w.is_inline());
                 return inline.then_some(n);
             }
-            current = hierarchy.get(n).and_then(|h| h.parent_id());
+            current = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }

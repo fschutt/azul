@@ -27,6 +27,7 @@ const MAX_HOVER_HISTORY: usize = 5;
 /// also the depth order, wrong for an inline-docked `<transient-window>`
 /// grafted under a zone with a higher id than its own subtree.
 /// See [`HoverManager::current_hover_node_full`].
+#[must_use]
 pub fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
     for (dom_id, hit) in ht.hovered_nodes.iter().rev() {
         let front = hit

@@ -796,9 +796,10 @@ pub fn create_dismiss_event(
     )
 }
 
-/// The event a `<transient-window>` receives when the user tore it off its
-/// anchor (`torn == true`, `bounds` = the toplevel's rect in the parent) or
-/// docked it back (`torn == false`, `bounds` = the anchor it docked onto).
+/// The lifecycle event a `<transient-window>` gets on a tear-off or a dock.
+///
+/// `torn == true`: torn off its anchor (`bounds` = the toplevel's rect in the
+/// parent). `torn == false`: docked back (`bounds` = the anchor it docked onto).
 #[must_use]
 pub fn create_tearoff_event(
     node_id: NodeId,

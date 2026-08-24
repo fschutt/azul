@@ -757,7 +757,7 @@ impl CompositorState {
 
     /// Composite all layers bottom-up into the final output pixmap.
     /// Clear the root layer to `color` from now on (see the field).
-    pub fn set_clear_color(&mut self, color: [u8; 4]) {
+    pub const fn set_clear_color(&mut self, color: [u8; 4]) {
         self.clear_color = color;
     }
 

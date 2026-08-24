@@ -1015,6 +1015,7 @@ extern "C" fn on_eyedropper_clicked(_data: RefAny, mut info: CallbackInfo) -> Up
 /// `ScreenColorPicked` (window-level) in the picker's window: adopt the
 /// sampled colour - RGB from the screen, the alpha the user had set - and
 /// publish it like any other change. A cancelled pick changes nothing.
+#[allow(unused_qualifications)]
 extern "C" fn on_screen_color_picked(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let azul_css::props::basic::color::OptionColorU::Some(picked) = info.get_picked_screen_color() else {
         return Update::DoNothing;

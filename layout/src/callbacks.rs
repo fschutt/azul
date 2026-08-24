@@ -2267,6 +2267,7 @@ impl CallbackInfo {
     /// already lays the panel out inside that zone; an app reads this in a
     /// `Docked` handler to persist its workspace layout.
     #[must_use]
+    #[allow(unused_qualifications)]
     pub fn get_transient_window_zone(&self, node: DomNodeId) -> azul_core::dom::OptionDomNodeId {
         let Some(n) = node.node.into_crate_internal() else {
             return azul_core::dom::OptionDomNodeId::None;
@@ -2303,7 +2304,7 @@ impl CallbackInfo {
     /// window: the colour under the pointer when the user clicked, or
     /// `None` if they cancelled (or no pick has completed yet).
     #[must_use]
-    pub fn get_picked_screen_color(&self) -> azul_css::props::basic::color::OptionColorU {
+    pub const fn get_picked_screen_color(&self) -> azul_css::props::basic::color::OptionColorU {
         match self.get_layout_window().eyedropper_manager.last_result() {
             Some(Some(c)) => azul_css::props::basic::color::OptionColorU::Some(c),
             _ => azul_css::props::basic::color::OptionColorU::None,

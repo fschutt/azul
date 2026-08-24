@@ -450,7 +450,7 @@ pub struct GestureAndDragManager {
     /// **NEW**: Unified drag context for all drag types
     pub active_drag: Option<DragContext>,
     /// The node the CURRENT drag GESTURE began on (the press target),
-    /// resolved once at DragStart and held for the whole gesture. `Drag` /
+    /// resolved once at `DragStart` and held for the whole gesture. `Drag` /
     /// `DragStart` / `DragEnd` fire on THIS node, not on whatever the cursor
     /// is over now (W3C: those three target the drag source; only
     /// DragEnter/Over/Leave/Drop follow the cursor). Without it a drag whose
@@ -1513,8 +1513,8 @@ impl GestureAndDragManager {
 
     /// Activate a node drag-and-drop
     /// Record the node a drag gesture started on (the press target). The dll
-    /// resolves it once when the first DragStart fires. See the field doc.
-    pub fn set_drag_source_node(&mut self, node: azul_core::dom::DomNodeId) {
+    /// resolves it once when the first `DragStart` fires. See the field doc.
+    pub const fn set_drag_source_node(&mut self, node: azul_core::dom::DomNodeId) {
         self.drag_source_node = azul_core::dom::OptionDomNodeId::Some(node);
     }
 

@@ -1022,7 +1022,7 @@ impl CpuRenderState {
     }
 
     /// Clear damage rects to `color` (see the field).
-    #[must_use] pub fn with_clear_color(mut self, color: [u8; 4]) -> Self {
+    #[must_use] pub const fn with_clear_color(mut self, color: [u8; 4]) -> Self {
         self.clear_color = color;
         self
     }
@@ -1320,6 +1320,7 @@ fn damage_logging_enabled() -> bool {
     *E.get_or_init(|| std::env::var_os("AZ_DEBUG_DAMAGE").is_some())
 }
 
+#[allow(clippy::many_single_char_names)] // r,g,b,a colour channels + loop indices
 pub fn render_display_list_damaged(
     display_list: &DisplayList,
     pixmap: &mut AzulPixmap,
@@ -1461,8 +1462,7 @@ pub fn render_display_list_damaged(
         let (cr, cg, cb, ca) = if std::env::var_os("AZ_DEBUG_FILL").is_some() {
             damage_clear_color()
         } else {
-            let [r, g, b, a] = render_state.clear_color;
-            (r, g, b, a)
+            render_state.clear_color.into()
         };
         pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
 

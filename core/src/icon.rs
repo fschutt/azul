@@ -992,7 +992,7 @@ fn glyph_of(resolution: &CachedIconResolution) -> Option<AzString> {
         if let Some(NodeType::Text(t)) = nodes.get(c).map(NodeData::get_node_type) {
             return Some(t.clone_self());
         }
-        child = hierarchy.get(c).and_then(|h| h.next_sibling_id());
+        child = hierarchy.get(c).and_then(super::styled_dom::NodeHierarchyItem::next_sibling_id);
     }
     None
 }
@@ -1965,7 +1965,9 @@ mod autotest_generated {
         let hierarchy = sd.node_hierarchy.as_container();
         let leaf = hierarchy.get(crate::id::NodeId::new(icon)).and_then(|h| h.first_child_id(crate::id::NodeId::new(icon)))
             .expect("create_icon gives the icon a text leaf");
-        drop(hierarchy);
+        // `hierarchy` borrows `sd`; its last use is above, so NLL releases the
+        // borrow here — the next line needs `&mut sd`. (A `drop()` would be a
+        // no-op: NodeDataContainerRef is not Drop.)
         resolve_icons_in_styled_dom(&mut sd, &shared, &SystemStyle::default());
         assert!(matches!(node_type_at(&sd, icon), NodeType::Span), "the span's type moved onto the icon node");
         match sd.node_data.as_ref()[leaf.index()].get_node_type() {

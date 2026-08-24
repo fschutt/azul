@@ -510,7 +510,7 @@ impl TransientDocks {
             if *z != Some(zone) {
                 return None;
             }
-            let dom_parent = hierarchy.get(*node).and_then(|h| h.parent_id());
+            let dom_parent = hierarchy.get(*node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
             (dom_parent != Some(zone)).then_some(*node)
         })
     }

@@ -1128,7 +1128,7 @@ impl Default for WindowDecorations {
 /// real rounded corners; a clip mask on the body makes any shape). The
 /// window's INPUT shape follows that alpha as well - clicks on fully
 /// transparent pixels fall through to whatever is behind, on every backend
-/// (macOS does this by itself for a non-opaque window; X11 gets an XShape,
+/// (macOS does this by itself for a non-opaque window; X11 gets an `XShape`,
 /// Wayland an input region, Windows a window region). This is partial
 /// (per-pixel) transparency, not whole-window opacity; X11 without an ARGB
 /// visual falls back to `_NET_WM_WINDOW_OPACITY`, which is whole-window.

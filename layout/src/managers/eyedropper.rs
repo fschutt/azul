@@ -47,7 +47,9 @@ pub struct EyedropperManager {
     /// reaches callbacks in an otherwise idle app.
     issued: Vec<u64>,
     /// The outcome of the most recently completed pick: `Some(None)` =
-    /// cancelled, `Some(Some(c))` = picked, `None` = never completed.
+    /// cancelled, `Some(Some(c))` = picked, `None` = never completed. The
+    /// three states are the point — the nested option is deliberate.
+    #[allow(clippy::option_option)]
     last_result: Option<Option<ColorU>>,
     /// A pick completed since the last event pass - yield the event once.
     pending_event: bool,
@@ -75,7 +77,7 @@ impl EyedropperManager {
 
     /// `true` while this window waits on a pick (the pump's arming signal).
     #[must_use]
-    pub fn has_pending_async(&self) -> bool {
+    pub const fn has_pending_async(&self) -> bool {
         !self.issued.is_empty()
     }
 
@@ -95,12 +97,12 @@ impl EyedropperManager {
     /// The most recently completed pick: `None` until one completes,
     /// `Some(None)` when the user cancelled.
     #[must_use]
-    pub fn last_result(&self) -> Option<Option<ColorU>> {
+    pub const fn last_result(&self) -> Option<Option<ColorU>> {
         self.last_result
     }
 
     /// The dll clears this after the event pass collected the event.
-    pub fn clear_pending_event(&mut self) {
+    pub const fn clear_pending_event(&mut self) {
         self.pending_event = false;
     }
 }
