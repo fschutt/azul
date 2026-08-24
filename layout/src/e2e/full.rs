@@ -17459,6 +17459,16 @@ mod non_interference_can_fail {
             },
             super::fp_sensors
         );
+        assert_moves!(
+            "eyedropper",
+            azul_layout::managers::eyedropper::EyedropperManager::new(),
+            |m: &mut azul_layout::managers::eyedropper::EyedropperManager| {
+                // begin_request pushes an outstanding id, so `issued` grows and
+                // the fingerprint must move.
+                let _ = m.begin_request();
+            },
+            super::fp_eyedropper
+        );
         #[cfg(feature = "a11y")]
         assert_moves!(
             "a11y",
