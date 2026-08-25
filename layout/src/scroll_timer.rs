@@ -100,6 +100,22 @@ pub struct ScrollPhysicsState {
     /// delta, advanced by every delta, dropped at `TrackpadEnd` or after
     /// [`GESTURE_STALE_TICKS`] without one.
     pub trackpad_raw_positions: BTreeMap<(DomId, NodeId), (LogicalPosition, u32)>,
+    /// When the previous physics tick ran, so this one can integrate over the
+    /// time that ACTUALLY elapsed.
+    ///
+    /// The simulation used to advance by a fixed `timer_interval_ms` — the
+    /// timer's CONFIGURED period — while the real gap between admitted ticks
+    /// jitters. `Timer::invoke` drops a fire that lands a hair under the
+    /// interval and then stamps `last_run = now` rather than
+    /// `last_run + interval`, so the phase never self-corrects and the next
+    /// step arrives ~2 intervals later; two independent 16 ms timers drive the
+    /// same pump; and 16 ms is neither 60 nor 120 Hz. Advancing 16 ms of
+    /// simulation over 16-32 ms of wall clock makes the apparent speed vary by
+    /// ±50 % frame to frame — the "blocky" scrolling.
+    ///
+    /// `None` on the first tick, which then falls back to the configured
+    /// interval (there is no previous timestamp to difference against).
+    pub last_tick: Option<azul_core::task::Instant>,
     /// Absolute offsets that `AnimateTo` / wheel-glide inputs are seeking,
     /// per node, together with the DEVICE that asked for the seek (device
     /// picks the spring duration: physical wheel clicks get the short
@@ -134,6 +150,7 @@ impl ScrollPhysicsState {
             pending_trackpad_positions: BTreeMap::new(),
             trackpad_raw_positions: BTreeMap::new(),
             animate_targets: BTreeMap::new(),
+            last_tick: None,
             scroll_physics,
         }
     }
@@ -236,9 +253,33 @@ pub extern "C" fn scroll_physics_timer_callback(
         return TimerCallbackReturn::terminate_unchanged();
     };
 
+    // dt is the time that ACTUALLY passed, not the timer's configured period.
+    // See `ScrollPhysicsState::last_tick` for why those differ in practice.
+    // Clamped: a first tick, a suspended app or a debugger breakpoint must not
+    // teleport the simulation, and a zero/negative delta (a clock that did not
+    // move, or moved backwards) must not divide by zero downstream.
+    //
+    // Resolved BEFORE `sp` borrows the config, because it writes `last_tick`.
+    let configured_dt = physics.scroll_physics.timer_interval_ms.max(1) as f32 / 1000.0;
+    let dt = {
+        let elapsed = physics.last_tick.as_ref().map(|prev| {
+            // `Duration` here is azul's own (tick- or nanos-backed), so go
+            // through `as_nanos` rather than std's `as_secs_f32`.
+            #[allow(clippy::cast_precision_loss)] // a frame gap is far below f32's exact-integer range
+            let ns = timer_info.frame_start.duration_since(prev).as_nanos() as f32;
+            ns / 1_000_000_000.0
+        });
+        match elapsed {
+            Some(e) if e.is_finite() && e > 0.0 => e.clamp(0.001, 0.050),
+            // No previous tick, or a clock that did not advance: the configured
+            // period is the best estimate available.
+            _ => configured_dt,
+        }
+    };
+    physics.last_tick = Some(timer_info.frame_start.clone());
+
     // Extract physics config values
     let sp = &physics.scroll_physics;
-    let dt = sp.timer_interval_ms.max(1) as f32 / 1000.0;
     let friction_rate = friction_from_deceleration(sp.deceleration_rate);
     let velocity_threshold = sp.min_velocity_threshold;
     let wheel_multiplier = sp.wheel_multiplier;
@@ -1207,7 +1248,7 @@ mod autotest_generated {
                 OptionLogicalPosition::None,
             );
             let timer_info =
-                TimerCallbackInfo::create(info, OptionDomNodeId::None, Instant::now(), 0, false);
+                TimerCallbackInfo::create(info, OptionDomNodeId::None, advance_clock(1), 0, false);
             scroll_physics_timer_callback(data.clone(), timer_info)
         }
 
@@ -1295,6 +1336,32 @@ mod autotest_generated {
     /// Registers node `idx` of the root DOM as a scrollable node with a
     /// `container_w x container_h` viewport over `content_w x content_h` content
     /// (so `max_scroll_x = content_w - container_w`, clamped at 0).
+    /// A VIRTUAL clock for the harness, in engine ticks.
+    ///
+    /// The physics now integrates over the time that ACTUALLY elapsed, so a
+    /// harness that stamped `Instant::now()` on every call would hand it the
+    /// microseconds between two statements in a tight loop — dt would clamp to
+    /// its 1 ms floor and every spring would crawl. The old fixed
+    /// `timer_interval_ms` dt hid that the harness had no clock model at all.
+    ///
+    /// One tick is 1/60 s on azul's own canonical scale (`Duration::Tick` ->
+    /// `as_nanos` divides by `TICKS_PER_SECOND`), so the default advance of one
+    /// tick per call reproduces a well-behaved 60 Hz timer. A test that wants
+    /// to model JITTER (the dropped-fire gate in `Timer::invoke` turning a
+    /// 16 ms period into a 32 ms gap) advances it by more.
+    ///
+    /// Thread-local, so tests running in parallel cannot see each other's time.
+    fn advance_clock(ticks: u64) -> Instant {
+        thread_local! {
+            static VIRTUAL_TICKS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+        }
+        VIRTUAL_TICKS.with(|c| {
+            let next = c.get().saturating_add(ticks);
+            c.set(next);
+            Instant::Tick(azul_core::task::SystemTick::new(next))
+        })
+    }
+
     fn register_node(
         window: &mut LayoutWindow,
         idx: usize,
@@ -2661,6 +2728,21 @@ mod autotest_generated {
         closed_loop_tick_full(layout_window, data).0
     }
 
+    /// [`closed_loop_tick`] with an explicit tick SPACING, for tests that model
+    /// a jittering timer rather than a well-behaved 60 Hz one.
+    fn closed_loop_tick_spaced(
+        layout_window: &mut LayoutWindow,
+        data: &RefAny,
+        ticks: u64,
+    ) -> Vec<(usize, LogicalPosition, bool)> {
+        // The default path advances one tick; ask for the remainder up front so
+        // this call sees a gap of `ticks`.
+        if ticks > 1 {
+            let _ = advance_clock(ticks - 1);
+        }
+        closed_loop_tick_full(layout_window, data).0
+    }
+
     /// [`closed_loop_tick`] plus the timer's own verdict (continue / terminate).
     fn closed_loop_tick_full(
         layout_window: &mut LayoutWindow,
@@ -2702,7 +2784,7 @@ mod autotest_generated {
                 OptionLogicalPosition::None,
             );
             let timer_info =
-                TimerCallbackInfo::create(info, OptionDomNodeId::None, Instant::now(), 0, false);
+                TimerCallbackInfo::create(info, OptionDomNodeId::None, advance_clock(1), 0, false);
             scroll_physics_timer_callback(data.clone(), timer_info).should_terminate
         };
 
@@ -3418,6 +3500,53 @@ mod autotest_generated {
             x_released < x_held - 0.5,
             "X must spring back toward its edge once momentum stops pushing it \
              (the band is frozen for the whole momentum tail): {x_held} -> {x_released}",
+        );
+    }
+
+    /// The same simulated TIME must produce the same motion, however the ticks
+    /// are spaced. This is the "blocky scrolling" guard.
+    ///
+    /// The physics used to advance by a fixed `timer_interval_ms` — the
+    /// timer's CONFIGURED period — regardless of how much wall clock had
+    /// actually passed. The real spacing is not the configured period:
+    /// `Timer::invoke` DROPS a fire that lands a hair under the interval and
+    /// then stamps `last_run = now` instead of `last_run + interval`, so the
+    /// phase never self-corrects and the following step arrives ~2 intervals
+    /// later; two independent 16 ms timers drive the same pump; and 16 ms is
+    /// neither 60 nor 120 Hz. Advancing 16 ms of simulation over 16-32 ms of
+    /// real time makes the apparent speed swing by ±50 % from frame to frame,
+    /// which is what "blocky" looks like.
+    ///
+    /// So: run one bounce at a steady 1 tick per step, and the same bounce at
+    /// 2 ticks per step over half as many steps. Both cover the same simulated
+    /// time and must land in the same place.
+    #[test]
+    fn the_same_elapsed_time_moves_the_same_distance_at_any_tick_spacing() {
+        fn bounce_after(steps: usize, ticks_per_step: u64) -> f32 {
+            let physics = ScrollPhysics::macos();
+            let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
+            for _ in 0..19 {
+                queue.push(finger(10.0));
+                let _ = closed_loop_tick(&mut lw, &data);
+            }
+            queue.push(lift());
+            for _ in 0..steps {
+                let _ = closed_loop_tick_spaced(&mut lw, &data, ticks_per_step);
+            }
+            offset_of(&lw, 1).y - 100.0
+        }
+
+        // 12 x 1 tick and 6 x 2 ticks are both 12 ticks of simulated time.
+        let steady = bounce_after(12, 1);
+        let jittered = bounce_after(6, 2);
+        assert!(
+            steady > 0.5,
+            "precondition: the bounce must still be in flight to compare: {steady}",
+        );
+        assert!(
+            (steady - jittered).abs() < 0.5,
+            "the same simulated time must travel the same distance whatever the \
+             tick spacing: steady={steady} vs jittered={jittered}",
         );
     }
 
