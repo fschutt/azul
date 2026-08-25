@@ -4241,6 +4241,80 @@ mod tests {
         );
     }
 
+    /// The placeholder must not FLICKER while the window is slowly resized.
+    ///
+    /// User report: "Type something..." blinks during a slow drag-resize. The
+    /// placeholder is an absolutely-positioned sibling of the value `<p>`, and
+    /// the value `<p>` became a horizontal scroll box (`overflow-x: auto`) when
+    /// the caret-reveal was fixed — so every width the resize sweeps through
+    /// re-decides whether that box overflows. If any of that feeds back into
+    /// whether the placeholder is laid out, it blinks.
+    ///
+    /// Sweeps one pixel at a time and requires the painted glyph count to be
+    /// the SAME on every width: an empty field shows its prompt at 400 px and
+    /// at 401 px alike.
+    #[test]
+    fn the_placeholder_does_not_flicker_while_the_window_resizes() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "placeholder_resize_flicker",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [ { "op": "wait_frame" } ]
+        }))
+        .expect("scenario json");
+
+        let (_r, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+
+        let painted = |r: &Runner| -> usize {
+            r.layout_window
+                .get_layout_result(&DomId::ROOT_ID)
+                .map(|lr| {
+                    lr.display_list
+                        .items
+                        .iter()
+                        .map(|it| match it {
+                            DisplayListItem::Text { glyphs, .. } => glyphs.len(),
+                            _ => 0,
+                        })
+                        .sum()
+                })
+                .unwrap_or(0)
+        };
+
+        let baseline = painted(&runner);
+        assert!(
+            baseline > 0,
+            "precondition: an empty field must paint its placeholder prompt",
+        );
+
+        // Slow resize: one pixel per frame, the way a drag delivers it.
+        let mut seen: Vec<(f32, usize)> = Vec::new();
+        for w in 380..=420 {
+            let mut state = runner.window_state.clone();
+            state.size.dimensions =
+                azul_core::geom::LogicalSize::new(w as f32, 200.0);
+            let _ = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+            seen.push((w as f32, painted(&runner)));
+        }
+
+        let odd: Vec<&(f32, usize)> = seen.iter().filter(|(_, n)| *n != baseline).collect();
+        assert!(
+            odd.is_empty(),
+            "the placeholder blinked while resizing (expected {baseline} glyphs at every \
+             width): {odd:?}",
+        );
+    }
+
     /// `overscroll-behavior` must travel CSS -> cascade -> ScrollManager.
     ///
     /// The `OverscrollBehavior` enum and every physics branch reading it

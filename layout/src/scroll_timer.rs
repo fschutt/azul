@@ -53,6 +53,81 @@ use crate::{
 
 use azul_css::props::style::scrollbar::{ScrollPhysics, OverflowScrolling, OverscrollBehavior};
 
+/// Append-only trace of RAW trackpad input and the resulting overscroll, for
+/// debugging a gesture that misbehaves on a real device.
+///
+/// Enabled by `AZ_SCROLL_TRACE=/path/to/file.txt`; costs one relaxed atomic
+/// load when unset. Two record kinds, deliberately only two, so the file stays
+/// diffable between a good gesture and a bad one:
+///
+/// ```text
+/// IN  t=<ms> node=<n> dx=<f> dy=<f> src=<source>
+/// OUT t=<ms> node=<n> off=<x>,<y> over=<x>,<y> band=<bool> vel=<x>,<y> dt=<ms>
+/// ```
+///
+/// `IN` is what the platform delivered (before any physics). `OUT` is what one
+/// physics tick decided: the committed offset, how far past the edge it is,
+/// whether the rubber band is armed, the velocity and the elapsed time the
+/// tick integrated over. A second bounce after a settle shows up as `band`
+/// going false and then true again with `over` still non-zero.
+#[cfg(feature = "std")]
+pub mod trace {
+    use std::{
+        fs::{File, OpenOptions},
+        io::Write,
+        sync::{Mutex, OnceLock},
+    };
+
+    static SINK: OnceLock<Option<Mutex<File>>> = OnceLock::new();
+
+    fn sink() -> Option<&'static Mutex<File>> {
+        SINK.get_or_init(|| {
+            let path = std::env::var("AZ_SCROLL_TRACE").ok().filter(|p| !p.is_empty())?;
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .ok()
+                .map(Mutex::new)
+        })
+        .as_ref()
+    }
+
+    /// `true` when tracing is on, so callers can skip formatting entirely.
+    #[must_use]
+    pub fn enabled() -> bool {
+        sink().is_some()
+    }
+
+    /// Milliseconds since the first traced event — a session-relative stamp, so
+    /// two runs of the same gesture line up when diffed.
+    #[must_use]
+    pub fn now_ms() -> u128 {
+        static BASE: OnceLock<std::time::Instant> = OnceLock::new();
+        BASE.get_or_init(std::time::Instant::now).elapsed().as_millis()
+    }
+
+    pub fn write_line(line: &str) {
+        let Some(m) = sink() else { return };
+        if let Ok(mut f) = m.lock() {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}
+
+#[cfg(not(feature = "std"))]
+pub mod trace {
+    #[must_use]
+    pub fn enabled() -> bool {
+        false
+    }
+    #[must_use]
+    pub fn now_ms() -> u128 {
+        0
+    }
+    pub fn write_line(_: &str) {}
+}
+
 /// Maximum number of scroll events processed per timer tick.
 /// Older events beyond this limit are discarded to keep the physics
 /// simulation bounded and testable.
@@ -830,6 +905,32 @@ pub extern "C" fn scroll_physics_timer_callback(
         // Check if rubber-banding spring-back is almost complete
         let new_overshoot_x = calculate_overshoot(new_pos.x, 0.0, info.max_scroll_x);
         let new_overshoot_y = calculate_overshoot(new_pos.y, 0.0, info.max_scroll_y);
+
+        // ⚠ THE SUSPECTED DOUBLE-BOUNCE WINDOW. This clears the flag at 0.5 px,
+        // but the `TrackpadEnd` arm re-arms at anything over 0.01 px — so an
+        // offset resting in (0.01, 0.5) is simultaneously "finished" and
+        // "still overscrolled". macOS sends 2-3 TrackpadEnds per flick and the
+        // momentum tail runs 1-2 s after the fingers lift, so a late one lands
+        // in that window, finds the flag clear, and starts a SECOND full-length
+        // bounce from rest — "it bounces again after it snapped".
+        // The trace below is what proves or refutes that on a real gesture:
+        // look for `band` going false and then true again with `over` non-zero.
+        if trace::enabled() {
+            trace::write_line(&alloc::format!(
+                "OUT t={} node={} off={:.3},{:.3} over={:.3},{:.3} band={} vel={:.3},{:.3} dt={:.2}",
+                trace::now_ms(),
+                node_id.index(),
+                new_pos.x,
+                new_pos.y,
+                new_overshoot_x,
+                new_overshoot_y,
+                node_physics.is_rubber_banding,
+                node_physics.velocity.x,
+                node_physics.velocity.y,
+                dt * 1000.0,
+            ));
+        }
+
         if new_overshoot_x.abs() < 0.5 && new_overshoot_y.abs() < 0.5 {
             node_physics.is_rubber_banding = false;
         }

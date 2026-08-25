@@ -604,6 +604,18 @@ impl ScrollManager {
         let sign = self.scroll_sign();
         input.delta.x *= sign;
         input.delta.y *= sign;
+        // RAW input, as the platform delivered it (post natural-scroll sign,
+        // pre physics). See `crate::scroll_timer::trace`.
+        if crate::scroll_timer::trace::enabled() {
+            crate::scroll_timer::trace::write_line(&alloc::format!(
+                "IN  t={} node={} dx={:.4} dy={:.4} src={:?}",
+                crate::scroll_timer::trace::now_ms(),
+                input.node_id.index(),
+                input.delta.x,
+                input.delta.y,
+                input.source,
+            ));
+        }
         let was_empty = !self.scroll_input_queue.has_pending();
         self.scroll_input_queue.push(input);
         was_empty // caller should start timer if this returns true
