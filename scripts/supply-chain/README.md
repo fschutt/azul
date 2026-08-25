@@ -47,12 +47,31 @@ span more than one file, so hashing `build.rs` alone would let a payload move on
 file sideways and keep the pin green. A version bump changes the digest, fails
 the build, and forces someone to read the diff.
 
+**Everything that runs at build time is pinned — all 416 of them.** The policy
+records which tier each entry is in, and does not pretend they are the same:
+
+- `review = "audited"` (189) — somebody read this crate's build-time code and
+  wrote the reason. Every crate with its own `build.rs` or proc macro is here,
+  plus the build dependencies interesting enough to have been read (`built`,
+  `git2`, `ureq`, `libloading`).
+- `review = "digest-only"` (163) — an ordinary library (`regex`, `chrono`, `cc`)
+  that never asked to run at build time and is only present because someone
+  else's build script links it. **Nobody read it. Its bytes are pinned**, which
+  is what detects a change; the generated sentence beside it carries no claim.
+
+A crate with its own build-time entry point may not be `digest-only` — the gate
+rejects that combination, so downgrading an audited entry is a deliberate act
+rather than something `--update` can do quietly.
+
+The cost of pinning the second tier is churn: a patch bump of `regex` now fails
+until re-pinned. That is the trade — a version bump was already gated by
+cargo-vet, but only the digest forces a look at what actually changed.
+
 It also scans build-time code against a table of behaviours that separate a real
 build script from an exfiltration stub (`--print-rules`). The table is applied at
 full strength to build scripts and proc macros, and reduced to the exfiltration
-subset for build *dependencies* — ordinary libraries linked into build scripts,
-where rules written for a 200-line `build.rs` produce nothing but noise against
-50k lines of FFI declarations.
+subset for build *dependencies*, where rules written for a 200-line `build.rs`
+produce nothing but noise against 50k lines of FFI declarations.
 
 ### `env_guard.py` — environment access
 
