@@ -228,38 +228,22 @@ jobs:
   # macOS leg or relaxing the cheap-OS-first serialisation, both of which are
   # deliberate trade-offs documented on those jobs, not accidents.
 
-  # ===========================================================================
   # TIER 0 — SUPPLY CHAIN PREFLIGHT. Nothing in this file compiles before it.
-  # ===========================================================================
   #
-  # WHY THIS IS TIER 0 AND NOT "ANOTHER QUALITY JOB". `build.rs` and proc macros
-  # execute during `cargo build` with the full authority of the runner —
-  # filesystem, network, and the entire environment — and they run whether or
-  # not any of the crate's own code is ever called. That is the mechanism behind
-  # every significant crates.io compromise to date: `rustdecimal` (2022) keyed on
-  # GITLAB_CI before detonating; `mysten-metrics` 9.0.3 (2026) exfiltrated the
-  # environment plus ~/.cargo/credentials and SSH keys from a build script; the
-  # August 2026 `arrayref`/`internment`/`append-only-vec` compromise added one
-  # Cargo.toml line pulling in `proc-macro1`, whose build.rs fetched and ran a
-  # remote payload — nobody had to call anything.
+  # build.rs and proc macros execute during `cargo build` with the runner's full
+  # authority, whether or not the crate's own code is ever called — the mechanism
+  # behind every significant crates.io compromise to date. A check that runs after
+  # the build has already lost, and `cargo check` runs build scripts too, so this
+  # precedes even clippy and check_crates. `cargo vendor` downloads without
+  # executing, which is what makes a before-the-build gate possible at all.
   #
-  # A check that runs after the build has already lost. `cargo check` runs build
-  # scripts too, so this must precede even clippy and check_crates, which is why
-  # those four preflight jobs now carry `needs: [supply_chain_preflight]` and
-  # this job carries no `needs:` at all.
+  # Rationale, threat model and per-gate detail: scripts/supply-chain/README.md
+  # Cost, measured (855 crates, warm registry): vendor 40s + three scans ~106s.
+  # The preflight wall moves from 2.1 to ~5 min and everything inherits it.
   #
-  # WHAT IT COSTS. `cargo vendor` downloads sources and executes nothing, which
-  # is the whole reason the gate is possible. MEASURED (macOS laptop, warm
-  # registry, 855 crates): vendor 40s, lockfile+vendor checksum verify 42s,
-  # env scan 36s, build-script scan 28s — ~2.5 min wall, and the three scans are
-  # sequential rather than parallel only because they are cheap enough not to
-  # bother. Budget ~2-3 min in CI with the registry cache below; the preflight
-  # wall moves from 2.1 to roughly 5 min and everything downstream inherits it.
-  #
-  # That is a real cost and it is taken deliberately. The alternative on offer is
-  # not "a faster pipeline" — it is running 141 build scripts and 50 proc macros
-  # from a 855-crate tree before anything has established they are allowed to
-  # run. It is paid once per run, not once per build job.
+  # cargo-vet, the publish-age cooldown and cargo-audit live in
+  # .github/workflows/supply-chain.yml — they gate nothing here, and this file is
+  # 9 KB from GitHub's 512,000-byte workflow limit (see the note at `jobs:`).
   supply_chain_preflight:
     name: Supply chain preflight (build-time code + env)
     # DELIBERATELY NO `needs:`. See the header above — this gates the gates.
@@ -270,155 +254,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-
-      # Keyed on Cargo.lock alone: the vendored bytes are a pure function of the
-      # lockfile, so a hit is always correct and a lockfile change always misses.
-      - name: Cache the crate registry
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-          key: supply-chain-registry-v1-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            supply-chain-registry-v1-${{ env.CACHE_BUST }}-${{ runner.os }}-
-
-      # A syntax error in a gate is a gate that does not run. Fail on it here,
-      # with a clear message, rather than inside a scan step.
-      - name: Gates must be syntactically valid
-        run: python3 -m py_compile scripts/supply-chain/*.py
-
-      # `cargo vendor` RESOLVES and DOWNLOADS. It does not build, and it does not
-      # run build scripts. --locked means the committed Cargo.lock is what gets
-      # audited, not whatever the resolver would pick today.
-      - name: Vendor the dependency tree (downloads sources, executes nothing)
-        run: |
-          set -euo pipefail
-          cargo vendor --locked --versioned-dirs vendor > /dev/null
-          echo "vendored $(ls vendor | wc -l) crates"
-
-      - name: cargo metadata (for the build-dependency closure)
-        run: cargo metadata --format-version=1 --locked --all-features > sc-metadata.json
-
-      - name: Lockfile integrity (registry checksums, yanked versions)
-        run: |
-          mkdir -p sc-reports
-          python3 scripts/supply-chain/lockfile_guard.py \
-            --check vendor --check yanked --check cksum \
-            --vendor vendor --no-cache --json sc-reports/lockfile.json
-
-      # THE ENV GATE. Runs before any build so a credential cannot already have
-      # been read. Note it needs no secrets itself — the forbidden-name set is
-      # parsed out of the workflow files, so every secret this repository can
-      # inject is checked for even in a job that has none of them.
-      - name: Environment access from build-time code
-        run: |
-          python3 scripts/supply-chain/env_guard.py \
-            --vendor vendor --metadata sc-metadata.json \
-            --json sc-reports/env.json
-
-      - name: Build-time code execution policy (build.rs / proc-macro)
-        run: |
-          python3 scripts/supply-chain/scan_build_scripts.py \
-            --vendor vendor --metadata sc-metadata.json \
-            --json sc-reports/build-scripts.json
-
-      - name: Upload supply-chain reports
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: supply-chain-preflight
-          path: sc-reports/
-          if-no-files-found: warn
-          retention-days: 30
-
-  # ---------------------------------------------------------------------------
-  # Version-level supply chain: cargo-vet and the publish-age cooldown.
-  #
-  # These answer the question `dependency-justifications.toml` structurally
-  # cannot. That file is keyed by crate NAME, so a crate already justified stays
-  # justified when a compromised maintainer account publishes a new version of
-  # it — which is exactly what happened to arrayref, internment and
-  # append-only-vec on 2026-08-20, all three already in thousands of trees.
-  #
-  # cargo-vet pins per VERSION: a bump lands as an unaudited version and fails
-  # until someone reviews the delta or exempts it deliberately. The cooldown
-  # refuses versions younger than 14 days, which turns that attack's 86-107
-  # minute exposure window into a non-event — the malicious release is yanked
-  # long before any build here is allowed to resolve it. It is RFC 3923
-  # `min-publish-age`, implemented locally because the client half had not
-  # shipped when arrayref happened.
-  #
-  # NOT GATED and not on the critical path: cheap, and useful as early signal.
-  supply_chain_versions:
-    name: Supply chain (cargo-vet + publish-age cooldown)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          # The cooldown check diffs Cargo.lock against the base branch, so it
-          # needs history. Without this the diff is empty and every version
-          # looks unchanged — a gate that passes by knowing nothing.
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-
-      - name: Install cargo-vet
-        run: cargo install cargo-vet --locked || cargo install cargo-vet
-
-      # --locked: the audit set and imports.lock as committed. Without it, vet
-      # would refresh imports from the network and a failing run could be turned
-      # green by an upstream publishing an audit, which is not a decision this
-      # repository should delegate.
-      - name: cargo vet
-        shell: bash
-        run: |
-          set -o pipefail
-          if ! cargo vet --locked 2>&1 | tee vet.txt; then
-            {
-              echo '## 🔎 cargo-vet'
-              echo ''
-              echo '```'
-              tail -80 vet.txt
-              echo '```'
-              echo ''
-              echo 'A new or bumped dependency is neither audited nor exempted.'
-              echo 'Review the delta and record it:'
-              echo ''
-              echo '```'
-              echo 'cargo vet diff <crate> <old-version> <new-version>'
-              echo 'cargo vet certify <crate> <old-version> <new-version>'
-              echo '# or, if you are accepting it without review:'
-              echo 'cargo vet add-exemption <crate> <version>'
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::cargo-vet: an unaudited dependency version entered the tree."
-            exit 1
-          fi
-          {
-            echo '## 🔎 cargo-vet'
-            echo ''
-            echo '```'
-            tail -20 vet.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      # Only versions that CHANGED against the base are age-checked: crates.io's
-      # API is rate limited, and the lockfile diff is where a poisoned release
-      # enters anyway. On master the base is the previous commit.
-      - name: Publish-age cooldown (changed dependencies only)
-        shell: bash
-        run: |
-          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            BASE="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
-          fi
-          echo "comparing Cargo.lock against $BASE"
-          python3 scripts/supply-chain/lockfile_guard.py \
-            --check cooldown --min-age-days 14 \
-            --changed-only --base-ref "$BASE" --no-cache
+      - uses: ./.github/actions/supply-chain-preflight
 
   content_state_lint:
     # The cheap preflight lane: checkout + grep + python, no compilation, and a
@@ -8210,36 +8046,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
-      - name: Install cargo-deny + cargo-audit
-        run: |
-          cargo install cargo-deny --locked || cargo install cargo-deny
-          cargo install cargo-audit --locked || cargo install cargo-audit
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked || cargo install cargo-deny
 
-      # cargo-audit reads the SAME RustSec database as `cargo deny check
-      # advisories`, so this is a second opinion, not a second source. It earns
-      # its place for two reasons: it fetches a fresh advisory-db clone on every
-      # run (cargo-deny's is subject to its own caching), and its `--deny
-      # warnings` covers unmaintained/unsound advisories that the deny.toml
-      # `ignore` list deliberately silences — so a crate going unmaintained
-      # shows up here as a warning even while it stays ignored over there.
-      # Non-blocking on purpose: `advisories` in the deny step below is the
-      # gate, and two gates on one database means one of them is noise.
-      - name: cargo-audit (second opinion, non-blocking)
-        continue-on-error: true
-        shell: bash
-        run: |
-          mkdir -p stats
-          cargo audit --color never 2>&1 | tee stats/cargo-audit.txt || true
-          {
-            echo '## 🛡️ cargo-audit (RustSec)'
-            echo ''
-            echo '<details><summary>full report</summary>'
-            echo ''
-            echo '```'
-            tail -120 stats/cargo-audit.txt
-            echo '```'
-            echo '</details>'
-          } >> "$GITHUB_STEP_SUMMARY"
       - name: cargo-deny + summary
         shell: bash
         run: |

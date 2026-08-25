@@ -1,0 +1,83 @@
+name: Supply chain preflight
+description: >-
+  Vendor the dependency tree and gate what may run at build time, what it may
+  read from the environment, and which versions may be in the lockfile — all
+  before anything compiles.
+
+# Lives in a composite action rather than inline in rust.yml because that file
+# is within a few KB of GitHub's 512,000-byte workflow-file limit, above which
+# runs are silently not started (no error, no startup_failure — the symptom is
+# simply that nothing happens). Splitting shared logic into a composite action
+# is the documented remedy.
+
+runs:
+  using: composite
+  steps:
+    # Keyed on Cargo.lock alone: the vendored bytes are a pure function of the
+    # lockfile, so a hit is always correct and a lockfile change always misses.
+    - name: Cache the crate registry
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+        key: supply-chain-registry-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          supply-chain-registry-v1-${{ runner.os }}-
+
+    # A syntax error in a gate is a gate that does not run. Fail on it here,
+    # with a clear message, rather than inside a scan step. The scripts target
+    # Python 3.8+ deliberately (no tomllib): ubuntu-22.04 ships 3.10 and stock
+    # macOS ships 3.9, and an import a runner cannot satisfy is a dead gate.
+    - name: Gates must be syntactically valid
+      shell: bash
+      run: python3 -m py_compile scripts/supply-chain/*.py
+
+    # `cargo vendor` RESOLVES and DOWNLOADS. It does not build, and it does not
+    # run build scripts — which is the entire reason this gate can precede the
+    # build. --locked audits the committed lockfile, not today's resolution.
+    - name: Vendor the dependency tree (downloads sources, executes nothing)
+      shell: bash
+      run: |
+        set -euo pipefail
+        cargo vendor --locked --versioned-dirs vendor > /dev/null
+        echo "vendored $(ls vendor | wc -l) crates"
+
+    - name: cargo metadata (for the build-dependency closure)
+      shell: bash
+      run: cargo metadata --format-version=1 --locked --all-features > sc-metadata.json
+
+    - name: Lockfile integrity (registry checksums, yanked versions)
+      shell: bash
+      run: |
+        mkdir -p sc-reports
+        python3 scripts/supply-chain/lockfile_guard.py \
+          --check vendor --check yanked --check cksum \
+          --vendor vendor --no-cache --json sc-reports/lockfile.json
+
+    # THE ENV GATE. Runs before any build, so a credential cannot already have
+    # been read. It needs no secrets itself: the forbidden-name set is parsed
+    # out of the workflow files, so every secret this repository can inject is
+    # checked for even in a job that holds none of them.
+    - name: Environment access from build-time code
+      shell: bash
+      run: |
+        python3 scripts/supply-chain/env_guard.py \
+          --vendor vendor --metadata sc-metadata.json \
+          --json sc-reports/env.json
+
+    - name: Build-time code execution policy (build.rs / proc-macro)
+      shell: bash
+      run: |
+        python3 scripts/supply-chain/scan_build_scripts.py \
+          --vendor vendor --metadata sc-metadata.json \
+          --json sc-reports/build-scripts.json
+
+    - name: Upload supply-chain reports
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: supply-chain-preflight
+        path: sc-reports/
+        if-no-files-found: warn
+        retention-days: 30
