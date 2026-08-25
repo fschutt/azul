@@ -801,7 +801,7 @@ impl FontContext {
             parsed_fonts: self.parsed_fonts.clone(),
             condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: self.font_chain_cache.clone(),
-            embedded_fonts: Mutex::new(self.embedded_fonts.clone()),
+            embedded_fonts: Arc::new(Mutex::new(self.embedded_fonts.clone())),
             font_hash_to_families: self.font_hash_to_families.clone(),
             registry: self.registry.clone(),
             last_resolved_font_stacks_sig: None,
@@ -954,7 +954,13 @@ pub struct FontManager<T> {
     pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     /// Cache for direct `FontRefs` (embedded fonts like Material Icons)
     /// These are fonts referenced via `FontStack::Ref` that bypass fontconfig
-    pub embedded_fonts: Mutex<HashMap<u64, azul_css::props::basic::FontRef>>,
+    /// Faces handed to us directly by the DOM as `StyleFontFamily::Ref`
+    /// (Material Icons and every other `FontStack::Ref`).
+    ///
+    /// `Arc<Mutex<..>>`, NOT `Mutex<..>`, and that is load-bearing: this pool
+    /// must be SHARED by every manager cloned from this one, exactly like
+    /// `parsed_fonts` above. See `clone_shared`.
+    pub embedded_fonts: Arc<Mutex<HashMap<u64, azul_css::props::basic::FontRef>>>,
     /// Reverse map: `font_family_hash` → actual `StyleFontFamilyVec`.
     /// Accumulated across DOMs. Used by font collection and text shaping to
     /// resolve compact cache hashes without `get_property_slow`.
@@ -1011,12 +1017,19 @@ impl<T: ParsedFontTrait> FontManager<T> {
             parsed_fonts: Arc::clone(&self.parsed_fonts),
             condemned_fonts: Arc::clone(&self.condemned_fonts),
             font_chain_cache: self.font_chain_cache.clone(),
-            embedded_fonts: Mutex::new(
-                self.embedded_fonts
-                    .lock()
-                    .map(|m| m.clone())
-                    .unwrap_or_default(),
-            ),
+            // SHARED, not copied. This used to be
+            // `Mutex::new(self.embedded_fonts.lock().map(|m| m.clone())...)`,
+            // i.e. a fork: a face registered in one manager was invisible to
+            // every other, even though this method is documented as sharing
+            // font data and `parsed_fonts` right above genuinely does.
+            //
+            // That fork is a silent-tofu generator. Whoever registers an
+            // embedded face (the DOM's `StyleFontFamily::Ref`) and whoever
+            // later shapes with it are frequently different managers - a child
+            // window, a tray icon, an off-screen render - and the shaper then
+            // falls back to a system face with no glyph at the icon's
+            // private-use codepoint. Every step reports success.
+            embedded_fonts: Arc::clone(&self.embedded_fonts),
             font_hash_to_families: self.font_hash_to_families.clone(),
             registry: self.registry.clone(),
             // Deliberately reset: the sig gates a chain-resolver skip that is
@@ -1036,7 +1049,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
             condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: HashMap::new(),
-            embedded_fonts: Mutex::new(HashMap::new()),
+            embedded_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_hash_to_families: HashMap::new(),
             registry: None,
             last_resolved_font_stacks_sig: None,
@@ -1340,7 +1353,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             parsed_fonts,
             condemned_fonts: Arc::new(Mutex::new(CondemnedFonts::default())),
             font_chain_cache: HashMap::new(),
-            embedded_fonts: Mutex::new(HashMap::new()),
+            embedded_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_hash_to_families: HashMap::new(),
             registry: None,
             last_resolved_font_stacks_sig: None,
@@ -12894,6 +12907,48 @@ mod font_cache_swap_tests {
                 );
             }
         }
+    }
+
+    /// REGRESSION: `clone_shared` used to FORK `embedded_fonts` rather than
+    /// share it, so a face registered in one manager was invisible to every
+    /// other one cloned from it.
+    ///
+    /// That is a silent-tofu generator, because the manager that REGISTERS an
+    /// embedded face and the one that later SHAPES with it are routinely
+    /// different objects - a child window, a tray icon, an off-screen render.
+    /// When they disagree the shaper falls back to a system face with no glyph
+    /// at the icon's private-use codepoint and draws `.notdef`, while every
+    /// step in between reports success.
+    ///
+    /// BOTH directions are asserted on purpose: `Arc::clone` is the only
+    /// implementation that gives you parent->child AND child->parent, so a
+    /// one-directional test would still pass against a copy-on-clone.
+    #[test]
+    fn embedded_fonts_are_shared_between_cloned_managers_in_both_directions() {
+        static A: u8 = 0;
+        static B: u8 = 0;
+        extern "C" fn noop(_: *mut core::ffi::c_void) {}
+
+        let parent: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("FontManager::new must not fail");
+        let child = parent.clone_shared();
+
+        let from_parent =
+            FontRef::new(core::ptr::addr_of!(A).cast::<core::ffi::c_void>(), noop);
+        let from_child =
+            FontRef::new(core::ptr::addr_of!(B).cast::<core::ffi::c_void>(), noop);
+
+        parent.register_embedded_font(&from_parent);
+        child.register_embedded_font(&from_child);
+
+        assert!(
+            child.resolve_font_by_hash(from_parent.get_hash()).is_some(),
+            "a face registered on the PARENT must be visible to a clone"
+        );
+        assert!(
+            parent.resolve_font_by_hash(from_child.get_hash()).is_some(),
+            "a face registered on a CLONE must be visible to the parent"
+        );
     }
 
     #[test]

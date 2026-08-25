@@ -548,7 +548,7 @@ fn two_text_children_in_a_flex_row_stay_on_one_line() {
 #[test]
 #[cfg(all(feature = "text_layout", feature = "font_loading"))]
 fn label_beside_a_resolved_fontref_icon_stays_on_one_line() {
-    use azul_core::icon::{resolve_icons_in_styled_dom, IconProviderHandle, SharedIconProvider};
+    use azul_core::icon::{resolve_icons_in_dom, IconProviderHandle, SharedIconProvider};
     use azul_css::system::SystemStyle;
 
     const KOHO_LIGHT: &[u8] = include_bytes!("../../examples/assets/fonts/KoHo-Light.ttf");
@@ -576,9 +576,11 @@ fn label_beside_a_resolved_fontref_icon_stays_on_one_line() {
         .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter").with_ids_and_classes(class("lbl")));
     let mut dom = Dom::create_body().with_child(btn);
 
+    // Icons resolve on the Dom, BEFORE the cascade.
+    resolve_icons_in_dom(&mut dom, &provider, &SystemStyle::default());
+
     let (css, _) = azul_css::parser2::new_from_str(PROBE_CSS);
-    let mut styled = StyledDom::create(&mut dom, css);
-    resolve_icons_in_styled_dom(&mut styled, &provider, &SystemStyle::default());
+    let styled = StyledDom::create(&mut dom, css);
 
     let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();
     let mut window_state = FullWindowState::default();

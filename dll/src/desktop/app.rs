@@ -20,8 +20,8 @@ use crate::desktop::shell2::common::debug_server;
 /// Wait (off the calling thread) for the font scan to finish, then write the
 /// on-disk font manifest.
 ///
-/// Persisting must not happen on the layout thread — the serialize + write is
-/// real I/O — and it must not happen before the scan is complete: a manifest
+/// Persisting must not happen on the layout thread  -  the serialize + write is
+/// real I/O  -  and it must not happen before the scan is complete: a manifest
 /// written mid-scan would describe a PARTIAL font set, and the next launch
 /// would load it, see `cache_loaded == true`, and lay out against a font
 /// universe missing most of the system's families. A partial cache is strictly
@@ -91,7 +91,7 @@ impl Default for App {
 /// A C/C++/Python host that `dlopen`s libazul never runs Rust's runtime, which
 /// is what normally installs this. Without it the default `SIGPIPE` disposition
 /// (`SIG_DFL` = terminate) kills the whole process on the first write to a
-/// closed socket/pipe — e.g. the D-Bus theme probe in `discover_system_style`,
+/// closed socket/pipe  -  e.g. the D-Bus theme probe in `discover_system_style`,
 /// or a dropped Wayland/X11/debug-server connection. Idempotent, and harmless
 /// for Rust hosts (whose runtime already ignores SIGPIPE).
 #[cfg(unix)]
@@ -180,6 +180,93 @@ impl App {
 
     pub fn get_monitors(&self) -> MonitorVec {
         crate::desktop::display::get_monitors()
+    }
+
+    /// Ask for a system-tray icon. Takes effect when `run()` starts.
+    ///
+    /// Deferred rather than immediate because a tray cannot exist this early:
+    /// macOS needs `NSApplication`, and every backend needs the icon registry
+    /// published so a `TrayIconSource::Named` spec can resolve.
+    ///
+    /// This is best-effort by design. On a desktop with no tray  -  a vanilla
+    /// GNOME has no `StatusNotifierWatcher` at all  -  nothing appears and the
+    /// app still runs; the failure is logged. Use
+    /// [`crate::desktop::tray::TrayIcon::is_available`] beforehand if the app
+    /// needs to know.
+    pub fn set_tray(&mut self, tray: azul_core::tray::TrayIconData) {
+        self.ptr.tray = Some(tray);
+    }
+
+    /// Ask for an application icon  -  the macOS Dock tile, and elsewhere the
+    /// process-wide default window icon. Takes effect when `run()` starts.
+    ///
+    /// `spec` is an icon-registry spec, exactly what an `<icon>` node takes: a
+    /// bare name (`"settings"`), a pack-qualified name (`"mypack:logo"`), or a
+    /// comma-separated fallback list. It renders through the SAME pipeline as a
+    /// tray icon and an in-DOM `<icon>`, so all three can never disagree.
+    ///
+    /// Deferred for the same reason as `set_tray`: the icon registry has to be
+    /// published before a spec can resolve, and macOS needs `NSApplication`.
+    ///
+    /// Best-effort, and deliberately narrower than it looks:
+    ///
+    /// * macOS sets `applicationIconImage`, which Apple documents as TEMPORARY -
+    ///   it is process-local and resets on next launch. Persisting it needs an
+    ///   `NSDockTilePlugIn`, which the App Store bans, and writing the bundle
+    ///   icon breaks the code signature, so neither is offered.
+    /// * The Windows EXE icon CANNOT be changed at runtime at all
+    ///   (`BeginUpdateResource` requires the target not be executing, and
+    ///   rewriting resources invalidates Authenticode).
+    ///
+    /// See `scripts/APP_AND_WINDOW_ICON_RESEARCH_2026_08_24.md`.
+    pub fn set_app_icon(&mut self, spec: azul_css::AzString) {
+        self.ptr.app_icon = Some(spec);
+    }
+
+
+    /// Run with a tray and NO window.
+    ///
+    /// For a menu-bar / system-tray utility that has no main window at all.
+    /// `run()` always creates one, so such an app previously had to open and
+    /// then hide a window it never wanted.
+    ///
+    /// Requires `set_tray()` to have been called - without a tray there would be
+    /// no way to interact with the app and nothing to keep it alive.
+    ///
+    /// macOS only for now; other platforms return without running. On macOS this
+    /// switches the process to `Accessory` activation (the runtime equivalent of
+    /// `LSUIElement`): no Dock tile and no application menu bar, which also means
+    /// an icon set via `set_app_icon` has nowhere to appear.
+    pub fn run_tray_only(&self) {
+        let Some(tray) = self.ptr.tray.clone() else {
+            crate::plog_error!("[azul] run_tray_only() called without set_tray(); nothing to run");
+            return;
+        };
+        let data = self.ptr.data.clone();
+        let config = self.ptr.config.clone();
+        let fc_cache = (*self.ptr.fc_cache).clone();
+        let font_registry = self.ptr.font_registry.clone();
+        let undo_manager = self.ptr.undo_manager.clone();
+
+        #[cfg(target_os = "macos")]
+        {
+            if let Err(e) = crate::desktop::shell2::run_tray_only(
+                data,
+                undo_manager,
+                config,
+                fc_cache,
+                font_registry,
+                tray,
+                self.ptr.font_manager.clone(),
+            ) {
+                crate::plog_error!("[azul] run_tray_only failed: {:?}", e);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (data, config, fc_cache, font_registry, undo_manager, tray);
+            crate::plog_error!("[azul] run_tray_only() is macOS-only for now");
+        }
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
@@ -280,6 +367,9 @@ impl App {
                 fc_cache,
                 font_registry,
                 dialog,
+                // The crash reporter is a standalone dialog, not the app: it
+                // must not inherit the app's tray.
+                None,
             );
             if let Err(e) = err {
                 eprintln!("[azul] crash-reporter dialog failed: {e:?}");
@@ -288,7 +378,7 @@ impl App {
         }
 
         // Use shell2 for the actual run loop
-        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window);
+        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window, self.ptr.tray.clone(), self.ptr.font_manager.clone(), self.ptr.app_icon.clone());
 
         // Telemetry: persist + upload whatever the interval uploader has not
         // sent yet. Without this a SHORT run (an e2e drive, a screenshot
@@ -335,22 +425,51 @@ pub struct AppInternal {
     /// No window is actually shown until the `.run_inner()` method is called.
     pub windows: WindowCreateOptionsVec,
     /// Font configuration cache (shared across all windows)
-    /// Initially empty — populated from the registry at first layout time
+    /// Initially empty  -  populated from the registry at first layout time
     pub fc_cache: Box<Arc<FcFontCache>>,
     /// Async font registry: background threads race to discover and parse fonts.
     /// At layout time, `request_fonts()` blocks until the needed fonts are ready,
     /// then snapshots into `fc_cache`. This eliminates the ~700ms startup block.
     pub font_registry: Option<Arc<FcFontRegistry>>,
+    /// THE font manager for this app  -  built once here, shared by every window
+    /// and by the tray.
+    ///
+    /// A `FontManager` is not just a cache handle: it owns the `parsed_fonts` and
+    /// `embedded_fonts` pools, and `embedded_fonts` is the ONLY place a face
+    /// handed over as `StyleFontFamily::Ref` (Material Icons, and anything a
+    /// font-backed icon pack resolves to) is ever named. Two managers therefore
+    /// disagree about which faces exist, and whoever registers a face is often
+    /// not whoever later shapes with it  -  a child window, a tray icon, an
+    /// off-screen render. The result is a `.notdef` tofu box with every
+    /// intermediate step reporting success.
+    ///
+    /// Consumers take `clone_shared()` copies: those share the two pools while
+    /// keeping a private `fc_cache` field, so each window can still swap in its
+    /// own registry snapshot at layout time (`replace_fc_cache`) without
+    /// disturbing anyone else.
+    ///
+    /// `Option` because building it can fail; the app still runs, callers fall
+    /// back to constructing their own as before. `Arc` so this stays a thin
+    /// pointer across the C ABI, exactly like `fc_cache` and `font_registry`.
+    pub font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
     /// App-global undo/redo manager. Owned by the App; a shared clone is threaded
     /// to every window so a callback's `undo_app_state` / `redo_app_state` /
     /// `commit_undo_snapshot` operates on one shared history.
     pub undo_manager: crate::desktop::shell2::common::event::SharedUndoManager,
+    /// Tray requested via [`App::set_tray`], applied when `run()` starts.
+    ///
+    /// Owned by the App rather than a process global: it is per-App state, and
+    /// a global would silently pick the wrong one if a process ever ran two.
+    pub tray: Option<azul_core::tray::TrayIconData>,
+    /// App icon requested via `set_app_icon()`, applied once `run()` has a font
+    /// manager to render the spec with. `None` means leave the platform default.
+    pub app_icon: Option<azul_css::AzString>,
 }
 
 impl AppInternal {
     /// Creates a new, empty application.
     ///
-    /// Does not open any windows — call `App::run` to enter the event loop.
+    /// Does not open any windows  -  call `App::run` to enter the event loop.
     pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
 
         debug_server::log(
@@ -452,6 +571,14 @@ impl AppInternal {
             windows: WindowCreateOptionsVec::from_const_slice(&[]),
             data: initial_data,
             config: app_config,
+            tray: None,
+            app_icon: None,
+            // ONE manager, built here rather than per-window. `FcFontCache` is
+            // internally Arc-shared, so the clone tracks whatever the scout
+            // threads discover later.
+            font_manager: azul_layout::font_traits::FontManager::new((*fc_cache).clone())
+                .ok()
+                .map(Arc::new),
             fc_cache: Box::new(fc_cache),
             font_registry,
             undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),

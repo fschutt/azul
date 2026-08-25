@@ -302,6 +302,74 @@ fn xft_dpi(xlib: &Xlib, display: *mut Display) -> Option<u32> {
     None
 }
 
+/// Publish `_NET_WM_ICON` from whatever icon sizes the caller supplied.
+///
+/// EWMH format is `[w1, h1, w1*h1 pixels..., w2, h2, ...]`, one entry per size,
+/// each pixel `0xAARRGGBB`, rows top-down. The WM picks whichever size it wants,
+/// so passing several is better than picking for it.
+///
+/// TWO traps, both of which produce silent garbage rather than an error:
+///
+/// 1. **`format = 32` does NOT mean 4 bytes here.** Xlib's `XChangeProperty`
+///    reads `data` as an array of C `long`, which is EIGHT bytes on LP64. Passing
+///    a `&[u32]` makes the server read two pixels per element and render noise or
+///    nothing. Hence `c_ulong` and the zero-extend below. (XCB is exempt - it
+///    takes raw bytes - which is why ports between the two keep reintroducing
+///    this.) The same trap is noted on the `_NET_WM_WINDOW_TYPE` write.
+/// 2. **Channel order is ARGB packed into the word, not the RGBA byte order we
+///    are handed.** The alpha is straight, not premultiplied.
+unsafe fn apply_net_wm_icon(
+    xlib: &Xlib,
+    display: *mut defines::Display,
+    window: defines::Window,
+    icons: &[(u32, u32, &[u8])],
+) {
+    use std::os::raw::c_ulong;
+
+    if icons.is_empty() {
+        return;
+    }
+
+    let mut data: Vec<c_ulong> = Vec::new();
+    for (w, h, rgba) in icons {
+        let (w, h) = (*w as usize, *h as usize);
+        // A truncated buffer would be read past the end below; skip rather than
+        // publish a half-decoded icon.
+        if w == 0 || h == 0 || rgba.len() < w * h * 4 {
+            continue;
+        }
+        data.push(w as c_ulong);
+        data.push(h as c_ulong);
+        for px in rgba[..w * h * 4].chunks_exact(4) {
+            let (r, g, b, a) = (px[0] as c_ulong, px[1] as c_ulong, px[2] as c_ulong, px[3] as c_ulong);
+            data.push((a << 24) | (r << 16) | (g << 8) | b);
+        }
+    }
+    if data.is_empty() {
+        return;
+    }
+
+    let atom = (xlib.XInternAtom)(
+        display,
+        b"_NET_WM_ICON\0".as_ptr() as *const c_char,
+        0,
+    );
+    if atom == 0 {
+        return;
+    }
+
+    (xlib.XChangeProperty)(
+        display,
+        window,
+        atom,
+        defines::XA_CARDINAL,
+        32,
+        defines::PropModeReplace,
+        data.as_ptr() as *const u8,
+        data.len() as i32,
+    );
+}
+
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 ///
 /// MWA-B5: `_MOTIF_WM_HINTS` — tell the WM which decorations to draw.
@@ -1892,7 +1960,7 @@ impl X11Window {
             return Ok(());
         }
         let mut layout_window =
-            azul_layout::window::LayoutWindow::new((*self.resources.fc_cache).clone())
+            crate::desktop::shell2::common::layout::layout_window_sharing_fonts(self.resources.font_manager.as_ref(), &self.resources.fc_cache)
                 .map_err(|e| {
                     WindowError::PlatformError(format!(
                         "Failed to create LayoutWindow: {:?}",
@@ -2096,9 +2164,11 @@ impl X11Window {
             );
         }
         let position = options.window_state.position;
-        // Monitor ID is now stored in FullWindowState.monitor_id, not in WindowState
-        // For now, we default to monitor 0
-        let monitor_id = 0; // TODO: Get from options or detect primary monitor
+        // The monitor the caller asked to open on, as an index into the list
+        // display::get_monitors() builds. This was hardcoded to 0, so
+        // `WindowCreateOptions.window_state.monitor_id` was silently ignored
+        // and every X11 window opened on the first CRTC.
+        let monitor_id = options.window_state.monitor_id.into_option().unwrap_or(0);
 
         // Try to create window with ARGB visual for true background transparency
         // This allows background-only transparency where the background is transparent
@@ -2203,6 +2273,34 @@ impl X11Window {
                 window_handle,
                 options.window_state.flags.decorations,
             );
+        }
+
+        // Window icon. `LinuxWindowOptions::window_icon` was public API that NO
+        // backend read - setting it did nothing, silently - which is the failure
+        // mode this codebase keeps finding in icon paths.
+        //
+        // On X11 the window icon and the taskbar icon are the SAME property, so
+        // there is one field here where Win32 has two slots. Every supplied size
+        // goes into one `_NET_WM_ICON` and the WM picks.
+        {
+            use azul_core::window::WindowIcon;
+
+            let mut icons: Vec<(u32, u32, &[u8])> = Vec::new();
+            let linux_opts = &options
+                .window_state
+                .platform_specific_options
+                .linux_options;
+            if let Some(icon) = linux_opts.window_icon.as_ref() {
+                match icon {
+                    WindowIcon::Small(i) => icons.push((16, 16, i.rgba_bytes.as_ref())),
+                    WindowIcon::Large(i) => icons.push((32, 32, i.rgba_bytes.as_ref())),
+                }
+            }
+            if !icons.is_empty() {
+                unsafe {
+                    apply_net_wm_icon(&xlib, display, window_handle, &icons);
+                }
+            }
         }
 
         // WM_CLASS hint (instance + class) from the window options, so the WM / taskbar
@@ -2482,7 +2580,13 @@ impl X11Window {
                 background_color: options.window_state.background_color,
                 layout_callback: options.window_state.layout_callback,
                 close_callback: options.window_state.close_callback.clone(),
-                monitor_id: OptionU32::None,
+                // Seed with the monitor we are actually placing the window on.
+                // This was `None` and was never written afterwards, so on X11
+                // `CallbackInfo::get_current_monitor()` returned None for the
+                // window's whole life and `WindowMonitorChanged` could never
+                // fire (the event rule needs BOTH sides Some). The
+                // ConfigureNotify handler keeps it current from here on.
+                monitor_id: OptionU32::Some(monitor_id as u32),
                 window_id: options.window_state.window_id.clone(),
                 window_focused: true,
                 active_route: azul_core::resources::OptionRouteMatch::None,
@@ -3803,6 +3907,34 @@ impl X11Window {
                     if let Some(display) =
                         crate::desktop::display::get_display_at_point(window_center)
                     {
+                        // Keep `ws.monitor_id` current so get_current_monitor()
+                        // and WindowMonitorChanged track the move. Resolve the
+                        // INDEX out of the cached list by matching the origin,
+                        // the same way the Win32 WM_MOVE handler does — the
+                        // cache and get_display_at_point() are built from the
+                        // same enumeration, so origins compare exactly.
+                        #[allow(clippy::cast_possible_truncation)]
+                        let found_index = self.common.layout_window.as_ref().and_then(|lw| {
+                            let guard = lw.monitors.lock().ok()?;
+                            guard
+                                .as_ref()
+                                .iter()
+                                .find(|m| {
+                                    m.position.x == display.bounds.origin.x as isize
+                                        && m.position.y == display.bounds.origin.y as isize
+                                })
+                                .map(|m| m.monitor_id.index as u32)
+                        });
+                        if let Some(index) = found_index {
+                            if self.common.current_window_state().monitor_id
+                                != OptionU32::Some(index)
+                            {
+                                self.common.update_window_state(
+                                    crate::desktop::shell2::common::event::WindowStateSource::Os,
+                                    |ws| ws.monitor_id = OptionU32::Some(index),
+                                );
+                            }
+                        }
                         // Same 0.25-step quantization as detect_initial_dpi, so a
                         // noisy mm-based estimate (~1.04) stays at exactly 96 DPI.
                         let new_dpi =
@@ -3864,7 +3996,7 @@ impl X11Window {
                         );
                         if let Some(ref lw) = self.common.layout_window {
                             if let Ok(mut guard) = lw.monitors.lock() {
-                                *guard = crate::desktop::display::get_monitors();
+                                *guard = crate::desktop::display::refresh_monitors();
                             }
                         }
                     }

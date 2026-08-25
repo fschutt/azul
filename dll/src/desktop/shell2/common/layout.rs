@@ -597,6 +597,18 @@ phases.mark("after_callback");
     // We collect all CSS objects, flatten the tree, and run a single cascade pass.
     // E2E `mount` override: replace the app's DOM wholesale with the test's
     // inline XML+CSS document (reusing the existing XML→StyledDom parser).
+    // 1a. Resolve icon nodes BEFORE the cascade.
+    //
+    // Icons used to be resolved after `create_from_dom`, by splicing
+    // already-cascaded fragments into the flat StyledDom arena. That forced
+    // every icon to collapse to a single node and left the property cache
+    // describing the pre-resolution node (the `.notdef` tofu bug). Resolving on
+    // the `Dom` splices whole subtrees and cascades everything exactly once.
+    let mut user_dom = user_dom;
+    azul_core::icon::resolve_icons_in_dom(&mut user_dom, icon_provider, system_style);
+    azul_layout::probe::emit_phase_heap("after_icons");
+phases.mark("after_icons");
+
     let e2e_mount_xml = layout_window.e2e_mount.xml().map(str::to_string);
     let e2e_mount_dirty = layout_window.e2e_mount.take_dirty();
     let mut user_styled_dom = match e2e_mount_xml {
@@ -614,7 +626,11 @@ phases.mark("after_callback");
                 // Keep the already-mounted DOM (with any debug DOM mutations
                 // applied to it) instead of rebuilding it from the XML.
                 Some(styled) => styled,
-                None => match azul_layout::xml::parse_xml_to_styled_dom(&xml) {
+                None => match azul_layout::xml::parse_xml_to_styled_dom_resolving_icons(
+                    &xml,
+                    icon_provider,
+                    system_style,
+                ) {
                     Ok(styled) => {
                         log_debug!(
                             LogCategory::Layout,
@@ -639,11 +655,7 @@ phases.mark("after_callback");
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
 phases.mark("after_create_from_dom");
 
-    // 2. Resolve icon nodes to their actual content (text glyphs, images, etc.)
-    // This must happen after the user's layout callback and before CSD injection
-    azul_core::icon::resolve_icons_in_styled_dom(&mut user_styled_dom, icon_provider, system_style);
-    azul_layout::probe::emit_phase_heap("after_icons");
-phases.mark("after_icons");
+
 
     // 3. Conditionally inject Client-Side Decorations (CSD)
     //
@@ -1922,4 +1934,38 @@ pub(crate) fn reconcile_transient_windows(
     // about to be re-created that way. `merge` also cancels an open+close
     // pair the backend never saw, so nothing flashes.
     layout_window.pending_transient_diff.merge(diff);
+}
+
+/// Build a `LayoutWindow` that SHARES the app-level font manager.
+///
+/// This is the single decision point for "where does a window's `FontManager`
+/// come from", and it exists because there are four window backends that each
+/// used to answer it independently with `LayoutWindow::new(fc_cache)` - i.e.
+/// a brand-new `FontManager` per window.
+///
+/// That is not merely wasteful. A `FontManager` owns the `embedded_fonts` pool,
+/// which is the ONLY place a face handed over as `StyleFontFamily::Ref`
+/// (Material Icons, and anything a font-backed icon pack resolves to) is ever
+/// named. Two windows with two managers therefore disagree about which faces
+/// exist, and a face registered while laying out one window is invisible to the
+/// next - which surfaces as a `.notdef` tofu box, with every intermediate step
+/// reporting success.
+///
+/// `clone_shared()` shares the `parsed_fonts` and `embedded_fonts` pools while
+/// giving the window a private `fc_cache` field, so it can still swap in its own
+/// registry snapshot at layout time (`replace_fc_cache`) without disturbing
+/// anyone else.
+///
+/// Falls back to a private manager when there is no app-level one, which is the
+/// old behaviour and keeps this infallible to adopt.
+pub fn layout_window_sharing_fonts(
+    app_font_manager: Option<&std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    fc_cache: &rust_fontconfig::FcFontCache,
+) -> Result<azul_layout::window::LayoutWindow, azul_layout::solver3::LayoutError> {
+    match app_font_manager {
+        Some(fm) => Ok(azul_layout::window::LayoutWindow::from_font_manager(
+            fm.clone_shared(),
+        )),
+        None => azul_layout::window::LayoutWindow::new(fc_cache.clone()),
+    }
 }

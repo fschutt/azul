@@ -188,6 +188,31 @@ pub fn parse_xml_to_fast_dom(xml: &str) -> Result<azul_core::dom::FastDom, XmlEr
     Ok(fast_dom)
 }
 
+/// `parse_xml_to_styled_dom`, but resolving `<icon>` nodes on the way.
+///
+/// Routes through `Dom` (a real tree) rather than `FastDom`, and that is not an
+/// oversight: an icon resolves to a SUBTREE, and `FastDom` - like `StyledDom` -
+/// is a flat arena in DFS order, so a subtree cannot be spliced into it without
+/// inserting mid-arena and shifting every index after it. Resolving on the tree
+/// and cascading once is what makes an arbitrary `Dom` usable as an icon.
+///
+/// Use this whenever an icon provider is available. `parse_xml_to_styled_dom`
+/// exists for callers that have none, and differs only in that.
+///
+/// # Errors
+///
+/// Returns an `XmlError` if the XML cannot be parsed.
+pub fn parse_xml_to_styled_dom_resolving_icons(
+    xml: &str,
+    provider: &azul_core::icon::SharedIconProvider,
+    system_style: &azul_css::system::SystemStyle,
+) -> Result<StyledDom, XmlError> {
+    let parsed = parse_xml(xml)?;
+    let mut dom = dom_from_parsed_xml(parsed);
+    azul_core::icon::resolve_icons_in_dom(&mut dom, provider, system_style);
+    Ok(StyledDom::create_from_dom(dom))
+}
+
 /// Parse XML directly into `FastDom` + extracted CSS, ready for `StyledDom`.
 #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
 /// # Errors
@@ -2240,7 +2265,7 @@ mod autotest_generated {
     fn icon_resolution_consumes_the_spec_text_like_a_ligature_font() {
         use azul_core::{
             dom::NodeType,
-            icon::{resolve_icons_in_styled_dom, IconProviderHandle, SharedIconProvider},
+            icon::{IconProviderHandle, SharedIconProvider},
             refany::{OptionRefAny, RefAny},
             styled_dom::StyledDom,
         };
@@ -2251,16 +2276,17 @@ mod autotest_generated {
         // the spec-derived LOOKUP and the replacement without a real font.
         extern "C" fn marker_resolver(
             data: OptionRefAny,
-            original: &StyledDom,
+            original: &azul_core::dom::NodeData,
             _: &SystemStyle,
-        ) -> StyledDom {
-            let mut replacement = original.clone();
+        ) -> Dom {
             let marker = if data.is_some() { "RESOLVED" } else { "MISSING" };
-            if let Some(node) = replacement.node_data.as_mut().get_mut(0) {
-                node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(
+            let mut replacement = Dom::create_div();
+            replacement.root = original.clone();
+            replacement
+                .root
+                .set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(
                     marker.into(),
                 )));
-            }
             replacement
         }
 
@@ -2270,16 +2296,16 @@ mod autotest_generated {
 
         // Both the bare-name spec and the pack-qualified fallback-list spec
         // (`missing:x` first — must fall through to `testpack:content_copy`).
-        let mut styled = parse_xml_to_styled_dom(
+        let styled = parse_xml_to_styled_dom_resolving_icons(
             "<html><body>\
              <icon> content_copy </icon>\
              <icon>missing:x, testpack:CONTENT_COPY</icon>\
              <icon>unknown_icon</icon>\
              </body></html>",
+            &provider,
+            &SystemStyle::default(),
         )
         .expect("icon markup must cascade");
-
-        resolve_icons_in_styled_dom(&mut styled, &provider, &SystemStyle::default());
 
         let texts: Vec<String> = styled
             .node_data

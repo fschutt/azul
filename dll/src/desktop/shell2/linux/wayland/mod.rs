@@ -334,6 +334,10 @@ static WL_BUFFER_RELEASE_LISTENER: defines::wl_buffer_listener = defines::wl_buf
 #[derive(Debug, Clone)]
 pub struct MonitorState {
     pub proxy: *mut defines::wl_output,
+    /// The `wl_registry` global id this output was advertised under. This is
+    /// the ONLY handle `wl_registry.global_remove` gives us, so without it a
+    /// monitor unplug cannot be matched to the entry it should drop.
+    pub global_name: u32,
     pub name: String,
     pub scale: i32,
     pub x: i32,
@@ -1623,7 +1627,7 @@ impl WaylandWindow {
         unsafe { (wayland.wl_proxy_set_queue)(registry as _, event_queue) };
 
         // Initialize LayoutWindow
-        let mut layout_window = LayoutWindow::new((*resources.fc_cache).clone()).map_err(|e| {
+        let mut layout_window = crate::desktop::shell2::common::layout::layout_window_sharing_fonts(resources.font_manager.as_ref(), &resources.fc_cache).map_err(|e| {
             WindowError::PlatformError(format!("LayoutWindow::new failed: {:?}", e))
         })?;
         layout_window.routes = resources.config.routes.clone();
@@ -2215,7 +2219,7 @@ impl WaylandWindow {
             // Initialize LayoutWindow if not already done
             if window.common.layout_window.is_none() {
                 let mut layout_window =
-                    azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
+                    crate::desktop::shell2::common::layout::layout_window_sharing_fonts(window.resources.font_manager.as_ref(), &window.resources.fc_cache)
                         .map_err(|e| {
                             WindowError::PlatformError(format!(
                                 "Failed to create LayoutWindow: {:?}",
@@ -2234,7 +2238,7 @@ impl WaylandWindow {
                 layout_window.routes = window.resources.config.routes.clone();
                 // Initialize monitor cache once at window creation
                 if let Ok(mut guard) = layout_window.monitors.lock() {
-                    *guard = crate::desktop::display::get_monitors();
+                    *guard = crate::desktop::display::refresh_monitors();
                 }
                 window.common.layout_window = Some(layout_window);
             }
@@ -2275,7 +2279,7 @@ impl WaylandWindow {
             // Initialize LayoutWindow if not already done
             if window.common.layout_window.is_none() {
                 if let Ok(mut layout_window) =
-                    azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
+                    crate::desktop::shell2::common::layout::layout_window_sharing_fonts(window.resources.font_manager.as_ref(), &window.resources.fc_cache)
                 {
                     if let Some(doc_id) = window.common.document_id {
                         layout_window.document_id = doc_id;
@@ -2288,7 +2292,7 @@ impl WaylandWindow {
                     layout_window.routes = window.resources.config.routes.clone();
                     // Initialize monitor cache once at window creation
                     if let Ok(mut guard) = layout_window.monitors.lock() {
-                        *guard = crate::desktop::display::get_monitors();
+                        *guard = crate::desktop::display::refresh_monitors();
                     }
                     window.common.layout_window = Some(layout_window);
                 }
@@ -7262,8 +7266,19 @@ impl WaylandPopup {
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
         };
-        let mut layout_window = LayoutWindow::new((*parent.common.fc_cache).clone())
-            .map_err(|e| format!("LayoutWindow::new failed: {e:?}"))?;
+        // A popup is a CHILD: share the PARENT's already-warmed manager, which
+        // is both the warmest option and the one whose embedded (icon) faces the
+        // popup is most likely to need. Falls back to the app-level manager.
+        let mut layout_window = match parent.common.layout_window.as_ref() {
+            Some(parent_lw) => {
+                LayoutWindow::from_font_manager(parent_lw.font_manager.clone_shared())
+            }
+            None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                parent.resources.font_manager.as_ref(),
+                &parent.resources.fc_cache,
+            )
+            .map_err(|e| format!("LayoutWindow::new failed: {e:?}"))?,
+        };
         layout_window.routes = parent.resources.config.routes.clone();
         // Seed with the parent window's image map so css-id / url("...")
         // images inside the popup resolve (whole-map seed at creation).

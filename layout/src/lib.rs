@@ -421,7 +421,7 @@ pub use icon::{
 // Re-export core icon types
 pub use azul_core::icon::{
     IconProviderHandle, IconResolverCallbackType,
-    resolve_icons_in_styled_dom, OptionIconProviderHandle,
+    resolve_icons_in_dom, OptionIconProviderHandle,
 };
 
 /// Callback handling for layout events (invocation, result processing).
@@ -498,6 +498,11 @@ pub mod thread;
 // Scoped (was crate-wide): hand-written `Ord`/`PartialOrd` on a timer type.
 #[allow(clippy::non_canonical_partial_ord_impl)]
 pub mod timer;
+/// Render an icon-registry entry to RGBA pixels, for the system tray.
+/// Goes through the same `<icon>` resolution + CPU renderer, so every icon
+/// kind (and any future DOM-expressible one) works without a special case.
+#[cfg(all(feature = "text_layout", feature = "std"))]
+pub mod tray_icon;
 /// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;

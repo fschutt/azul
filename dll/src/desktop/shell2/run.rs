@@ -405,6 +405,15 @@ fn run_headless(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
     debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
     component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) -> Result<(), WindowError> {
@@ -513,6 +522,15 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     crate::plog_info!(
         "[macOS] run() entry — AZ_BACKEND={:?} (logging on by default; AZ_LOG=off to silence, AZ_LOG=trace for everything)",
@@ -555,7 +573,7 @@ pub fn run(
 
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
     }
 
     use azul_core::icon::SharedIconProvider;
@@ -608,6 +626,7 @@ pub fn run(
             crate::desktop::shell2::macos::setup_main_menu(&app, mtm);
         }
 
+
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
         debug_server::log(
@@ -617,13 +636,88 @@ pub fn run(
             None,
         );
         let mut window =
-            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), undo_manager.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), None, mtm)?;
+            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), undo_manager.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), font_manager.clone(), None, mtm)?;
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::Window,
             "MacOSWindow created successfully",
             None,
         );
+
+        // Install the tray requested by `App::set_tray()`.
+        //
+        // AFTER the first window, not before, for two reasons that both bit:
+        //
+        // 1. It needs the app's real `FontManager`, and that lives on the
+        //    window's `LayoutWindow`. Building a fresh one here means a second,
+        //    disconnected font universe (see `tray_icon::render_icon_to_rgba`).
+        // 2. The font registry scans in a BACKGROUND thread, and `fc_cache` is
+        //    only snapshotted from it at layout time. Rendering an icon before
+        //    the first layout therefore shapes against an empty/partial font
+        //    set, which comes out as a `.notdef` tofu box rather than as a
+        //    visible failure.
+        //
+        // By this point the window has laid out once, so the manager is warm.
+        // The app/Dock icon uses the SAME resolved manager as the tray, for the
+        // same reason: the icon renders through the DOM, so it needs a manager
+        // whose `embedded_fonts` pool holds the icon face.
+        if let Some(spec) = app_icon.as_ref() {
+            let fm_for_icon = font_manager.as_ref().map(|fm| fm.clone_shared());
+            if let Some(fm) = fm_for_icon
+                .as_ref()
+                .or_else(|| window.common.layout_window.as_ref().map(|lw| &lw.font_manager))
+            {
+                let outcome =
+                    crate::desktop::app_icon::set_app_icon(spec.as_str(), &shared_icon_provider, fm);
+                log_debug!(
+                    debug_server::LogCategory::Resources,
+                    "[app-icon] {:?} -> {:?}",
+                    spec.as_str(),
+                    outcome
+                );
+            }
+        }
+
+        if let Some(tray) = tray {
+            // ONE font universe. `font_manager` is the app-level manager built
+            // in `AppInternal::create`; `clone_shared()` shares its `parsed_fonts`
+            // and `embedded_fonts` pools while giving us a private `fc_cache`
+            // field to warm, so registering the icon's face here is visible to
+            // every window and vice versa.
+            //
+            // Warming matters because the font registry scans on BACKGROUND
+            // threads and `fc_cache` is only snapshotted from it at layout time.
+            // Taking the window's already-laid-out manager was how this used to
+            // get a warm cache - and that is exactly what tied the tray to a
+            // window existing. Blocking on `request_fonts` here is the same wait
+            // the window does, just done for ourselves.
+            let own = font_manager.as_ref().map(|fm| {
+                let mut fm = fm.clone_shared();
+                if let Some(reg) = font_registry.as_ref() {
+                    let stacks = rust_fontconfig::config::tokenize_common_families(
+                        rust_fontconfig::OperatingSystem::current(),
+                    );
+                    reg.request_fonts(&stacks);
+                    fm.replace_fc_cache(reg.shared_cache());
+                }
+                fm
+            });
+
+            match own
+                .as_ref()
+                .or_else(|| window.common.layout_window.as_ref().map(|lw| &lw.font_manager))
+            {
+                Some(fm) => {
+                    crate::desktop::tray::install_tray(tray, &shared_icon_provider, fm);
+                }
+                None => {
+                    log_debug!(
+                        debug_server::LogCategory::Resources,
+                        "[tray] no font manager available; tray not installed"
+                    );
+                }
+            }
+        }
 
         // Register debug timer with explicit channel + component map (no globals)
         if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
@@ -694,8 +788,18 @@ pub fn run(
                     let shared_icon_provider = shared_icon_provider.clone();
                     let fc_cache = fc_cache.clone();
                     let font_registry = font_registry.clone();
+                    let font_manager_c = font_manager.clone();
                     let drain = RcBlock::new(move || {
-                        for wptr in super::macos::registry::get_all_window_ptrs() {
+                        // Tray menu clicks land in the process-wide menu-action
+                        // queue; drain the ones this tray owns. Items carrying a
+                        // callback come back here to be invoked, the rest go to
+                        // the tray event mailbox. Self-gating when there is no
+                        // tray.
+                        pump_tray_into_windows();
+
+                        let window_ptrs = super::macos::registry::get_all_window_ptrs();
+
+                        for wptr in window_ptrs {
                             let window = unsafe { &mut *wptr };
                             window.drain_loop_work();
 
@@ -713,6 +817,7 @@ pub fn run(
                                     shared_icon_provider.clone(),
                                     fc_cache.clone(),
                                     font_registry.clone(),
+                                    font_manager_c.clone(),
                                     // A queued create is always a CHILD of this
                                     // window (a transient popup / torn panel) —
                                     // share its warmed font pool so text/icons
@@ -792,6 +897,11 @@ pub fn run(
 
                 loop {
                     autoreleasepool(|_| {
+                        // Tray menu clicks, before native events: this loop is
+                        // what runs for the DEFAULT termination behaviour, so
+                        // skipping it here is what made the tray menu inert.
+                        pump_tray_into_windows();
+
                         // --- Drain pending native events (non-blocking) ---
                         // We need to dispatch events BOTH to the system (sendEvent) and to our handlers
                         loop {
@@ -894,6 +1004,7 @@ pub fn run(
                                         shared_icon_provider.clone(),
                                         fc_cache.clone(),
                                         font_registry.clone(),
+                                        font_manager.clone(),
                                         // A queued create is a CHILD of this
                                         // window — share its warmed font pool.
                                         window.common.layout_window.as_ref(),
@@ -1028,6 +1139,15 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
@@ -1066,6 +1186,15 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     if resolve_backend(&root_window) == super::AzBackend::Headless {
@@ -1089,6 +1218,15 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
@@ -1096,7 +1234,7 @@ pub fn run(
         return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     crate::plog_info!(
@@ -1123,7 +1261,7 @@ pub fn run(
         LogCategory::Window,
         "[shell2::run] calling Win32Window::new"
     );
-    let mut window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone(), undo_manager.clone())?;
+    let mut window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone(), undo_manager.clone(), font_manager.clone())?;
     log_trace!(
         LogCategory::Window,
         "[shell2::run] Win32Window::new returned successfully"
@@ -1356,6 +1494,11 @@ pub fn run(
                             window.font_registry.clone(),
                             window.common.app_data.clone(),
                             window.common.undo_manager.clone(),
+                            // The app-level manager: the parent derived from it
+                            // too, so parent and child share the same font pools
+                            // and only the fc_cache snapshot differs (warmed at
+                            // this window's first layout).
+                            font_manager.clone(),
                         ) {
                             Ok(new_window) => {
                                 // Box and leak for stable pointer
@@ -1511,6 +1654,15 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
+    // Tray requested via `App::set_tray()`, threaded rather than stashed in a
+    // global: it is per-App state, and a global would silently pick the wrong
+    // one if a process ever ran two Apps.
+    tray: Option<azul_core::tray::TrayIconData>,
+    // THE app-level font manager, so windows and the tray share one set of font
+    // pools instead of each building a private universe. See `AppInternal`.
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    // App / Dock icon spec requested via `App::set_app_icon`.
+    app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     // Same reasoning as the environment dump below, for the knobs this build
     // cannot honour at all.
@@ -1551,7 +1703,7 @@ pub fn run(
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         crate::plog_info!("[Linux] backend resolved to Headless (AZ_BACKEND=headless)");
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, debug_request_rx, component_map);
+        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
     }
     use std::cell::RefCell;
 
@@ -1560,7 +1712,14 @@ pub fn run(
     use super::linux::{registry, AppResources, LinuxWindow};
 
     // Initialize shared resources once at startup
-    let resources = Arc::new(AppResources::new(config.clone(), fc_cache, font_registry));
+    let resources = Arc::new(AppResources::new_with_font_manager(
+        config.clone(),
+        fc_cache,
+        font_registry,
+        // Adopt the app-level manager so every window on this connection
+        // shares one set of font pools.
+        font_manager,
+    ));
 
     log_debug!(
         debug_server::LogCategory::EventLoop,
@@ -1950,5 +2109,205 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
         // result > 0 means events are ready
     }
 
+    Ok(())
+}
+
+/// Drain tray menu clicks and run the callbacks they carry.
+///
+/// This lives in ONE place and is called from EVERY macOS event-loop branch on
+/// purpose. It was originally inlined into the `RunForever` timer, which meant
+/// it never ran for the DEFAULT termination behaviour (`EndProcess`) - the tray
+/// appeared, its menu opened, `menuItemAction:` fired and pushed the tag, and
+/// then nothing consumed it. The menu looked dead for the most common config
+/// while working in the one that is rarely used.
+///
+/// A tray menu item is invoked through the SAME path as a window menu item:
+/// `invoke_menu_callback` builds the `CallbackInfo`, hands over the caller's
+/// `RefAny`, applies whatever the callback changed and asks for a rebuild.
+/// It needs a window because a `CallbackInfo` does, and the tray has none of
+/// its own, so the first window stands in.
+#[cfg(target_os = "macos")]
+fn pump_tray_into_windows() {
+    let tray_callbacks = crate::desktop::tray::pump_tray();
+    if tray_callbacks.is_empty() {
+        return;
+    }
+
+    use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
+    use azul_core::events::ProcessEventResult;
+
+    let window_ptrs = crate::desktop::shell2::macos::registry::get_all_window_ptrs();
+    match window_ptrs.first() {
+        Some(&wptr) => {
+            let window = unsafe { &mut *wptr };
+            if invoke_tray_callbacks(window, tray_callbacks) {
+                window.request_redraw();
+            }
+        }
+        None => {
+            // A tray-first app has no OS window to run against. Say so rather
+            // than dropping a user's callback in silence; `run_tray_only` uses
+            // a HeadlessWindow instead and never reaches this branch.
+            log_debug!(
+                debug_server::LogCategory::Callbacks,
+                "[tray] {} menu callback(s) had no window to run against",
+                tray_callbacks.len()
+            );
+        }
+    }
+}
+
+/// Run tray menu callbacks against SOME window - a real one, or the headless
+/// stub a tray-only app uses.
+///
+/// A `CallbackInfo` is built from a window (its `LayoutWindow`, raw handle, GL
+/// context, window state), so a callback needs one to exist even when the click
+/// came from a menu bar item that belongs to no window. `HeadlessWindow`
+/// satisfies that without any OS window being created, which is what makes a
+/// genuinely windowless tray app possible.
+#[cfg(target_os = "macos")]
+///
+/// Returns whether anything asked for a repaint; `request_redraw` is not on the
+/// `PlatformWindow` trait, and a windowless app has nothing to repaint anyway,
+/// so the decision belongs to the caller.
+#[cfg(target_os = "macos")]
+#[must_use]
+fn invoke_tray_callbacks<W: crate::desktop::shell2::common::event::PlatformWindow>(
+    window: &mut W,
+    callbacks: Vec<azul_core::menu::CoreMenuCallback>,
+) -> bool {
+    use crate::desktop::shell2::common::event::MenuInvocation;
+    use azul_core::events::ProcessEventResult;
+
+    let mut needs_redraw = false;
+    for cb in callbacks {
+        if !matches!(
+            window.invoke_menu_callback(cb, MenuInvocation::Native { site: "macos.tray_menu" }),
+            ProcessEventResult::DoNothing
+        ) {
+            needs_redraw = true;
+        }
+    }
+    needs_redraw
+}
+
+/// Run an app that has a tray and NO window at all.
+///
+/// The regular `run()` creates a root window unconditionally, which is what made
+/// "tray-first" impossible: a menu-bar-only utility had to open (and then hide) a
+/// window it never wanted.
+///
+/// Two things make a windowless app work:
+///
+/// * **`NSApplicationActivationPolicy::Accessory`** - the runtime equivalent of
+///   `LSUIElement` in an Info.plist. No Dock tile, no application menu bar. A
+///   `Regular` app with no windows is a worse experience than a window: it owns
+///   the menu bar and shows a Dock icon that does nothing. (This also means an
+///   app icon set via `set_app_icon` has nowhere to appear - there is no Dock
+///   tile to draw it on.)
+/// * **A `HeadlessWindow` as the callback context.** A `CallbackInfo` is built
+///   from a window, so a tray menu callback needs one even though the click came
+///   from an item belonging to no window. The headless stub provides the
+///   `LayoutWindow` and state without creating an OS window, and it shares the
+///   app-level font pools like every other consumer.
+///
+/// The event loop is `NSApplication::run`, which does not require any window;
+/// a repeating timer drains tray clicks, exactly as the windowed path does.
+#[cfg(target_os = "macos")]
+pub fn run_tray_only(
+    app_data: RefAny,
+    undo_manager: SharedUndoManager,
+    mut config: AppConfig,
+    fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
+    tray: azul_core::tray::TrayIconData,
+    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+) -> Result<(), WindowError> {
+    use std::cell::RefCell;
+
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+
+    use super::headless::HeadlessWindow;
+
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
+
+    let icon_provider_handle = core::mem::take(&mut config.icon_provider);
+    let shared_icon_provider =
+        azul_core::icon::SharedIconProvider::from_handle(icon_provider_handle);
+
+    let app = NSApplication::sharedApplication(mtm);
+    unsafe {
+        // Accessory, NOT Regular: see the note above.
+        app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    }
+
+    // The callback context. `WindowCreateOptions::default()` is never shown -
+    // HeadlessWindow creates no OS window - it only shapes the stub's state.
+    let app_data_arc = Arc::new(RefCell::new(app_data));
+    let mut headless = HeadlessWindow::new(
+        WindowCreateOptions::default(),
+        app_data_arc,
+        undo_manager,
+        config,
+        shared_icon_provider.clone(),
+        fc_cache,
+        font_registry.clone(),
+    )?;
+
+    // Same warm-then-install as the windowed path: the registry scans on
+    // background threads, so block on the fonts this icon needs rather than
+    // shaping against a half-built cache and drawing a tofu box.
+    let own = font_manager.as_ref().map(|fm| {
+        let mut fm = fm.clone_shared();
+        if let Some(reg) = font_registry.as_ref() {
+            let stacks = rust_fontconfig::config::tokenize_common_families(
+                rust_fontconfig::OperatingSystem::current(),
+            );
+            reg.request_fonts(&stacks);
+            fm.replace_fc_cache(reg.shared_cache());
+        }
+        fm
+    });
+    match own
+        .as_ref()
+        .or(headless.common.layout_window.as_ref().map(|lw| &lw.font_manager))
+    {
+        Some(fm) => crate::desktop::tray::install_tray(tray, &shared_icon_provider, fm),
+        None => {
+            return Err(WindowError::PlatformError(
+                "tray-only app has no font manager to render its icon".into(),
+            ))
+        }
+    }
+
+    // Drain tray clicks into the headless window. 33ms matches the windowed
+    // path's timer.
+    let headless_ptr: *mut HeadlessWindow = &mut headless;
+    let drain = block2::RcBlock::new(move |_timer: core::ptr::NonNull<objc2_foundation::NSTimer>| {
+        let callbacks = crate::desktop::tray::pump_tray();
+        if !callbacks.is_empty() {
+            // Safe: single-threaded main-loop timer, and `headless` outlives the
+            // run loop below (it is dropped only after `app.run()` returns).
+            let window = unsafe { &mut *headless_ptr };
+            // Nothing to repaint: there is no window on screen.
+            let _ = invoke_tray_callbacks(window, callbacks);
+        }
+    });
+    let _timer: objc2::rc::Retained<objc2_foundation::NSTimer> = unsafe {
+        objc2::msg_send![
+            objc2::class!(NSTimer),
+            scheduledTimerWithTimeInterval: 0.033f64,
+            repeats: true,
+            block: &*drain
+        ]
+    };
+
+    log_info!(
+        LogCategory::EventLoop,
+        "[tray-only] no window; entering NSApplication run loop"
+    );
+    unsafe { app.run() };
     Ok(())
 }

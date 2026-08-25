@@ -60,9 +60,29 @@ pub type AdjustWindowRectExForDpi = unsafe extern "system" fn(
 ) -> BOOL;
 
 /// Runtime-loaded Win32 DPI functions for backward-compatible DPI awareness.
+///
+/// NOTE ON WHICH DLL EACH SYMBOL LIVES IN — this is not uniform, and getting it
+/// wrong fails SILENTLY (`GetProcAddress` returns NULL, the `Option` stays
+/// `None`, and the fallback tier is taken forever):
+///
+/// | symbol                          | dll        | since        |
+/// |---------------------------------|------------|--------------|
+/// | `SetProcessDPIAware`            | user32     | Vista        |
+/// | `SetProcessDpiAwareness`        | **shcore** | 8.1          |
+/// | `SetProcessDpiAwarenessContext` | user32     | 10 1703      |
+/// | `GetDpiForMonitor`              | **shcore** | 8.1          |
+/// | `GetDpiForWindow`               | user32     | 10 1607      |
+/// | `AdjustWindowRectExForDpi`      | user32     | 10 1607      |
+/// | `EnableNonClientDpiScaling`     | user32     | 10 1607      |
+///
+/// The two shcore ones were previously looked up in user32 and were therefore
+/// permanently `None`: on 8.1 / pre-1607 Win10 the process silently degraded to
+/// `SetProcessDPIAware()` (SYSTEM-dpi aware, not per-monitor), and `hwnd_dpi`'s
+/// `GetDpiForMonitor` tier was dead code.
 #[derive(Default, Debug)]
 pub struct DpiFunctions {
     user32_dll_handle: Option<HINSTANCE>,
+    shcore_dll_handle: Option<HINSTANCE>,
     get_dpi_for_window: Option<GetDpiForWindow>,
     adjust_window_rect_ex_for_dpi: Option<AdjustWindowRectExForDpi>,
     get_dpi_for_monitor: Option<GetDpiForMonitor>,
@@ -80,17 +100,28 @@ impl Drop for DpiFunctions {
                 FreeLibrary(user32);
             }
         }
+        if let Some(shcore) = self.shcore_dll_handle {
+            unsafe {
+                FreeLibrary(shcore);
+            }
+        }
     }
 }
 
 impl DpiFunctions {
-    /// Loads DPI-related functions from user32.dll at runtime.
+    /// Loads DPI-related functions from user32.dll and shcore.dll at runtime.
+    ///
+    /// shcore.dll is absent on Windows 7 and earlier; `load_dll` returns `None`
+    /// there and the two shcore symbols stay `None`, which is exactly the
+    /// pre-8.1 behaviour the fallback tiers already handle.
     pub fn init() -> Self {
         let user32_dll = super::load_dll("user32.dll").map(|dll| dll as HINSTANCE);
+        let shcore_dll = super::load_dll("shcore.dll").map(|dll| dll as HINSTANCE);
 
         unsafe {
             Self {
                 user32_dll_handle: user32_dll,
+                shcore_dll_handle: shcore_dll,
                 get_dpi_for_window: Self::get_func(user32_dll, "GetDpiForWindow")
                     .map(|e| mem::transmute(e)),
                 adjust_window_rect_ex_for_dpi: Self::get_func(
@@ -98,7 +129,8 @@ impl DpiFunctions {
                     "AdjustWindowRectExForDpi",
                 )
                 .map(|e| mem::transmute(e)),
-                get_dpi_for_monitor: Self::get_func(user32_dll, "GetDpiForMonitor")
+                // shcore.dll, NOT user32 — see the table on `DpiFunctions`.
+                get_dpi_for_monitor: Self::get_func(shcore_dll, "GetDpiForMonitor")
                     .map(|e| mem::transmute(e)),
                 enable_non_client_dpi_scaling: Self::get_func(
                     user32_dll,
@@ -110,7 +142,8 @@ impl DpiFunctions {
                     "SetProcessDpiAwarenessContext",
                 )
                 .map(|e| mem::transmute(e)),
-                set_process_dpi_awareness: Self::get_func(user32_dll, "SetProcessDpiAwareness")
+                // shcore.dll, NOT user32 — see the table on `DpiFunctions`.
+                set_process_dpi_awareness: Self::get_func(shcore_dll, "SetProcessDpiAwareness")
                     .map(|e| mem::transmute(e)),
                 set_process_dpi_aware: Self::get_func(user32_dll, "SetProcessDPIAware")
                     .map(|e| mem::transmute(e)),

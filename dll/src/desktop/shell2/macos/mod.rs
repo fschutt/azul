@@ -91,7 +91,7 @@ mod coregraphics;
 mod corevideo;
 mod events;
 mod gl;
-mod menu;
+pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;
 mod tooltip;
@@ -3084,7 +3084,7 @@ define_class!(
                     window.surface_needs_update = true;
                     if let Some(ref lw) = window.common.layout_window {
                         if let Ok(mut guard) = lw.monitors.lock() {
-                            *guard = crate::desktop::display::get_monitors();
+                            *guard = crate::desktop::display::refresh_monitors();
                         }
                     }
                 }
@@ -3100,7 +3100,7 @@ define_class!(
                     let window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Some(ref lw) = window.common.layout_window {
                         if let Ok(mut guard) = lw.monitors.lock() {
-                            *guard = crate::desktop::display::get_monitors();
+                            *guard = crate::desktop::display::refresh_monitors();
                         }
                     }
                 }
@@ -3865,12 +3865,36 @@ impl MacOSWindow {
                 // Compute stable hash
                 let hash = coregraphics::compute_monitor_hash(display_id, bounds);
 
-                // For now, use display_id as index (not perfect but reasonable)
-                // In a full implementation, we would enumerate all displays and assign indices
-                let monitor_id = MonitorId {
-                    index: display_id as usize,
-                    hash,
+                // `ws.monitor_id` is an INDEX into the monitor list that
+                // `display::get_monitors()` builds — every consumer looks it up
+                // that way (`CallbackInfo::get_current_monitor` matches on
+                // `m.monitor_id.index`, `position_window_on_monitor` likewise).
+                //
+                // This used to store `display_id as usize`, i.e. a raw
+                // `CGDirectDisplayID` like 69733382, which never matched an
+                // index in 0..n — so `get_current_monitor()` returned `None` on
+                // macOS in practice and `position_window_on_monitor` always
+                // fell through to `monitors[0]`.
+                //
+                // `display::macos::get_displays()` enumerates `NSScreen::screens`
+                // in order, so this screen's position in that same array IS the
+                // index. Match by CGDirectDisplayID rather than by frame, since
+                // mirrored displays can share a frame.
+                let index = MainThreadMarker::new().and_then(|mtm| {
+                    NSScreen::screens(mtm).iter().position(|s| {
+                        coregraphics::get_display_id_from_screen(&s) == Some(display_id)
+                    })
+                });
+                let Some(index) = index else {
+                    log_warn!(
+                        LogCategory::Window,
+                        "[MacOSWindow] display_id={} not found in NSScreen::screens; \
+                         leaving monitor_id unchanged",
+                        display_id
+                    );
+                    return;
                 };
+                let monitor_id = MonitorId { index, hash };
 
                 self.common
                     .update_unsynced_state(|ws| {
@@ -4059,10 +4083,13 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache: Arc<rust_fontconfig::FcFontCache>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
+        // THE app-level font manager. A top-level window shares it rather than
+        // building a private one; see `layout_window_sharing_fonts`.
+        app_font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
         parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, Some(fc_cache), font_registry, parent_lw, mtm)
+        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, Some(fc_cache), font_registry, app_font_manager, parent_lw, mtm)
     }
 
     /// Create a new macOS window with given options.
@@ -4074,7 +4101,7 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, None, None, None, mtm)
+        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, None, None, None, None, mtm)
     }
 
     /// Internal constructor with optional fc_cache parameter
@@ -4086,6 +4113,7 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
+        app_font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
         parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
@@ -4682,7 +4710,13 @@ impl MacOSWindow {
             fc_cache_opt.unwrap_or_else(|| Arc::new(rust_fontconfig::FcFontCache::build()));
         let mut layout_window = match parent_lw {
             Some(parent) => LayoutWindow::from_font_manager(parent.font_manager.clone_shared()),
-            None => LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
+            // Shares the app-level manager's font pools instead of starting a
+            // private universe; falls back to a fresh one when there is none.
+            None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                app_font_manager.as_ref(),
+                &fc_cache,
+            )
+            .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
             })?,
         };
@@ -8143,11 +8177,28 @@ fn position_window_on_monitor(
 
     let (x, y) = match position {
         WindowPosition::Initialized(pos) => {
-            // Explicit position requested - use it relative to monitor
-            // Note: macOS y-axis is flipped (0 at bottom)
-            (
-                screen_frame.origin.x + pos.x as f64,
-                screen_frame.origin.y + pos.y as f64,
+            // `Initialized` is an ABSOLUTE top-left in the global top-down
+            // space — the same convention `windowDidMove:` reads back and
+            // `sync_window_state` writes. So it is NOT monitor-relative: do
+            // not add `screen_frame.origin`.
+            //
+            // MWA-B9: AppKit wants the frame's BOTTOM-left in the bottom-up
+            // space anchored at the PRIMARY screen, so flip against the
+            // primary screen's height and shed the window's own height.
+            //
+            // This arm previously added a top-down y to a bottom-up screen
+            // origin with no flip at all (its own comment said "macOS y-axis
+            // is flipped" and then didn't flip), so a window asked to open at
+            // (0, 0) opened at the BOTTOM of the screen — and it was the one
+            // site in this backend that broke the MWA-B9 convention.
+            primary_screen_height().map_or(
+                (f64::from(pos.x), f64::from(pos.y)),
+                |primary_height| {
+                    (
+                        f64::from(pos.x),
+                        primary_height - f64::from(pos.y) - window_frame.size.height,
+                    )
+                },
             )
         }
         WindowPosition::Uninitialized => {

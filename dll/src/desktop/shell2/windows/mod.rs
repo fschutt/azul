@@ -271,6 +271,9 @@ impl Win32Window {
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
         undo_manager: event::SharedUndoManager,
+        // THE app-level font manager, so every window shares one set of font
+        // pools; see `layout_window_sharing_fonts`.
+        app_font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
@@ -549,7 +552,13 @@ impl Win32Window {
         let initial_window_state = options.window_state.clone();
 
         // Create LayoutWindow with initial UI callback
-        let mut layout_window = LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
+        // Shares the app-level manager's font pools rather than starting a
+        // private universe; falls back to a fresh one when there is none.
+        let mut layout_window = crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+            app_font_manager.as_ref(),
+            &fc_cache,
+        )
+        .map_err(|e| {
             WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
         })?;
 
@@ -622,12 +631,20 @@ impl Win32Window {
             should_show_window
         );
 
-        // Position window on requested monitor (or center on primary)
-        // This can be done before showing
-        // TODO: Use monitor_id to look up actual Monitor from global state
+        // Position window on the REQUESTED monitor (or centre on the first
+        // one). `Monitor::default().monitor_id` is MonitorId::PRIMARY, so
+        // passing it here threw `options.window_state.monitor_id` away and
+        // opened every window on monitors[0] regardless of what the caller
+        // asked for. `hash: 0` is right: position_window_on_monitor matches on
+        // index first and only falls back to a NON-zero hash, so a
+        // hash-less id means "resolve me by index".
+        let target_monitor_id = azul_core::window::MonitorId {
+            index: current_window_state.monitor_id.into_option().unwrap_or(0) as usize,
+            hash: 0,
+        };
         position_window_on_monitor(
             hwnd,
-            Monitor::default().monitor_id,
+            target_monitor_id,
             current_window_state.position,
             current_window_state.size,
             options.parent_window_id,
@@ -763,6 +780,19 @@ impl Win32Window {
             // Send first frame: regenerate layout + full transaction.
             // Epoch captured BEFORE the pass so the retirement below cannot eat
             // a request raised by a lifecycle callback running inside it.
+            // Window / taskbar icon, before the first show so the title bar and
+            // Alt+Tab never flash the default icon.
+            unsafe {
+                apply_window_icons(
+                    &result.win32,
+                    result.hwnd,
+                    &options
+                        .window_state
+                        .platform_specific_options
+                        .windows_options,
+                );
+            }
+
             let regen_epoch_seen = result.common.regen_epoch();
             if let Err(e) = result.regenerate_layout() {
                 log_error!(LogCategory::Layout, "First frame layout error: {:?}", e);
@@ -3443,7 +3473,7 @@ fn pump_modal_loop_work() {
                 break;
             };
 
-            match Win32Window::new(options, config, fc_cache, font_registry, app_data, undo_manager)
+            match Win32Window::new(options, config, fc_cache, font_registry, app_data, undo_manager, None)
             {
                 Ok(new_window) => unsafe {
                     let new_window_ptr = Box::into_raw(Box::new(new_window));
@@ -5744,7 +5774,7 @@ unsafe extern "system" fn window_proc(
             // Refresh the cached monitor list
             if let Some(ref lw) = window.common.layout_window {
                 if let Ok(mut guard) = lw.monitors.lock() {
-                    *guard = crate::desktop::display::get_monitors();
+                    *guard = crate::desktop::display::refresh_monitors();
                 }
             }
             0
@@ -6879,5 +6909,155 @@ mod tests {
             win32_xbutton_to_mouse_button(0x0002 << 16),
             Some(MouseButton::Other(4))
         );
+    }
+}
+
+/// Build an `HICON` from straight-alpha RGBA8, or `None` if GDI refuses.
+///
+/// Three traps, each of which silently produces a wrong icon rather than an
+/// error (see `scripts/APP_AND_WINDOW_ICON_RESEARCH_2026_08_24.md`):
+///
+/// 1. **`CreateIconIndirect` wants STRAIGHT alpha**, unlike `AlphaBlend` /
+///    `UpdateLayeredWindow` which want premultiplied. Feeding it premultiplied
+///    pixels gives dark fringes on every antialiased edge.
+/// 2. **Channel order is B,G,R,A**, not the R,G,B,A we are handed.
+/// 3. **Rows are bottom-up unless the height is NEGATIVE.** A positive height
+///    with top-down data yields a vertically mirrored icon, which reads as
+///    "wrong icon" rather than as a bug.
+///
+/// The 1bpp AND mask is required by `ICONINFO` even though a 32bpp colour
+/// bitmap blends by its own alpha; all-zero means "draw every pixel".
+///
+/// Both bitmaps are owned by US - `CreateIconIndirect` copies them - so they are
+/// deleted before returning, or every icon update leaks two GDI objects.
+unsafe fn hicon_from_rgba(
+    win32: &dlopen::Win32Libraries,
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+) -> Option<dlopen::HICON> {
+    use dlopen::IconInfo;
+
+    let (w, h) = (width as usize, height as usize);
+    if w == 0 || h == 0 || rgba.len() < w * h * 4 {
+        return None;
+    }
+
+    // BGRA, straight alpha.
+    let mut bgra = alloc::vec::Vec::<u8>::with_capacity(w * h * 4);
+    for px in rgba[..w * h * 4].chunks_exact(4) {
+        bgra.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+    }
+
+    let header = dlopen::BitmapInfoHeader {
+        biSize: core::mem::size_of::<dlopen::BitmapInfoHeader>() as u32,
+        biWidth: width as i32,
+        // NEGATIVE: our rows are top-down. See trap 3.
+        biHeight: -(height as i32),
+        biPlanes: 1,
+        biBitCount: 32,
+        biCompression: 0, // BI_RGB
+        biSizeImage: 0,
+        biXPelsPerMeter: 0,
+        biYPelsPerMeter: 0,
+        biClrUsed: 0,
+        biClrImportant: 0,
+    };
+
+    let mut bits: *mut core::ffi::c_void = core::ptr::null_mut();
+    let color = (win32.gdi32.CreateDIBSection)(
+        core::ptr::null_mut(),
+        &header,
+        0, // DIB_RGB_COLORS
+        &mut bits,
+        core::ptr::null_mut(),
+        0,
+    );
+    if color.is_null() || bits.is_null() {
+        if !color.is_null() {
+            (win32.gdi32.DeleteObject)(color);
+        }
+        return None;
+    }
+    core::ptr::copy_nonoverlapping(bgra.as_ptr(), bits.cast::<u8>(), bgra.len());
+
+    // 1bpp AND mask, all zero.
+    let mask_stride = ((w + 31) / 32) * 4; // 1bpp rows are DWORD-aligned
+    let mask_bits = alloc::vec![0u8; mask_stride * h];
+    let mask = (win32.gdi32.CreateBitmap)(
+        width as i32,
+        height as i32,
+        1,
+        1,
+        mask_bits.as_ptr().cast(),
+    );
+    if mask.is_null() {
+        (win32.gdi32.DeleteObject)(color);
+        return None;
+    }
+
+    let info = IconInfo {
+        fIcon: 1,
+        xHotspot: 0,
+        yHotspot: 0,
+        hbmMask: mask,
+        hbmColor: color,
+    };
+    let icon = (win32.user32.CreateIconIndirect)(&info);
+
+    // CreateIconIndirect COPIES both bitmaps; ours leak otherwise.
+    (win32.gdi32.DeleteObject)(color);
+    (win32.gdi32.DeleteObject)(mask);
+
+    if icon.is_null() {
+        None
+    } else {
+        Some(icon)
+    }
+}
+
+/// Apply `WindowsWindowOptions::{window_icon, taskbar_icon}` to a live HWND.
+///
+/// Both fields were public API that NO backend read - setting them did nothing,
+/// silently.
+///
+/// `WM_SETICON` has exactly two settable slots: `ICON_SMALL` (title bar, Alt+Tab)
+/// and `ICON_BIG` (the taskbar button of a running, un-pinned window).
+/// `ICON_SMALL2` is NOT settable - Windows derives it - so there is no third
+/// call to make. A PINNED taskbar entry shows the shortcut's icon and is not
+/// ours to change, and the EXE resource icon cannot be rewritten while the
+/// process is running at all.
+///
+/// `WM_SETICON` does not take ownership and RETURNS the previous icon; that one
+/// is destroyed here so repeated updates do not leak.
+unsafe fn apply_window_icons(
+    win32: &dlopen::Win32Libraries,
+    hwnd: HWND,
+    options: &azul_core::window::WindowsWindowOptions,
+) {
+    use azul_core::window::WindowIcon;
+
+    const WM_SETICON: u32 = 0x0080;
+    const ICON_SMALL: usize = 0;
+    const ICON_BIG: usize = 1;
+
+    let mut set = |slot: usize, rgba: &[u8], w: u32, h: u32| {
+        if let Some(icon) = hicon_from_rgba(win32, rgba, w, h) {
+            let previous =
+                (win32.user32.SendMessageW)(hwnd, WM_SETICON, slot, icon as isize);
+            if previous != 0 {
+                (win32.user32.DestroyIcon)(previous as dlopen::HICON);
+            }
+        }
+    };
+
+    if let Some(icon) = options.window_icon.as_ref() {
+        match icon {
+            WindowIcon::Small(i) => set(ICON_SMALL, i.rgba_bytes.as_ref(), 16, 16),
+            WindowIcon::Large(i) => set(ICON_BIG, i.rgba_bytes.as_ref(), 32, 32),
+        }
+    }
+    if let Some(t) = options.taskbar_icon.as_ref() {
+        set(ICON_BIG, t.rgba_bytes.as_ref(), 256, 256);
     }
 }

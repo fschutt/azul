@@ -33,6 +33,14 @@ pub struct AppResources {
     /// Async font registry for background font scanning
     pub font_registry: Option<Arc<FcFontRegistry>>,
 
+    /// THE app-level font manager, shared by every window on this connection.
+    ///
+    /// Without it each window built its own via `LayoutWindow::new(fc_cache)`,
+    /// giving every window a private `embedded_fonts` pool - so a face
+    /// registered while laying out one window was invisible to the next. See
+    /// `layout_window_sharing_fonts`.
+    pub font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+
     /// Application data (user's global state)
     pub app_data: Arc<RefCell<RefAny>>,
 
@@ -53,6 +61,17 @@ impl AppResources {
     ///
     /// This should be called once at application startup.
     pub fn new(config: AppConfig, fc_cache: Arc<FcFontCache>, font_registry: Option<Arc<FcFontRegistry>>) -> Self {
+        Self::new_with_font_manager(config, fc_cache, font_registry, None)
+    }
+
+    /// As `new`, but adopting the app-level font manager so every window on this
+    /// connection shares one set of font pools.
+    pub fn new_with_font_manager(
+        config: AppConfig,
+        fc_cache: Arc<FcFontCache>,
+        font_registry: Option<Arc<FcFontRegistry>>,
+        font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    ) -> Self {
         // Create empty app data (user can set this later)
         let app_data = Arc::new(RefCell::new(RefAny::new(())));
 
@@ -73,6 +92,7 @@ impl AppResources {
 
         Self {
             config,
+            font_manager,
             fc_cache,
             font_registry,
             app_data,

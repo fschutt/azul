@@ -1,0 +1,18 @@
+# Build env for this worktree. Source with:  . ./.envrc.az
+#
+# Disk is tight (15Gi free at creation time) and the main checkout's target dir
+# is already 21G. Share it rather than growing a second one: cargo locks per
+# target dir, so a concurrent build in the main checkout serialises with this
+# one instead of corrupting it.
+export CARGO_TARGET_DIR=/Users/fschutt/Development/azul/target
+
+# dll/build.rs looks for the azul-doc-generated sources at ../target/codegen,
+# which does not exist inside a worktree.
+export AZ_CODEGEN_DIR=/Users/fschutt/Development/azul/target/codegen
+
+# Cross-compiling azul-dll to linux needs the homebrew GNU toolchain
+# (see memory: crosscompile_vkmem_toolchain_2026_06_19).
+export CC_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-gcc
+export CXX_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-g++
+export AR_x86_64_unknown_linux_gnu=x86_64-unknown-linux-gnu-ar
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-unknown-linux-gnu-gcc

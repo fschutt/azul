@@ -92,3 +92,11 @@ required-features = ["fluent", "icu"]
 name = "http_zip_demo"
 path = "src/http_zip_demo.rs"
 required-features = ["fluent", "http", "zip"]
+
+[[example]]
+name = "tray"
+path = "src/tray.rs"
+
+[[example]]
+name = "tray_only"
+path = "src/tray_only.rs"

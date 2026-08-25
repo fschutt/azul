@@ -12,6 +12,9 @@ use azul_css::{
     AzString, OptionString,
 };
 
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::log_debug;
 
@@ -44,6 +47,52 @@ pub struct DisplayInfo {
 /// - **X11**: Uses XRandR extension (fallback to single display if unavailable)
 /// - **Wayland**: Not directly available - compositor manages positioning
 pub fn get_displays() -> Vec<DisplayInfo> {
+    // Short-lived memo in front of the real enumeration.
+    //
+    // WHY: `get_display_at_point` is called from the X11 ConfigureNotify arm,
+    // which fires once per PIXEL of pointer travel during a window drag. Each
+    // uncached call there costs XOpenDisplay + XRRGetScreenResourcesCurrent +
+    // N * XRRGetCrtcInfo + XCloseDisplay, so a 400px drag paid 400 of them.
+    // (mod wayland has had its own 15s cache for exactly this reason; it just
+    // never covered X11, Windows or macOS.)
+    //
+    // The TTL is deliberately short. It is a within-one-gesture memo, not a
+    // topology cache: anything longer would let a monitor hotplug go unseen.
+    // Backends that KNOW the topology changed call `invalidate_display_cache()`
+    // first, so a refresh never reads through a stale entry regardless of TTL.
+    const DISPLAY_MEMO_TTL: Duration = Duration::from_millis(250);
+
+    if let Ok(guard) = DISPLAY_MEMO.lock() {
+        if let Some((at, ref cached)) = *guard {
+            if at.elapsed() < DISPLAY_MEMO_TTL {
+                return cached.clone();
+            }
+        }
+    }
+
+    let fresh = get_displays_uncached();
+
+    if let Ok(mut guard) = DISPLAY_MEMO.lock() {
+        *guard = Some((Instant::now(), fresh.clone()));
+    }
+    fresh
+}
+
+/// Drop the [`get_displays`] memo.
+///
+/// Call this from a backend's display-change handler BEFORE re-reading the
+/// monitor list (`WM_DISPLAYCHANGE`, `RRScreenChangeNotify`,
+/// `NSApplicationDidChangeScreenParameters`, wl_registry global add/remove),
+/// so the refresh cannot be served a pre-change entry.
+pub fn invalidate_display_cache() {
+    if let Ok(mut guard) = DISPLAY_MEMO.lock() {
+        *guard = None;
+    }
+}
+
+static DISPLAY_MEMO: Mutex<Option<(Instant, Vec<DisplayInfo>)>> = Mutex::new(None);
+
+fn get_displays_uncached() -> Vec<DisplayInfo> {
     #[cfg(target_os = "windows")]
     return windows::get_displays();
 
@@ -110,6 +159,17 @@ impl DisplayInfo {
             is_primary_monitor: self.is_primary,
         }
     }
+}
+
+/// Re-read the monitor list, bypassing the [`get_displays`] memo.
+///
+/// This is what a display-change handler wants: `WM_DISPLAYCHANGE`,
+/// `RRScreenChangeNotify`, `windowDidChangeScreen:` and the wl_registry
+/// output add/remove all mean "the topology you have is wrong", so serving
+/// them a memo entry from before the change would defeat the refresh entirely.
+pub fn refresh_monitors() -> MonitorVec {
+    invalidate_display_cache();
+    get_monitors()
 }
 
 /// Get the display containing the given point
@@ -440,7 +500,24 @@ mod macos {
     use super::*;
 
     pub fn get_displays() -> Vec<DisplayInfo> {
-        let mtm = MainThreadMarker::new().expect("Must be called on main thread");
+        // AppKit screen enumeration is main-thread only. This used to be
+        // `.expect("Must be called on main thread")`, which made the PUBLIC
+        // `App::get_monitors()` a hard panic when called from a worker thread
+        // or a headless test. Only `transient.rs::placement_bounds` guarded
+        // against it; every other caller was one thread-hop from aborting.
+        //
+        // Degrade to "no monitors known" instead. Callers already handle an
+        // empty list (it is what the headless and web backends always return),
+        // and an empty list is honest, where a synthesised 1920x1080 would
+        // silently place windows against a monitor that does not exist.
+        let Some(mtm) = MainThreadMarker::new() else {
+            log_debug!(
+                LogCategory::Window,
+                "[display] get_displays() called off the main thread; returning an empty \
+                 monitor list (AppKit screen enumeration is main-thread only)"
+            );
+            return Vec::new();
+        };
         let screens = NSScreen::screens(mtm);
         let mut displays = Vec::new();
 

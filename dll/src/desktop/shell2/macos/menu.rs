@@ -208,6 +208,18 @@ impl MenuState {
         self.command_map.get(&tag)
     }
 
+    /// Every tag this menu owns.
+    ///
+    /// Menu clicks land in one process-wide queue shared by every window's menu
+    /// bar and by the tray, and `take_pending_menu_actions_matching` needs an
+    /// ownership predicate to route them. Callers build that predicate from
+    /// this — asking `get_callback_for_tag(t).is_some()` would work too, but
+    /// only for items that HAVE a callback, so a separator or a callback-less
+    /// parent would leak into another owner's drain.
+    pub fn known_tags(&self) -> impl Iterator<Item = isize> + '_ {
+        self.command_map.keys().copied()
+    }
+
     /// Register a callback and return a unique tag for it
     /// Used by context menus to register callbacks dynamically
     pub fn register_callback(&mut self, callback: azul_core::menu::CoreMenuCallback) -> isize {
@@ -242,6 +254,12 @@ fn create_nsmenu(
     HashMap<isize, azul_core::menu::CoreMenuCallback>,
 ) {
     let ns_menu = NSMenu::new(mtm);
+    // `setEnabled:` below is a no-op while this is YES (the default): AppKit
+    // re-validates every item as the menu opens and overwrites whatever we set,
+    // so `MenuItemState::Disabled` / `Greyed` were silently ignored. Turning
+    // auto-enabling off makes the model authoritative, which is what a caller
+    // setting an explicit state means.
+    ns_menu.setAutoenablesItems(false);
     let mut command_map = HashMap::new();
 
     // Build menu items recursively
@@ -369,23 +387,39 @@ pub(crate) fn build_menu_items(
                 if !string_item.children.is_empty() {
                     // Submenu
                     let submenu = NSMenu::new(mtm);
+                    // Same reason as the root menu: without this, an explicitly
+                    // disabled item inside a submenu re-enables itself on open.
+                    submenu.setAutoenablesItems(false);
                     submenu.setTitle(&title);
                     build_menu_items(string_item.children.as_slice(), &submenu, command_map, next_tag, mtm);
                     menu_item.setSubmenu(Some(&submenu));
                 } else {
-                    // Leaf item - wire up callback
+                    // EVERY leaf gets a tag, a target and an action - not just
+                    // the ones carrying a Rust callback.
+                    //
+                    // AppKit disables any item whose target/action pair does not
+                    // resolve, so gating this on `callback.is_some()` greyed out
+                    // every callback-less item. That is fatal for the TRAY, whose
+                    // items are identified purely by tag: the click comes back as
+                    // `TrayEvent::menu_item(tag)` through the shared queue, and an
+                    // item with no tag can neither be delivered nor recognised as
+                    // one this tray owns.
+                    //
+                    // The callback map stays optional - an item without one simply
+                    // has no entry, and `get_callback_for_tag` returns None - but
+                    // the item is now clickable and identifiable either way.
+                    let tag = *next_tag;
+                    *next_tag += 1;
+                    menu_item.setTag(tag);
+
                     if let Some(callback) = string_item.callback.as_option() {
-                        let tag = *next_tag;
-                        *next_tag += 1;
-
-                        menu_item.setTag(tag);
                         command_map.insert(tag, callback.clone());
+                    }
 
-                        let target = AzulMenuTarget::shared_instance(mtm);
-                        unsafe {
-                            menu_item.setTarget(Some(&target));
-                            menu_item.setAction(Some(objc2::sel!(menuItemAction:)));
-                        }
+                    let target = AzulMenuTarget::shared_instance(mtm);
+                    unsafe {
+                        menu_item.setTarget(Some(&target));
+                        menu_item.setAction(Some(objc2::sel!(menuItemAction:)));
                     }
 
                     // Set keyboard accelerator if present

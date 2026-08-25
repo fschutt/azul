@@ -178,18 +178,17 @@ const FONT_ICON_DATA_TYPE_NAME: &str = "FontIconData";
 /// Note: `icon_name` is accessible via `original_icon_dom.node_data[0].get_node_type()` → `NodeType::Icon(name)`
 pub type IconResolverCallbackType = extern "C" fn(
     icon_data: OptionRefAny,
-    original_icon_dom: &StyledDom,
+    original_icon_node: &NodeData,
     system_style: &SystemStyle,
-) -> StyledDom;
+) -> Dom;
 
-/// Default resolver that returns an empty `StyledDom` (shows placeholder)
+/// Default resolver: an empty div, i.e. the icon renders as nothing.
 #[must_use] pub extern "C" fn default_icon_resolver(
     _icon_data: OptionRefAny,
-    _original_icon_dom: &StyledDom,
+    _original_icon_node: &NodeData,
     _system_style: &SystemStyle,
-) -> StyledDom {
-    // Default: return empty DOM (icon won't be visible)
-    StyledDom::default()
+) -> Dom {
+    Dom::create_div()
 }
 
 // Icon Provider Inner (single mutex)
@@ -488,38 +487,18 @@ pub struct SharedIconProvider {
 /// behaviour instead of growing without limit.
 const ICON_CACHE_CAP: usize = 512;
 
-/// A resolver result, stored DECONSTRUCTED into exactly what
-/// [`apply_cached_resolution`] consumes. See the module `# Caching` docs for
-/// why this is not a `StyledDom`.
-#[derive(Debug, Clone)]
-enum CachedIconResolution {
-    /// Resolver returned a zero-node `StyledDom` → the icon becomes an empty
-    /// `Div` placeholder (same as the uncached empty arm).
-    Empty,
-    /// The dominant case: a single-node replacement.
-    SingleNode {
-        node_type: NodeType,
-        style: azul_css::css::Css,
-        accessibility: Option<Box<crate::a11y::AccessibilityInfo>>,
-        /// `None` = the replacement carried no styled node; keep the host's
-        /// (exact parity with the uncached path, which only overwrites when
-        /// the replacement's `styled_nodes` is non-empty).
-        styled_node: Option<Box<crate::styled_dom::StyledNode>>,
-    },
-    /// Multi-node subtree, cloned wholesale on hit. Rare — and today's
-    /// splicing uses only its root (see `apply_multi_node_replacement`) — but
-    /// stored complete so implementing real splicing later cannot be silently
-    /// truncated by this cache.
-    Subtree(Box<StyledDom>),
-}
 
 /// One cached resolution. `original`/`original_styled` are the KEY (together
 /// with the spec, the map key one level up); `resolution` is the value.
 #[derive(Debug)]
 struct IconCacheEntry {
+    /// The icon node as it was BEFORE resolution. Two `<icon>` nodes with the
+    /// same spec but different inline styles resolve differently, so the node
+    /// itself is part of the key.
     original: NodeData,
-    original_styled: crate::styled_dom::StyledNode,
-    resolution: CachedIconResolution,
+    /// The resolved replacement, spliced in whole. A `Dom` rather than a
+    /// flattened single node: an icon may be an arbitrary styled subtree.
+    resolution: Dom,
 }
 
 /// See the module-level `# Caching` section.
@@ -563,28 +542,18 @@ impl SharedIconProvider {
 
     /// Cache hit test. `None` = miss (resolve for real, then
     /// [`Self::store_resolution`]).
-    fn cached_resolution(
-        &self,
-        spec: &str,
-        node: &NodeData,
-        styled: &crate::styled_dom::StyledNode,
-    ) -> Option<CachedIconResolution> {
+    fn cached_resolution(&self, spec: &str, node: &NodeData) -> Option<Dom> {
         let cache = self.cache.lock().ok()?;
-        cache.entries.get(spec)?.iter().find_map(|e| {
-            (e.original == *node && e.original_styled == *styled)
-                .then(|| e.resolution.clone())
-        })
+        cache
+            .entries
+            .get(spec)?
+            .iter()
+            .find_map(|e| (e.original == *node).then(|| e.resolution.clone()))
     }
 
     /// Insert a freshly-resolved entry, flushing everything first if the cap
     /// is reached (see [`ICON_CACHE_CAP`]).
-    fn store_resolution(
-        &self,
-        spec: &str,
-        node: &NodeData,
-        styled: &crate::styled_dom::StyledNode,
-        resolution: &CachedIconResolution,
-    ) {
+    fn store_resolution(&self, spec: &str, node: &NodeData, resolution: &Dom) {
         let Ok(mut cache) = self.cache.lock() else { return };
         if cache.total >= ICON_CACHE_CAP {
             cache.entries.clear();
@@ -596,7 +565,6 @@ impl SharedIconProvider {
             .or_default()
             .push(IconCacheEntry {
                 original: node.clone(),
-                original_styled: styled.clone(),
                 resolution: resolution.clone(),
             });
         cache.total += 1;
@@ -604,14 +572,14 @@ impl SharedIconProvider {
     
     /// Resolve an icon to a `StyledDom` using the registered callback
     #[must_use] pub fn resolve(
-        &self, 
-        original_icon_dom: &StyledDom,
+        &self,
+        original_icon_node: &NodeData,
         icon_name: &str,
         system_style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         let (resolver, lookup_result) = {
             let Ok(guard) = self.inner.lock() else {
-                return StyledDom::default();
+                return Dom::create_div();
             };
 
             let resolver = guard.resolver;
@@ -620,7 +588,26 @@ impl SharedIconProvider {
             (resolver, lookup_result)
         };
 
-        resolver(lookup_result.into(), original_icon_dom, system_style)
+        resolver(lookup_result.into(), original_icon_node, system_style)
+    }
+
+    /// [`Self::resolve`], memoised on `(spec, icon node)`.
+    ///
+    /// The system style is not part of the key: a change to it clears the whole
+    /// cache once per pass (`validate_cache_for_style`), which is cheaper than
+    /// carrying it in every entry.
+    #[must_use] fn resolve_cached(
+        &self,
+        original_icon_node: &NodeData,
+        icon_name: &str,
+        system_style: &SystemStyle,
+    ) -> Dom {
+        if let Some(hit) = self.cached_resolution(icon_name, original_icon_node) {
+            return hit;
+        }
+        let resolved = self.resolve(original_icon_node, icon_name, system_style);
+        self.store_resolution(icon_name, original_icon_node, &resolved);
+        resolved
     }
 
     /// Look up an icon by spec (bare name, `pack:name`, or a comma-separated
@@ -637,422 +624,142 @@ impl SharedIconProvider {
     }
 }
 
-// Icon Resolution in StyledDom
+// Icon Resolution in the Dom tree
 
-/// Collected icon node info for replacement
-struct CollectedIcon {
-    /// Index in the `node_data` array
-    node_idx: usize,
-    /// The icon spec (explicit name, or derived from the node's text children)
-    icon_name: AzString,
-    /// Text children that supplied the spec (`<icon>name</icon>` markup form);
-    /// their text is cleared once the icon node is replaced so the raw spec
-    /// never renders next to the resolved icon.
-    text_children: Vec<usize>,
-}
-
-/// Replacement result after resolving an icon
-struct IconReplacement {
-    /// Index of the icon node to replace
-    node_idx: usize,
-    /// The resolved replacement, already normalized for both the apply step
-    /// and the cache (empty / single node / subtree)
-    replacement: CachedIconResolution,
-    /// Spec-supplying text children to clear after the swap
-    text_children: Vec<usize>,
-}
-
-/// Collect all Icon nodes from the `StyledDom`.
+/// How many times an icon may resolve to another icon before we stop.
 ///
-/// An Icon node with an explicit non-empty name (`Dom::create_icon("x")`)
-/// uses that name directly. An Icon node with an EMPTY name — the markup
-/// form `<icon>content_copy</icon>`, where the tag itself carries no name —
-/// derives its spec from its direct text children, exactly like a ligature
-/// icon font turns glyph text into an icon. The arena is in DFS order, so a
-/// node's children always appear after the node itself.
-fn collect_icon_nodes(styled_dom: &StyledDom) -> Vec<CollectedIcon> {
-    use alloc::collections::BTreeMap;
+/// Chains are legitimate - restyling an existing icon by registering a `Dom`
+/// that contains it is the obvious way to do it - but a resolver is user code,
+/// so a cycle has to terminate. Direct self-reference is caught exactly; this
+/// bounds everything longer.
+const MAX_ICON_INDIRECTION: usize = 8;
 
-    let mut icons: Vec<CollectedIcon> = Vec::new();
-    let mut specs: Vec<String> = Vec::new();
-    // node_idx of un-named icon → position in `icons`
-    let mut unnamed_icon_pos: BTreeMap<usize, usize> = BTreeMap::new();
-
-    let node_data = styled_dom.node_data.as_ref();
-    let hierarchy = styled_dom.node_hierarchy.as_ref();
-
-    for (idx, node) in node_data.iter().enumerate() {
-        match node.get_node_type() {
-            NodeType::Icon(icon_name) => {
-                if icon_name.as_ref().as_str().is_empty() {
-                    unnamed_icon_pos.insert(idx, icons.len());
-                }
-                icons.push(CollectedIcon {
-                    node_idx: idx,
-                    icon_name: icon_name.clone_self(),
-                    text_children: Vec::new(),
-                });
-                specs.push(String::new());
-            }
-            NodeType::Text(text) => {
-                let Some(parent) = hierarchy
-                    .get(idx)
-                    .and_then(crate::styled_dom::NodeHierarchyItem::parent_id)
-                else {
-                    continue;
-                };
-                // A text leaf directly under an icon: for an un-named icon it
-                // is the spec; for every icon it is the slot the resolved
-                // glyph is written into (see `resolve_icons_in_styled_dom`).
-                let Some(icon_pos) = unnamed_icon_pos.get(&parent.index()).copied().or_else(|| {
-                    icons.iter().rposition(|i| i.node_idx == parent.index())
-                }) else {
-                    continue;
-                };
-                if unnamed_icon_pos.contains_key(&parent.index()) {
-                    specs[icon_pos].push_str(text.as_ref().as_str());
-                }
-                icons[icon_pos].text_children.push(idx);
-            }
-            _ => {}
-        }
-    }
-
-    for &icon_pos in unnamed_icon_pos.values() {
-        let spec = specs[icon_pos].trim();
-        if !spec.is_empty() {
-            icons[icon_pos].icon_name = AzString::from(spec);
-        }
-    }
-
-    icons
-}
-
-/// Extract a single-node `StyledDom` from a parent `StyledDom` at the given index.
-/// This creates a minimal `StyledDom` containing just that node for the resolver.
-fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> StyledDom {
-    use crate::dom::{NodeDataVec, DomId};
-    use crate::id::NodeId;
-    use crate::styled_dom::{
-        StyledNodeVec, NodeHierarchyItemIdVec, TagIdToNodeIdMappingVec,
-        NodeHierarchyItemVec, NodeHierarchyItem, NodeHierarchyItemId,
-        ParentWithNodeDepthVec, ParentWithNodeDepth,
-    };
-    use crate::style::{CascadeInfoVec, CascadeInfo};
-    use crate::prop_cache::{CssPropertyCachePtr, CssPropertyCache};
-    
-    let node_data = styled_dom.node_data.as_ref();
-    let styled_nodes = styled_dom.styled_nodes.as_ref();
-    
-    if node_idx >= node_data.len() {
-        return StyledDom::default();
-    }
-    
-    // Clone the single node
-    let single_node = node_data[node_idx].clone();
-    let single_styled = if node_idx < styled_nodes.len() {
-        styled_nodes[node_idx].clone()
-    } else {
-        crate::styled_dom::StyledNode::default()
-    };
-    
-    StyledDom {
-        root: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
-        node_hierarchy: NodeHierarchyItemVec::from_vec(vec![NodeHierarchyItem {
-            parent: 0,
-            previous_sibling: 0,
-            next_sibling: 0,
-            last_child: 0,
-        }]),
-        node_data: NodeDataVec::from_vec(vec![single_node]),
-        styled_nodes: StyledNodeVec::from_vec(vec![single_styled]),
-        cascade_info: CascadeInfoVec::from_vec(vec![CascadeInfo { index_in_parent: 0, is_last_child: true }]),
-        nodes_with_window_callbacks: NodeHierarchyItemIdVec::from_vec(Vec::new()),
-        nodes_with_datasets: NodeHierarchyItemIdVec::from_vec(Vec::new()),
-        tag_ids_to_node_ids: TagIdToNodeIdMappingVec::from_vec(Vec::new()),
-        non_leaf_nodes: ParentWithNodeDepthVec::from_vec(Vec::new()),
-        css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
-        dom_id: DomId::ROOT_ID,
-    }
-}
-
-/// Resolve all collected icons, consulting the provider's cache first.
+/// Replace every `NodeType::Icon` node in `dom` with whatever the registered
+/// resolver returns for it.
 ///
-/// On a HIT nothing is built at all: no single-node extraction (which clones
-/// the node's inline `Css` and allocates a throwaway `CssPropertyCache`), no
-/// pack lookup, no resolver call, no cascade. The 66-icon ribbon that
-/// motivated this (`RSS_MAP` §36c) turns from 66 resolver round-trips per DOM
-/// regeneration into 66 key comparisons.
-fn resolve_collected_icons(
-    icons: &[CollectedIcon],
-    styled_dom: &StyledDom,
+/// # Why this runs on a `Dom`, BEFORE the cascade
+///
+/// This used to run on a `StyledDom`, after the cascade, and it is worth
+/// recording why that was wrong - the shape of the old code is still visible in
+/// the git history and in several comments elsewhere.
+///
+/// A `StyledDom` is a FLAT ARENA in DFS order: a node's first child is the next
+/// index. So a replacement's children could not be attached to the icon node
+/// after the fact without inserting mid-arena and shifting every index after
+/// them. The old code therefore flattened every replacement down to its ROOT
+/// node's `node_type` / `style` / `accessibility` plus a single glyph character
+/// threaded into a text leaf, and threw the rest away - including the whole
+/// `CssPropertyCache` that the resolver's own cascade had just built. Its own
+/// comment said so: "everything else in the returned `StyledDom` ... was always
+/// discarded".
+///
+/// That cost three things:
+///
+/// * **A wasted cascade per icon**, whose result was discarded.
+/// * **Any icon that is not one node was impossible.** Registering a styled
+///   `Dom` as an icon could not work, because only the root survived.
+/// * **A stale property cache.** Rewriting a node's inline `style` after the
+///   cascade left the precomputed per-node arrays describing the PRE-resolution
+///   node. For a font icon that hid `font-family: StyleFontFamily::Ref(face)` -
+///   the only place that face is named - from font collection, so shaping fell
+///   back to a face with no glyph at the icon's private-use codepoint and drew
+///   `.notdef`. It needed an explicit cache rebuild to paper over.
+///
+/// Running on the `Dom` removes all three by construction. A `Dom` is a real
+/// tree (`root` + `children` + its own `css`), so a replacement is spliced whole;
+/// nothing is cascaded twice because the cascade has not happened yet; and there
+/// is no property cache to invalidate. An icon is now free to be an arbitrary
+/// styled subtree, which is what makes "register a `Dom` as an icon" work -
+/// including the colour it should be, which travels with the icon rather than
+/// having to be threaded through every call site as a tint parameter.
+pub fn resolve_icons_in_dom(
+    dom: &mut Dom,
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
-) -> Vec<IconReplacement> {
-    let node_data = styled_dom.node_data.as_ref();
-    let styled_nodes = styled_dom.styled_nodes.as_ref();
-    let default_styled = crate::styled_dom::StyledNode::default();
-
-    icons.iter().map(|icon| {
-        let spec = icon.icon_name.as_str();
-        // The key mirrors what `extract_single_node_styled_dom` would hand the
-        // resolver: this node's data + styled state (default when absent,
-        // matching the extraction's own fallback).
-        let key_node = node_data.get(icon.node_idx);
-        let key_styled = styled_nodes.get(icon.node_idx).unwrap_or(&default_styled);
-
-        if let Some(node) = key_node {
-            if let Some(hit) = provider.cached_resolution(spec, node, key_styled) {
-                return IconReplacement {
-                    node_idx: icon.node_idx,
-                    replacement: hit,
-                    text_children: icon.text_children.clone(),
-                };
-            }
-        }
-
-        // MISS: the uncached path, exactly as before — extract, resolve —
-        // followed by normalize + store.
-        let original_icon_dom = extract_single_node_styled_dom(styled_dom, icon.node_idx);
-        let resolved = provider.resolve(&original_icon_dom, spec, system_style);
-        let resolution = normalize_replacement(resolved);
-        if let Some(node) = key_node {
-            provider.store_resolution(spec, node, key_styled, &resolution);
-        }
-        IconReplacement {
-            node_idx: icon.node_idx,
-            replacement: resolution,
-            text_children: icon.text_children.clone(),
-        }
-    }).collect()
-}
-
-/// Deconstruct a resolver-returned `StyledDom` into [`CachedIconResolution`].
-///
-/// The single-node arm takes the SAME fields, by move, that
-/// `apply_single_node_replacement` takes — everything else in the returned
-/// `StyledDom` (notably the `CssPropertyCache` its cascade just built) was
-/// always discarded, which is precisely why the result is cacheable in this
-/// reduced form.
-fn normalize_replacement(replacement: StyledDom) -> CachedIconResolution {
-    match replacement.node_data.as_ref().len() {
-        0 => CachedIconResolution::Empty,
-        1 => {
-            let StyledDom { node_data, styled_nodes, .. } = replacement;
-            let mut roots = node_data.into_library_owned_vec();
-            let root = roots.swap_remove(0);
-            let NodeData { node_type, style, accessibility, .. } = root;
-            let mut styled_vec = styled_nodes.into_library_owned_vec();
-            let styled_node = if styled_vec.is_empty() {
-                None
-            } else {
-                Some(Box::new(styled_vec.swap_remove(0)))
-            };
-            CachedIconResolution::SingleNode { node_type, style, accessibility, styled_node }
-        }
-        _ => CachedIconResolution::Subtree(Box::new(replacement)),
-    }
-}
-
-/// Apply a normalized resolution to the icon node at `node_idx`. Semantics
-/// are bit-for-bit those of the pre-cache code: `Empty` → placeholder `Div`
-/// (old `apply_single_node_replacement` empty arm), `SingleNode` → move the
-/// four fields in (old non-empty arm), `Subtree` → root-only splice via
-/// `apply_multi_node_replacement`.
-fn apply_cached_resolution(
-    styled_dom: &mut StyledDom,
-    node_idx: usize,
-    resolution: CachedIconResolution,
 ) {
-    match resolution {
-        CachedIconResolution::Empty => {
-            if let Some(node) = styled_dom.node_data.as_mut().get_mut(node_idx) {
-                node.set_node_type(NodeType::Div);
-            }
-        }
-        CachedIconResolution::SingleNode { node_type, style, accessibility, styled_node } => {
-            if let Some(node) = styled_dom.node_data.as_mut().get_mut(node_idx) {
-                node.set_node_type(node_type);
-                node.set_style(style);
-                if let Some(a11y) = accessibility {
-                    node.set_accessibility_info(*a11y);
-                }
-            }
-            if let Some(replacement_styled) = styled_node {
-                if let Some(styled) = styled_dom.styled_nodes.as_mut().get_mut(node_idx) {
-                    *styled = *replacement_styled;
-                }
-            }
-        }
-        CachedIconResolution::Subtree(replacement) => {
-            apply_multi_node_replacement(styled_dom, node_idx, *replacement);
-        }
-    }
+    // A SystemStyle change (theme flip, tint, grayscale) invalidates every
+    // cached resolution. Checked once per pass, not once per icon.
+    provider.validate_cache_for_style(system_style);
+    resolve_icons_in_dom_inner(dom, provider, system_style);
 }
 
-/// Check if a replacement is a single-node replacement (fast path)
-fn is_single_node_replacement(replacement: &StyledDom) -> bool {
-    replacement.node_data.as_ref().len() == 1
-}
-
-/// Apply a single-node replacement (fast path: swap `NodeType` and MOVE properties).
-///
-/// Takes the replacement BY VALUE. It was previously borrowed and every field
-/// deep-copied out of it — `NodeType`, the inline `Css`, the accessibility
-/// box, and the `StyledNode` — even though the caller already owns each
-/// replacement (`replacements.into_iter()`) and drops it immediately after.
-///
-/// Cloning a `Css` is not cheap: it is a `CssRuleBlockVec`, each block holding
-/// a `CssDeclarationVec`, and `Css::from(CssPropertyWithConditionsVec)`
-/// (`css/src/css.rs:171`) builds ONE rule block with a ONE-ELEMENT declaration
-/// vec per property — so a widget with N inline properties is N separate heap
-/// allocations, and cloning it re-allocates all N. Measured on an icon-dense
-/// ribbon: 304 style clones cascading into **14 690** `CssDeclarationVec`
-/// clones, ~2 MB of transient churn that glibc never returns to the OS.
-///
-/// Moving costs nothing and cannot fail. This is a memory AND a latency fix.
-fn apply_single_node_replacement(
-    styled_dom: &mut StyledDom,
-    node_idx: usize,
-    replacement: StyledDom,
+/// The recursive half of [`resolve_icons_in_dom`].
+fn resolve_icons_in_dom_inner(
+    dom: &mut Dom,
+    provider: &SharedIconProvider,
+    system_style: &SystemStyle,
 ) {
-    if replacement.node_data.as_ref().is_empty() {
-        // Empty replacement - convert to empty div
-        let node_data = styled_dom.node_data.as_mut();
-        if let Some(node) = node_data.get_mut(node_idx) {
-            node.set_node_type(NodeType::Div);
+    // An icon may resolve TO another icon - registering
+    // `Dom::create_icon("favorite").with_css("color: red")` under another name
+    // is the natural way to restyle an existing icon - so this iterates rather
+    // than resolving once.
+    //
+    // Bounded two ways, because a resolver is user code and can trivially cycle:
+    // a resolution that yields the SAME spec is a self-reference and stops
+    // immediately, and any longer cycle stops at `MAX_ICON_INDIRECTION`. In both
+    // cases the node is left as-is rather than looping forever.
+    let mut seen = 0;
+    while let Some(spec) = icon_spec_of(dom) {
+        if seen >= MAX_ICON_INDIRECTION {
+            break;
         }
-        return;
+        let replacement = provider.resolve_cached(&dom.root, spec.as_str(), system_style);
+        if icon_spec_of(&replacement).as_ref().map(AzString::as_str) == Some(spec.as_str()) {
+            // Resolves to itself: replacing would spin.
+            break;
+        }
+        // The whole node is replaced, children included: an `<icon>name</icon>`
+        // carries its spec as a text child, and leaving it would render the raw
+        // spec next to the resolved icon.
+        //
+        // Its STYLESHEETS are carried forward, though. `Dom::with_css` attaches
+        // a scoped stylesheet to `Dom::css` rather than inline properties, so
+        // `Dom::create_icon("favorite").with_css("color: red")` - the natural
+        // way to register a recoloured icon - keeps the colour in `css`, not on
+        // the node. Dropping it with the node made the replacement render in the
+        // default colour and silently ignore the caller's styling.
+        //
+        // The replaced node's sheets go FIRST so the replacement's own
+        // declarations still win on conflict.
+        let mut css = dom.css.clone().into_library_owned_vec();
+        let mut replacement = replacement;
+        css.extend(replacement.css.clone().into_library_owned_vec());
+        replacement.css = css.into();
+        *dom = replacement;
+        seen += 1;
     }
 
-    // Consume the replacement so its root's fields can be MOVED rather than
-    // cloned. `swap_remove(0)` is fine: only index 0 is read, and the vec is
-    // dropped immediately after.
-    let StyledDom { node_data, styled_nodes, .. } = replacement;
-    let mut roots = node_data.into_library_owned_vec();
-    let root = roots.swap_remove(0);
-    let NodeData { node_type, style, accessibility, .. } = root;
-
-    if let Some(node) = styled_dom.node_data.as_mut().get_mut(node_idx) {
-        node.set_node_type(node_type);
-        node.set_style(style);
-        if let Some(a11y) = accessibility {
-            node.set_accessibility_info(*a11y);
-        }
-    }
-
-    // Also update the styled_nodes to reflect the new styling.
-    let mut styled_vec = styled_nodes.into_library_owned_vec();
-    if !styled_vec.is_empty() {
-        let replacement_styled = styled_vec.swap_remove(0);
-        if let Some(styled) = styled_dom.styled_nodes.as_mut().get_mut(node_idx) {
-            *styled = replacement_styled;
-        }
+    for child in dom.children.as_mut() {
+        resolve_icons_in_dom_inner(child, provider, system_style);
     }
 }
 
-/// Apply multi-node replacement using subtree splicing
-fn apply_multi_node_replacement(
-    styled_dom: &mut StyledDom,
-    node_idx: usize,
-    replacement: StyledDom,
-) {
-    // Read the length BEFORE moving — it is used again after the call.
-    let replacement_len = replacement.node_data.as_ref().len();
-    if replacement_len == 0 {
-        let node_data = styled_dom.node_data.as_mut();
-        if let Some(node) = node_data.get_mut(node_idx) {
-            node.set_node_type(NodeType::Div);
-        }
-        return;
-    }
-
-    // The ROOT's fields move onto the icon node. The arena is in DFS order
-    // (a node's first child is the next index), so a replacement's children
-    // cannot be appended under the icon node after the fact — they would
-    // have to be INSERTED mid-arena with every index after them shifted.
-    // Instead the one child a resolution has, the glyph text leaf of a font
-    // icon, travels through [`glyph_of`] into the text leaf every icon node
-    // carries (`Dom::create_icon` creates it; `<icon>name</icon>` has it).
-    apply_single_node_replacement(styled_dom, node_idx, replacement);
-}
-
-/// The glyph a resolution wants rendered inside the icon node: the text of
-/// the first text leaf under the replacement's root (a font icon's
-/// `<span>glyph</span>`). `None` for image icons and empty resolutions.
-fn glyph_of(resolution: &CachedIconResolution) -> Option<AzString> {
-    let CachedIconResolution::Subtree(sd) = resolution else {
+/// The icon spec for a node, or `None` if it is not an icon node.
+///
+/// An icon with an explicit non-empty name (`Dom::create_icon("x")`) uses it
+/// directly. One with an EMPTY name - the markup form `<icon>content_copy</icon>`,
+/// where the tag carries no name - derives the spec from its direct text
+/// children, exactly like a ligature icon font turns glyph text into an icon.
+fn icon_spec_of(dom: &Dom) -> Option<AzString> {
+    let NodeType::Icon(name) = dom.root.get_node_type() else {
         return None;
     };
-    let root = sd.root.into_crate_internal().unwrap_or(crate::id::NodeId::ZERO);
-    let hierarchy = sd.node_hierarchy.as_container();
-    let nodes = sd.node_data.as_container();
-    let mut child = hierarchy.get(root).and_then(|h| h.first_child_id(root));
-    while let Some(c) = child {
-        if let Some(NodeType::Text(t)) = nodes.get(c).map(NodeData::get_node_type) {
-            return Some(t.clone_self());
-        }
-        child = hierarchy.get(c).and_then(super::styled_dom::NodeHierarchyItem::next_sibling_id);
-    }
-    None
-}
-
-/// Resolve all Icon nodes in a `StyledDom` to their actual content.
-///
-/// This function:
-/// 1. Collects all Icon nodes from the `StyledDom`
-/// 2. Resolves each icon via the provider's callback (passing original icon DOM)
-/// 3. Applies replacements (single-node fast path or multi-node splicing)
-///
-/// This should be called after `StyledDom` creation but before layout.
-pub fn resolve_icons_in_styled_dom(
-    styled_dom: &mut StyledDom,
-    provider: &SharedIconProvider,
-    system_style: &SystemStyle,
-) {
-    // Step 1: Collect all icon nodes
-    let icons = collect_icon_nodes(styled_dom);
-
-    if icons.is_empty() {
-        return;
+    let name = name.as_str();
+    if !name.is_empty() {
+        return Some(AzString::from(name));
     }
 
-    // Step 1.5: A SystemStyle change (theme flip, tint, grayscale) invalidates
-    // every cached resolution. Checked once per batch, not once per icon.
-    provider.validate_cache_for_style(system_style);
-
-    // Step 2: Resolve all icons (cache-first; see resolve_collected_icons)
-    let replacements = resolve_collected_icons(&icons, styled_dom, provider, system_style);
-
-    // Step 3: Apply replacements (reverse order to preserve indices)
-    for replacement in replacements.into_iter().rev() {
-        let mut glyph = glyph_of(&replacement.replacement);
-        if glyph.is_some() && replacement.text_children.is_empty() {
-            // A bare `NodeType::Icon` built without `Dom::create_icon`: it
-            // has no text leaf to carry the glyph, so the glyph is lost.
-            #[cfg(all(debug_assertions, feature = "std"))]
-            eprintln!(
-                "Warning: icon node {} has no text child to hold its glyph; \
-                 build icons with Dom::create_icon",
-                replacement.node_idx
-            );
+    let mut derived = alloc::string::String::new();
+    for child in dom.children.as_ref() {
+        if let NodeType::Text(t) = child.root.get_node_type() {
+            derived.push_str(t.as_str());
         }
-        apply_cached_resolution(
-            styled_dom,
-            replacement.node_idx,
-            replacement.replacement,
-        );
-
-        // The icon's text leaves: the first one carries the resolved glyph
-        // (a font icon), the rest - and all of them for an image icon - are
-        // cleared so the raw `<icon>name</icon>` spec never renders next to
-        // (or instead of) the resolved icon.
-        for &child_idx in &replacement.text_children {
-            if let Some(node) = styled_dom.node_data.as_mut().get_mut(child_idx) {
-                let text = glyph.take().unwrap_or_else(|| AzString::from_const_str(""));
-                node.set_node_type(NodeType::Text(azul_css::css::BoxOrStatic::heap(text)));
-            }
-        }
+    }
+    let derived = derived.trim();
+    if derived.is_empty() {
+        None
+    } else {
+        Some(AzString::from(derived))
     }
 }
 
@@ -1116,48 +823,15 @@ mod autotest_generated {
         ]
     }
 
-    fn styled_dom_with_icons(names: &[&str]) -> StyledDom {
-        let mut body = Dom::create_body();
-        for n in names {
-            body.add_child(Dom::create_icon(*n));
-        }
-        StyledDom::create_from_dom(body)
-    }
-
-    /// A `StyledDom` with *zero* nodes — `StyledDom::default()` has one (a Body),
-    /// so the truly-empty case has to be built by hand.
-    fn zero_node_styled_dom() -> StyledDom {
-        StyledDom {
-            node_data: NodeDataVec::from_vec(Vec::new()),
-            styled_nodes: StyledNodeVec::from_vec(Vec::new()),
-            ..StyledDom::default()
-        }
-    }
-
-    fn node_type_at(sd: &StyledDom, idx: usize) -> NodeType {
-        sd.node_data.as_ref()[idx].get_node_type().clone()
-    }
-
-    fn icon_indices(sd: &StyledDom) -> Vec<usize> {
-        collect_icon_nodes(sd).iter().map(|i| i.node_idx).collect()
-    }
-
     // Resolvers
+
 
     extern "C" fn div_resolver(
         _icon_data: OptionRefAny,
-        _original_icon_dom: &StyledDom,
+        _original_icon_node: &NodeData,
         _system_style: &SystemStyle,
-    ) -> StyledDom {
-        StyledDom::create_from_dom(Dom::create_div())
-    }
-
-    extern "C" fn zero_node_resolver(
-        _icon_data: OptionRefAny,
-        _original_icon_dom: &StyledDom,
-        _system_style: &SystemStyle,
-    ) -> StyledDom {
-        zero_node_styled_dom()
+    ) -> Dom {
+        Dom::create_div()
     }
 
     // Statics for `shared_resolve_receives_icon_data_and_original_dom` ONLY.
@@ -1170,20 +844,18 @@ mod autotest_generated {
 
     extern "C" fn recording_resolver(
         icon_data: OptionRefAny,
-        original_icon_dom: &StyledDom,
+        original_icon_node: &NodeData,
         _system_style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         REC_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
         if matches!(icon_data, OptionRefAny::Some(_)) {
             REC_SAW_DATA.store(true, AtomicOrdering::SeqCst);
         }
-        if let Some(node) = original_icon_dom.node_data.as_ref().first() {
-            if let NodeType::Icon(name) = node.get_node_type() {
-                REC_SAW_ICON_NODE.store(true, AtomicOrdering::SeqCst);
-                REC_NAME_LEN.store(name.as_ref().as_str().len(), AtomicOrdering::SeqCst);
-            }
+        if let NodeType::Icon(name) = original_icon_node.get_node_type() {
+            REC_SAW_ICON_NODE.store(true, AtomicOrdering::SeqCst);
+            REC_NAME_LEN.store(name.as_ref().as_str().len(), AtomicOrdering::SeqCst);
         }
-        StyledDom::create_from_dom(Dom::create_div())
+        Dom::create_div()
     }
 
     // Mutex (the no_std spinlock under `no_std`, `std::sync::Mutex` otherwise)
@@ -1213,30 +885,23 @@ mod autotest_generated {
     // default_icon_resolver
 
     #[test]
-    fn default_resolver_returns_one_body_node_for_none_and_some() {
-        let orig = StyledDom::default();
+    fn default_resolver_returns_a_single_empty_div_for_none_and_some() {
+        let orig = Dom::create_div().root;
         let style = SystemStyle::default();
 
+        // The core default resolver renders nothing; azul-layout installs the
+        // real one that understands image / font / Dom icon data.
         let none = default_icon_resolver(OptionRefAny::None, &orig, &style);
-        // NOTE: the doc calls this an "empty StyledDom", but `StyledDom::default()`
-        // carries exactly one node (a Body), so the result is single-node, NOT empty.
-        assert_eq!(none.node_data.as_ref().len(), 1);
-        assert!(is_single_node_replacement(&none));
+        assert!(matches!(none.root.get_node_type(), NodeType::Div));
+        assert!(none.children.as_ref().is_empty());
 
         let some = default_icon_resolver(
             OptionRefAny::Some(RefAny::new(TestIconData { id: 1 })),
             &orig,
             &style,
         );
-        assert_eq!(some.node_data.as_ref().len(), 1);
-    }
-
-    #[test]
-    fn default_resolver_no_panic_on_zero_node_original_dom() {
-        let orig = zero_node_styled_dom();
-        let style = SystemStyle::default();
-        let out = default_icon_resolver(OptionRefAny::None, &orig, &style);
-        assert_eq!(out.node_data.as_ref().len(), 1);
+        assert!(matches!(some.root.get_node_type(), NodeType::Div));
+        assert!(some.children.as_ref().is_empty());
     }
 
     // IconProviderHandle: construction / invariants
@@ -1265,8 +930,8 @@ mod autotest_generated {
         let mut h = IconProviderHandle::with_resolver(div_resolver);
         h.register_icon("p", "home", RefAny::new(TestIconData { id: 1 }));
         let shared = SharedIconProvider::from_handle(h);
-        let out = shared.resolve(&StyledDom::default(), "home", &SystemStyle::default());
-        assert!(matches!(node_type_at(&out, 0), NodeType::Div));
+        let out = shared.resolve(&Dom::create_div().root, "home", &SystemStyle::default());
+        assert!(matches!(out.root.get_node_type(), NodeType::Div));
     }
 
     #[test]
@@ -1275,8 +940,8 @@ mod autotest_generated {
         h.set_resolver(div_resolver);
         let shared = SharedIconProvider::from_handle(h);
         // Unregistered icon: resolver still runs, just with `None` data.
-        let out = shared.resolve(&StyledDom::default(), "missing", &SystemStyle::default());
-        assert!(matches!(node_type_at(&out, 0), NodeType::Div));
+        let out = shared.resolve(&Dom::create_div().root, "missing", &SystemStyle::default());
+        assert!(matches!(out.root.get_node_type(), NodeType::Div));
     }
 
     #[test]
@@ -1713,17 +1378,17 @@ mod autotest_generated {
         h.register_icon("p", "home", RefAny::new(TestIconData { id: 1 }));
         let shared = SharedIconProvider::from_handle(h);
 
-        let original = styled_dom_with_icons(&["home"]);
-        let icon_idx = icon_indices(&original)[0];
-        let single = extract_single_node_styled_dom(&original, icon_idx);
+        // The resolver is handed the ICON NODE itself now, not a one-node
+        // StyledDom carved out of the tree.
+        let icon_node = Dom::create_icon("home").root;
 
-        let out = shared.resolve(&single, "HOME", &SystemStyle::default());
+        let out = shared.resolve(&icon_node, "HOME", &SystemStyle::default());
 
         assert!(REC_CALLS.load(AtomicOrdering::SeqCst) >= 1);
         assert!(REC_SAW_DATA.load(AtomicOrdering::SeqCst), "case-folded lookup must pass Some(data)");
-        assert!(REC_SAW_ICON_NODE.load(AtomicOrdering::SeqCst), "node 0 of the original dom is the Icon");
+        assert!(REC_SAW_ICON_NODE.load(AtomicOrdering::SeqCst), "the resolver must receive the Icon node");
         assert_eq!(REC_NAME_LEN.load(AtomicOrdering::SeqCst), "home".len());
-        assert!(matches!(node_type_at(&out, 0), NodeType::Div));
+        assert!(matches!(out.root.get_node_type(), NodeType::Div));
     }
 
     #[test]
@@ -1733,8 +1398,8 @@ mod autotest_generated {
         // Empty name, huge name, unicode name: resolver still returns its DOM.
         let huge = "x".repeat(100_000);
         for name in ["", "\u{1F600}", huge.as_str()] {
-            let out = shared.resolve(&StyledDom::default(), name, &SystemStyle::default());
-            assert!(matches!(node_type_at(&out, 0), NodeType::Div));
+            let out = shared.resolve(&Dom::create_div().root, name, &SystemStyle::default());
+            assert!(matches!(out.root.get_node_type(), NodeType::Div));
         }
     }
 
@@ -1769,341 +1434,163 @@ mod autotest_generated {
         assert!(shared.has_icon("icon0"), "table intact after contention");
     }
 
-    // collect_icon_nodes
+    // resolve_icons_in_dom (end to end)
 
-    #[test]
-    fn collect_icon_nodes_is_empty_when_there_are_no_icons() {
-        assert!(collect_icon_nodes(&StyledDom::default()).is_empty());
-        assert!(collect_icon_nodes(&zero_node_styled_dom()).is_empty());
-        assert!(collect_icon_nodes(&StyledDom::create_from_dom(Dom::create_div())).is_empty());
-    }
-
-    #[test]
-    fn collect_icon_nodes_finds_every_icon_in_ascending_index_order_with_verbatim_names() {
-        let names = ["HOME", "\u{1F600}", ""];
-        let sd = styled_dom_with_icons(&names);
-        let collected = collect_icon_nodes(&sd);
-
-        assert_eq!(collected.len(), names.len());
-        for (i, c) in collected.iter().enumerate() {
-            // Node names are NOT folded at DOM-construction time (only at lookup).
-            assert_eq!(c.icon_name.as_str(), names[i]);
-            if i > 0 {
-                assert!(c.node_idx > collected[i - 1].node_idx, "indices must ascend");
+    /// Every icon node in the tree, by the path of child indices that reaches it.
+    fn icon_paths(dom: &Dom) -> Vec<Vec<usize>> {
+        fn walk(d: &Dom, path: &mut Vec<usize>, out: &mut Vec<Vec<usize>>) {
+            if matches!(d.root.get_node_type(), NodeType::Icon(_)) {
+                out.push(path.clone());
+            }
+            for (i, c) in d.children.as_ref().iter().enumerate() {
+                path.push(i);
+                walk(c, path, out);
+                path.pop();
             }
         }
+        let mut out = Vec::new();
+        walk(dom, &mut Vec::new(), &mut out);
+        out
     }
 
-    #[test]
-    fn collect_icon_nodes_handles_a_very_long_icon_name() {
-        let long = "x".repeat(100_000);
-        let sd = styled_dom_with_icons(&[&long]);
-        let collected = collect_icon_nodes(&sd);
-        assert_eq!(collected.len(), 1);
-        assert_eq!(collected[0].icon_name.as_str().len(), 100_000);
-    }
-
-    // extract_single_node_styled_dom (numeric / index boundaries)
-
-    #[test]
-    fn extract_single_node_at_index_zero() {
-        let sd = styled_dom_with_icons(&["home"]);
-        let out = extract_single_node_styled_dom(&sd, 0);
-        assert_eq!(out.node_data.as_ref().len(), 1);
-        assert_eq!(out.styled_nodes.as_ref().len(), 1);
-        assert_eq!(node_type_at(&out, 0), node_type_at(&sd, 0));
-    }
-
-    #[test]
-    fn extract_single_node_of_the_icon_keeps_the_icon_node_type() {
-        let sd = styled_dom_with_icons(&["home"]);
-        let idx = icon_indices(&sd)[0];
-        let out = extract_single_node_styled_dom(&sd, idx);
-        assert_eq!(out.node_data.as_ref().len(), 1);
-        assert!(matches!(node_type_at(&out, 0), NodeType::Icon(_)));
-    }
-
-    #[test]
-    fn extract_single_node_out_of_bounds_falls_back_to_default_without_panicking() {
-        let sd = styled_dom_with_icons(&["home"]);
-        let len = sd.node_data.as_ref().len();
-
-        for idx in [len, len + 1, usize::MAX / 2, usize::MAX - 1, usize::MAX] {
-            let out = extract_single_node_styled_dom(&sd, idx);
-            // Falls back to StyledDom::default() -> exactly one (Body) node.
-            assert_eq!(out.node_data.as_ref().len(), 1, "idx {idx} must not panic");
-            assert!(!matches!(node_type_at(&out, 0), NodeType::Icon(_)));
+    /// The node at a child path.
+    fn node_at<'a>(dom: &'a Dom, path: &[usize]) -> &'a Dom {
+        let mut cur = dom;
+        for &i in path {
+            cur = &cur.children.as_ref()[i];
         }
-        // Zero-node input: even index 0 is out of bounds.
-        let empty = zero_node_styled_dom();
-        assert_eq!(extract_single_node_styled_dom(&empty, 0).node_data.as_ref().len(), 1);
+        cur
     }
 
-    #[test]
-    fn extract_single_node_tolerates_styled_nodes_shorter_than_node_data() {
-        let sd_full = styled_dom_with_icons(&["home"]);
-        let idx = icon_indices(&sd_full)[0];
-
-        let mut sd = sd_full;
-        sd.styled_nodes = StyledNodeVec::from_vec(Vec::new()); // desynced arrays
-
-        let out = extract_single_node_styled_dom(&sd, idx);
-        assert_eq!(out.node_data.as_ref().len(), 1);
-        assert_eq!(out.styled_nodes.as_ref().len(), 1, "must synthesize a default StyledNode");
-        assert!(matches!(node_type_at(&out, 0), NodeType::Icon(_)));
-    }
-
-    // is_single_node_replacement
-
-    #[test]
-    fn is_single_node_replacement_true_false_and_edges() {
-        assert!(is_single_node_replacement(&StyledDom::default()));
-        assert!(is_single_node_replacement(&StyledDom::create_from_dom(Dom::create_div())));
-
-        // Zero nodes is NOT "single node" (callers treat it as the empty case).
-        assert!(!is_single_node_replacement(&zero_node_styled_dom()));
-
-        let multi = StyledDom::create_from_dom(
-            Dom::create_div().with_child(Dom::create_div()).with_child(Dom::create_div()),
-        );
-        assert!(multi.node_data.as_ref().len() > 1);
-        assert!(!is_single_node_replacement(&multi));
-    }
-
-    // apply_single_node_replacement (index boundaries)
-
-    #[test]
-    fn apply_single_node_replacement_with_zero_node_dom_turns_the_icon_into_a_div() {
-        let mut sd = styled_dom_with_icons(&["home"]);
-        let idx = icon_indices(&sd)[0];
-        let empty = zero_node_styled_dom();
-
-        apply_single_node_replacement(&mut sd, idx, empty);
-        assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
-        assert!(collect_icon_nodes(&sd).is_empty());
-    }
-
-    #[test]
-    fn apply_single_node_replacement_copies_the_replacement_root_node_type() {
-        let mut sd = styled_dom_with_icons(&["home"]);
-        let idx = icon_indices(&sd)[0];
-        let before_len = sd.node_data.as_ref().len();
-        let repl = StyledDom::create_from_dom(Dom::create_div());
-
-        apply_single_node_replacement(&mut sd, idx, repl);
-        assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
-        assert_eq!(sd.node_data.as_ref().len(), before_len, "node count must not change");
-    }
-
-    #[test]
-    fn apply_single_node_replacement_out_of_bounds_index_is_a_no_op() {
-        let repl = StyledDom::create_from_dom(Dom::create_div());
-        let empty = zero_node_styled_dom();
-
-        let base = styled_dom_with_icons(&["home"]);
-        let icon_idx = icon_indices(&base)[0];
-        let len = base.node_data.as_ref().len();
-
-        for idx in [len, len + 1, usize::MAX / 2, usize::MAX] {
-            let mut sd = styled_dom_with_icons(&["home"]);
-            // Cloned because the loop reuses them; production MOVES.
-            apply_single_node_replacement(&mut sd, idx, repl.clone());
-            apply_single_node_replacement(&mut sd, idx, empty.clone());
-            assert_eq!(sd.node_data.as_ref().len(), len, "idx {idx} must not resize");
-            assert!(
-                matches!(node_type_at(&sd, icon_idx), NodeType::Icon(_)),
-                "idx {idx} must leave the icon untouched"
-            );
+    fn dom_with_icons(names: &[&str]) -> Dom {
+        let mut body = Dom::create_body();
+        for n in names {
+            body = body.with_child(Dom::create_icon(AzString::from(*n)));
         }
-    }
-
-    // apply_multi_node_replacement (index boundaries)
-
-    #[test]
-    fn apply_multi_node_replacement_with_zero_node_dom_turns_the_icon_into_a_div() {
-        let mut sd = styled_dom_with_icons(&["home"]);
-        let idx = icon_indices(&sd)[0];
-
-        apply_multi_node_replacement(&mut sd, idx, zero_node_styled_dom());
-        assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
+        body
     }
 
     #[test]
-    fn apply_multi_node_replacement_applies_only_the_root_and_does_not_splice() {
-        let mut sd = styled_dom_with_icons(&["home"]);
-        let idx = icon_indices(&sd)[0];
-        let before_len = sd.node_data.as_ref().len();
-
-        let repl = StyledDom::create_from_dom(
-            Dom::create_div().with_child(Dom::create_div()).with_child(Dom::create_div()),
-        );
-        assert!(repl.node_data.as_ref().len() > 1);
-        apply_multi_node_replacement(&mut sd, idx, repl);
-
-        assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
-        // The arena is DFS-ordered: children cannot be appended after the
-        // fact, so the replacement's own children are NOT spliced in. A font
-        // icon's glyph travels through the icon's text leaf instead.
-        assert_eq!(sd.node_data.as_ref().len(), before_len);
-    }
-
-    #[test]
-    fn a_font_icons_glyph_lands_in_the_icons_text_leaf() {
-        // `Dom::create_icon` gives the icon node a text leaf; a resolver that
-        // answers with <span>glyph</span> must put the glyph THERE (the span's
-        // fields on the icon node, the text in the leaf), not lose it.
-        extern "C" fn span_glyph_resolver(
-            _data: OptionRefAny,
-            _original: &StyledDom,
-            _style: &SystemStyle,
-        ) -> StyledDom {
-            StyledDom::create_from_dom(Dom::create_span_with_text("\u{e3b8}"))
-        }
-        let shared = SharedIconProvider::from_handle(IconProviderHandle::with_resolver(span_glyph_resolver));
-        let mut sd = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_icon("colorize")));
-        let icon = icon_indices(&sd)[0];
-        let hierarchy = sd.node_hierarchy.as_container();
-        let leaf = hierarchy.get(crate::id::NodeId::new(icon)).and_then(|h| h.first_child_id(crate::id::NodeId::new(icon)))
-            .expect("create_icon gives the icon a text leaf");
-        // `hierarchy` borrows `sd`; its last use is above, so NLL releases the
-        // borrow here — the next line needs `&mut sd`. (A `drop()` would be a
-        // no-op: NodeDataContainerRef is not Drop.)
-        resolve_icons_in_styled_dom(&mut sd, &shared, &SystemStyle::default());
-        assert!(matches!(node_type_at(&sd, icon), NodeType::Span), "the span's type moved onto the icon node");
-        match sd.node_data.as_ref()[leaf.index()].get_node_type() {
-            NodeType::Text(t) => assert_eq!(t.as_ref().as_str(), "\u{e3b8}", "the glyph is in the leaf"),
-            other => panic!("the leaf is not text: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn apply_multi_node_replacement_out_of_bounds_index_is_a_no_op() {
-        let repl = StyledDom::create_from_dom(Dom::create_div().with_child(Dom::create_div()));
-        let base = styled_dom_with_icons(&["home"]);
-        let icon_idx = icon_indices(&base)[0];
-        let len = base.node_data.as_ref().len();
-
-        for idx in [len, usize::MAX] {
-            let mut sd = styled_dom_with_icons(&["home"]);
-            // Cloned because the loop reuses it; production MOVES.
-            apply_multi_node_replacement(&mut sd, idx, repl.clone());
-            apply_multi_node_replacement(&mut sd, idx, zero_node_styled_dom());
-            assert_eq!(sd.node_data.as_ref().len(), len);
-            assert!(matches!(node_type_at(&sd, icon_idx), NodeType::Icon(_)));
-        }
-    }
-
-    // resolve_collected_icons
-
-    #[test]
-    fn resolve_collected_icons_preserves_indices_and_resolves_each_icon() {
-        let mut h = IconProviderHandle::with_resolver(div_resolver);
-        h.register_icon("p", "home", RefAny::new(TestIconData { id: 1 }));
-        let shared = SharedIconProvider::from_handle(h);
-
-        let sd = styled_dom_with_icons(&["home", "missing", "\u{1F600}"]);
-        let icons = collect_icon_nodes(&sd);
-        let replacements =
-            resolve_collected_icons(&icons, &sd, &shared, &SystemStyle::default());
-
-        assert_eq!(replacements.len(), icons.len());
-        for (r, i) in replacements.iter().zip(icons.iter()) {
-            assert_eq!(r.node_idx, i.node_idx);
-            // The custom resolver ignores the data, so even unregistered icons
-            // resolve. Replacements are pre-normalized now: a one-node div
-            // arrives as `SingleNode { node_type: Div, .. }`.
-            assert!(matches!(
-                &r.replacement,
-                CachedIconResolution::SingleNode { node_type: NodeType::Div, .. }
-            ));
-        }
-    }
-
-    #[test]
-    fn resolve_collected_icons_with_no_icons_returns_no_replacements() {
-        let shared = SharedIconProvider::from_handle(IconProviderHandle::new());
-        let sd = StyledDom::default();
-        let out = resolve_collected_icons(&[], &sd, &shared, &SystemStyle::default());
-        assert!(out.is_empty());
-    }
-
-    // resolve_icons_in_styled_dom (end to end)
-
-    #[test]
-    fn resolve_icons_in_styled_dom_is_a_no_op_without_icons() {
+    fn resolve_icons_in_dom_is_a_no_op_without_icons() {
         let shared = SharedIconProvider::from_handle(IconProviderHandle::with_resolver(div_resolver));
-        let mut sd = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hi")));
-        let before_len = sd.node_data.as_ref().len();
-        let before_root = node_type_at(&sd, 0);
+        let mut dom = Dom::create_body()
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hi"));
+        let before = dom.clone();
 
-        resolve_icons_in_styled_dom(&mut sd, &shared, &SystemStyle::default());
+        resolve_icons_in_dom(&mut dom, &shared, &SystemStyle::default());
 
-        assert_eq!(sd.node_data.as_ref().len(), before_len);
-        assert_eq!(node_type_at(&sd, 0), before_root);
+        assert_eq!(dom.children.as_ref().len(), before.children.as_ref().len());
+        assert_eq!(dom.root.get_node_type(), before.root.get_node_type());
     }
 
     #[test]
-    fn resolve_icons_in_styled_dom_replaces_every_icon_case_insensitively() {
+    fn resolve_icons_in_dom_replaces_every_icon_case_insensitively() {
         let mut h = IconProviderHandle::with_resolver(div_resolver);
         h.register_icon("p", "home", RefAny::new(TestIconData { id: 1 }));
         let shared = SharedIconProvider::from_handle(h);
 
         // Mixed case in the DOM, lowercase in the pack, plus one unregistered icon.
-        let mut sd = styled_dom_with_icons(&["HOME", "unregistered", "HoMe"]);
-        let idxs = icon_indices(&sd);
-        let before_len = sd.node_data.as_ref().len();
+        let mut dom = dom_with_icons(&["HOME", "unregistered", "HoMe"]);
+        let paths = icon_paths(&dom);
+        assert_eq!(paths.len(), 3);
 
-        resolve_icons_in_styled_dom(&mut sd, &shared, &SystemStyle::default());
+        resolve_icons_in_dom(&mut dom, &shared, &SystemStyle::default());
 
-        assert_eq!(sd.node_data.as_ref().len(), before_len);
-        assert!(collect_icon_nodes(&sd).is_empty(), "no Icon node may survive resolution");
-        for idx in idxs {
-            assert!(matches!(node_type_at(&sd, idx), NodeType::Div));
+        assert!(icon_paths(&dom).is_empty(), "no Icon node may survive resolution");
+        for p in paths {
+            assert!(matches!(node_at(&dom, &p).root.get_node_type(), NodeType::Div));
         }
     }
 
     #[test]
-    fn resolve_icons_in_styled_dom_with_the_default_resolver_removes_the_icon_nodes() {
-        // The default resolver returns `StyledDom::default()` (one Body node), so
-        // icons are replaced by that root's node type rather than being cleared.
+    fn resolve_icons_in_dom_with_the_default_resolver_removes_the_icon_nodes() {
+        // The default resolver returns an empty div, so an icon with no
+        // registered data becomes that rather than staying an Icon node.
         let shared = SharedIconProvider::from_handle(IconProviderHandle::new());
-        let mut sd = styled_dom_with_icons(&["home"]);
-        let idx = icon_indices(&sd)[0];
+        let mut dom = dom_with_icons(&["home"]);
 
-        resolve_icons_in_styled_dom(&mut sd, &shared, &SystemStyle::default());
+        resolve_icons_in_dom(&mut dom, &shared, &SystemStyle::default());
 
-        assert!(!matches!(node_type_at(&sd, idx), NodeType::Icon(_)));
-        assert!(collect_icon_nodes(&sd).is_empty());
+        assert!(icon_paths(&dom).is_empty());
     }
 
+    /// The whole point of resolving on the tree: a replacement may be MORE than
+    /// one node, and all of it survives. The old StyledDom splice flattened
+    /// every replacement to its root plus a single glyph character, which is
+    /// why registering a `Dom` as an icon was impossible.
     #[test]
-    fn resolve_icons_in_styled_dom_handles_a_zero_node_replacement() {
-        let shared =
-            SharedIconProvider::from_handle(IconProviderHandle::with_resolver(zero_node_resolver));
-        let mut sd = styled_dom_with_icons(&["home", "other"]);
-        let idxs = icon_indices(&sd);
-        let before_len = sd.node_data.as_ref().len();
-
-        resolve_icons_in_styled_dom(&mut sd, &shared, &SystemStyle::default());
-
-        assert_eq!(sd.node_data.as_ref().len(), before_len);
-        for idx in idxs {
-            assert!(matches!(node_type_at(&sd, idx), NodeType::Div), "empty => Div placeholder");
+    fn a_multi_node_replacement_is_spliced_in_whole() {
+        extern "C" fn subtree_resolver(
+            _d: OptionRefAny,
+            _n: &NodeData,
+            _s: &SystemStyle,
+        ) -> Dom {
+            Dom::create_div()
+                .with_child(Dom::create_div())
+                .with_child(Dom::create_div())
         }
+
+        let shared =
+            SharedIconProvider::from_handle(IconProviderHandle::with_resolver(subtree_resolver));
+        let mut dom = dom_with_icons(&["home"]);
+        let path = icon_paths(&dom)[0].clone();
+
+        resolve_icons_in_dom(&mut dom, &shared, &SystemStyle::default());
+
+        let replaced = node_at(&dom, &path);
+        assert!(matches!(replaced.root.get_node_type(), NodeType::Div));
+        assert_eq!(
+            replaced.children.as_ref().len(),
+            2,
+            "both children of the replacement must survive the splice"
+        );
+    }
+
+    /// REGRESSION: an icon that resolves to ANOTHER icon must keep the
+    /// stylesheets attached along the way.
+    ///
+    /// `Dom::with_css` attaches a scoped stylesheet to `Dom::css`, NOT inline
+    /// properties - so `Dom::create_icon("favorite").with_css("color: red")`,
+    /// the natural way to register a recoloured icon, carries the colour in
+    /// `css`. Replacing the node wholesale dropped it, and the icon rendered in
+    /// the default colour while every step reported success.
+    ///
+    /// This is the mechanism that lets an icon carry its own appearance instead
+    /// of every call site threading a tint parameter down to the renderer.
+    #[test]
+    fn stylesheets_survive_an_icon_resolving_to_another_icon() {
+        extern "C" fn to_div(_d: OptionRefAny, _n: &NodeData, _s: &SystemStyle) -> Dom {
+            Dom::create_div()
+        }
+
+        let shared = SharedIconProvider::from_handle(IconProviderHandle::with_resolver(to_div));
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_icon("outer").with_css("color: #d7263d;"),
+        );
+
+        resolve_icons_in_dom(&mut dom, &shared, &SystemStyle::default());
+
+        let resolved = &dom.children.as_ref()[0];
+        assert!(matches!(resolved.root.get_node_type(), NodeType::Div));
+        assert!(
+            !resolved.css.as_ref().is_empty(),
+            "the icon's own stylesheet must survive resolution; losing it is \
+             how a styled icon silently renders unstyled"
+        );
     }
 
     #[test]
-    fn resolve_icons_in_styled_dom_scales_to_many_icons() {
+    fn resolve_icons_in_dom_scales_to_many_icons() {
         let shared = SharedIconProvider::from_handle(IconProviderHandle::with_resolver(div_resolver));
         let names: Vec<String> = (0..500).map(|i| format!("icon{i}")).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-        let mut sd = styled_dom_with_icons(&refs);
-        let before_len = sd.node_data.as_ref().len();
+        let mut dom = dom_with_icons(&refs);
+        let before_children = dom.children.as_ref().len();
 
-        resolve_icons_in_styled_dom(&mut sd, &shared, &SystemStyle::default());
+        resolve_icons_in_dom(&mut dom, &shared, &SystemStyle::default());
 
-        assert_eq!(sd.node_data.as_ref().len(), before_len);
-        assert!(collect_icon_nodes(&sd).is_empty());
+        assert_eq!(dom.children.as_ref().len(), before_children);
+        assert!(icon_paths(&dom).is_empty());
     }
 }
 
@@ -2127,16 +1614,14 @@ mod icon_cache_tests {
         id: u32,
     }
 
-    fn dom_with_icons(names: &[&str]) -> StyledDom {
+    /// A body whose direct children are the named icons, so child index N is
+    /// icon N both before and after resolution.
+    fn dom_with_icons(names: &[&str]) -> Dom {
         let mut body = Dom::create_body();
         for n in names {
             body.add_child(Dom::create_icon(*n));
         }
-        StyledDom::create_from_dom(body)
-    }
-
-    fn icon_indices(sd: &StyledDom) -> Vec<usize> {
-        collect_icon_nodes(sd).iter().map(|i| i.node_idx).collect()
+        body
     }
 
     // Per-test statics: `extern "C" fn` cannot capture, and tests run in
@@ -2146,11 +1631,11 @@ mod icon_cache_tests {
     static FRAME_CALLS: AtomicUsize = AtomicUsize::new(0);
     extern "C" fn frame_counting_resolver(
         _icon_data: OptionRefAny,
-        _original: &StyledDom,
+        _original: &NodeData,
         _style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         FRAME_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
-        StyledDom::create_from_dom(Dom::create_div())
+        Dom::create_div()
     }
 
     /// THE REPRODUCTION. Before the cache, this counted one resolver call per
@@ -2167,11 +1652,10 @@ mod icon_cache_tests {
 
         for frame in 0..3 {
             let mut sd = dom_with_icons(&["home", "home", "home"]);
-            let idxs = icon_indices(&sd);
-            resolve_icons_in_styled_dom(&mut sd, &shared, &style);
-            for idx in idxs {
+            resolve_icons_in_dom(&mut sd, &shared, &style);
+            for child in sd.children.as_ref() {
                 assert!(
-                    matches!(sd.node_data.as_ref()[idx].get_node_type(), NodeType::Div),
+                    matches!(child.root.get_node_type(), NodeType::Div),
                     "frame {frame}: icon must be resolved on the cached path too"
                 );
             }
@@ -2188,11 +1672,11 @@ mod icon_cache_tests {
     static STYLE_VARIANT_CALLS: AtomicUsize = AtomicUsize::new(0);
     extern "C" fn style_variant_resolver(
         _icon_data: OptionRefAny,
-        _original: &StyledDom,
+        _original: &NodeData,
         _style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         STYLE_VARIANT_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
-        StyledDom::create_from_dom(Dom::create_div())
+        Dom::create_div()
     }
 
     /// The resolver copies inline styles off the original node, so the same
@@ -2218,11 +1702,11 @@ mod icon_cache_tests {
                 ))]
                 .into(),
             ));
-            StyledDom::create_from_dom(body)
+            body
         };
 
         let mut frame1 = build();
-        resolve_icons_in_styled_dom(&mut frame1, &shared, &style);
+        resolve_icons_in_dom(&mut frame1, &shared, &style);
         assert_eq!(
             STYLE_VARIANT_CALLS.load(AtomicOrdering::SeqCst),
             2,
@@ -2230,7 +1714,7 @@ mod icon_cache_tests {
         );
 
         let mut frame2 = build();
-        resolve_icons_in_styled_dom(&mut frame2, &shared, &style);
+        resolve_icons_in_dom(&mut frame2, &shared, &style);
         assert_eq!(
             STYLE_VARIANT_CALLS.load(AtomicOrdering::SeqCst),
             2,
@@ -2241,11 +1725,11 @@ mod icon_cache_tests {
     static SYS_STYLE_CALLS: AtomicUsize = AtomicUsize::new(0);
     extern "C" fn sys_style_resolver(
         _icon_data: OptionRefAny,
-        _original: &StyledDom,
+        _original: &NodeData,
         _style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         SYS_STYLE_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
-        StyledDom::create_from_dom(Dom::create_div())
+        Dom::create_div()
     }
 
     /// Resolvers read the SystemStyle (theme, tint, grayscale), so a style
@@ -2263,15 +1747,15 @@ mod icon_cache_tests {
         assert_ne!(style_a, style_b);
 
         let mut sd = dom_with_icons(&["home"]);
-        resolve_icons_in_styled_dom(&mut sd, &shared, &style_a);
+        resolve_icons_in_dom(&mut sd, &shared, &style_a);
         assert_eq!(SYS_STYLE_CALLS.load(AtomicOrdering::SeqCst), 1);
 
         let mut sd = dom_with_icons(&["home"]);
-        resolve_icons_in_styled_dom(&mut sd, &shared, &style_b);
+        resolve_icons_in_dom(&mut sd, &shared, &style_b);
         assert_eq!(SYS_STYLE_CALLS.load(AtomicOrdering::SeqCst), 2, "style change => re-resolve");
 
         let mut sd = dom_with_icons(&["home"]);
-        resolve_icons_in_styled_dom(&mut sd, &shared, &style_a);
+        resolve_icons_in_dom(&mut sd, &shared, &style_a);
         assert_eq!(
             SYS_STYLE_CALLS.load(AtomicOrdering::SeqCst),
             3,
@@ -2282,9 +1766,9 @@ mod icon_cache_tests {
     static PARITY_CALLS: AtomicUsize = AtomicUsize::new(0);
     extern "C" fn parity_resolver(
         _icon_data: OptionRefAny,
-        original: &StyledDom,
+        original: &NodeData,
         _style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         use azul_css::dynamic_selector::CssPropertyWithConditions;
         use azul_css::props::layout::dimensions::LayoutWidth;
         use azul_css::props::property::CssProperty;
@@ -2296,12 +1780,10 @@ mod icon_cache_tests {
             vec![CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(16.0)))]
                 .into(),
         );
-        if let Some(orig) = original.node_data.as_ref().first() {
-            if let Some(a11y) = orig.get_accessibility_info() {
-                dom = dom.with_accessibility_info(a11y.clone());
-            }
+        if let Some(a11y) = original.get_accessibility_info() {
+            dom = dom.with_accessibility_info(a11y.clone());
         }
-        StyledDom::create(&mut dom, azul_css::css::Css::empty())
+        dom
     }
 
     /// A cache hit must produce a node BIT-IDENTICAL to what the fresh
@@ -2313,38 +1795,28 @@ mod icon_cache_tests {
         let style = SystemStyle::default();
 
         let mut frame1 = dom_with_icons(&["save"]);
-        let idx1 = icon_indices(&frame1)[0];
-        resolve_icons_in_styled_dom(&mut frame1, &shared, &style);
+        resolve_icons_in_dom(&mut frame1, &shared, &style);
         assert_eq!(PARITY_CALLS.load(AtomicOrdering::SeqCst), 1);
 
         let mut frame2 = dom_with_icons(&["save"]);
-        let idx2 = icon_indices(&frame2)[0];
-        resolve_icons_in_styled_dom(&mut frame2, &shared, &style);
+        resolve_icons_in_dom(&mut frame2, &shared, &style);
         assert_eq!(PARITY_CALLS.load(AtomicOrdering::SeqCst), 1, "frame 2 must be a hit");
 
         assert_eq!(
-            frame1.node_data.as_ref()[idx1],
-            frame2.node_data.as_ref()[idx2],
+            frame1.children.as_ref()[0].root,
+            frame2.children.as_ref()[0].root,
             "cached and freshly-resolved node must be indistinguishable"
-        );
-        assert_eq!(
-            frame1.styled_nodes.as_ref()[idx1],
-            frame2.styled_nodes.as_ref()[idx2],
         );
     }
 
     static EMPTY_CALLS: AtomicUsize = AtomicUsize::new(0);
     extern "C" fn empty_resolver(
         _icon_data: OptionRefAny,
-        _original: &StyledDom,
+        _original: &NodeData,
         _style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         EMPTY_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
-        StyledDom {
-            node_data: crate::dom::NodeDataVec::from_vec(Vec::new()),
-            styled_nodes: crate::styled_dom::StyledNodeVec::from_vec(Vec::new()),
-            ..StyledDom::default()
-        }
+        Dom::create_div()
     }
 
     /// "Icon not found → empty div" is also a resolution and is also cached.
@@ -2356,9 +1828,11 @@ mod icon_cache_tests {
 
         for _ in 0..2 {
             let mut sd = dom_with_icons(&["missing"]);
-            let idx = icon_indices(&sd)[0];
-            resolve_icons_in_styled_dom(&mut sd, &shared, &style);
-            assert!(matches!(sd.node_data.as_ref()[idx].get_node_type(), NodeType::Div));
+            resolve_icons_in_dom(&mut sd, &shared, &style);
+            assert!(matches!(
+                sd.children.as_ref()[0].root.get_node_type(),
+                NodeType::Div
+            ));
         }
         assert_eq!(EMPTY_CALLS.load(AtomicOrdering::SeqCst), 1);
     }
@@ -2366,20 +1840,18 @@ mod icon_cache_tests {
     static SUBTREE_CALLS: AtomicUsize = AtomicUsize::new(0);
     extern "C" fn subtree_resolver(
         _icon_data: OptionRefAny,
-        _original: &StyledDom,
+        _original: &NodeData,
         _style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         SUBTREE_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
-        StyledDom::create_from_dom(
-            Dom::create_body()
-                .with_child(Dom::create_div())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x")),
-        )
+        Dom::create_body()
+            .with_child(Dom::create_div())
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"))
     }
 
-    /// Multi-node replacements go through the same cache (stored as a whole
-    /// `StyledDom`, cloned per hit). Splicing itself is root-only today; the
-    /// cache must not change that behaviour either way.
+    /// Multi-node replacements go through the same cache, stored as a whole
+    /// `Dom` and cloned per hit - and, unlike the old arena splice, they are
+    /// spliced in ENTIRELY, children and all.
     #[test]
     fn subtree_resolutions_are_cached() {
         let shared =
@@ -2389,9 +1861,14 @@ mod icon_cache_tests {
         let mut first_type = None;
         for _ in 0..2 {
             let mut sd = dom_with_icons(&["multi"]);
-            let idx = icon_indices(&sd)[0];
-            resolve_icons_in_styled_dom(&mut sd, &shared, &style);
-            let t = sd.node_data.as_ref()[idx].get_node_type().clone();
+            resolve_icons_in_dom(&mut sd, &shared, &style);
+            let replaced = &sd.children.as_ref()[0];
+            assert_eq!(
+                replaced.children.as_ref().len(),
+                2,
+                "the cached subtree keeps BOTH children, not just its root"
+            );
+            let t = replaced.root.get_node_type().clone();
             match &first_type {
                 None => first_type = Some(t),
                 Some(prev) => assert_eq!(prev, &t, "cached subtree must apply identically"),
@@ -2403,11 +1880,11 @@ mod icon_cache_tests {
     static CAP_CALLS: AtomicUsize = AtomicUsize::new(0);
     extern "C" fn cap_resolver(
         _icon_data: OptionRefAny,
-        _original: &StyledDom,
+        _original: &NodeData,
         _style: &SystemStyle,
-    ) -> StyledDom {
+    ) -> Dom {
         CAP_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
-        StyledDom::create_from_dom(Dom::create_div())
+        Dom::create_div()
     }
 
     /// Unbounded distinct specs must not grow the cache without limit; the
@@ -2422,10 +1899,16 @@ mod icon_cache_tests {
         let names: Vec<String> = (0..(ICON_CACHE_CAP + 100)).map(|i| format!("icon{i}")).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         let mut sd = dom_with_icons(&refs);
-        resolve_icons_in_styled_dom(&mut sd, &shared, &style);
+        resolve_icons_in_dom(&mut sd, &shared, &style);
 
         assert_eq!(CAP_CALLS.load(AtomicOrdering::SeqCst), ICON_CACHE_CAP + 100);
-        assert!(collect_icon_nodes(&sd).is_empty(), "every icon still resolved");
+        assert!(
+            sd.children
+                .as_ref()
+                .iter()
+                .all(|c| !matches!(c.root.get_node_type(), NodeType::Icon(_))),
+            "every icon still resolved"
+        );
 
         let cache = shared.cache.lock().unwrap();
         assert!(

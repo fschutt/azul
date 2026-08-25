@@ -382,6 +382,9 @@ pub mod styled_dom;
 pub mod svg;
 /// Timer, thread, and async task management.
 pub mod task;
+/// System tray / status icon POD types — icon bitmaps, category/status, and
+/// the tray event kinds. The OS plumbing lives in `azul-dll` (`desktop/tray`).
+pub mod tray;
 /// 3D transform matrix computation for CSS transforms.
 pub mod transform;
 /// Built-in user-agent default stylesheet.
