@@ -42,6 +42,10 @@ use azul::window::TransientWindowConfig;
 struct Showcase {
     switch_on: bool,
     slider_value: f32,
+    /// The `NumberInput`'s value. MUST live here: the widget is rebuilt from
+    /// this on every layout, so a literal would snap the field back to it and
+    /// merge the typed text into the stale value.
+    number: f32,
     checkbox_checked: bool,
     selected_radio: usize,
     selected_segment: usize,
@@ -472,12 +476,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_placeholder("Type something...")
                     .dom(),
             ),
-            labelled("NumberInput", NumberInput::create(42.0).dom()),
             labelled(
-                "ColorInput",
-                ColorInput::create(s.color)
-                    .with_accessibility_name("Accent colour")
-                    .with_on_value_change(data.clone(), on_color)
+                "NumberInput",
+                NumberInput::create(s.number)
+                    .with_on_value_change(data.clone(), on_number)
                     .dom(),
             ),
             labelled(
@@ -488,6 +490,13 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                         data.clone(),
                         TextAreaOnFocusLostCallback { cb: on_textarea_focus_lost, callable: OptionRefAny::None },
                     )
+                    .dom(),
+            ),
+            labelled(
+                "ColorInput",
+                ColorInput::create(s.color)
+                    .with_accessibility_name("Accent colour")
+                    .with_on_value_change(data.clone(), on_color)
                     .dom(),
             ),
             labelled(
@@ -952,6 +961,22 @@ extern "C" fn on_slider(mut data: RefAny, _: CallbackInfo, state: SliderState) -
     }
     bump(&mut data)
 }
+/// Stores the parsed number WITHOUT asking for a rebuild.
+///
+/// Returning `RefreshDom` here would re-run `NumberInput::create(s.number)`
+/// on every keystroke, and `dom()` rewrites the field from `format!("{}", n)`
+/// — so a half-typed "3." would be reformatted to "3" and the dot eaten. The
+/// engine already renders the typed text; this only has to keep the host copy
+/// current so the NEXT rebuild (for any other reason) shows the real value
+/// instead of the stale literal.
+extern "C" fn on_number(mut data: RefAny, _: CallbackInfo, state: NumberInputState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.number = state.number;
+        s.interactions += 1;
+    }
+    Update::DoNothing
+}
+
 /// The picker reports every change; storing it is what makes the swatch
 /// (and the rest of the UI) follow the pick.
 extern "C" fn on_color(mut data: RefAny, _: CallbackInfo, state: ColorInputState) -> Update {
@@ -1046,6 +1071,7 @@ pub fn start() {
     let data = RefAny::new(Showcase {
         switch_on: true,
         slider_value: 40.0,
+        number: 42.0,
         checkbox_checked: true,
         selected_radio: 0,
         selected_segment: 1,
