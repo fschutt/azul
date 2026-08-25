@@ -121,6 +121,36 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 size: container_size,
             };
 
+            // `overscroll-behavior` from CSS, resolved per axis. Until this
+            // was wired the two fields were hardcoded to `Auto` at every
+            // construction site, so `contain` (stop scroll CHAINING to an
+            // ancestor) and `none` (also suppress the local bounce) were
+            // unreachable — the enum and every physics branch reading it had
+            // existed all along with nothing to set them.
+            let node_state = layout_result
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .get(dom_node_id)
+                .map(|n| n.styled_node_state)
+                .unwrap_or_default();
+            let overscroll_x = match crate::solver3::getters::get_overscroll_behavior_x(
+                &layout_result.styled_dom,
+                dom_node_id,
+                &node_state,
+            ) {
+                crate::solver3::getters::MultiValue::Exact(v) => v,
+                _ => azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+            };
+            let overscroll_y = match crate::solver3::getters::get_overscroll_behavior_y(
+                &layout_result.styled_dom,
+                dom_node_id,
+                &node_state,
+            ) {
+                crate::solver3::getters::MultiValue::Exact(v) => v,
+                _ => azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+            };
+
             let content_size = layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
 
             // Use the layout-computed scrollbar width, not the
@@ -131,6 +161,12 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
             let scrollbar_thickness = scrollbar_info.scrollbar_width
                 .max(scrollbar_info.scrollbar_height);
 
+            layout_window.scroll_manager.set_overscroll_behavior(
+                *dom_id,
+                dom_node_id,
+                overscroll_x,
+                overscroll_y,
+            );
             layout_window.scroll_manager.register_or_update_scroll_node(
                 *dom_id,
                 dom_node_id,
@@ -147,3 +183,4 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
     }
     layout_window.scroll_manager.calculate_scrollbar_states();
 }
+

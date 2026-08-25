@@ -6079,6 +6079,45 @@ get_css_property!(
     CssPropertyType::Cursor
 );
 
+// `overscroll-behavior-x` / `-y` — read by `register_scroll_nodes` when a node
+// becomes a scroll box, so the physics can stop scroll CHAINING (`contain`) or
+// suppress the bounce entirely (`none`). The enum and every physics branch that
+// consumes it already existed; nothing ever SET it, so `contain`/`none` were
+// unreachable until these getters were wired.
+// Handwritten rather than `get_css_property!`: that macro resolves the UA
+// sheet through `ExtractPropertyValue<T>`, which is keyed on the VALUE type —
+// and `overscroll-behavior-x` and `-y` share one value type, so a single
+// `extract()` could not tell them apart. No UA rule declares either property
+// anyway (the initial value is `auto`, which is what absence means), so the
+// author-CSS lookup is the whole cascade here.
+#[must_use] pub fn get_overscroll_behavior_x(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<azul_css::props::style::scrollbar::OverscrollBehavior> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_overscroll_behavior_x(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .map_or(MultiValue::Auto, MultiValue::Exact)
+}
+
+#[must_use] pub fn get_overscroll_behavior_y(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<azul_css::props::style::scrollbar::OverscrollBehavior> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_overscroll_behavior_y(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .map_or(MultiValue::Auto, MultiValue::Exact)
+}
+
 // `-azul-app-region: drag` — read by the event dispatcher to decide whether a
 // drag on this node moves the WINDOW. See `node_is_window_drag_region`.
 get_css_property!(

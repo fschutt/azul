@@ -1116,6 +1116,30 @@ impl ScrollManager {
     ///
     /// If the node already exists, updates container/content rects without changing scroll offset.
     /// If the node is new, initializes with zero scroll offset.
+    /// Apply the node's resolved `overscroll-behavior-x` / `-y`.
+    ///
+    /// Called by `register_scroll_nodes` right before registration, so the
+    /// value is in place for the very first physics tick that can see this
+    /// node. Kept separate from `register_or_update_scroll_node` on purpose:
+    /// that function is also called from tests and other hosts that have no
+    /// `StyledDom` to resolve CSS against, and threading two more parameters
+    /// through every one of them to pass `Auto` would be noise.
+    ///
+    /// A node with no state yet is ignored — registration happens immediately
+    /// after and seeds `Auto`, which this then overwrites on the next pass.
+    pub fn set_overscroll_behavior(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        x: azul_css::props::style::scrollbar::OverscrollBehavior,
+        y: azul_css::props::style::scrollbar::OverscrollBehavior,
+    ) {
+        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            state.overscroll_behavior_x = x;
+            state.overscroll_behavior_y = y;
+        }
+    }
+
     pub fn register_or_update_scroll_node(
         &mut self,
         dom_id: DomId,

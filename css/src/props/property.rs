@@ -49,9 +49,10 @@ use crate::{
     },
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 28] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
+    (CombinedCssPropertyType::OverscrollBehavior, "overscroll-behavior"),
     (CombinedCssPropertyType::Padding, "padding"),
     (CombinedCssPropertyType::Margin, "margin"),
     (CombinedCssPropertyType::Border, "border"),
@@ -80,7 +81,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 27] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 192] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 194] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -241,6 +242,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 192] = [
     (CssPropertyType::SelectionColor, "-azul-selection-color"),
     (CssPropertyType::SelectionRadius, "-azul-selection-radius"),
     (CssPropertyType::ScrollbarWidth, "scrollbar-width"),
+    (CssPropertyType::OverscrollBehaviorX, "overscroll-behavior-x"),
+    (CssPropertyType::OverscrollBehaviorY, "overscroll-behavior-y"),
     (CssPropertyType::ScrollbarColor, "scrollbar-color"),
     (
         CssPropertyType::ScrollbarVisibility,
@@ -389,6 +392,7 @@ pub type StyleMixBlendModeValue = CssPropertyValue<StyleMixBlendMode>;
 pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
 pub type StyleBackgroundContentValue = CssPropertyValue<StyleBackgroundContent>;
 pub type LayoutScrollbarWidthValue = CssPropertyValue<LayoutScrollbarWidth>;
+pub type OverscrollBehaviorValue = CssPropertyValue<OverscrollBehavior>;
 pub type StyleScrollbarColorValue = CssPropertyValue<StyleScrollbarColor>;
 pub type ScrollbarVisibilityModeValue = CssPropertyValue<ScrollbarVisibilityMode>;
 pub type ScrollbarFadeDelayValue = CssPropertyValue<ScrollbarFadeDelay>;
@@ -526,6 +530,7 @@ impl CssKeyMap {
 pub enum CombinedCssPropertyType {
     BorderRadius,
     Overflow,
+    OverscrollBehavior,
     Margin,
     Border,
     BorderLeft,
@@ -755,6 +760,8 @@ pub enum CssProperty {
     ScrollbarCorner(StyleBackgroundContentValue),
     ScrollbarResizer(StyleBackgroundContentValue),
     ScrollbarWidth(LayoutScrollbarWidthValue),
+    OverscrollBehaviorX(OverscrollBehaviorValue),
+    OverscrollBehaviorY(OverscrollBehaviorValue),
     ScrollbarColor(StyleScrollbarColorValue),
     ScrollbarVisibility(ScrollbarVisibilityModeValue),
     ScrollbarFadeDelay(ScrollbarFadeDelayValue),
@@ -1014,6 +1021,8 @@ pub enum CssPropertyType {
     ScrollbarCorner,
     ScrollbarResizer,
     ScrollbarWidth,
+    OverscrollBehaviorX,
+    OverscrollBehaviorY,
     ScrollbarColor,
     ScrollbarVisibility,
     ScrollbarFadeDelay,
@@ -1209,6 +1218,8 @@ impl CssPropertyType {
         Self::ScrollbarCorner,
         Self::ScrollbarResizer,
         Self::ScrollbarWidth,
+        Self::OverscrollBehaviorX,
+        Self::OverscrollBehaviorY,
         Self::ScrollbarColor,
         Self::ScrollbarVisibility,
         Self::ScrollbarFadeDelay,
@@ -1428,6 +1439,8 @@ impl CssPropertyType {
             Self::ScrollbarCorner => "-azul-scrollbar-corner",
             Self::ScrollbarResizer => "-azul-scrollbar-resizer",
             Self::ScrollbarWidth => "scrollbar-width",
+            Self::OverscrollBehaviorX => "overscroll-behavior-x",
+            Self::OverscrollBehaviorY => "overscroll-behavior-y",
             Self::ScrollbarColor => "scrollbar-color",
             Self::ScrollbarVisibility => "-azul-scrollbar-visibility",
             Self::ScrollbarFadeDelay => "-azul-scrollbar-fade-delay",
@@ -1787,6 +1800,7 @@ pub enum CssParsingError<'a> {
     Opacity(OpacityParseError<'a>),
     Visibility(StyleVisibilityParseError<'a>),
     LayoutScrollbarWidth(LayoutScrollbarWidthParseError<'a>),
+    OverscrollBehavior(OverscrollBehaviorParseError<'a>),
     StyleScrollbarColor(StyleScrollbarColorParseError<'a>),
     ScrollbarVisibilityMode(ScrollbarVisibilityModeParseError<'a>),
     ScrollbarFadeDelay(ScrollbarFadeDelayParseError<'a>),
@@ -1962,6 +1976,7 @@ pub enum CssParsingErrorOwned {
     Opacity(OpacityParseErrorOwned),
     Visibility(StyleVisibilityParseErrorOwned),
     LayoutScrollbarWidth(LayoutScrollbarWidthParseErrorOwned),
+    OverscrollBehavior(OverscrollBehaviorParseErrorOwned),
     StyleScrollbarColor(StyleScrollbarColorParseErrorOwned),
     ScrollbarVisibilityMode(ScrollbarVisibilityModeParseErrorOwned),
     ScrollbarFadeDelay(ScrollbarFadeDelayParseErrorOwned),
@@ -2141,6 +2156,7 @@ impl_display! { CssParsingError<'a>, {
     Opacity(e) => format!("Invalid opacity value: {}", e),
     Visibility(e) => format!("Invalid visibility value: {}", e),
     LayoutScrollbarWidth(e) => format!("Invalid scrollbar-width: {}", e),
+    OverscrollBehavior(e) => format!("Invalid overscroll-behavior: {}", e),
     StyleScrollbarColor(e) => format!("Invalid scrollbar-color: {}", e),
     ScrollbarVisibilityMode(e) => format!("Invalid scrollbar-visibility: {}", e),
     ScrollbarFadeDelay(e) => format!("Invalid scrollbar-fade-delay: {}", e),
@@ -2360,6 +2376,10 @@ impl_from!(
 impl_from!(
     StyleScrollbarColorParseError<'a>,
     CssParsingError::StyleScrollbarColor
+);
+impl_from!(
+    OverscrollBehaviorParseError<'a>,
+    CssParsingError::OverscrollBehavior
 );
 impl_from!(
     ScrollbarVisibilityModeParseError<'a>,
@@ -2644,6 +2664,9 @@ impl CssParsingError<'_> {
             CssParsingError::AlignSelf(e) => CssParsingErrorOwned::AlignSelf(e.to_contained()),
             CssParsingError::Opacity(e) => CssParsingErrorOwned::Opacity(e.to_contained()),
             CssParsingError::Visibility(e) => CssParsingErrorOwned::Visibility(e.to_contained()),
+            CssParsingError::OverscrollBehavior(e) => {
+                CssParsingErrorOwned::OverscrollBehavior(e.to_contained())
+            }
             CssParsingError::LayoutScrollbarWidth(e) => {
                 CssParsingErrorOwned::LayoutScrollbarWidth(e.to_contained())
             }
@@ -2911,6 +2934,9 @@ impl CssParsingErrorOwned {
             }
             Self::Opacity(e) => CssParsingError::Opacity(e.to_shared()),
             Self::Visibility(e) => CssParsingError::Visibility(e.to_shared()),
+            Self::OverscrollBehavior(e) => {
+                CssParsingError::OverscrollBehavior(e.to_shared())
+            }
             Self::LayoutScrollbarWidth(e) => {
                 CssParsingError::LayoutScrollbarWidth(e.to_shared())
             }
@@ -3139,6 +3165,12 @@ pub fn parse_css_property(
         CssPropertyType::OverflowBlock |
         CssPropertyType::OverflowInline |
         CssPropertyType::UserSelect | // user-select: auto is a typed value
+        // overscroll-behavior: auto/none are TYPED values (OverscrollBehavior::
+        // Auto / ::None), not the CSS-wide keywords. Intercepting them here
+        // produced `CssPropertyValue::None`, which reads back as "no value" —
+        // so `overscroll-behavior-x: none` silently resolved to the default.
+        CssPropertyType::OverscrollBehaviorX |
+        CssPropertyType::OverscrollBehaviorY |
         CssPropertyType::AspectRatio // aspect-ratio: auto means StyleAspectRatio::Auto
     );
 
@@ -3149,6 +3181,8 @@ pub fn parse_css_property(
         CssPropertyType::UserSelect |
         CssPropertyType::Float |        // float: none means LayoutFloat::None
         CssPropertyType::TextDecoration | // text-decoration: none is a typed value
+        CssPropertyType::OverscrollBehaviorX | // see the auto list above
+        CssPropertyType::OverscrollBehaviorY |
         CssPropertyType::ObjectFit // object-fit: none means StyleObjectFit::None
     );
 
@@ -3402,6 +3436,16 @@ pub fn parse_css_property(
                 CssPropertyValue::Exact(parse_style_background_content(value)?),
             ),
             CssPropertyType::ScrollbarWidth => parse_layout_scrollbar_width(value)?.into(),
+            CssPropertyType::OverscrollBehaviorX => {
+                CssProperty::OverscrollBehaviorX(CssPropertyValue::Exact(
+                    parse_overscroll_behavior(value)?,
+                ))
+            }
+            CssPropertyType::OverscrollBehaviorY => {
+                CssProperty::OverscrollBehaviorY(CssPropertyValue::Exact(
+                    parse_overscroll_behavior(value)?,
+                ))
+            }
             CssPropertyType::ScrollbarColor => parse_style_scrollbar_color(value)?.into(),
             CssPropertyType::ScrollbarVisibility => parse_scrollbar_visibility_mode(value)?.into(),
             CssPropertyType::ScrollbarFadeDelay => parse_scrollbar_fade_delay(value)?.into(),
@@ -3572,7 +3616,7 @@ pub fn parse_combined_css_property(
     key: CombinedCssPropertyType,
     value: &str,
 ) -> Result<Vec<CssProperty>, CssParsingError<'_>> {
-    use self::CombinedCssPropertyType::{BorderRadius, Overflow, Padding, Margin, Border, BorderLeft, BorderRight, BorderTop, BorderBottom, BorderColor, BorderStyle, BorderWidth, BoxShadow, BackgroundColor, BackgroundImage, Background, Flex, Grid, Gap, GridGap, Font, Columns, GridArea, ColumnRule, TextBox, InsetBlock, InsetInline};
+    use self::CombinedCssPropertyType::{BorderRadius, Overflow, OverscrollBehavior, Padding, Margin, Border, BorderLeft, BorderRight, BorderTop, BorderBottom, BorderColor, BorderStyle, BorderWidth, BoxShadow, BackgroundColor, BackgroundImage, Background, Flex, Grid, Gap, GridGap, Font, Columns, GridArea, ColumnRule, TextBox, InsetBlock, InsetInline};
 
     macro_rules! convert_value {
         ($thing:expr, $prop_type:ident, $wrapper:ident) => {
@@ -3595,6 +3639,12 @@ pub fn parse_combined_css_property(
                 CssPropertyType::BorderTopRightRadius,
                 CssPropertyType::BorderBottomLeftRadius,
                 CssPropertyType::BorderBottomRightRadius,
+            ]
+        }
+        OverscrollBehavior => {
+            vec![
+                CssPropertyType::OverscrollBehaviorX,
+                CssPropertyType::OverscrollBehaviorY,
             ]
         }
         Overflow => {
@@ -3789,6 +3839,31 @@ pub fn parse_combined_css_property(
             ])
         }
         // +spec:overflow:ff5ea4 - overflow shorthand sets overflow-x and overflow-y; second value copied from first if omitted
+        OverscrollBehavior => {
+            // Same 1-or-2-value shape as `overflow`: one value applies to both
+            // axes, two are `x y`.
+            let parts: Vec<&str> = value.split_whitespace().collect();
+            match parts.len() {
+                1 => {
+                    let b = parse_overscroll_behavior(value)?;
+                    Ok(vec![
+                        CssProperty::OverscrollBehaviorX(b.into()),
+                        CssProperty::OverscrollBehaviorY(b.into()),
+                    ])
+                }
+                2 => {
+                    let bx = parse_overscroll_behavior(parts[0])?;
+                    let by = parse_overscroll_behavior(parts[1])?;
+                    Ok(vec![
+                        CssProperty::OverscrollBehaviorX(bx.into()),
+                        CssProperty::OverscrollBehaviorY(by.into()),
+                    ])
+                }
+                _ => Err(CssParsingError::OverscrollBehavior(
+                    OverscrollBehaviorParseError::InvalidValue(value),
+                )),
+            }
+        }
         Overflow => {
             let parts: Vec<&str> = value.split_whitespace().collect();
             match parts.len() {
@@ -4676,6 +4751,7 @@ impl CssProperty {
             Self::ScrollbarCorner(v) => v.get_css_value_fmt(),
             Self::ScrollbarResizer(v) => v.get_css_value_fmt(),
             Self::ScrollbarWidth(v) => v.get_css_value_fmt(),
+            Self::OverscrollBehaviorX(v) | Self::OverscrollBehaviorY(v) => v.get_css_value_fmt(),
             Self::ScrollbarColor(v) => v.get_css_value_fmt(),
             Self::ScrollbarVisibility(v) => v.get_css_value_fmt(),
             Self::ScrollbarFadeDelay(v) => v.get_css_value_fmt(),
@@ -5159,6 +5235,8 @@ impl CssProperty {
             Self::ScrollbarCorner(_) => CssPropertyType::ScrollbarCorner,
             Self::ScrollbarResizer(_) => CssPropertyType::ScrollbarResizer,
             Self::ScrollbarWidth(_) => CssPropertyType::ScrollbarWidth,
+            Self::OverscrollBehaviorX(_) => CssPropertyType::OverscrollBehaviorX,
+            Self::OverscrollBehaviorY(_) => CssPropertyType::OverscrollBehaviorY,
             Self::ScrollbarColor(_) => CssPropertyType::ScrollbarColor,
             Self::ScrollbarVisibility(_) => CssPropertyType::ScrollbarVisibility,
             Self::ScrollbarFadeDelay(_) => CssPropertyType::ScrollbarFadeDelay,
@@ -6689,6 +6767,18 @@ impl CssProperty {
         }
     }
 
+    #[must_use] pub const fn as_overscroll_behavior_x(&self) -> Option<&OverscrollBehaviorValue> {
+        match self {
+            Self::OverscrollBehaviorX(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use] pub const fn as_overscroll_behavior_y(&self) -> Option<&OverscrollBehaviorValue> {
+        match self {
+            Self::OverscrollBehaviorY(f) => Some(f),
+            _ => None,
+        }
+    }
     #[must_use] pub const fn as_scrollbar_width(&self) -> Option<&LayoutScrollbarWidthValue> {
         match self {
             Self::ScrollbarWidth(f) => Some(f),
@@ -6728,7 +6818,7 @@ impl CssProperty {
     #[allow(clippy::match_same_arms)]
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     #[must_use] pub const fn is_initial(&self) -> bool {
-        use self::CssProperty::{Animation, AnimationIn, AnimationOut, CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, AppRegion, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
+        use self::CssProperty::{Animation, AnimationIn, AnimationOut, CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, OverscrollBehaviorX, OverscrollBehaviorY, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, AppRegion, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
         match self {
             CaretColor(c) => c.is_initial(),
             CaretWidth(c) => c.is_initial(),
@@ -6853,6 +6943,7 @@ impl CssProperty {
             ScrollbarCorner(c) => c.is_initial(),
             ScrollbarResizer(c) => c.is_initial(),
             ScrollbarWidth(c) => c.is_initial(),
+            OverscrollBehaviorX(c) | OverscrollBehaviorY(c) => c.is_initial(),
             ScrollbarColor(c) => c.is_initial(),
             ScrollbarVisibility(c) => c.is_initial(),
             ScrollbarFadeDelay(c) => c.is_initial(),
@@ -7648,6 +7739,14 @@ impl CssProperty {
         CssProperty::BoxShadowBottom(p) => format!(
             "CssProperty::BoxShadowBottom({})",
             print_css_property_value(p, tabs, "StyleBoxShadow")
+        ),
+        CssProperty::OverscrollBehaviorX(p) => format!(
+            "CssProperty::OverscrollBehaviorX({})",
+            print_css_property_value(p, tabs, "OverscrollBehavior")
+        ),
+        CssProperty::OverscrollBehaviorY(p) => format!(
+            "CssProperty::OverscrollBehaviorY({})",
+            print_css_property_value(p, tabs, "OverscrollBehavior")
         ),
         CssProperty::ScrollbarWidth(p) => format!(
             "CssProperty::ScrollbarWidth({})",

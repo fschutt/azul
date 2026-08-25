@@ -4241,6 +4241,84 @@ mod tests {
         );
     }
 
+    /// `overscroll-behavior` must travel CSS -> cascade -> ScrollManager.
+    ///
+    /// The `OverscrollBehavior` enum and every physics branch reading it
+    /// existed all along, but nothing ever SET the two state fields — they
+    /// were hardcoded to `Auto` at each construction site, and the property was
+    /// not in the CSS property table at all, so `contain` and `none` were
+    /// unreachable. This walks the whole path a stylesheet takes, through the
+    /// same `register_scroll_nodes` the shell and the runner both use.
+    fn overscroll_behavior_for(
+        css: &str,
+    ) -> (
+        azul_css::props::style::scrollbar::OverscrollBehavior,
+        azul_css::props::style::scrollbar::OverscrollBehavior,
+    ) {
+        // Inline `with_css` rather than a stylesheet rule: it runs the same
+        // declaration parser, so this still proves parse -> CssProperty ->
+        // cascade -> ScrollManager, without also depending on selector
+        // matching. The child overflows the box, which is what makes the box
+        // register as a scroll node at all.
+        let mut dom = Dom::create_body()
+            .with_css("width: 300px; height: 300px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(css)
+                    .with_child(Dom::create_div().with_css("width: 400px; height: 400px;")),
+            );
+        let styled_dom = StyledDom::create_from_dom(dom.clone());
+        let _ = &mut dom;
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "overscroll_behavior",
+            "setup": { "window_width": 300, "window_height": 300, "dpi": 96 },
+            "steps": [ { "op": "wait_frame" } ]
+        }))
+        .expect("scenario json");
+
+        let (_r, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let states = runner
+            .layout_window
+            .scroll_manager
+            .get_scroll_states_for_dom(DomId::ROOT_ID);
+        let node = *states
+            .keys()
+            .next()
+            .expect("the overflowing box must register as a scroll node");
+        let st = runner
+            .layout_window
+            .scroll_manager
+            .get_scroll_state(DomId::ROOT_ID, node)
+            .expect("a registered node has state");
+        (st.overscroll_behavior_x, st.overscroll_behavior_y)
+    }
+
+    #[test]
+    fn overscroll_behavior_reaches_the_scroll_manager() {
+        use azul_css::props::style::scrollbar::OverscrollBehavior;
+        const BOX: &str = "width: 100px; height: 100px; overflow: auto;";
+
+        // Absent => the CSS initial value.
+        let (x, y) = overscroll_behavior_for(BOX);
+        assert_eq!(x, OverscrollBehavior::Auto, "default x");
+        assert_eq!(y, OverscrollBehavior::Auto, "default y");
+
+        // The SHORTHAND sets both axes.
+        let (x, y) = overscroll_behavior_for(&format!(
+            "{BOX} overscroll-behavior: contain;"
+        ));
+        assert_eq!(x, OverscrollBehavior::Contain, "shorthand must set x");
+        assert_eq!(y, OverscrollBehavior::Contain, "shorthand must set y");
+
+        // The LONGHANDS are independent.
+        let (x, y) = overscroll_behavior_for(&format!(
+            "{BOX} overscroll-behavior-x: none; overscroll-behavior-y: contain;"
+        ));
+        assert_eq!(x, OverscrollBehavior::None, "longhand x");
+        assert_eq!(y, OverscrollBehavior::Contain, "longhand y");
+    }
+
     /// The horizontal caret-reveal regression: typing past the right edge of a
     /// single-line `TextInput` must SCROLL the field so the caret stays visible.
     ///

@@ -410,6 +410,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::ScrollbarWidth => {
                 CssProperty::ScrollbarWidth(CssPropertyValue::$content_type)
             }
+            CssPropertyType::OverscrollBehaviorX => {
+                CssProperty::OverscrollBehaviorX(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::OverscrollBehaviorY => {
+                CssProperty::OverscrollBehaviorY(CssPropertyValue::$content_type)
+            }
             CssPropertyType::ScrollbarColor => {
                 CssProperty::ScrollbarColor(CssPropertyValue::$content_type)
             }

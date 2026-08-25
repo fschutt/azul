@@ -3380,10 +3380,96 @@ mod autotest_generated {
              drop used to freeze it): {y_before} -> {y_after}"
         );
         // X stayed in its band — the Y deltas did not throw it off the edge.
+        // (Correct: momentum is still PUSHING into the edge every tick, so the
+        // band is being held stretched. The interesting case is what happens
+        // when it stops being pushed — below.)
+        let x_held = offset_of(&lw, 1).x;
+        assert!(x_held > 100.5, "X stays in its rubber band: {x_held}");
+
+        // ── The band must RELEASE once nothing pushes it ────────────────────
+        //
+        // Y keeps flinging, X gets a zero delta. Nothing is holding X out any
+        // more, so its spring must pull it back toward the edge (100.0).
+        //
+        // ⚠ THIS IS EXPECTED TO FAIL until the per-axis rewrite lands, and it
+        // is meant to. `pending_trackpad_positions.insert` runs for EVERY
+        // trackpad/momentum event (scroll_timer.rs ~392), that key lands in
+        // `moved_by_finger_this_tick` (~574) and the integration loop
+        // `continue`s (~578) — so the spring is frozen for the WHOLE macOS
+        // momentum tail, which runs 1-2 s after the fingers lift. The bounce
+        // then plays only after the tail ends, which is what the user sees as
+        // "the bounces are queued and play one after another".
+        //
+        // A red test that states the correct behaviour is worth more than a
+        // green one that pins the defect (USER ruling 2026-08-25). The old
+        // version of this test stopped at `x_held` and therefore certified the
+        // freeze as intended.
+        for _ in 0..6 {
+            queue.push(input_dev(
+                1,
+                (0.0, 15.0),
+                ScrollInputSource::TrackpadMomentum,
+                ScrollInputDevice::Touchpad,
+            ));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        let x_released = offset_of(&lw, 1).x;
         assert!(
-            offset_of(&lw, 1).x > 100.5,
-            "X stays in its rubber band: {}",
-            offset_of(&lw, 1).x
+            x_released < x_held - 0.5,
+            "X must spring back toward its edge once momentum stops pushing it \
+             (the band is frozen for the whole momentum tail): {x_held} -> {x_released}",
+        );
+    }
+
+    /// A SECOND `TrackpadEnd` arriving during a live bounce must not restart it.
+    ///
+    /// macOS delivers 2-3 `TrackpadEnd`s for one flick — `phase Ended`,
+    /// `momentumPhase Ended` and, when a finger lands during momentum,
+    /// `momentumPhase Cancelled` all map to the same source
+    /// (`shell2/macos/events.rs`). The arm at the top of this file only
+    /// preserves an in-flight spring's velocity while `is_rubber_banding` is
+    /// still set; once the spring gets within 0.5 px the flag is CLEARED, and a
+    /// late End then re-arms the band FROM REST for another full
+    /// `bounce_back_duration_ms`. That is the user-visible "the bounces are
+    /// queued and play one after another".
+    ///
+    /// The assertion is deliberately about SETTLING, not about internals: after
+    /// a bounce has essentially finished, one more End must not put the offset
+    /// back out past the edge.
+    #[test]
+    fn a_late_trackpad_end_does_not_restart_a_finished_bounce() {
+        let physics = ScrollPhysics::macos();
+        let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
+
+        // Stretch past the edge, then release.
+        for _ in 0..19 {
+            queue.push(finger(10.0));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        queue.push(lift());
+
+        // Let the bounce run to (near) rest.
+        for _ in 0..60 {
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        let settled = offset_of(&lw, 1).y - 100.0;
+        assert!(
+            settled.abs() < 0.5,
+            "precondition: the first bounce should have landed: {settled}",
+        );
+
+        // The trailing End of the SAME gesture. Nothing has moved since, so
+        // there is nothing to bounce.
+        queue.push(lift());
+        let mut worst: f32 = 0.0;
+        for _ in 0..30 {
+            let _ = closed_loop_tick(&mut lw, &data);
+            worst = worst.max((offset_of(&lw, 1).y - 100.0).abs());
+        }
+        assert!(
+            worst < 0.5,
+            "a trailing TrackpadEnd re-armed the band and bounced again \
+             (max overshoot {worst} px after the gesture had already settled)",
         );
     }
 
