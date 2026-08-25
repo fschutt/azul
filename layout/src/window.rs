@@ -80,6 +80,7 @@ use crate::{
     },
     managers::{
         gpu_state::GpuStateManager,
+        selection::ClipboardExtract,
         virtual_view::VirtualViewManager,
         scroll_state::ScrollManager,
     },
@@ -15333,10 +15334,15 @@ impl LayoutWindow {
     ///
     /// This method extracts both plain text and styled text from the selection ranges.
     /// It iterates through all selected text, extracts the actual characters, and
-    /// preserves styling information from the `ShapedGlyph`'s `StyleProperties`.
+    /// preserves styling information from each source `StyledRun`'s `StyleProperties`.
     ///
     /// This is NOT reading from the system clipboard - use `clipboard_manager.get_paste_content()`
     /// for that. This extracts content FROM the selection TO be copied.
+    ///
+    /// The styled runs are what the platform clipboard transports fan out as
+    /// RTF and HTML (see `dll/src/desktop/shell2/common/clipboard.rs`), so a
+    /// copy out of azul pastes into Word or LibreOffice with its formatting
+    /// intact rather than as a flat string.
     ///
     /// ## Arguments
     /// * `dom_id` - The DOM to extract selection from
@@ -15348,7 +15354,6 @@ impl LayoutWindow {
         &self,
         dom_id: &DomId,
     ) -> Option<crate::managers::selection::ClipboardContent> {
-        use crate::managers::selection::ClipboardContent;
         use crate::text3::edit::cursor_byte_offset_in_run;
 
         // Cross-block selection: join the anchor block's selected tail, the
@@ -15363,10 +15368,15 @@ impl LayoutWindow {
                     .filter_map(|(n, r)| r.first().map(|r| (*n, *r)))
                     .collect();
                 nodes.sort_by_key(|(n, _)| n.index());
-                let mut parts: Vec<String> = Vec::with_capacity(nodes.len());
-                for (node, range) in &nodes {
+                let mut acc = ClipboardExtract::default();
+                for (block, (node, range)) in nodes.iter().enumerate() {
                     let content = self.get_text_before_textinput(*dom_id, *node);
-                    let mut text = String::new();
+                    // The paragraph joiner, carrying the style of the text it
+                    // follows — a `\n` of its own would be a run with no
+                    // formatting between two that have it.
+                    if block > 0 {
+                        acc.push_inheriting("\n");
+                    }
                     let sr = range.start.cluster_id.source_run as usize;
                     let er = range.end.cluster_id.source_run as usize;
                     for (i, c) in content.iter().enumerate() {
@@ -15389,18 +15399,13 @@ impl LayoutWindow {
                                 run.text.len()
                             };
                             if lo < hi {
-                                text.push_str(&run.text[lo..hi]);
+                                acc.push(&run.text[lo..hi], &run.style);
                             }
                         }
                     }
-                    parts.push(text);
                 }
-                let plain = parts.join("\n");
-                if !plain.is_empty() {
-                    return Some(ClipboardContent {
-                        plain_text: plain.into(),
-                        styled_runs: crate::managers::selection::StyledTextRunVec::from_const_slice(&[]),
-                    });
+                if let Some(content) = acc.finish() {
+                    return Some(content);
                 }
             }
         }
@@ -15424,7 +15429,7 @@ impl LayoutWindow {
         // select-all whose end cursor is Trailing on the last cluster copies the
         // full text — matching the affinity fix in delete_range.
         let content = self.get_text_before_textinput(*dom_id, node_id);
-        let mut plain = String::new();
+        let mut acc = ClipboardExtract::default();
         for r in &ranges {
             let sr = r.start.cluster_id.source_run as usize;
             let er = r.end.cluster_id.source_run as usize;
@@ -15434,12 +15439,14 @@ impl LayoutWindow {
                     let b = cursor_byte_offset_in_run(&run.text, &r.end);
                     let (lo, hi) = (a.min(b), a.max(b));
                     if hi <= run.text.len() && lo < hi {
-                        plain.push_str(&run.text[lo..hi]);
+                        acc.push(&run.text[lo..hi], &run.style);
                     }
                 }
             } else {
                 // Multi-run: walk runs in document order, taking the tail of the
-                // first run, all middle runs, and the head of the last.
+                // first run, all middle runs, and the head of the last. This is
+                // the branch that carries real formatting — one run per
+                // differently-styled span.
                 let (first_idx, first_cur, last_idx, last_cur) = if sr <= er {
                     (sr, r.start, er, r.end)
                 } else {
@@ -15449,30 +15456,19 @@ impl LayoutWindow {
                     if let Some(InlineContent::Text(run)) = content.get(ri) {
                         if ri == first_idx {
                             let off = cursor_byte_offset_in_run(&run.text, &first_cur).min(run.text.len());
-                            plain.push_str(&run.text[off..]);
+                            acc.push(&run.text[off..], &run.style);
                         } else if ri == last_idx {
                             let off = cursor_byte_offset_in_run(&run.text, &last_cur).min(run.text.len());
-                            plain.push_str(&run.text[..off]);
+                            acc.push(&run.text[..off], &run.style);
                         } else {
-                            plain.push_str(&run.text);
+                            acc.push(&run.text, &run.style);
                         }
                     }
                 }
             }
         }
 
-        if plain.is_empty() {
-            return None;
-        }
-        Some(ClipboardContent {
-            plain_text: plain.into(),
-            // TODO(superplan): styled_runs left empty — extracting per-run style
-            // (font/size/color/bold/italic from the styled DOM) is only useful once
-            // the platform clipboard backends gain an HTML/RTF format and ClipboardContent::to_html
-            // is wired into the copy path (see layout/src/managers/selection.rs docs).
-            // Plain-text copy is fully wired.
-            styled_runs: Vec::new().into(),
-        })
+        acc.finish()
     }
 
     /// Check if a scrolled node is a `VirtualView` that needs re-invocation. If so,

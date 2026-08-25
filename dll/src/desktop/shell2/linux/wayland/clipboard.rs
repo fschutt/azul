@@ -11,40 +11,10 @@
 //! `sync_clipboard` is called from `wayland/mod.rs` after user callbacks
 //! to commit pending clipboard changes to the system clipboard.
 
-use azul_layout::managers::clipboard::ClipboardManager;
 use rich_clipboard::{ClipboardPayload, Flavor, Platform};
 
 use super::super::super::common::debug_server::LogCategory;
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
-
-/// Synchronize clipboard manager content to Wayland system clipboard
-///
-/// If the clipboard manager has pending copy content, it's written to
-/// the Wayland clipboard.
-///
-/// TODO(superplan): this flush path is now redundant — the copy/cut/paste
-/// shortcuts and the `SetCopyContent`/`SetCutContent` callbacks both write to
-/// the OS clipboard directly through `common/event.rs`
-/// (`set_system_clipboard` → `write_to_clipboard`), so no run loop calls
-/// `sync_clipboard`. The macOS + Windows backends already dropped their dead
-/// copies; this one (plus the `wayland/mod.rs` + `linux/mod.rs` `sync_clipboard`
-/// wrappers, owned by another group) should be removed in a follow-up.
-pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
-    // Check if there's pending content to copy
-    if let Some(content) = clipboard_manager.get_copy_content() {
-        // Write to Wayland clipboard
-        if let Err(e) = write_to_clipboard(&content.plain_text) {
-            log_error!(
-                LogCategory::Resources,
-                "[Wayland Clipboard] Failed to write: {:?}",
-                e
-            );
-        }
-    }
-
-    // Clear the clipboard manager after sync
-    clipboard_manager.clear();
-}
+use crate::{log_debug, log_warn};
 
 /// Read content from Wayland system clipboard
 ///

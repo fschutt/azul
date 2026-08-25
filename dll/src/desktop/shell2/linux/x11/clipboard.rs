@@ -1,7 +1,7 @@
 //! X11 clipboard integration using x11-clipboard crate
 //!
-//! This module provides clipboard synchronization between azul-layout's ClipboardManager
-//! and the X11 system clipboard (both PRIMARY and CLIPBOARD selections).
+//! Reads and writes both the CLIPBOARD (Ctrl+C/V) and PRIMARY (select /
+//! middle-click) selections, on a worker thread — see [`worker`].
 //!
 //! # Multi-flavor reads, and why they are probes rather than a `TARGETS` query
 //!
@@ -49,13 +49,12 @@ use std::sync::mpsc::{self, Sender, SyncSender};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
-use azul_layout::managers::clipboard::ClipboardManager;
 use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
 use x11_clipboard::Clipboard;
 
 use super::super::super::common::clipboard::MAX_FLAVOR_BYTES;
 use super::super::super::common::debug_server::LogCategory;
-use crate::{log_error, log_warn};
+use crate::log_warn;
 
 /// The selection targets a payload read probes for, richest first.
 ///
@@ -109,31 +108,6 @@ fn clipboard() -> Option<MutexGuard<'static, Option<Clipboard>>> {
     static CLIPBOARD: OnceLock<Mutex<Option<Clipboard>>> = OnceLock::new();
     let m = CLIPBOARD.get_or_init(|| Mutex::new(Clipboard::new().ok()));
     m.lock().ok()
-}
-
-/// Synchronize clipboard manager content to X11 system clipboard
-///
-/// If the clipboard manager has pending copy content, it's written to
-/// both the CLIPBOARD and PRIMARY X11 selections.
-///
-/// TODO(superplan): this flush path is now redundant — the copy/cut/paste
-/// shortcuts and the `SetCopyContent`/`SetCutContent` callbacks both write to
-/// the OS clipboard directly through `common/event.rs`
-/// (`set_system_clipboard` → `write_to_clipboard`), so no run loop calls
-/// `sync_clipboard`. The macOS + Windows backends already dropped their dead
-/// copies; this one (plus the `x11/mod.rs` + `linux/mod.rs` `sync_clipboard`
-/// wrappers, owned by another group) should be removed in a follow-up.
-pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
-    // Check if there's pending content to copy
-    if let Some(content) = clipboard_manager.get_copy_content() {
-        // Write to X11 clipboard
-        if let Err(e) = write_to_clipboard(&content.plain_text) {
-            log_error!(LogCategory::Resources, "Failed to sync clipboard to X11: {e}");
-        }
-    }
-
-    // Clear the clipboard manager after sync
-    clipboard_manager.clear();
 }
 
 /// The text this process last put on the clipboard.

@@ -3,22 +3,20 @@
 //! Contains `ClipboardContent` and `StyledTextRun`, used by clipboard and
 //! changeset modules.
 //!
-//! **Rich-text status:** the OS half is wired. A paste populates
-//! `styled_runs` whenever the source offered a styled flavor — the platform
-//! transports in `dll/src/desktop/shell2/*/clipboard.rs` hand every flavor
-//! the source published to `rich-clipboard`, whose decode policy prefers RTF,
-//! then HTML, then plain text, and `shell2/common/clipboard.rs` converts the
-//! result into this type. A copy fans back out the same way, so styled text
-//! reaches other applications as RTF *and* HTML *and* plain text at once
-//! (macOS, Windows and native Wayland; X11's selection owner can only serve
-//! one target, so it publishes plain text — see `x11/clipboard.rs`).
+//! **Rich-text status: wired end to end.** A paste populates `styled_runs`
+//! whenever the source offered a styled flavor — the platform transports in
+//! `dll/src/desktop/shell2/*/clipboard.rs` hand every flavor the source
+//! published to `rich-clipboard`, whose decode policy prefers RTF, then HTML,
+//! then plain text, and `shell2/common/clipboard.rs` converts the result into
+//! this type. A copy goes the other way: [`ClipboardExtract`] pulls per-run
+//! formatting off each source `StyledRun` as the selection is walked, and the
+//! transports fan that out as RTF *and* HTML *and* plain text at once — so a
+//! copy out of azul pastes into Word or LibreOffice formatted.
 //!
-//! What is still empty is the COPY-side extraction:
-//! `window.rs::get_selected_content_for_clipboard` builds `styled_runs` from
-//! the selection as an empty vec, because per-run style has to come out of the
-//! styled DOM and that walk does not exist yet. So azul currently *reads*
-//! styling and does not yet *produce* it — the transport underneath is ready
-//! for both.
+//! Two platforms are less capable, and both say so in their own docs: X11's
+//! selection owner can serve only one target (`x11/clipboard.rs`), so it
+//! publishes plain text; and a Wayland session with no compositor selection
+//! falls back through XWayland to that same single-target path.
 //!
 //! `to_html()` below predates all of this and is not on the clipboard path:
 //! `rich-clipboard`'s `RichText::to_html_fragment` is what actually gets
@@ -70,12 +68,165 @@ impl_option!(
     [Debug, Clone, PartialEq]
 );
 
+/// Builds a [`ClipboardContent`] from the styled runs a selection walks over.
+///
+/// Not FFI — this is the copy path's scratch buffer, and it exists so the three
+/// selection shapes (single-run, multi-run, cross-block) all produce their
+/// plain text and their styling from one place instead of the plain text
+/// twice.
+///
+/// The two invariants it maintains are the ones the OS transports depend on:
+/// `plain_text` is exactly the concatenation of the runs' text (a receiver must
+/// not get different characters depending on which flavor it picks), and
+/// adjacent runs with identical formatting are merged.
+///
+/// Merging is not cosmetic. A style run is cut at every DOM text node and every
+/// styling change, so a paragraph typed in one font can arrive as dozens of
+/// runs; emitting each one as its own `<span>` or `\b0\b` pair would produce
+/// RTF and HTML several times the size of the text for no visible difference.
+#[derive(Debug, Default)]
+pub struct ClipboardExtract {
+    /// Grown in place. Runs borrow nothing from it — they keep their own text —
+    /// but the two are appended to together, which is what keeps them equal.
+    plain: String,
+    runs: Vec<PendingRun>,
+}
+
+/// A run still being accumulated.
+///
+/// Held as a plain `String` rather than the FFI `AzString` so that merging is
+/// an append. Building an `AzString` per merge would re-copy everything
+/// accumulated so far, which on a uniformly-styled select-all — where *every*
+/// run merges into one — is quadratic in the document.
+#[derive(Debug)]
+struct PendingRun {
+    text: String,
+    style: RunStyle,
+}
+
+/// The formatting fields of a [`StyledTextRun`], without the text.
+///
+/// Comparing these is what decides a merge. `f32` equality is the derived one:
+/// a NaN size simply never merges, which costs a few extra runs in a case that
+/// cannot arise from the cascade anyway.
+#[derive(Debug, Clone, PartialEq)]
+struct RunStyle {
+    font_family: Option<String>,
+    font_size_px: f32,
+    color: azul_css::props::basic::ColorU,
+    is_bold: bool,
+    is_italic: bool,
+}
+
+impl ClipboardExtract {
+    /// Append `text`, formatted by `style`.
+    pub fn push(&mut self, text: &str, style: &crate::text3::cache::StyleProperties) {
+        if text.is_empty() {
+            return;
+        }
+        self.plain.push_str(text);
+
+        let selector = style.font_stack.first_selector();
+        let run_style = RunStyle {
+            // A direct `FontRef` (an embedded icon font) has no family name to
+            // give a receiving application, and `FontStack::first_family`'s
+            // `"<embedded-font>"` placeholder is a debugging string, not a
+            // font anyone can resolve. `None` means "inherit", which is the
+            // honest answer.
+            font_family: selector.map(|s| s.family.clone()),
+            font_size_px: style.font_size_px,
+            color: style.color,
+            // CSS `font-weight: bold` is 700; everything at or above it reads
+            // as bold to a format that only has a boolean. `FcWeight` is
+            // ordered by its CSS numeric value, so this is that comparison.
+            is_bold: selector.is_some_and(|s| s.weight >= rust_fontconfig::FcWeight::Bold),
+            // Oblique is a slanted rendering of an upright face; every
+            // clipboard format this feeds collapses it into italic.
+            is_italic: selector.is_some_and(|s| {
+                matches!(
+                    s.style,
+                    crate::text3::cache::FontStyle::Italic
+                        | crate::text3::cache::FontStyle::Oblique
+                )
+            }),
+        };
+
+        match self.runs.last_mut() {
+            Some(last) if last.style == run_style => last.text.push_str(text),
+            _ => self.runs.push(PendingRun {
+                text: String::from(text),
+                style: run_style,
+            }),
+        }
+    }
+
+    /// Append text under whatever formatting is already in effect.
+    ///
+    /// For the paragraph joiner between blocks of a cross-block selection: a
+    /// `\n` of its own would be an unformatted run wedged between two formatted
+    /// ones, which RTF and HTML both have to spell out.
+    pub fn push_inheriting(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.plain.push_str(text);
+        match self.runs.last_mut() {
+            Some(last) => last.text.push_str(text),
+            // Nothing to inherit from: the selection started with the joiner.
+            None => self.runs.push(PendingRun {
+                text: String::from(text),
+                style: RunStyle {
+                    font_family: None,
+                    font_size_px: 0.0,
+                    color: azul_css::props::basic::ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    },
+                    is_bold: false,
+                    is_italic: false,
+                },
+            }),
+        }
+    }
+
+    /// The collected content, or `None` if the selection held no text.
+    ///
+    /// This is where the FFI strings are built — once per run, not once per
+    /// merge.
+    #[must_use]
+    pub fn finish(self) -> Option<ClipboardContent> {
+        if self.plain.is_empty() {
+            return None;
+        }
+        let runs: Vec<StyledTextRun> = self
+            .runs
+            .into_iter()
+            .map(|r| StyledTextRun {
+                text: r.text.into(),
+                font_family: r.style.font_family.map(AzString::from).into(),
+                font_size_px: r.style.font_size_px,
+                color: r.style.color,
+                is_bold: r.style.is_bold,
+                is_italic: r.style.is_italic,
+            })
+            .collect();
+        Some(ClipboardContent {
+            plain_text: self.plain.into(),
+            styled_runs: runs.into(),
+        })
+    }
+}
+
 impl ClipboardContent {
     /// Convert styled runs to HTML for rich clipboard formats.
     ///
-    /// Retained consumer of the FFI-exported `styled_runs`: returns an empty
-    /// `<div></div>` until `styled_runs` is populated and the platform clipboard
-    /// backends gain an HTML format (see module docs). Kept as public API.
+    /// Public FFI API, and **not** what the clipboard publishes — that is
+    /// `rich-clipboard`'s `RichText::to_html_fragment`, which also emits the
+    /// matching RTF and the `CF_HTML` wrapper Windows needs (see module docs).
+    /// Kept for callers that want a quick HTML rendering of a
+    /// `ClipboardContent` without the rest of that stack.
     #[must_use] pub fn to_html(&self) -> String {
         use core::fmt::Write as _;
         let mut html = String::from("<div>");
@@ -451,6 +602,230 @@ mod autotest_generated {
         assert_eq!(first, second, "to_html is not deterministic");
         assert_eq!(c, before, "to_html mutated the receiver");
         assert_eq!(c.clone().to_html(), first, "clone renders differently");
+    }
+}
+
+#[cfg(test)]
+mod extract_tests {
+    use std::sync::Arc;
+
+    use azul_css::props::basic::ColorU;
+    use rust_fontconfig::FcWeight;
+
+    use super::*;
+    use crate::text3::cache::{FontSelector, FontStack, FontStyle, StyleProperties};
+
+    fn style(family: &str, weight: FcWeight, italic: bool, size_px: f32) -> StyleProperties {
+        StyleProperties {
+            font_stack: FontStack::Stack(vec![FontSelector {
+                family: family.to_string(),
+                weight,
+                style: if italic {
+                    FontStyle::Italic
+                } else {
+                    FontStyle::Normal
+                },
+                unicode_ranges: Vec::new(),
+            }]),
+            font_size_px: size_px,
+            ..StyleProperties::default()
+        }
+    }
+
+    fn plain_style() -> StyleProperties {
+        style("Helvetica", FcWeight::Normal, false, 16.0)
+    }
+
+    /// The whole point of the copy path: formatting from the source runs has to
+    /// reach `styled_runs`, because that is what the OS transports turn into
+    /// RTF and HTML. It used to be hardcoded empty.
+    ///
+    /// NEGATIVE CONTROL: make `push` always write `StyledTextRun::default()`-ish
+    /// values — the bold/size/family assertions below go red.
+    #[test]
+    fn formatting_reaches_the_styled_runs() {
+        let mut acc = ClipboardExtract::default();
+        acc.push("normal ", &plain_style());
+        acc.push("bold", &style("Georgia", FcWeight::Bold, false, 24.0));
+
+        let content = acc.finish().expect("a non-empty selection yields content");
+        assert_eq!(content.plain_text.as_str(), "normal bold");
+
+        let runs = content.styled_runs.as_slice();
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].text.as_str(), "normal ");
+        assert!(!runs[0].is_bold);
+        assert_eq!(runs[0].font_family.as_ref().map(|f| f.as_str()), Some("Helvetica"));
+        assert_eq!(runs[1].text.as_str(), "bold");
+        assert!(runs[1].is_bold);
+        assert_eq!(runs[1].font_size_px, 24.0);
+        assert_eq!(runs[1].font_family.as_ref().map(|f| f.as_str()), Some("Georgia"));
+    }
+
+    /// `plain_text` must be exactly the concatenation of the runs. A receiver
+    /// picking the plain flavor and one picking RTF must not end up with
+    /// different characters — the seam's encoder drops the rich flavor outright
+    /// when these disagree, so a mismatch silently costs all the formatting.
+    ///
+    /// NEGATIVE CONTROL: push to `self.plain` without pushing a run (or the
+    /// reverse) in either `push` or `push_inheriting`.
+    #[test]
+    fn plain_text_is_exactly_the_concatenated_runs() {
+        let mut acc = ClipboardExtract::default();
+        acc.push("one", &plain_style());
+        acc.push_inheriting("\n");
+        acc.push("two", &style("Georgia", FcWeight::Bold, false, 16.0));
+        acc.push_inheriting("\n");
+        acc.push("three", &plain_style());
+
+        let content = acc.finish().expect("content");
+        let joined: String = content
+            .styled_runs
+            .as_slice()
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect();
+        assert_eq!(content.plain_text.as_str(), joined);
+        assert_eq!(content.plain_text.as_str(), "one\ntwo\nthree");
+    }
+
+    /// A style run is cut at every DOM text node and every styling change, so
+    /// identically-formatted neighbours must merge — otherwise a paragraph in
+    /// one font emits dozens of `<span>`s and `\b0\b` pairs for no visible
+    /// difference.
+    ///
+    /// NEGATIVE CONTROL: drop the `same_formatting` arm from `push`.
+    #[test]
+    fn identically_formatted_neighbours_merge() {
+        let mut acc = ClipboardExtract::default();
+        for word in ["a", "b", "c", "d"] {
+            acc.push(word, &plain_style());
+        }
+        let content = acc.finish().expect("content");
+        assert_eq!(
+            content.styled_runs.as_slice().len(),
+            1,
+            "four identically-styled pushes must collapse to one run"
+        );
+        assert_eq!(content.styled_runs.as_slice()[0].text.as_str(), "abcd");
+        assert_eq!(content.plain_text.as_str(), "abcd");
+    }
+
+    /// The paragraph joiner in a cross-block copy inherits the formatting it
+    /// follows, so it does not split a styled run in three.
+    ///
+    /// NEGATIVE CONTROL: make `push_inheriting` push a default-styled run.
+    #[test]
+    fn the_paragraph_joiner_does_not_split_a_run() {
+        let mut acc = ClipboardExtract::default();
+        let bold = style("Georgia", FcWeight::Bold, false, 16.0);
+        acc.push("first", &bold);
+        acc.push_inheriting("\n");
+        acc.push("second", &bold);
+
+        let content = acc.finish().expect("content");
+        let runs = content.styled_runs.as_slice();
+        assert_eq!(runs.len(), 1, "one style spans the whole thing");
+        assert_eq!(runs[0].text.as_str(), "first\nsecond");
+        assert!(runs[0].is_bold);
+    }
+
+    /// Weight is a scale and the clipboard formats have a boolean. CSS's
+    /// `bold` is 700, so that is the cut.
+    #[test]
+    fn weight_maps_to_bold_at_seven_hundred() {
+        for (weight, expect_bold) in [
+            (FcWeight::Light, false),
+            (FcWeight::Normal, false),
+            (FcWeight::Medium, false),
+            (FcWeight::SemiBold, false),
+            (FcWeight::Bold, true),
+            (FcWeight::Black, true),
+        ] {
+            let mut acc = ClipboardExtract::default();
+            acc.push("x", &style("Helvetica", weight, false, 16.0));
+            let content = acc.finish().expect("content");
+            assert_eq!(
+                content.styled_runs.as_slice()[0].is_bold,
+                expect_bold,
+                "{weight:?} mapped to the wrong boldness"
+            );
+        }
+    }
+
+    /// Oblique is a slanted upright face; every format this feeds has only
+    /// "italic", so it must not be silently dropped.
+    #[test]
+    fn oblique_is_carried_as_italic() {
+        let mut acc = ClipboardExtract::default();
+        let mut oblique = plain_style();
+        oblique.font_stack = FontStack::Stack(vec![FontSelector {
+            family: "Helvetica".to_string(),
+            weight: FcWeight::Normal,
+            style: FontStyle::Oblique,
+            unicode_ranges: Vec::new(),
+        }]);
+        acc.push("slanted", &oblique);
+        let content = acc.finish().expect("content");
+        assert!(content.styled_runs.as_slice()[0].is_italic);
+    }
+
+    /// An embedded `FontRef` has no family name a receiving application could
+    /// resolve, so it must inherit rather than be handed the internal
+    /// `"<embedded-font>"` debugging placeholder as if it were a font.
+    ///
+    /// NEGATIVE CONTROL: use `FontStack::first_family()` in `push`.
+    #[test]
+    fn an_embedded_font_has_no_family_to_publish() {
+        let mut acc = ClipboardExtract::default();
+        let mut embedded = plain_style();
+        // `FontStack::Ref` needs a real FontRef; `first_selector()` returning
+        // None is the property under test, and `Stack(vec![])` reaches the
+        // same branch without constructing one.
+        embedded.font_stack = FontStack::Stack(Vec::new());
+        acc.push("icon", &embedded);
+
+        let content = acc.finish().expect("content");
+        let run = &content.styled_runs.as_slice()[0];
+        assert!(run.font_family.as_ref().is_none());
+        assert!(!run.is_bold && !run.is_italic);
+    }
+
+    /// A uniformly-styled select-all merges *every* run into one, so the merge
+    /// has to be an append. Rebuilding the run's string each time — which is
+    /// what constructing the FFI `AzString` per merge would do — is quadratic
+    /// in the document, and Ctrl+A Ctrl+C is exactly when it bites.
+    ///
+    /// This asserts the result rather than the timing; the guard against a
+    /// regression is that `PendingRun::text` is a `String` and `finish` is the
+    /// only place `AzString`s are built.
+    #[test]
+    fn a_uniformly_styled_document_collapses_to_one_run() {
+        let mut acc = ClipboardExtract::default();
+        let s = plain_style();
+        for i in 0..2_000 {
+            acc.push("paragraph text ", &s);
+            if i + 1 < 2_000 {
+                acc.push_inheriting("\n");
+            }
+        }
+        let content = acc.finish().expect("content");
+        assert_eq!(content.styled_runs.as_slice().len(), 1);
+        assert_eq!(
+            content.styled_runs.as_slice()[0].text.as_str().len(),
+            content.plain_text.as_str().len()
+        );
+    }
+
+    /// An empty selection is not a copy. Pushing nothing must not produce a
+    /// `ClipboardContent` that would clear the user's clipboard.
+    #[test]
+    fn an_empty_selection_yields_nothing() {
+        assert!(ClipboardExtract::default().finish().is_none());
+        let mut acc = ClipboardExtract::default();
+        acc.push("", &plain_style());
+        acc.push_inheriting("");
+        assert!(acc.finish().is_none());
     }
 }
 

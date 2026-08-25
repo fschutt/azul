@@ -139,13 +139,49 @@ lower bound is **not** reachable through `x11-clipboard`: it reads the value
 only to `reserve` the buffer and never reports it, so the X11 guard is a
 post-hoc length check instead of a pre-read rejection.
 
+## Copy-side style extraction (the follow-up, now done)
+
+`get_selected_content_for_clipboard` in `layout/src/window.rs` used to build
+`styled_runs` empty, so azul read styling but never produced it. It now pulls
+per-run formatting off each source `StyledRun`'s `StyleProperties` as the
+selection is walked, through a new `ClipboardExtract` accumulator in
+`layout/src/managers/selection.rs`.
+
+All three selection shapes — single-run, multi-run and cross-block — go through
+that one accumulator, which was half the point: they each built the plain text
+separately before, so only one of them would have grown styling by accident.
+
+The mapping is `font_stack.first_selector()` → family, `weight >= 700` → bold
+(CSS's own cut), `Italic | Oblique` → italic, plus `font_size_px` and `color`
+straight through. Two deliberate choices:
+
+- An embedded `FontRef` publishes **no** family rather than the internal
+  `"<embedded-font>"` placeholder, which is a debugging string no receiving
+  application could resolve. `None` means inherit, which is the honest answer.
+- The cross-block paragraph joiner (`\n`) **inherits** the formatting it
+  follows, so it does not split one styled run into three.
+
+Adjacent runs with identical formatting are merged. That is not cosmetic: a
+style run is cut at every DOM text node and every styling change, so a
+paragraph typed in one font arrives as dozens of runs, and emitting each as its
+own `<span>` would produce RTF and HTML several times the size of the text.
+
+The invariant the seam depends on is that `plain_text` is exactly the
+concatenation of the runs' text — `content_to_rich_item` drops the rich flavor
+outright when they disagree, so a mismatch silently costs all the formatting.
+There is a test named for that claim.
+
+## Also removed: the dead `sync_clipboard` chain
+
+`LinuxWindow::sync_clipboard` → `{x11,wayland}/mod.rs::sync_clipboard` →
+`clipboard::sync_clipboard` was a four-level chain with no caller, left behind
+when the copy/cut/paste shortcuts started writing to the OS clipboard directly.
+Both leaf functions carried a TODO asking for exactly this removal. It is gone:
+it is not in api.json, so nothing outside the crate could reach it, and keeping
+it meant a second, diverging path to the clipboard that still compiled.
+
 ## Not done
 
-- **Copy-side style extraction.** `get_selected_content_for_clipboard` in
-  `layout/src/window.rs` still builds `styled_runs` empty, so azul *reads*
-  styling but does not yet *produce* it. The transport underneath is ready for
-  both; what is missing is the walk that pulls per-run style out of the styled
-  DOM. This is the single highest-value follow-up.
 - **Images, file lists and links as `ClipboardContent`.** `RichItem::Image` /
   `Files` / `Link` decode correctly and are then dropped, because
   `ClipboardContent` has no representation for them. Extending that FFI type is
@@ -154,5 +190,7 @@ post-hoc length check instead of a pre-read rejection.
   in azul through a separate path; unifying the two would let a drop deliver a
   payload.
 - **`CFSTR_FILECONTENTS`** (virtual file contents as an `IStream`).
-- **Running any of it.** macOS compiles and its unit tests pass, but nothing
-  here has been exercised against a live clipboard on any platform.
+- **Running any of it.** Everything compiles on macOS, Windows and Linux and the
+  unit tests pass, but nothing here has been exercised against a live clipboard
+  on any platform. That is what the verification prompt handed off with this
+  branch is for.

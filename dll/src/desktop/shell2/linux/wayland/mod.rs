@@ -1148,12 +1148,6 @@ impl WaylandWindow {
         }
     }
 
-    pub fn sync_clipboard(
-        &mut self,
-        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
-    ) {
-        clipboard::sync_clipboard(clipboard_manager);
-    }
 }
 
 // PlatformWindow Trait Implementation (Cross-platform V2 Event System)
