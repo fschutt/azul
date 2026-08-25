@@ -420,14 +420,21 @@ extern "C" fn auto_scroll_timer_callback(
         }
     };
 
-    // `container_rect.origin` is STATIC layout geometry (see
-    // `managers::scroll_registration`), but `mouse_position` arrives in WINDOW
-    // space. They agree only while no ancestor of this container is itself
-    // scrolled — so for a NESTED scroller the edge tests below ran against a
-    // box that is not where the container appears, and it autoscrolled from
-    // the wrong edges. Subtract the scroll of every ancestor ABOVE it; its own
-    // offset does not move its box. `find_scroll_parent` (STRICT ancestors) is
-    // the right walker here, unlike the target lookup above.
+    // `container_rect` is the SCROLLPORT (the padding box) in STATIC layout
+    // coordinates — ONE box for origin and size, published by
+    // `managers::scroll_registration` and read identically by
+    // `scroll_selection_into_view` and `scroll_into_view`. It used to be a
+    // padding-box size at a border-box origin, so the edge tests below ran
+    // against a rectangle that is not any CSS box and triggered a border-width
+    // early on the top and left edges.
+    //
+    // `mouse_position` arrives in WINDOW space, and the two agree only while no
+    // ancestor of this container is itself scrolled — so for a NESTED scroller
+    // the edge tests ran against a box that is not where the container appears,
+    // and it autoscrolled from the wrong edges. Subtract the scroll of every
+    // ancestor ABOVE it; its own offset does not move its box.
+    // `find_scroll_parent` (STRICT ancestors) is the right walker here, unlike
+    // the target lookup above.
     let mut ancestor_scroll = azul_core::geom::LogicalPosition::zero();
     let mut walk = scroll_parent;
     for _ in 0..AUTO_SCROLL_ANCESTOR_WALK_LIMIT {

@@ -9775,7 +9775,23 @@ impl LayoutWindow {
             .materialized_inline_layout_for_node(layout_idx.index())?;
         // `pos_get` (not a raw index) so the POSITION_UNSET sentinel reads as
         // "not laid out yet" instead of placing the caret at f32::MIN.
-        let origin = solver3::pos_get(&layout_result.calculated_positions, layout_idx.index())?;
+        //
+        // The CONTENT-box origin, because that is where the inline layout —
+        // and therefore the caret rect this origin is added to — actually
+        // starts. `calculated_positions` is the BORDER box; the display-list
+        // builder paints the caret at `content_box_offset + caret_local`
+        // (`BorderBoxRect::to_content_box`), so returning the raw border-box
+        // origin meant the MEASURED caret sat padding+border above and left of
+        // the PAINTED one. That skew fed the caret reveal and the IME
+        // candidate-window placement, and was invisible only because the
+        // TextInput's value <p> has neither padding nor border.
+        let border_box_origin =
+            solver3::pos_get(&layout_result.calculated_positions, layout_idx.index())?;
+        let inset = layout_result.layout_tree.content_inset(layout_idx);
+        let origin = LogicalPosition::new(
+            border_box_origin.x + inset.left,
+            border_box_origin.y + inset.top,
+        );
         Some((inline_layout, origin))
     }
 
@@ -10306,12 +10322,22 @@ impl LayoutWindow {
             return false;
         };
 
-        let container_size = scrollable_layout_node.used_size.unwrap_or_default();
-
-        let container_rect = LogicalRect {
+        // THE SCROLLPORT IS THE PADDING BOX (CSS Overflow 3 §2: "scrolling
+        // occurs within the padding box"), so ORIGIN AND SIZE both come off
+        // the padding box. This used to take both off the BORDER box while
+        // `register_scroll_nodes` published a padding-box SIZE with a
+        // border-box ORIGIN — three consumers, three different boxes, and the
+        // clamp range (`max_scroll = content - container`) was computed against
+        // yet another one. `container_rect.size` here also decides the
+        // jump-vs-track threshold below, so the disagreement was not confined
+        // to the reveal.
+        let border_box = solver3::display_list::BorderBoxRect(LogicalRect {
             origin: container_pos,
-            size: container_size,
-        };
+            size: scrollable_layout_node.used_size.unwrap_or_default(),
+        });
+        let container_rect = border_box
+            .to_padding_box(&scrollable_layout_node.box_props.unpack().border)
+            .rect();
 
         // Get current scroll state
         let Some(scroll_state) = self
@@ -18529,6 +18555,86 @@ mod autotest_generated {
             .get(),
             pos(3.0, 4.0),
         );
+    }
+
+    // ==================================================================
+    // The scrollport is the PADDING box — one box, three consumers
+    // ==================================================================
+
+    /// THE CLASS (user, 2026-08-25: "the caret gets cut off again, because of
+    /// the padding"). A padded, bordered editable that is ALSO its own scroll
+    /// box — which is exactly the `TextArea` (4px padding + 1px border on the
+    /// contenteditable, `overflow-y: auto`) — used to be measured against
+    /// three different rectangles:
+    ///
+    ///   * the caret rect was anchored on the BORDER-box origin, though the
+    ///     display list paints it at the CONTENT-box origin (5px lower here);
+    ///   * `scroll_selection_into_view` built `visible_area` from `used_size`,
+    ///     the BORDER box (2px taller than the scrollport);
+    ///   * `register_scroll_nodes` published a PADDING-box size at a
+    ///     BORDER-box origin — a rectangle that is not any CSS box at all.
+    ///
+    /// Net effect: the reveal believed the caret was comfortably inside while
+    /// it was already past the bottom of the scrollport, and scrolled nothing.
+    #[test]
+    fn the_caret_reveal_measures_against_the_padding_box_scrollport() {
+        use crate::solver3::{display_list::BorderBoxRect, geometry::EdgeSizes};
+
+        // TextArea-shaped: border box at (10, 20), 200x100, padding 4, border 1.
+        let border_box = BorderBoxRect(rect(10.0, 20.0, 200.0, 100.0));
+        let edge = |v: f32| EdgeSizes { top: v, right: v, bottom: v, left: v };
+        let scrollport = border_box.to_padding_box(&edge(1.0)).rect();
+        assert_eq!(scrollport, rect(11.0, 21.0, 198.0, 98.0), "padding box");
+        let content_box = border_box.to_content_box(&edge(4.0), &edge(1.0)).rect();
+        assert_eq!(content_box.origin, pos(15.0, 25.0), "content box origin");
+
+        // A caret 83px down the inline layout, 12px tall, at scroll 0. It is
+        // painted at content_origin.y + 83 = 108 and ends at 120 — ONE PIXEL
+        // past the scrollport's bottom edge (21 + 98 = 119). It is cut off.
+        let caret = LogicalRect::new(pos(content_box.origin.x, content_box.origin.y + 83.0),
+                                     size(1.0, 12.0));
+        let delta = calculate_instant_scroll_delta(caret, scrollport);
+        assert!(
+            delta.y > 0.0,
+            "a caret past the scrollport's bottom must reveal, got {delta:?}"
+        );
+
+        // The pre-fix pair: caret anchored on the border box (5px too high)
+        // against a border-box visible area (2px too tall). Both errors point
+        // the same way, so the reveal saw a caret comfortably inside and did
+        // nothing — which is the cut-off caret the user sees.
+        let old_caret = LogicalRect::new(pos(10.0, 20.0 + 83.0), size(1.0, 12.0));
+        let old_visible = rect(10.0, 20.0, 200.0, 100.0);
+        assert_eq!(
+            calculate_instant_scroll_delta(old_caret, old_visible).y,
+            0.0,
+            "this is the bug: the old measurement thought the caret was visible"
+        );
+    }
+
+    /// The scrollport's ORIGIN and SIZE must come off the SAME box. The old
+    /// `register_scroll_nodes` mixed a padding-box size with a border-box
+    /// origin, and the auto-scroll timer compared a raw window-space pointer
+    /// against that hybrid.
+    #[test]
+    fn the_scrollport_origin_and_size_come_off_one_box() {
+        use crate::solver3::{display_list::BorderBoxRect, geometry::EdgeSizes};
+
+        let border = EdgeSizes { top: 1.0, right: 3.0, bottom: 1.0, left: 3.0 };
+        let bb = BorderBoxRect(rect(100.0, 50.0, 200.0, 80.0));
+        let port = bb.to_padding_box(&border).rect();
+        assert_eq!(port.origin, pos(103.0, 51.0));
+        assert_eq!(port.size, size(194.0, 78.0));
+        // The hybrid the old code published: padding-box size, border-box
+        // origin. Its bottom-right corner is 3px/1px past the real scrollport.
+        let hybrid = LogicalRect::new(bb.rect().origin, port.size);
+        assert_ne!(hybrid.origin, port.origin);
+        assert_eq!(hybrid.max_x() - port.max_x(), -3.0);
+
+        // Zero border: the two boxes coincide, which is why the TextInput's
+        // value <p> never showed this.
+        let zero = EdgeSizes::default();
+        assert_eq!(bb.to_padding_box(&zero).rect(), bb.rect());
     }
 
     #[test]

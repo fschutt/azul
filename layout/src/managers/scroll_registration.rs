@@ -66,30 +66,40 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 continue;
             };
 
-            // CSS spec: scrolling occurs within the padding box, so the
-            // viewport for scroll clamp must be padding-box, not content-box.
-            // This must match compute_scrollbar_geometry() which also uses
-            // padding-box (inner_rect = paint_rect - borders).
-            let border_box_size = node.used_size.unwrap_or_default();
-            let resolved = node.box_props.unpack();
-            let border = &resolved.border;
-            let container_size = azul_core::geom::LogicalSize {
-                width: (border_box_size.width
-                        - border.left - border.right).max(0.0),
-                height: (border_box_size.height
-                         - border.top - border.bottom).max(0.0),
-            };
-
-            // STATIC (unscrolled) layout coordinates, NOT window coordinates —
-            // the comment here used to claim otherwise. `scroll_selection_into_view`
-            // depends on static, because it compares against a caret rect measured
-            // the same way. A consumer that needs where the container APPEARS must
-            // subtract the scroll of its ancestors itself.
-            let container_origin = layout_result
+            // THE SCROLLPORT IS THE PADDING BOX. CSS Overflow 3 §2: "scrolling
+            // occurs within the padding box", and `compute_scrollbar_geometry`
+            // agrees (inner_rect = paint_rect − borders).
+            //
+            // ORIGIN AND SIZE now both come off that one box. This used to
+            // publish a padding-box SIZE with a border-box ORIGIN — a
+            // rectangle that is not any CSS box — so every consumer reading
+            // `container_rect` as a whole (the auto-scroll timer's edge tests,
+            // `scroll_into_view`'s `visible_rect`) was off by the border width
+            // on the top and left, in window space, against a raw pointer.
+            //
+            // Coordinates are STATIC (unscrolled) layout, NOT window — the
+            // comment here once claimed otherwise. `scroll_selection_into_view`
+            // depends on static, because it compares against a caret rect
+            // measured the same way. A consumer that needs where the container
+            // APPEARS must subtract the scroll of its ANCESTORS itself.
+            let border_box_origin = layout_result
                 .calculated_positions
                 .get(node_idx)
                 .copied()
                 .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+            let scrollport = crate::solver3::display_list::BorderBoxRect(
+                azul_core::geom::LogicalRect {
+                    origin: border_box_origin,
+                    size: node.used_size.unwrap_or_default(),
+                },
+            )
+            .to_padding_box(&node.box_props.unpack().border)
+            .rect();
+            let container_size = azul_core::geom::LogicalSize {
+                width: scrollport.size.width.max(0.0),
+                height: scrollport.size.height.max(0.0),
+            };
+            let container_origin = scrollport.origin;
 
             let Some(mut scrollbar_info) = layout_result
                 .layout_tree
