@@ -8,9 +8,14 @@
 set -u
 BIN="${1:?need example bin path}"
 LOG="${2:?need server log path}"
-cd /Users/fschutt/Development/azul-mobile
+# azul-mobile is a SEPARATE checkout; point AZ_MOBILE_REPO at yours.
+AZ_MOBILE_REPO="${AZ_MOBILE_REPO:-$(cd "$(dirname "$0")/../../azul-mobile" 2>/dev/null && pwd)}"
+if [ -z "$AZ_MOBILE_REPO" ] || [ ! -d "$AZ_MOBILE_REPO" ]; then
+  echo "set AZ_MOBILE_REPO to your azul-mobile checkout" >&2; exit 1
+fi
+cd "$AZ_MOBILE_REPO"
 DYLDIR=target/aarch64-apple-darwin/release
-RL=/Users/fschutt/Development/azul/third_party/remill-install/build/remill/bin/lift/remill-lift-17
+RL="${AZ_REMILL_LIFT:-$(cd "$(dirname "$0")/.." && pwd)/third_party/remill-install/build/remill/bin/lift/remill-lift-17}"
 
 # 1. Kill orphans (handoff gotcha ③). Exclude THIS script (its argv contains the bin
 #    name too — matching it would kill the launcher itself) via web_relift + self-PID guard.

@@ -4,11 +4,14 @@
 # is already 21G. Share it rather than growing a second one: cargo locks per
 # target dir, so a concurrent build in the main checkout serialises with this
 # one instead of corrupting it.
-export CARGO_TARGET_DIR=/Users/fschutt/Development/azul/target
+# `--git-common-dir` resolves to the MAIN checkout's .git even from inside a
+# worktree, which is exactly the directory whose target/ we want to share.
+AZ_MAIN_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+export CARGO_TARGET_DIR="$AZ_MAIN_REPO/target"
 
 # dll/build.rs looks for the azul-doc-generated sources at ../target/codegen,
 # which does not exist inside a worktree.
-export AZ_CODEGEN_DIR=/Users/fschutt/Development/azul/target/codegen
+export AZ_CODEGEN_DIR="$AZ_MAIN_REPO/target/codegen"
 
 # Cross-compiling azul-dll to linux needs the homebrew GNU toolchain
 # (see memory: crosscompile_vkmem_toolchain_2026_06_19).

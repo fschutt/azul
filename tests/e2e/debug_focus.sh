@@ -1,7 +1,7 @@
 #!/bin/bash
 # Simple debug script for focus restyle
 
-cd /Users/fschutt/Development/azul/tests/e2e
+cd "$(dirname "$0")"
 LOG=/tmp/focus_debug.log
 
 # Clean up

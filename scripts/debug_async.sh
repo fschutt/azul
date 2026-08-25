@@ -1,4 +1,6 @@
 #!/bin/bash
+
+AZ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Debug script for async thread example
 # Uses the correct Azul Debug API
 
@@ -17,7 +19,7 @@ echo ""
 
 # Build if needed
 echo "[1] Building..."
-cd /Users/fschutt/Development/azul
+cd "$AZ_ROOT"
 cargo build -p azul-dll --release --features build-dll 2>&1 | tail -3
 
 # Compile async.c

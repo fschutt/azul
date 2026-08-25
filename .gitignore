@@ -217,3 +217,7 @@ examples/c/*.ilk
 
 # lockfile_guard.py publish-date cache (regenerable, per-machine)
 .supply-chain-cache.json
+
+# Stray build artifacts: a Windows COFF object file was committed at the repo
+# root and sat there for two months.
+*.obj

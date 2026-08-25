@@ -1,8 +1,10 @@
 #!/bin/bash
+
+AZ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 set -e
 
 PORT=9222
-cd /Users/fschutt/Development/azul/examples/c
+cd "$AZ_ROOT/examples/c"
 
 # Kill any existing async process
 pkill -f "async" 2>/dev/null || true

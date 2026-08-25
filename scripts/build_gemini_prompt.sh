@@ -1,8 +1,12 @@
 #!/bin/bash
+
+AZ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# git2pdf / printpdf are SEPARATE checkouts, expected beside this one.
+AZ_SIBLINGS="${AZ_SIBLINGS:-$(cd "$AZ_ROOT/.." && pwd)}"
 # Build comprehensive Gemini prompt for performance optimization analysis
 # Target: ~150K lines (Gemini 1M context ≈ 150K lines)
 
-OUT="/Users/fschutt/Development/azul/scripts/gemini_perf_prompt.md"
+OUT="$AZ_ROOT/scripts/gemini_perf_prompt.md"
 
 cat > "$OUT" << 'PROMPT_HEADER'
 # Performance Optimization Analysis Request
@@ -192,90 +196,90 @@ add_md() {
 }
 
 echo "# SECTION 1: Architecture Documentation" >> "$OUT"
-add_md "/Users/fschutt/Development/azul/scripts/ARCHITECTURE.md" "azul/scripts/ARCHITECTURE.md"
-add_md "/Users/fschutt/Development/azul/scripts/STARTUP_LATENCY.md" "azul/scripts/STARTUP_LATENCY.md"
+add_md "$AZ_ROOT/scripts/ARCHITECTURE.md" "azul/scripts/ARCHITECTURE.md"
+add_md "$AZ_ROOT/scripts/STARTUP_LATENCY.md" "azul/scripts/STARTUP_LATENCY.md"
 
 echo "" >> "$OUT"
 echo "# SECTION 2: git2pdf (CLI driver)" >> "$OUT"
-for f in /Users/fschutt/Development/git2pdf/src/*.rs; do
+for f in $AZ_SIBLINGS/git2pdf/src/*.rs; do
     add_file "$f" "git2pdf/src/$(basename $f)"
 done
 
 echo "" >> "$OUT"
 echo "# SECTION 3: printpdf HTML module (PDF bridge)" >> "$OUT"
-for f in /Users/fschutt/Development/printpdf/src/html/*.rs; do
+for f in $AZ_SIBLINGS/printpdf/src/html/*.rs; do
     add_file "$f" "printpdf/src/html/$(basename $f)"
 done
-add_file "/Users/fschutt/Development/printpdf/src/font.rs" "printpdf/src/font.rs"
-add_file "/Users/fschutt/Development/printpdf/src/ops.rs" "printpdf/src/ops.rs"
-add_file "/Users/fschutt/Development/printpdf/src/text.rs" "printpdf/src/text.rs"
-add_file "/Users/fschutt/Development/printpdf/src/render.rs" "printpdf/src/render.rs"
+add_file "$AZ_SIBLINGS/printpdf/src/font.rs" "printpdf/src/font.rs"
+add_file "$AZ_SIBLINGS/printpdf/src/ops.rs" "printpdf/src/ops.rs"
+add_file "$AZ_SIBLINGS/printpdf/src/text.rs" "printpdf/src/text.rs"
+add_file "$AZ_SIBLINGS/printpdf/src/render.rs" "printpdf/src/render.rs"
 
 echo "" >> "$OUT"
 echo "# SECTION 4: azul-core (core data structures)" >> "$OUT"
-add_file "/Users/fschutt/Development/azul/core/src/prop_cache.rs" "azul/core/src/prop_cache.rs"
-add_file "/Users/fschutt/Development/azul/core/src/styled_dom.rs" "azul/core/src/styled_dom.rs"
-add_file "/Users/fschutt/Development/azul/core/src/diff.rs" "azul/core/src/diff.rs"
-add_file "/Users/fschutt/Development/azul/core/src/dom.rs" "azul/core/src/dom.rs"
-add_file "/Users/fschutt/Development/azul/core/src/xml.rs" "azul/core/src/xml.rs"
-add_file "/Users/fschutt/Development/azul/core/src/debug.rs" "azul/core/src/debug.rs"
-add_file "/Users/fschutt/Development/azul/core/src/ui_solver.rs" "azul/core/src/ui_solver.rs"
-add_file "/Users/fschutt/Development/azul/core/src/ua_css.rs" "azul/core/src/ua_css.rs"
+add_file "$AZ_ROOT/core/src/prop_cache.rs" "azul/core/src/prop_cache.rs"
+add_file "$AZ_ROOT/core/src/styled_dom.rs" "azul/core/src/styled_dom.rs"
+add_file "$AZ_ROOT/core/src/diff.rs" "azul/core/src/diff.rs"
+add_file "$AZ_ROOT/core/src/dom.rs" "azul/core/src/dom.rs"
+add_file "$AZ_ROOT/core/src/xml.rs" "azul/core/src/xml.rs"
+add_file "$AZ_ROOT/core/src/debug.rs" "azul/core/src/debug.rs"
+add_file "$AZ_ROOT/core/src/ui_solver.rs" "azul/core/src/ui_solver.rs"
+add_file "$AZ_ROOT/core/src/ua_css.rs" "azul/core/src/ua_css.rs"
 
 echo "" >> "$OUT"
 echo "# SECTION 5: azul-layout solver3 (layout engine)" >> "$OUT"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/layout_tree.rs" "azul/layout/src/solver3/layout_tree.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/sizing.rs" "azul/layout/src/solver3/sizing.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/positioning.rs" "azul/layout/src/solver3/positioning.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/display_list.rs" "azul/layout/src/solver3/display_list.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/getters.rs" "azul/layout/src/solver3/getters.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/paged_layout.rs" "azul/layout/src/solver3/paged_layout.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/cache.rs" "azul/layout/src/solver3/cache.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/pagination.rs" "azul/layout/src/solver3/pagination.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/taffy_bridge.rs" "azul/layout/src/solver3/taffy_bridge.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/geometry.rs" "azul/layout/src/solver3/geometry.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/fc.rs" "azul/layout/src/solver3/fc.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/calc.rs" "azul/layout/src/solver3/calc.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/counters.rs" "azul/layout/src/solver3/counters.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/solver3/mod.rs" "azul/layout/src/solver3/mod.rs"
+add_file "$AZ_ROOT/layout/src/solver3/layout_tree.rs" "azul/layout/src/solver3/layout_tree.rs"
+add_file "$AZ_ROOT/layout/src/solver3/sizing.rs" "azul/layout/src/solver3/sizing.rs"
+add_file "$AZ_ROOT/layout/src/solver3/positioning.rs" "azul/layout/src/solver3/positioning.rs"
+add_file "$AZ_ROOT/layout/src/solver3/display_list.rs" "azul/layout/src/solver3/display_list.rs"
+add_file "$AZ_ROOT/layout/src/solver3/getters.rs" "azul/layout/src/solver3/getters.rs"
+add_file "$AZ_ROOT/layout/src/solver3/paged_layout.rs" "azul/layout/src/solver3/paged_layout.rs"
+add_file "$AZ_ROOT/layout/src/solver3/cache.rs" "azul/layout/src/solver3/cache.rs"
+add_file "$AZ_ROOT/layout/src/solver3/pagination.rs" "azul/layout/src/solver3/pagination.rs"
+add_file "$AZ_ROOT/layout/src/solver3/taffy_bridge.rs" "azul/layout/src/solver3/taffy_bridge.rs"
+add_file "$AZ_ROOT/layout/src/solver3/geometry.rs" "azul/layout/src/solver3/geometry.rs"
+add_file "$AZ_ROOT/layout/src/solver3/fc.rs" "azul/layout/src/solver3/fc.rs"
+add_file "$AZ_ROOT/layout/src/solver3/calc.rs" "azul/layout/src/solver3/calc.rs"
+add_file "$AZ_ROOT/layout/src/solver3/counters.rs" "azul/layout/src/solver3/counters.rs"
+add_file "$AZ_ROOT/layout/src/solver3/mod.rs" "azul/layout/src/solver3/mod.rs"
 
 echo "" >> "$OUT"
 echo "# SECTION 6: Text shaping and caching" >> "$OUT"
-add_file "/Users/fschutt/Development/azul/layout/src/text3/cache.rs" "azul/layout/src/text3/cache.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/text3/glyphs.rs" "azul/layout/src/text3/glyphs.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/text3/knuth_plass.rs" "azul/layout/src/text3/knuth_plass.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/text3/script.rs" "azul/layout/src/text3/script.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/text3/default.rs" "azul/layout/src/text3/default.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/text3/mod.rs" "azul/layout/src/text3/mod.rs"
+add_file "$AZ_ROOT/layout/src/text3/cache.rs" "azul/layout/src/text3/cache.rs"
+add_file "$AZ_ROOT/layout/src/text3/glyphs.rs" "azul/layout/src/text3/glyphs.rs"
+add_file "$AZ_ROOT/layout/src/text3/knuth_plass.rs" "azul/layout/src/text3/knuth_plass.rs"
+add_file "$AZ_ROOT/layout/src/text3/script.rs" "azul/layout/src/text3/script.rs"
+add_file "$AZ_ROOT/layout/src/text3/default.rs" "azul/layout/src/text3/default.rs"
+add_file "$AZ_ROOT/layout/src/text3/mod.rs" "azul/layout/src/text3/mod.rs"
 
 echo "" >> "$OUT"
 echo "# SECTION 7: Fragmentation and window" >> "$OUT"
-add_file "/Users/fschutt/Development/azul/layout/src/fragmentation.rs" "azul/layout/src/fragmentation.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/window.rs" "azul/layout/src/window.rs"
+add_file "$AZ_ROOT/layout/src/fragmentation.rs" "azul/layout/src/fragmentation.rs"
+add_file "$AZ_ROOT/layout/src/window.rs" "azul/layout/src/window.rs"
 
 echo "" >> "$OUT"
 echo "# SECTION 8: XML parsing (layout module)" >> "$OUT"
-add_file "/Users/fschutt/Development/azul/layout/src/xml/mod.rs" "azul/layout/src/xml/mod.rs"
+add_file "$AZ_ROOT/layout/src/xml/mod.rs" "azul/layout/src/xml/mod.rs"
 
 echo "" >> "$OUT"
 echo "# SECTION 9: Font system" >> "$OUT"
-add_file "/Users/fschutt/Development/azul/layout/src/font_traits.rs" "azul/layout/src/font_traits.rs"
-add_file "/Users/fschutt/Development/azul/layout/src/font.rs" "azul/layout/src/font.rs"
-add_file "/Users/fschutt/Development/rust-fontconfig/src/lib.rs" "rust-fontconfig/src/lib.rs"
-add_file "/Users/fschutt/Development/rust-fontconfig/src/registry.rs" "rust-fontconfig/src/registry.rs"
+add_file "$AZ_ROOT/layout/src/font_traits.rs" "azul/layout/src/font_traits.rs"
+add_file "$AZ_ROOT/layout/src/font.rs" "azul/layout/src/font.rs"
+add_file "$AZ_SIBLINGS/rust-fontconfig/src/lib.rs" "rust-fontconfig/src/lib.rs"
+add_file "$AZ_SIBLINGS/rust-fontconfig/src/registry.rs" "rust-fontconfig/src/registry.rs"
 
 echo "" >> "$OUT"
 echo "# SECTION 10: CSS type system (key files)" >> "$OUT"
-add_file "/Users/fschutt/Development/azul/css/src/props/property.rs" "azul/css/src/props/property.rs"
-add_file "/Users/fschutt/Development/azul/css/src/props/basic/font.rs" "azul/css/src/props/basic/font.rs"
-add_file "/Users/fschutt/Development/azul/css/src/props/basic/length.rs" "azul/css/src/props/basic/length.rs"
-add_file "/Users/fschutt/Development/azul/css/src/props/layout/dimensions.rs" "azul/css/src/props/layout/dimensions.rs"
-add_file "/Users/fschutt/Development/azul/css/src/props/layout/flex.rs" "azul/css/src/props/layout/flex.rs"
-add_file "/Users/fschutt/Development/azul/css/src/css.rs" "azul/css/src/css.rs"
-add_file "/Users/fschutt/Development/azul/css/src/system.rs" "azul/css/src/system.rs"
-add_file "/Users/fschutt/Development/azul/css/src/parser2.rs" "azul/css/src/parser2.rs"
-add_file "/Users/fschutt/Development/azul/css/src/macros.rs" "azul/css/src/macros.rs"
-add_file "/Users/fschutt/Development/azul/css/src/props/macros.rs" "azul/css/src/props/macros.rs"
+add_file "$AZ_ROOT/css/src/props/property.rs" "azul/css/src/props/property.rs"
+add_file "$AZ_ROOT/css/src/props/basic/font.rs" "azul/css/src/props/basic/font.rs"
+add_file "$AZ_ROOT/css/src/props/basic/length.rs" "azul/css/src/props/basic/length.rs"
+add_file "$AZ_ROOT/css/src/props/layout/dimensions.rs" "azul/css/src/props/layout/dimensions.rs"
+add_file "$AZ_ROOT/css/src/props/layout/flex.rs" "azul/css/src/props/layout/flex.rs"
+add_file "$AZ_ROOT/css/src/css.rs" "azul/css/src/css.rs"
+add_file "$AZ_ROOT/css/src/system.rs" "azul/css/src/system.rs"
+add_file "$AZ_ROOT/css/src/parser2.rs" "azul/css/src/parser2.rs"
+add_file "$AZ_ROOT/css/src/macros.rs" "azul/css/src/macros.rs"
+add_file "$AZ_ROOT/css/src/props/macros.rs" "azul/css/src/props/macros.rs"
 
 # Count lines
 LINES=$(wc -l < "$OUT")

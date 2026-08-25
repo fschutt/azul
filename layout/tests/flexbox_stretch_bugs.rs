@@ -13,5 +13,5 @@
 #[cfg(test)]
 mod tests {
     // Test placeholder - actual tests need full layout infrastructure
-    // See /Users/fschutt/Development/printpdf/flexbox-simple-test.html for manual test
+    // Cross-checked by hand against a browser with the equivalent markup.
 }

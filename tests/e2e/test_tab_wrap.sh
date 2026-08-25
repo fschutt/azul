@@ -1,7 +1,7 @@
 #!/bin/bash
 # Test Tab wrap-around
 
-cd /Users/fschutt/Development/azul/tests/e2e
+cd "$(dirname "$0")"
 LOG=/tmp/focus_debug.log
 
 pkill -f focus_test 2>/dev/null

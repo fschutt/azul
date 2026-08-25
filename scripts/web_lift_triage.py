@@ -1,5 +1,11 @@
 import subprocess, re, sys
-RL='/Users/fschutt/Development/azul/third_party/remill-install/build/remill/bin/lift/remill-lift-17'
+import os
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RL = os.environ.get(
+    'AZ_REMILL_LIFT',
+    os.path.join(_ROOT, 'third_party', 'remill-install', 'build',
+                 'remill', 'bin', 'lift', 'remill-lift-17'),
+)
 DY='target/aarch64-apple-darwin/release/libazul.dylib'
 names = """_ZN11azul_layout7solver32fc20position_table_cells17ha28674a1d28737b2E
 _ZN11azul_layout7solver32fc39calculate_column_widths_auto_with_width17h1b9749f60b68b926E
