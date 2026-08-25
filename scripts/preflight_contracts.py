@@ -194,6 +194,150 @@ def check_sparse_checkout() -> None:
 
 # --------------------------------------------------------------------------
 # 4. api.json must stay parseable — a broken fn_body ships in 30+ bindings.
+
+# --------------------------------------------------------------------------
+def _strip_rust_comments(src: str) -> str:
+    """Drop // and /* */ so a check never matches prose about the bug it hunts."""
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    return re.sub(r"//[^\n]*", "", src)
+
+
+# Widget files whose runtime display/opacity override is NOT yet known to be
+# cleared. This list is DEBT, not a blessing: the check exists to stop the shape
+# from spreading, and every entry is a candidate instance of the bug below.
+# Shrink it, never grow it.
+OVERRIDE_LATCH_DEBT = {
+    "alert.rs",
+    "check_box.rs",
+    "chip.rs",
+    "modal.rs",
+    "popover.rs",
+    "radio_group.rs",
+    "toast.rs",
+    "tooltip.rs",
+}
+
+
+def check_widget_override_latch() -> None:
+    """A widget that overrides display/opacity must be able to UNDO it.
+
+    `info.set_css_property` records a USER OVERRIDE. `migrate_user_overrides_from`
+    copies overrides onto every rebuild and they OUTRANK the cascade — forever.
+    So a widget that hides something imperatively, while its own `dom()` also
+    derives that property from state, permanently wins over `dom()`:
+
+      * the Accordion latched a clicked-open section open for the life of the
+        window, ignoring the state flag entirely;
+      * `set_placeholder_visible` hid a TextInput's placeholder on the first
+        keystroke and it never came back, even over an emptied field.
+
+    Both were the same defect, found weeks apart, and the second was found only
+    because a user reported a blank field. The remedy in both cases was
+    `CssProperty::initial(...)` — clear the override when the callback asks for a
+    rebuild (the fresh cascade is authoritative), keep the concrete value when it
+    does not (there is no rebuild coming, so the override IS the mechanism).
+
+    Checked syntactically: a file that overrides display/opacity must contain at
+    least one `CssProperty::initial(`. That does not prove the clear is on the
+    right path — only a test can — but it does prove the author knew the
+    override has to be undone.
+    """
+    wdir = ROOT / "layout" / "src" / "widgets"
+    if not wdir.is_dir():
+        fail("override-latch", f"missing widget directory {wdir}")
+        return
+    for f in sorted(wdir.glob("*.rs")):
+        src = _strip_rust_comments(f.read_text(encoding="utf-8", errors="replace"))
+        # `set_css_property(node, CssProperty::const_display(..))`, possibly wrapped.
+        overrides = re.findall(
+            r"set_css_property\s*\([^;]{0,200}?(const_display|const_opacity|Display\s*\(|Opacity\s*\()",
+            src,
+            flags=re.S,
+        )
+        if not overrides:
+            continue
+        if "CssProperty::initial(" in src:
+            if f.name in OVERRIDE_LATCH_DEBT:
+                fail(
+                    "override-latch",
+                    f"{f.name} now clears its overrides — remove it from "
+                    f"OVERRIDE_LATCH_DEBT so the check keeps holding it to that.",
+                )
+            continue
+        if f.name in OVERRIDE_LATCH_DEBT:
+            continue
+        fail(
+            "override-latch",
+            f"{f.name} overrides display/opacity via set_css_property but never "
+            f"calls CssProperty::initial(...) to clear it. A user override "
+            f"outranks the cascade on EVERY later rebuild, so whatever dom() "
+            f"derives for that property is dead from here on (the Accordion "
+            f"latch, and the TextInput placeholder that never came back). "
+            f"Clear it when the callback returns RefreshDom; keep the concrete "
+            f"value when it does not.",
+        )
+
+
+# Widgets in the reference demo that own USER-EDITABLE state. Each must have its
+# value fed back into `Showcase`, or an unrelated `RefreshDom` silently discards
+# whatever the user did.
+DEMO_STATEFUL_WIDGETS = (
+    "TextInput",
+    "NumberInput",
+    "TextArea",
+    "ColorInput",
+    "Slider",
+    "Switch",
+    "CheckBox",
+    "RadioGroup",
+    "Segmented",
+    "DropDown",
+    "DatePicker",
+    "TimePicker",
+    "Stepper",
+    "Pagination",
+)
+
+
+def check_demo_state_round_trip() -> None:
+    """Every stateful widget in the demo must round-trip its value to the host.
+
+    Widgets are rebuilt from host state on EVERY layout. A widget constructed
+    from a literal with no `on_*` hook therefore snaps back to that literal the
+    moment anything returns `RefreshDom` — and since almost every callback in
+    the demo bumps a counter and returns one, "anything" means "another widget".
+
+    This shape has now been found six times: DropDown had no setter at all, the
+    DatePicker/TimePicker/ComboBox looked completely dead, the NumberInput
+    merged typed text into a stale value ("3342"), and the TextInput silently
+    lost everything typed into it while its placeholder stayed hidden. The demo
+    is the reference every app is copied from, so it is the right place to pin
+    the contract.
+    """
+    demo = ROOT / "examples" / "azul-widgets" / "src" / "lib.rs"
+    if not demo.is_file():
+        fail("demo-round-trip", f"missing demo source {demo}")
+        return
+    src = _strip_rust_comments(demo.read_text(encoding="utf-8", errors="replace"))
+    for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
+        name = m.group(1)
+        if name not in DEMO_STATEFUL_WIDGETS:
+            continue
+        tail = src[m.end(): m.end() + 900]
+        stop = tail.find(".dom()")
+        span = tail if stop == -1 else tail[:stop]
+        if not re.search(r"\.with_on_\w+", span):
+            line = src[: m.start()].count("\n") + 1
+            fail(
+                "demo-round-trip",
+                f"{name}::create(...) near line {line} of the AzWidgets demo has "
+                f"no .with_on_* hook, so its value is never stored in Showcase. "
+                f"The widget is rebuilt from host state every layout, so the "
+                f"next RefreshDom from ANY other callback throws away whatever "
+                f"the user typed or picked.",
+            )
+
+
 # --------------------------------------------------------------------------
 def check_api_json_parses() -> None:
     try:
@@ -206,6 +350,8 @@ def main() -> int:
     check_api_json_parses()
     check_demo_naming()
     check_widget_wiring()
+    check_widget_override_latch()
+    check_demo_state_round_trip()
     check_sparse_checkout()
 
     if FAILURES:
@@ -213,7 +359,10 @@ def main() -> int:
         for f in FAILURES:
             print(f"  {f}\n", file=sys.stderr)
         return 1
-    print("preflight contracts OK (naming, widget wiring, sparse checkout, api.json)")
+    print(
+        "preflight contracts OK (naming, widget wiring, override latch, "
+        "demo round-trip, sparse checkout, api.json)"
+    )
     return 0
 
 

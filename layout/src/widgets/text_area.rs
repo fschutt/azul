@@ -670,6 +670,24 @@ fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
 }
 
 /// Shows or hides the placeholder prompt.
+/// Drop the imperative placeholder override so the CASCADE decides again.
+///
+/// `set_placeholder_visible` writes a USER OVERRIDE, and an override is copied
+/// onto every rebuild by `migrate_user_overrides_from` and OUTRANKS the
+/// cascade — permanently. `dom()` already derives the placeholder's visibility
+/// from the widget's own text, so once the widget is about to be rebuilt the
+/// override is at best redundant and at worst a latch: a placeholder hidden on
+/// the first keystroke never comes back, even over an emptied field.
+///
+/// Identical to the TextInput's, and to the Accordion's before it. Caught here
+/// by `scripts/preflight_contracts.py::check_widget_override_latch` rather than
+/// by a third user report.
+fn clear_placeholder_override(info: &mut CallbackInfo, placeholder: DomNodeId) {
+    use azul_css::props::property::CssPropertyType;
+    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Opacity));
+    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Display));
+}
+
 fn set_placeholder_visible(info: &mut CallbackInfo, placeholder: DomNodeId, visible: bool) {
     let (display, opacity) = if visible {
         (LayoutDisplay::Block, StyleOpacity::const_new(100))
@@ -823,6 +841,11 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
                 },
             }
         };
+        // A rebuild re-derives the placeholder from the widget's own text, so
+        // the override written above must not outlive it.
+        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            clear_placeholder_override(&mut info, placeholder_node_id);
+        }
         return Some(result.update);
     }
 
@@ -888,6 +911,12 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
         set_placeholder_visible(&mut info, placeholder_node_id, false);
 
         mirror_insertion(&mut text_area.inner, &inserted_text, caret);
+
+        // Inside the ACCEPTED branch on purpose: a rejected edit changed
+        // nothing observable and must stay a strict no-op.
+        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            clear_placeholder_override(&mut info, placeholder_node_id);
+        }
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
