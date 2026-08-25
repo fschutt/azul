@@ -4673,14 +4673,33 @@ mod tests {
         );
 
         // PERF BUDGET: a no-op relayout of a trivial DOM should be cheap
-        // (cache hits, no re-render). 2ms is very generous; if nothing caches
-        // and every frame fully re-lays-out + re-renders, this blows past it.
-        // A slow UI — especially scrolling at this cost per frame — is unusable.
+        // (cache hits, no re-render). If nothing caches and every frame fully
+        // re-lays-out + re-renders, this blows past it. A slow UI — especially
+        // scrolling at this cost per frame — is unusable.
+        //
+        // The budget is per-PROFILE because the same work costs ~20x more
+        // unoptimized: measured on this suite, an optimized build does a no-op
+        // relayout in ~117us, while the unoptimized build CI runs (`cd dll &&
+        // cargo test`, dev profile, shared runner) takes ~2.1-2.4ms. A single
+        // 2ms budget was therefore calibrated for release and could never pass
+        // in CI's dev profile — it failed every run, which is worse than no
+        // guard: a red test nobody can green teaches the team to ignore it.
+        //
+        // Both budgets still bite. The failure mode this guards is an
+        // ORDER-OF-MAGNITUDE regression (caching gone → full relayout + render
+        // every frame), not a few percent: release has ~17x headroom over the
+        // healthy number, debug ~8x.
+        let budget = if cfg!(debug_assertions) {
+            std::time::Duration::from_millis(20)
+        } else {
+            std::time::Duration::from_millis(2)
+        };
         assert!(
-            best < std::time::Duration::from_millis(2),
-            "no-op relayout too slow: {:?}/relayout (budget 2ms, best of {} batches) — \
-             incremental caching is not working; this is unusable for scrolling",
+            best < budget,
+            "no-op relayout too slow: {:?}/relayout (budget {:?} for this profile, best of {} \
+             batches) — incremental caching is not working; this is unusable for scrolling",
             best,
+            budget,
             batches
         );
     }
