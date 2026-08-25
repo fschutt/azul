@@ -24,7 +24,7 @@ use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::FullHitTest,
-    spaces::Inclusivity,
+    spaces::{BorderBoxLocal, ContentBoxLocal, Inclusivity, StaticLayoutPoint},
     styled_dom::StyledDom,
 };
 
@@ -954,14 +954,16 @@ pub fn convert_cpu_hit_test_to_full(
     let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
 
     for (depth, (dom_id, node_id, local_point)) in hits.iter().enumerate() {
-        // Compute point_relative_to_item in content-box coordinates.
         // `local_point` is the cursor already mapped into this node's STATIC
         // layout space (ancestor scroll offsets added back, ancestor
         // transforms inverted) — the same space the entry rects live in,
         // which is the node's static position translated by its VirtualView
-        // placement. Subtract the node's static border-box position (plus
-        // placement) AND padding+border to get content-box-local coordinates
-        // that match the text layout coordinate space.
+        // placement. Two named steps take it to the ONE documented space
+        // `HitTestItem::point_relative_to_item` carries: subtract the node's
+        // static border-box origin (plus placement), then step in by the
+        // content inset. `fullhittest_new_webrender` performs the identical
+        // second step on WebRender's border-box-relative point, so the two
+        // hosts now answer the same question the same way.
         let placement = tester
             .dom_placements
             .get(dom_id)
@@ -975,19 +977,18 @@ pub fn convert_cpu_hit_test_to_full(
                     .and_then(|indices| indices.first())
                     .and_then(|&idx| {
                         let node_pos = lr.calculated_positions.get(idx.index())?;
-                        let node = lr.layout_tree.get(idx)?;
-                        let bp = node.box_props.unpack();
-                        let content_x =
-                            node_pos.x + placement.x + bp.padding.left + bp.border.left;
-                        let content_y =
-                            node_pos.y + placement.y + bp.padding.top + bp.border.top;
-                        Some(LogicalPosition::new(
-                            local_point.x - content_x,
-                            local_point.y - content_y,
-                        ))
+                        let border_box_origin = LogicalPosition::new(
+                            node_pos.x + placement.x,
+                            node_pos.y + placement.y,
+                        );
+                        Some(
+                            StaticLayoutPoint::new(*local_point)
+                                .to_border_box_local(border_box_origin)
+                                .to_content_box_local(lr.layout_tree.content_inset(idx)),
+                        )
                     })
             })
-            .unwrap_or_else(LogicalPosition::zero);
+            .unwrap_or_else(ContentBoxLocal::zero);
 
         let hit_test = hovered_nodes.entry(*dom_id).or_insert_with(|| HitTest {
             regular_hit_test_nodes: BTreeMap::new(),
@@ -1080,11 +1081,13 @@ pub fn convert_cpu_hit_test_to_full(
                     ScrollHitTestItem {
                         point_in_viewport: cursor_position,
                         // Relative to the container's ON-SCREEN viewport box
-                        // (static box shifted by the container's ancestors).
-                        point_relative_to_item: LogicalPosition::new(
-                            adj_x - node_pos.x,
-                            adj_y - node_pos.y,
-                        ),
+                        // (static box shifted by the container's ancestors) —
+                        // BORDER-box-local, unlike the regular hit item above:
+                        // scroll geometry is measured against the border box.
+                        point_relative_to_item: StaticLayoutPoint::new(
+                            LogicalPosition::new(adj_x, adj_y),
+                        )
+                        .to_border_box_local(node_pos),
                         scroll_node,
                     },
                 );
@@ -2259,6 +2262,104 @@ mod autotest_generated {
         assert_eq!(
             compute_node_clip(&styled_dom, &nodes, &positions, 0, p(0.0, 0.0), None),
             None
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // convert_cpu_hit_test_to_full — the CPU half of the ONE documented space
+    // -----------------------------------------------------------------------
+
+    /// `HitTestItem::point_relative_to_item` is CONTENT-box-relative on BOTH
+    /// hosts. This pins the CPU half; the WebRender half applies the same
+    /// `LayoutTree::content_inset` in `wr_translate2::fullhittest_new_webrender`.
+    ///
+    /// Before this, WebRender reported the point relative to the hit RECT
+    /// (border box) while the CPU tester subtracted padding+border, so the
+    /// SAME click resolved to different characters in headless E2E and in
+    /// production — latent only because the default TextInput's value <p> has
+    /// neither padding nor border.
+    #[test]
+    fn convert_cpu_hit_test_emits_content_box_relative_points() {
+        use crate::solver3::geometry::{EdgeSizes, PackedBoxProps, ResolvedBoxProps};
+
+        let inset = |left: f32, top: f32| PackedBoxProps::pack(&ResolvedBoxProps {
+            padding: EdgeSizes { top, right: 0.0, bottom: 0.0, left },
+            border: EdgeSizes { top: 1.0, right: 0.0, bottom: 0.0, left: 1.0 },
+            ..Default::default()
+        });
+
+        let styled_dom = styled("");
+        let mut node = hot(Some(0), Some((100.0, 40.0)), None);
+        node.box_props = inset(5.0, 2.0); // + 1px border on each of left/top
+        let mut lr = layout_result(styled_dom, vec![node], vec![p(10.0, 20.0)], Vec::new());
+        lr.layout_tree
+            .dom_to_layout
+            .insert(NodeId::new(0), vec![LayoutNodeId::new(0)]);
+
+        let mut layout_results = BTreeMap::new();
+        layout_results.insert(dom(0), lr);
+
+        // The hit tester reports the point in STATIC layout space; the node's
+        // border box starts at (10, 20) and its content box 6/3 further in.
+        let hits = vec![(dom(0), NodeId::new(0), p(40.0, 50.0))];
+        let full = convert_cpu_hit_test_to_full(
+            &CpuHitTester::new(),
+            &hits,
+            None,
+            &layout_results,
+            p(40.0, 50.0),
+            &|_, _| None,
+            &|_, _| None,
+        );
+
+        let item = full.hovered_nodes[&dom(0)].regular_hit_test_nodes[&NodeId::new(0)];
+        assert_eq!(
+            item.point_relative_to_item.get(),
+            p(40.0 - 10.0 - 6.0, 50.0 - 20.0 - 3.0),
+            "content-box-relative: static point minus border-box origin minus content inset"
+        );
+        // ...and the round trip back out to the border box, which is what
+        // `get_cursor_relative_to_node` hands widgets, is exact.
+        assert_eq!(
+            item.point_relative_to_item
+                .to_border_box_local(azul_core::spaces::ContentInset::new(6.0, 3.0))
+                .get(),
+            p(30.0, 30.0),
+        );
+    }
+
+    /// A node with no padding and no border: the two boxes coincide, which is
+    /// why the divergence above stayed invisible in the default widget set.
+    #[test]
+    fn convert_cpu_hit_test_on_an_unpadded_node_is_plain_border_box_local() {
+        let styled_dom = styled("");
+        let mut lr = layout_result(
+            styled_dom,
+            vec![hot(Some(0), Some((100.0, 40.0)), None)],
+            vec![p(10.0, 20.0)],
+            Vec::new(),
+        );
+        lr.layout_tree
+            .dom_to_layout
+            .insert(NodeId::new(0), vec![LayoutNodeId::new(0)]);
+        let mut layout_results = BTreeMap::new();
+        layout_results.insert(dom(0), lr);
+
+        let hits = vec![(dom(0), NodeId::new(0), p(40.0, 50.0))];
+        let full = convert_cpu_hit_test_to_full(
+            &CpuHitTester::new(),
+            &hits,
+            None,
+            &layout_results,
+            p(40.0, 50.0),
+            &|_, _| None,
+            &|_, _| None,
+        );
+        assert_eq!(
+            full.hovered_nodes[&dom(0)].regular_hit_test_nodes[&NodeId::new(0)]
+                .point_relative_to_item
+                .get(),
+            p(30.0, 30.0),
         );
     }
 }

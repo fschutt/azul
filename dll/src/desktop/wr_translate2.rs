@@ -17,6 +17,7 @@ use azul_core::{
     resources::{
         AddImage, ImageData as AzImageData, ImageDirtyRect, ImageKey, ImageRef, SyntheticItalics, UpdateImage,
     },
+    spaces::{BorderBoxLocal, ContentInset},
     window::{CursorPosition, DebugState},
 };
 use azul_layout::{
@@ -540,6 +541,33 @@ pub fn translate_world_point(
     webrender::api::units::WorldPoint::new(pos.x, pos.y)
 }
 
+/// The content inset (`padding-left + border-left`, `padding-top +
+/// border-top`) of a DOM node, or [`ContentInset::ZERO`] if it cannot be
+/// resolved.
+///
+/// This is the term that separates WebRender's `point_relative_to_item`
+/// (border-box-relative, because azul pushes a scroll container's hit rect
+/// before its scroll frame) from the space `HitTestItem::point_relative_to_item`
+/// documents. Both hit-test hosts apply it, from the same
+/// `LayoutTree::content_inset`, so headless E2E and production can no longer
+/// disagree about where inside a padded node the pointer landed.
+fn content_inset_for(
+    layout_results: &alloc::collections::BTreeMap<
+        azul_core::dom::DomId,
+        azul_layout::window::DomLayoutResult,
+    >,
+    dom_id: azul_core::dom::DomId,
+    node_id: azul_core::dom::NodeId,
+) -> ContentInset {
+    layout_results
+        .get(&dom_id)
+        .and_then(|lr| {
+            let idx = *lr.layout_tree.dom_to_layout.get(&node_id)?.first()?;
+            Some(lr.layout_tree.content_inset(idx))
+        })
+        .unwrap_or(ContentInset::ZERO)
+}
+
 /// Translate WebRender hit test to azul-core FullHitTest
 /// This converts the raw hit-test result from WebRender to our internal representation
 ///
@@ -581,8 +609,17 @@ pub fn translate_hit_test_result(
         let point_in_viewport =
             LogicalPosition::new(item.point_relative_to_item.x, item.point_relative_to_item.y);
 
+        // WebRender reports the point relative to the hit RECT, which azul
+        // pushes BEFORE the scroll frame — i.e. BORDER-box-local. Step it in
+        // by the node's content inset so this matches the ONE space
+        // `HitTestItem::point_relative_to_item` documents (and that the CPU
+        // hit tester in `headless::convert_cpu_hit_test_to_full` emits).
+        let border_box_local = BorderBoxLocal::new(LogicalPosition::new(
+            item.point_relative_to_item.x,
+            item.point_relative_to_item.y,
+        ));
         let point_relative_to_item =
-            LogicalPosition::new(item.point_relative_to_item.x, item.point_relative_to_item.y);
+            border_box_local.to_content_box_local(content_inset_for(layout_results, dom_id, node_id));
 
         let is_focusable = if let Some(lr) = layout_results.get(&dom_id) {
             let container = lr.styled_dom.node_data.as_container();
@@ -825,7 +862,13 @@ pub fn fullhittest_new_webrender(
                         .scroll_hit_test_nodes
                         .insert(node_id, ScrollHitTestItem {
                             point_in_viewport: *cursor_relative_to_dom,
-                            point_relative_to_item: *cursor_relative_to_dom,
+                            // Synthetic VirtualView-parent entry: no WebRender
+                            // item to measure against, so the port-relative
+                            // point is unknown rather than zero-at-the-corner.
+                            // (No consumer reads it on this path.)
+                            point_relative_to_item: BorderBoxLocal::new(
+                                *cursor_relative_to_dom,
+                            ),
                             scroll_node,
                         });
                 }
@@ -910,12 +953,16 @@ pub fn fullhittest_new_webrender(
                     },
                 };
 
-                // Convert point_relative_to_item from device to logical pixels
+                // Convert point_relative_to_item from device to logical
+                // pixels. Scroll geometry is BORDER-box-relative (the hit rect
+                // is the container's border box, pushed before its own scroll
+                // frame), unlike the content-box-relative point the regular
+                // `HitTestItem` carries.
                 let hidpi = hidpi_factor.inner.get();
-                let point_relative_to_item = LogicalPosition::new(
+                let point_relative_to_item = BorderBoxLocal::new(LogicalPosition::new(
                     i.point_relative_to_item.x / hidpi,
                     i.point_relative_to_item.y / hidpi,
-                );
+                ));
 
                 ret.hovered_nodes
                     .entry(*dom_id)
@@ -993,13 +1040,25 @@ pub fn fullhittest_new_webrender(
                     let node_id = *tag_to_node.get(&i.tag.0)?;
 
                     let hidpi = hidpi_factor.inner.get();
-                    let point_relative_to_item = LogicalPosition::new(
+                    // WebRender's point is relative to the hit RECT, which the
+                    // display-list builder pushes BEFORE the scroll frame:
+                    // BORDER-box-local. Step in by the node's content inset so
+                    // this lands in the ONE space `HitTestItem` documents —
+                    // the CPU tester (`headless::convert_cpu_hit_test_to_full`)
+                    // reaches the same value by a different route. Before this,
+                    // the two hosts disagreed by exactly padding+border for the
+                    // same click, latent only because the default TextInput's
+                    // value <p> has neither.
+                    let border_box_local = BorderBoxLocal::new(LogicalPosition::new(
                         i.point_relative_to_item.x / hidpi,
                         i.point_relative_to_item.y / hidpi,
-                    );
+                    ));
+                    let point_relative_to_item = border_box_local
+                        .to_content_box_local(content_inset_for(layout_results, *dom_id, node_id));
 
                     Some((
                         node_id,
+                        border_box_local,
                         HitTestItem {
                             point_in_viewport: *cursor_relative_to_dom,
                             point_relative_to_item,
@@ -1017,8 +1076,12 @@ pub fn fullhittest_new_webrender(
                 })
                 .collect::<Vec<_>>();
 
-            // Process all hit items for this DOM
-            for (node_id, item) in hit_items.into_iter() {
+            // Process all hit items for this DOM. `border_local` is carried
+            // alongside because `ScrollHitTestItem` is measured against the
+            // BORDER box (scroll geometry) while `HitTestItem` is measured
+            // against the CONTENT box (text geometry) — the type system makes
+            // the difference impossible to paper over with a copy.
+            for (node_id, border_local, item) in hit_items.into_iter() {
                 use azul_core::hit_test::{HitTest, OverflowingScrollNode, ScrollHitTestItem};
 
                 // Update focused node if this item is focusable
@@ -1108,7 +1171,7 @@ pub fn fullhittest_new_webrender(
                         node_id,
                         ScrollHitTestItem {
                             point_in_viewport: item.point_in_viewport,
-                            point_relative_to_item: item.point_relative_to_item,
+                            point_relative_to_item: border_local,
                             scroll_node,
                         },
                     );

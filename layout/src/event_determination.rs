@@ -1418,7 +1418,7 @@ mod autotest_generated {
     fn hit_item() -> HitTestItem {
         HitTestItem {
             point_in_viewport: LogicalPosition::new(0.0, 0.0),
-            point_relative_to_item: LogicalPosition::new(0.0, 0.0),
+            point_relative_to_item: Default::default(),
             is_focusable: false,
             is_virtual_view_hit: None,
             hit_depth: 0,

@@ -5134,8 +5134,32 @@ impl UnifiedLayout {
             .find_map(|item| get_baseline_for_item(&item.item))
     }
 
+    /// The closest logical cursor position to a point in this layout's OWN
+    /// coordinate space — [`ScrolledContentPoint`], i.e. content-box-local
+    /// with the hosting box's own scroll offset added back.
+    ///
+    /// Prefer this over [`Self::hittest_cursor`] anywhere a real pointer is
+    /// involved: the inline layout is built once, unscrolled, relative to the
+    /// content box, and it is precisely the two terms in that sentence
+    /// (`padding + border`, and the box's own scroll) that the pointer
+    /// pipeline used to drop. `LayoutWindow::ifc_local_point` is the one
+    /// function that produces this type from a hit-test result.
+    #[inline]
+    #[must_use]
+    pub fn hittest_point(
+        &self,
+        point: azul_core::spaces::ScrolledContentPoint,
+    ) -> Option<TextCursor> {
+        self.hittest_cursor(point.get())
+    }
+
     /// Takes a point relative to the layout's origin and returns the closest
     /// logical cursor position.
+    ///
+    /// SPACE-UNCHECKED: the point must already be in this layout's own space
+    /// (see [`Self::hittest_point`], which states that in the type). Kept
+    /// untyped for the text-layout unit tests, which construct layouts
+    /// directly and have no boxes, padding or scrolling to speak of.
     ///
     /// This is the unified hit-testing implementation. The old `hit_test_to_cursor`
     /// method is deprecated in favor of this one.
@@ -16156,6 +16180,81 @@ mod autotest_generated {
         // Far outside the layout still resolves to the nearest cluster, not None.
         assert_eq!(hit(-1000.0).cluster_id, gid(0, 0));
         assert_eq!(hit(1000.0).cluster_id, gid(0, 1));
+    }
+
+    /// THE BUG CLASS, end to end: a click in a PADDED, SCROLLED text box must
+    /// resolve to the character under the pointer.
+    ///
+    /// Two clusters "a" (x 0..10) and "b" (x 10..20) in a box whose border box
+    /// starts at (100, 50), with a content inset of (6, 3) and its own
+    /// horizontal scroll at 12. The raster therefore paints "a" at window
+    /// x 94..104 and "b" at 104..114.
+    ///
+    /// The three ways this used to go wrong are asserted as explicit
+    /// counter-examples, because each was a real production path:
+    ///   * dropping the own scroll  = the click path before the hand-fix;
+    ///   * dropping the content inset = the WebRender path (and the drag path);
+    ///   * dropping both            = what a naive `cursor - node_pos` gives.
+    #[test]
+    fn a_click_in_a_padded_scrolled_box_lands_on_the_painted_character() {
+        use azul_core::spaces::{ContentInset, ScrollOffset, StaticLayoutPoint};
+
+        let l = layout_of(vec![
+            pos(cl_at("a", 10.0, 0, 0), 0.0, 0.0, 0),
+            pos(cl_at("b", 10.0, 0, 1), 10.0, 0.0, 0),
+        ]);
+
+        let node_origin = LogicalPosition { x: 100.0, y: 50.0 };
+        let inset = ContentInset::new(6.0, 3.0);
+        let own = ScrollOffset::new(12.0, 0.0);
+        // No scrolling ancestors here, so window space == static layout space.
+        let at = |window_x: f32| {
+            StaticLayoutPoint::new(LogicalPosition { x: window_x, y: 58.0 })
+                .to_border_box_local(node_origin)
+                .to_content_box_local(inset)
+                .scrolled_by(own)
+        };
+
+        // "a" is painted at 94..104 — its left half, then its right half.
+        assert_eq!(l.hittest_point(at(95.0)).unwrap().cluster_id, gid(0, 0));
+        assert_eq!(
+            l.hittest_point(at(95.0)).unwrap().affinity,
+            CursorAffinity::Leading
+        );
+        assert_eq!(
+            l.hittest_point(at(103.0)).unwrap().affinity,
+            CursorAffinity::Trailing,
+            "right half of the painted 'a'"
+        );
+        // "b" is painted at 104..114.
+        assert_eq!(l.hittest_point(at(105.0)).unwrap().cluster_id, gid(0, 1));
+
+        // Counter-example 1: forget the box's own scroll. The pointer sits on
+        // the painted 'b' but resolves to 'a' — 12px to the LEFT.
+        let no_scroll = StaticLayoutPoint::new(LogicalPosition { x: 105.0, y: 58.0 })
+            .to_border_box_local(node_origin)
+            .to_content_box_local(inset)
+            .scrolled_by(ScrollOffset::zero());
+        assert_eq!(l.hittest_point(no_scroll).unwrap().cluster_id, gid(0, 0));
+
+        // Counter-example 2: forget the content inset. The pointer is on the
+        // painted 'a' (94..104) but resolves to 'b' — 6px to the RIGHT.
+        let no_inset = StaticLayoutPoint::new(LogicalPosition { x: 103.0, y: 58.0 })
+            .to_border_box_local(node_origin)
+            .to_content_box_local(ContentInset::ZERO)
+            .scrolled_by(own);
+        assert_eq!(l.hittest_point(no_inset).unwrap().cluster_id, gid(0, 1));
+        assert_eq!(l.hittest_point(at(103.0)).unwrap().cluster_id, gid(0, 0));
+
+        // The conversion is exactly invertible, so nothing is lost on the way.
+        assert_eq!(
+            at(105.0)
+                .unscrolled_by(own)
+                .to_border_box_local(inset)
+                .to_static_layout(node_origin)
+                .get(),
+            LogicalPosition { x: 105.0, y: 58.0 },
+        );
     }
 
     #[test]

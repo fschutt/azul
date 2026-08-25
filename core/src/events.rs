@@ -4339,6 +4339,7 @@ mod tests {
     fn make_hit_test_with_node(node_idx: usize) -> FullHitTest {
         use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
         use crate::dom::OptionDomNodeId;
+        use crate::spaces::ContentBoxLocal;
         use std::collections::BTreeMap;
 
         let node_id = NodeId::new(node_idx);
@@ -4347,7 +4348,7 @@ mod tests {
         let mut regular = BTreeMap::new();
         regular.insert(node_id, HitTestItem {
             point_in_viewport: LogicalPosition::new(100.0, 200.0),
-            point_relative_to_item: LogicalPosition::new(50.0, 30.0),
+            point_relative_to_item: ContentBoxLocal::new(LogicalPosition::new(50.0, 30.0)),
             is_focusable: true,
             is_virtual_view_hit: None,
             hit_depth: 0,
@@ -4596,11 +4597,12 @@ mod tests {
     fn first_hovered_node_picks_frontmost_by_depth() {
         use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
         use crate::dom::OptionDomNodeId;
+        use crate::spaces::ContentBoxLocal;
         use std::collections::BTreeMap;
 
         let item = |depth: u32| HitTestItem {
             point_in_viewport: LogicalPosition::zero(),
-            point_relative_to_item: LogicalPosition::zero(),
+            point_relative_to_item: ContentBoxLocal::zero(),
             is_focusable: true,
             is_virtual_view_hit: None,
             hit_depth: depth,
@@ -4672,6 +4674,7 @@ mod autotest_generated {
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         hit_test::{FullHitTest, HitTest, HitTestItem},
         id::{Node, NodeHierarchy, NodeId},
+        spaces::ContentBoxLocal,
         styled_dom::NodeHierarchyItemId,
         task::{Instant, SystemTick},
         window::{CursorPosition, KeyboardState, MouseState, VirtualKeyCode, VirtualKeyCodeVec},
@@ -4701,7 +4704,7 @@ mod autotest_generated {
     fn hit_item(depth: u32) -> HitTestItem {
         HitTestItem {
             point_in_viewport: LogicalPosition::new(1.0, 2.0),
-            point_relative_to_item: LogicalPosition::new(3.0, 4.0),
+            point_relative_to_item: ContentBoxLocal::new(LogicalPosition::new(3.0, 4.0)),
             is_focusable: true,
             is_virtual_view_hit: None,
             hit_depth: depth,

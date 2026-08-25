@@ -1856,7 +1856,7 @@ mod autotest_generated {
                 node(*n),
                 ScrollHitTestItem {
                     point_in_viewport: LogicalPosition::zero(),
-                    point_relative_to_item: LogicalPosition::zero(),
+                    point_relative_to_item: Default::default(),
                     scroll_node: OverflowingScrollNode::default(),
                 },
             );

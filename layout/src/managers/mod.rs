@@ -523,7 +523,7 @@ mod preceding_sibling_remap_tests {
         fn hit(depth: u32) -> HitTestItem {
             HitTestItem {
                 point_in_viewport: LogicalPosition::zero(),
-                point_relative_to_item: LogicalPosition::zero(),
+                point_relative_to_item: Default::default(),
                 is_focusable: false,
                 is_virtual_view_hit: None,
                 hit_depth: depth,

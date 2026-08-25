@@ -56,7 +56,7 @@ use crate::geom::LogicalPosition;
 /// Distinct from a position so that "add the scroll" and "add a position"
 /// cannot be confused, and so the two very different sums — ancestors-only vs
 /// self-and-ancestors — are at least visible at the call site.
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct ScrollOffset(pub LogicalPosition);
 
@@ -125,7 +125,11 @@ impl ContentInset {
 macro_rules! point_space {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
-        #[derive(Debug, Copy, Clone, Default, PartialEq)]
+        // The full set `LogicalPosition` itself carries (its Eq/Ord/Hash are
+        // quantized, so they agree with each other), so a typed point can go
+        // wherever an untyped one used to — including as a BTreeMap value in a
+        // derived-Ord struct.
+        #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[repr(transparent)]
         pub struct $name(LogicalPosition);
 

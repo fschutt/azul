@@ -6,7 +6,10 @@ use std::{
     sync::Arc,
 };
 
-use azul_core::{diff::NodeDataFingerprint, spaces::Inclusivity};
+use azul_core::{
+    diff::NodeDataFingerprint,
+    spaces::{ContentInset, Inclusivity},
+};
 
 use crate::text3::cache::UnifiedConstraints;
 
@@ -1498,6 +1501,30 @@ impl LayoutTree {
     #[inline]
     #[must_use] pub fn get(&self, index: LayoutNodeId) -> Option<&LayoutNodeHot> {
         self.nodes.get(index.index())
+    }
+
+    /// The left/top step from a node's BORDER box (what `calculated_positions`
+    /// and `used_size` describe) to its CONTENT box (what inline layout, and
+    /// therefore every caret/selection/hit-test coordinate, is measured in).
+    ///
+    /// THE single source of `padding.left + border.left` / `padding.top +
+    /// border.top` for the pointer pipeline. The display-list builder already
+    /// went through `BorderBoxRect::to_content_box` for painting; the two
+    /// hit-test producers each open-coded (or, on the `WebRender` side, simply
+    /// omitted) this term, which is exactly how they came to disagree.
+    ///
+    /// An unknown index yields [`ContentInset::ZERO`], matching the
+    /// "unpadded, unbordered" default rather than skewing the point.
+    #[inline]
+    #[must_use]
+    pub fn content_inset(&self, index: LayoutNodeId) -> ContentInset {
+        self.get(index).map_or(ContentInset::ZERO, |node| {
+            let bp = node.box_props.unpack();
+            ContentInset::new(
+                bp.padding.left + bp.border.left,
+                bp.padding.top + bp.border.top,
+            )
+        })
     }
 
     /// THE ancestor walk: `index` (only when `inclusivity` says so) followed by

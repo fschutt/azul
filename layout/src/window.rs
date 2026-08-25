@@ -11148,7 +11148,23 @@ impl LayoutWindow {
                 .get_current(&crate::managers::hover::InputPointId::Mouse)
                 .and_then(|ht| ht.hovered_nodes.get(&hit_dom_node.dom))
                 .and_then(|hit| hit.regular_hit_test_nodes.get(&node_id))
-                .map(|item| item.point_relative_to_item)
+                // BORDER-box-relative, which is what the public
+                // `get_cursor_relative_to_node` promises and what its widget
+                // consumers need: slider / split-pane / colour-wheel / map all
+                // divide by the node's BORDER-box size, which
+                // `get_node_rect_in_viewport` (the fallback below) also
+                // reports. `point_relative_to_item` is stored content-box-
+                // relative because the text pipeline needs it that way, so
+                // step back out here — the round trip is exact.
+                //
+                // This also closes a host divergence: the CPU hit tester
+                // already subtracted padding+border while WebRender did not,
+                // so `get_cursor_relative_to_node` answered differently in
+                // headless E2E and in production for any padded widget.
+                .map(|item| {
+                    item.point_relative_to_item
+                        .to_border_box_local(self.content_inset_of(hit_dom_node.dom, node_id))
+                })
                 // Not under the cursor — a node that CAPTURED the pointer and
                 // is being dragged past its edge: measure against its rect
                 // instead, so the node-local cursor keeps reading (and may
@@ -11156,9 +11172,14 @@ impl LayoutWindow {
                 .or_else(|| {
                     let rect = self.get_node_rect_in_viewport(hit_dom_node)?;
                     let c = cursor_in_viewport.into_option()?;
-                    Some(LogicalPosition::new(c.x - rect.origin.x, c.y - rect.origin.y))
+                    Some(BorderBoxLocal::new(LogicalPosition::new(
+                        c.x - rect.origin.x,
+                        c.y - rect.origin.y,
+                    )))
                 })
-                .map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some),
+                .map_or(OptionLogicalPosition::None, |p| {
+                    OptionLogicalPosition::Some(p.get())
+                }),
             None => OptionLogicalPosition::None,
         };
 
@@ -14372,6 +14393,133 @@ impl LayoutWindow {
         BTreeMap::new()
     }
 
+    /// A DOM node's content inset (`padding-left + border-left`, `padding-top +
+    /// border-top`), or [`ContentInset::ZERO`] if it is not laid out.
+    ///
+    /// Single source for the step between a node's border box (what
+    /// `calculated_positions` / `used_size` describe) and its content box
+    /// (what inline layout, and therefore every text coordinate, is measured
+    /// in).
+    #[must_use]
+    pub fn content_inset_of(&self, dom_id: DomId, node_id: NodeId) -> ContentInset {
+        self.layout_results
+            .get(&dom_id)
+            .and_then(|lr| {
+                let idx = *lr.layout_tree.dom_to_layout.get(&node_id)?.first()?;
+                Some(lr.layout_tree.content_inset(idx))
+            })
+            .unwrap_or(ContentInset::ZERO)
+    }
+
+    /// THE conversion from a hit-test result to a point the inline layout of
+    /// `ifc_root_node_id` can be indexed with.
+    ///
+    /// Every `hittest_cursor` / `hittest_point` call that starts from a real
+    /// pointer goes through this function or its `&self` sibling
+    /// [`Self::ifc_local_point`]. There used to be four independent versions
+    /// of this arithmetic, no two of which agreed:
+    ///
+    /// * the click path added the box's own scroll but not the content inset;
+    /// * the drag path and `hittest_text_position_global` recomputed the
+    ///   node-local point from `calculated_positions` and also skipped the
+    ///   content inset;
+    /// * the CPU hit tester subtracted the content inset while `WebRender`
+    ///   did not, so the SAME click resolved to different characters in
+    ///   headless E2E and in production.
+    ///
+    /// `content_local` arrives already normalised by both hit-test producers
+    /// (see [`HitTestItem::point_relative_to_item`]), so the only step left is
+    /// the box's OWN scroll: the inline layout is built once, unscrolled, and
+    /// the scroll frame moves it at paint time. Without this term a click in a
+    /// horizontally scrolled `TextInput` placed the caret `scroll_x` px to the
+    /// left of the pointer — the visible text could not be selected at all.
+    ///
+    /// [`HitTestItem::point_relative_to_item`]: azul_core::hit_test::HitTestItem::point_relative_to_item
+    #[must_use]
+    pub fn ifc_local_point_from(
+        content_local: ContentBoxLocal,
+        scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+        ifc_root_node_id: NodeId,
+    ) -> ScrolledContentPoint {
+        // `children_rect.origin` IS the scroll offset.
+        let own = scroll_offsets
+            .get(&ifc_root_node_id)
+            .map_or_else(ScrollOffset::zero, |st| {
+                ScrollOffset(st.children_rect.origin)
+            });
+        content_local.scrolled_by(own)
+    }
+
+    /// [`Self::ifc_local_point_from`] for callers that can borrow `self`.
+    #[must_use]
+    pub fn ifc_local_point(
+        &self,
+        dom_id: DomId,
+        ifc_root_node_id: NodeId,
+        hit_item: &azul_core::hit_test::HitTestItem,
+    ) -> ScrolledContentPoint {
+        let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
+        Self::ifc_local_point_from(
+            hit_item.point_relative_to_item,
+            &scroll_offsets,
+            ifc_root_node_id,
+        )
+    }
+
+    /// [`Self::ifc_local_point_from`] for the paths that have no hit-test item
+    /// and must map a raw WINDOW position themselves (the debug-server
+    /// fallback, cross-block drag).
+    ///
+    /// Builds the whole chain explicitly so no step can be skipped:
+    /// `window → +ancestor scroll → −node origin → −content inset → +own
+    /// scroll`. Returns `None` when the node is not in this DOM's layout tree.
+    #[must_use]
+    fn window_point_to_ifc_local(
+        &self,
+        dom_id: DomId,
+        layout_idx: usize,
+        position: LogicalPosition,
+    ) -> Option<ScrolledContentPoint> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let idx = LayoutNodeId::new(layout_idx);
+        let node_origin = solver3::pos_get(&layout_result.calculated_positions, layout_idx)?;
+        let ancestors = self.accumulated_scroll(dom_id, layout_idx, Inclusivity::AncestorsOnly);
+        let own = layout_result
+            .layout_tree
+            .get(idx)
+            .and_then(|n| n.dom_node_id)
+            .and_then(|nid| self.scroll_manager.get_current_offset(dom_id, nid))
+            .map_or_else(ScrollOffset::zero, ScrollOffset);
+        Some(
+            WindowPoint::new(position)
+                .to_static_layout(ancestors)
+                .to_border_box_local(node_origin)
+                .to_content_box_local(layout_result.layout_tree.content_inset(idx))
+                .scrolled_by(own),
+        )
+    }
+
+    /// Where a node's border box sits ON SCREEN right now: its static origin
+    /// minus its ANCESTORS' scroll. Its own scroll moves its content, not its
+    /// box.
+    #[must_use]
+    fn node_box_on_screen(&self, dom_id: DomId, layout_idx: usize) -> Option<LogicalRect> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let origin = solver3::pos_get(&layout_result.calculated_positions, layout_idx)?;
+        let size = layout_result
+            .layout_tree
+            .get(LayoutNodeId::new(layout_idx))
+            .and_then(|n| n.used_size)
+            .unwrap_or_default();
+        let scroll = self
+            .accumulated_scroll(dom_id, layout_idx, Inclusivity::AncestorsOnly)
+            .get();
+        Some(LogicalRect::new(
+            LogicalPosition::new(origin.x - scroll.x, origin.y - scroll.y),
+            size,
+        ))
+    }
+
     /// Process mouse click for text selection.
     ///
     /// This method handles:
@@ -14411,7 +14559,8 @@ impl LayoutWindow {
         // found_selection stores: (dom_id, ifc_root_node_id, selection_range, local_pos)
         // IMPORTANT: We always store the IFC root NodeId, not the text node NodeId,
         // because selections are rendered via inline_layout_result which lives on the IFC root.
-        let mut found_selection: Option<(DomId, NodeId, SelectionRange, LogicalPosition)> = None;
+        let mut found_selection: Option<(DomId, NodeId, SelectionRange, ScrolledContentPoint)> =
+            None;
 
         // Try to get hit test from HoverManager first (fast path, uses WebRender's point_relative_to_item)
         if let Some(hit_test) = self.hover_manager.get_current(&InputPointId::Mouse) {
@@ -14491,35 +14640,17 @@ impl LayoutWindow {
                     // three were missed.
                     let layout = Self::materialized_inline_layout(cached_layout);
 
-                    // Use point_relative_to_item - this is the local position within the hit node
-                    // provided by WebRender's hit test
-                    //
-                    // ...plus the box's OWN scroll. `point_relative_to_item` is
-                    // viewport-relative on both hit-test paths: WebRender
-                    // subtracts the hit rect, which for a scroll container is
-                    // pushed BEFORE the scroll frame, and the CPU tester adds
-                    // back only ANCESTOR scroll (`headless.rs`, "ancestor scroll
-                    // offsets added back"). A box's own scroll is neither. But
-                    // `hittest_cursor` works in the IFC root's UNSCROLLED
-                    // content space, so once the value scrolled every click
-                    // resolved a caret `scroll_x` px to the LEFT of the pointer:
-                    // in an overflowing TextInput the visible text could not be
-                    // selected and the caret could not be placed at all. The
-                    // drag path already adds this term
-                    // (`accumulated_scroll` self-inclusive), so
-                    // click and drag disagreed by exactly the scroll offset.
-                    let local_pos = {
-                        let mut p = hit_item.point_relative_to_item;
-                        // `children_rect.origin` IS the scroll offset.
-                        if let Some(st) = scroll_offsets.get(&ifc_root_node_id) {
-                            p.x += st.children_rect.origin.x;
-                            p.y += st.children_rect.origin.y;
-                        }
-                        p
-                    };
+                    // THE canonical conversion — see `ifc_local_point`. It is
+                    // the only place a hit-test result becomes a point the
+                    // inline layout can be indexed with.
+                    let local_pos = Self::ifc_local_point_from(
+                        hit_item.point_relative_to_item,
+                        &scroll_offsets,
+                        ifc_root_node_id,
+                    );
 
                     // Hit-test the cursor in this text layout
-                    if let Some(cursor) = layout.hittest_cursor(local_pos) {
+                    if let Some(cursor) = layout.hittest_point(local_pos) {
                         // Store selection with IFC root NodeId, not the hit text node
                         found_selection = Some((*dom_id, ifc_root_node_id, SelectionRange {
                             start: cursor,
@@ -14562,43 +14693,51 @@ impl LayoutWindow {
                         continue;
                     }
 
-                    // Get the node's absolute position
-                    // Use layout_result.calculated_positions for the correct DOM
-                    let node_pos = layout_result.calculated_positions
-            .get(node_idx)
-                        .copied()
-                        .unwrap_or_default();
-
                     // Check if position is within node bounds. `calculated_positions`
                     // is STATIC geometry, so the node's on-screen box is
-                    // `static - scroll`; comparing the window-space pointer
-                    // against the raw static box tested the wrong rectangle
-                    // entirely inside a scrolled container.
+                    // `static - ANCESTOR scroll`; comparing the window-space
+                    // pointer against the raw static box tested the wrong
+                    // rectangle entirely inside a scrolled container, and
+                    // subtracting the node's OWN scroll too (which is what this
+                    // did) moved the box a second time by an offset that only
+                    // ever moves its CONTENT.
+                    let Some(node_pos) =
+                        solver3::pos_get(&layout_result.calculated_positions, node_idx)
+                    else {
+                        continue;
+                    };
                     let node_size = layout_node.used_size.unwrap_or_else(|| {
                         let bounds = cached_layout.layout.bounds();
                         LogicalSize::new(bounds.width, bounds.height)
                     });
-                    let node_scroll = self
-                        .accumulated_scroll(*dom_id, node_idx, Inclusivity::SelfAndAncestors)
-                        .get();
-                    let screen_x = node_pos.x - node_scroll.x;
-                    let screen_y = node_pos.y - node_scroll.y;
+                    let ancestor_scroll = self
+                        .accumulated_scroll(*dom_id, node_idx, Inclusivity::AncestorsOnly);
+                    let screen_x = node_pos.x - ancestor_scroll.get().x;
+                    let screen_y = node_pos.y - ancestor_scroll.get().y;
 
                     if position.x < screen_x || position.x > screen_x + node_size.width ||
                        position.y < screen_y || position.y > screen_y + node_size.height {
                         continue;
                     }
 
-                    // Convert global position to node-local coordinates
-                    let local_pos = LogicalPosition {
-                        x: position.x - screen_x,
-                        y: position.y - screen_y,
-                    };
+                    // Window position → the IFC's own space, every step named.
+                    // This branch used to stop at "node-local", so it skipped
+                    // the content inset that `padding`/`border` introduce.
+                    let idx = LayoutNodeId::new(node_idx);
+                    let own_scroll = self
+                        .scroll_manager
+                        .get_current_offset(*dom_id, node_id)
+                        .map_or_else(ScrollOffset::zero, ScrollOffset);
+                    let local_pos = WindowPoint::new(position)
+                        .to_static_layout(ancestor_scroll)
+                        .to_border_box_local(node_pos)
+                        .to_content_box_local(tree.content_inset(idx))
+                        .scrolled_by(own_scroll);
 
                     let layout = Self::materialized_inline_layout(cached_layout);
 
                     // Hit-test the cursor in this text layout
-                    if let Some(cursor) = layout.hittest_cursor(local_pos) {
+                    if let Some(cursor) = layout.hittest_point(local_pos) {
                         found_selection = Some((*dom_id, node_id, SelectionRange {
                             start: cursor,
                             end: cursor,
@@ -14811,50 +14950,41 @@ impl LayoutWindow {
         let tree = &layout_result.layout_tree;
         let layout_idx = tree.nodes.iter()
             .position(|n| n.dom_node_id == Some(node_id))?;
-        let node_pos = layout_result.calculated_positions
-            .get(layout_idx)
-            .copied()
-            .unwrap_or_default();
         // (the anchor node's cached inline layout is re-borrowed below,
         // after the cross-block branch may have taken &mut self)
         tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
 
-        let drag_scroll = self
-            .accumulated_scroll(dom_id, layout_idx, Inclusivity::SelfAndAncestors)
-            .get();
-        let local_pos = LogicalPosition {
-            x: current_position.x - node_pos.x + drag_scroll.x,
-            y: current_position.y - node_pos.y + drag_scroll.y,
-        };
+        // The pointer in the anchor IFC's own space. This used to be spelled
+        // out here as `current - node_pos + self_inclusive_scroll`, which is
+        // the same value MINUS the content inset — so a padded editable
+        // resolved a different character under the drag than under the click
+        // that started it.
+        let local_pos = self.window_point_to_ifc_local(dom_id, layout_idx, current_position)?;
 
         // Outside the anchor block (or in another block entirely): this is a
         // CROSS-BLOCK drag (AZUL-STILL-TODO C9 driver). Resolve the block +
         // cursor under the pointer globally and extend the multi-IFC
         // selection; dragging back into the anchor block collapses to the
         // regular single-node range below.
-        let anchor_rect_contains = {
-            let size = tree
-                .get(LayoutNodeId::new(layout_idx))
-                .and_then(|n| n.used_size)
-                .unwrap_or_default();
-            // Test containment in the SAME space as the rect. `local_pos` has
-            // the scroll offset added so it can index the inline layout — that
-            // is CONTENT space — while `used_size` is the box on SCREEN, i.e.
-            // VIEWPORT space. Comparing the two meant that as soon as a field
-            // had scrolled by more than its own width, every drag point tested
-            // "outside the anchor block", so every drag took the cross-block
-            // path and no selection was ever painted in an overflowing
-            // TextInput. The pointer's position relative to the box on screen
-            // is the scroll-free difference.
-            let viewport_local = LogicalPosition {
-                x: current_position.x - node_pos.x,
-                y: current_position.y - node_pos.y,
-            };
-            viewport_local.x >= 0.0
-                && viewport_local.y >= 0.0
-                && viewport_local.x <= size.width
-                && viewport_local.y <= size.height
-        };
+        //
+        // Test containment in WINDOW space against where the box actually IS.
+        // `local_pos` is CONTENT space (own scroll added so it can index the
+        // inline layout) while `used_size` describes the box on SCREEN:
+        // comparing the two meant that as soon as a field had scrolled by more
+        // than its own width, every drag point tested "outside the anchor
+        // block", so every drag took the cross-block path and no selection was
+        // ever painted in an overflowing TextInput. Going through
+        // `node_box_on_screen` also takes the ANCESTORS' scroll off, which the
+        // hand-rolled `current - node_pos` did not — an editable inside a
+        // scrolled page fell out of its own anchor rect.
+        let anchor_rect_contains = self
+            .node_box_on_screen(dom_id, layout_idx)
+            .is_some_and(|screen| {
+                current_position.x >= screen.origin.x
+                    && current_position.y >= screen.origin.y
+                    && current_position.x <= screen.origin.x + screen.size.width
+                    && current_position.y <= screen.origin.y + screen.size.height
+            });
         if !anchor_rect_contains {
             let global_hit = self.hittest_text_position_global(dom_id, current_position);
             if let Some((hit_node, hit_cursor)) = global_hit {
@@ -14875,7 +15005,7 @@ impl LayoutWindow {
         let tree = &layout_result.layout_tree;
         let cached = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
         // (d6h) Materialized: sentinel-safe click hittest.
-        let focus = Self::materialized_inline_layout(cached).hittest_cursor(local_pos)?;
+        let focus = Self::materialized_inline_layout(cached).hittest_point(local_pos)?;
 
         // Back inside the anchor block: a single-node range again.
         self.text_edit_manager.clear_cross_block_selection();
@@ -14915,48 +15045,35 @@ impl LayoutWindow {
     ) -> Option<(NodeId, TextCursor)> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        // (vertical distance, horizontal distance, node, node-local point)
-        let mut best: Option<(f32, f32, NodeId, LogicalPosition)> = None;
+        // (vertical distance, horizontal distance, node, layout index)
+        let mut best: Option<(f32, f32, NodeId, usize)> = None;
         for (idx, node) in tree.nodes.iter().enumerate() {
             let Some(node_dom_id) = node.dom_node_id else { continue };
             let Some(warm) = tree.warm(LayoutNodeId::new(idx)) else { continue };
             if warm.inline_layout_result.is_none() {
                 continue;
             }
-            let pos = layout_result
-                .calculated_positions
-                .get(idx)
-                .copied()
-                .unwrap_or_default();
-            let size = node.used_size.unwrap_or_default();
-            let candidate_scroll = self
-                .accumulated_scroll(dom_id, idx, Inclusivity::SelfAndAncestors)
-                .get();
-            let local = LogicalPosition {
-                x: position.x - pos.x + candidate_scroll.x,
-                y: position.y - pos.y + candidate_scroll.y,
-            };
             // Rank against where the candidate actually IS on screen
-            // (`static - scroll`), not against its unscrolled position: with a
-            // scrolled container the two differ by the whole scroll offset, so
-            // the pointer kept picking the same block however far the view had
-            // moved.
-            let screen_top = pos.y - candidate_scroll.y;
-            let screen_left = pos.x - candidate_scroll.x;
-            let dy = if position.y < screen_top {
-                screen_top - position.y
-            } else if position.y > screen_top + size.height {
-                position.y - (screen_top + size.height)
+            // (`static - ANCESTOR scroll`), not against its unscrolled
+            // position: with a scrolled container the two differ by the whole
+            // scroll offset, so the pointer kept picking the same block however
+            // far the view had moved. Its OWN scroll is excluded — that moves
+            // the block's text, not the block.
+            let Some(screen) = self.node_box_on_screen(dom_id, idx) else { continue };
+            let dy = if position.y < screen.origin.y {
+                screen.origin.y - position.y
+            } else if position.y > screen.origin.y + screen.size.height {
+                position.y - (screen.origin.y + screen.size.height)
             } else {
                 0.0
             };
             // Horizontal distance breaks ties WITHIN a row. Ranking on dy alone
             // made a pointer to the right of a short line pick whichever block
             // happened to be scanned first among everything on that line.
-            let dx = if position.x < screen_left {
-                screen_left - position.x
-            } else if position.x > screen_left + size.width {
-                position.x - (screen_left + size.width)
+            let dx = if position.x < screen.origin.x {
+                screen.origin.x - position.x
+            } else if position.x > screen.origin.x + screen.size.width {
+                position.x - (screen.origin.x + screen.size.width)
             } else {
                 0.0
             };
@@ -14967,24 +15084,31 @@ impl LayoutWindow {
                 }
             };
             if better {
-                best = Some((dy, dx, node_dom_id, local));
+                best = Some((dy, dx, node_dom_id, idx));
             }
         }
-        let (_, _, node_dom_id, local) = best?;
-        let layout_idx = tree
-            .nodes
-            .iter()
-            .position(|n| n.dom_node_id == Some(node_dom_id))?;
+        let (_, _, node_dom_id, layout_idx) = best?;
         let cached = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
+        // The winning block's own space, via the one conversion chain (this
+        // used to be spelled out inline and skipped the content inset).
+        let local = self.window_point_to_ifc_local(dom_id, layout_idx, position)?;
         // Clamp the local point into the block so line hit-testing lands on
-        // the nearest line instead of failing outside the box.
+        // the nearest line instead of failing outside the box. The clamp box is
+        // the CONTENT box, matching the space the point is now in.
         let size = tree.get(LayoutNodeId::new(layout_idx)).and_then(|n| n.used_size).unwrap_or_default();
-        let clamped = LogicalPosition {
-            x: local.x.clamp(0.0, size.width.max(0.0)),
-            y: local.y.clamp(0.0, size.height.max(0.0)),
-        };
+        let inset = tree.content_inset(LayoutNodeId::new(layout_idx));
+        let bp = tree
+            .get(LayoutNodeId::new(layout_idx))
+            .map(|n| n.box_props.unpack());
+        let (right, bottom) = bp.map_or((0.0, 0.0), |b| {
+            (b.padding.right + b.border.right, b.padding.bottom + b.border.bottom)
+        });
+        let clamped = local.clamp_to(
+            size.width - inset.left - right,
+            size.height - inset.top - bottom,
+        );
         // (d6h) Materialized: sentinel-safe drag hittest.
-        let cursor = Self::materialized_inline_layout(cached).hittest_cursor(clamped)?;
+        let cursor = Self::materialized_inline_layout(cached).hittest_point(clamped)?;
         Some((node_dom_id, cursor))
     }
 
@@ -18355,6 +18479,66 @@ mod autotest_generated {
                 pos(0.0, 0.0),
             );
         }
+    }
+
+    // ==================================================================
+    // ifc_local_point — THE hit-test → inline-layout conversion
+    // ==================================================================
+
+    #[test]
+    fn ifc_local_point_adds_the_boxs_own_scroll_and_nothing_else() {
+        use azul_core::hit_test::HitTestItem;
+
+        let node = NodeId::new(7);
+        let mut offsets: BTreeMap<NodeId, ScrollPosition> = BTreeMap::new();
+        offsets.insert(
+            node,
+            ScrollPosition {
+                parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+                // `children_rect.origin` IS the scroll offset.
+                children_rect: rect(40.0, 6.0, 500.0, 500.0),
+            },
+        );
+        let item = HitTestItem {
+            point_in_viewport: pos(0.0, 0.0),
+            point_relative_to_item: ContentBoxLocal::new(pos(3.0, 4.0)),
+            is_focusable: false,
+            is_virtual_view_hit: None,
+            hit_depth: 0,
+        };
+
+        // REGRESSION: without the own-scroll term a click in a horizontally
+        // scrolled TextInput placed the caret `scroll_x` px LEFT of the
+        // pointer, so the visible text could not be selected at all.
+        let p = LayoutWindow::ifc_local_point_from(item.point_relative_to_item, &offsets, node);
+        assert_eq!(p.get(), pos(43.0, 10.0));
+
+        // An unregistered / unscrolled box contributes nothing.
+        let other = LayoutWindow::ifc_local_point_from(
+            item.point_relative_to_item,
+            &offsets,
+            NodeId::new(8),
+        );
+        assert_eq!(other.get(), pos(3.0, 4.0));
+        assert_eq!(
+            LayoutWindow::ifc_local_point_from(
+                item.point_relative_to_item,
+                &BTreeMap::new(),
+                node,
+            )
+            .get(),
+            pos(3.0, 4.0),
+        );
+    }
+
+    #[test]
+    fn content_inset_of_is_zero_for_an_unknown_node_and_for_the_plain_fixture() {
+        let win = laid_out(fixture_dom(), 200.0, 150.0);
+        // The fixture's divs have no padding and no border — which is exactly
+        // why the WebRender/CPU divergence stayed latent in the widget set.
+        assert_eq!(win.content_inset_of(DomId::ROOT_ID, NodeId::new(1)), ContentInset::ZERO);
+        assert_eq!(win.content_inset_of(DomId::ROOT_ID, NodeId::new(9_999)), ContentInset::ZERO);
+        assert_eq!(win.content_inset_of(DomId { inner: 42 }, NodeId::new(0)), ContentInset::ZERO);
     }
 
     #[test]

@@ -539,7 +539,7 @@ mod autotest_generated {
     fn hit_item(depth: u32) -> HitTestItem {
         HitTestItem {
             point_in_viewport: LogicalPosition::zero(),
-            point_relative_to_item: LogicalPosition::zero(),
+            point_relative_to_item: Default::default(),
             is_focusable: false,
             is_virtual_view_hit: None,
             hit_depth: depth,
@@ -549,7 +549,7 @@ mod autotest_generated {
     fn scroll_item() -> ScrollHitTestItem {
         ScrollHitTestItem {
             point_in_viewport: LogicalPosition::zero(),
-            point_relative_to_item: LogicalPosition::zero(),
+            point_relative_to_item: Default::default(),
             scroll_node: OverflowingScrollNode::default(),
         }
     }
@@ -565,7 +565,7 @@ mod autotest_generated {
     fn scrollbar_item() -> ScrollbarHitTestItem {
         ScrollbarHitTestItem {
             point_in_viewport: LogicalPosition::zero(),
-            point_relative_to_item: LogicalPosition::zero(),
+            point_relative_to_item: Default::default(),
             orientation: ScrollbarOrientation::Vertical,
         }
     }
