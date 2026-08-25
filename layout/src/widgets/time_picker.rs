@@ -30,7 +30,7 @@ use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
 use azul_css::{OptionString, 
     props::{
         basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutWidth, LayoutMarginLeft},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutHeight, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutWidth, LayoutMarginLeft},
         property::{CssProperty, *},
         style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleCursor, StyleUserSelect, StyleTextColor},
     },
@@ -243,6 +243,12 @@ static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
 
 /// Up/down arrow cell.
 static ARROW_STYLE: &[CssPropertyWithConditions] = &[
+    // An EXPLICIT hit box. Without it the arrow `<p>` is shrink-to-fit inside an
+    // `align-items: center` column, so its target was the advance of the glyph
+    // itself (~11x17 px) — and it collapsed to ZERO WIDTH whenever U+25B2/25BC
+    // failed to shape, which is a large part of why the widget felt dead.
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(40))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
@@ -411,6 +417,7 @@ impl TimePicker {
                 state.clone(),
                 on_hour_up as usize,
                 on_hour_down as usize,
+                on_hour_scroll as usize,
             ),
             crate::widgets::widget_p_with_text(SEPARATOR_TEXT)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SEPARATOR_CLASS))
@@ -420,6 +427,7 @@ impl TimePicker {
                 state.clone(),
                 on_minute_up as usize,
                 on_minute_down as usize,
+                on_minute_scroll as usize,
             ),
         ];
 
@@ -471,7 +479,13 @@ impl Default for TimePicker {
 /// Builds one spinner column (up arrow / value display / down arrow). The up and
 /// down arrows carry the shared `state` `RefAny` and the given click handlers; the
 /// middle display is class-tagged so handlers can re-text it.
-fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -> Dom {
+fn build_spinner(
+    value: AzString,
+    state: RefAny,
+    up_cb: usize,
+    down_cb: usize,
+    scroll_cb: usize,
+) -> Dom {
     use azul_core::dom::{EventFilter, HoverEventFilter};
 
     let arrow_cell = |arrow: AzString, cb: usize, refany: RefAny| -> Dom {
@@ -490,9 +504,12 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
                 .into(),
             )
             .with_tab_index(TabIndex::Auto)
-            // The time field opens a chooser.
+            // A stepper arrow IS a button. It used to declare `ComboBox` (the
+            // comment "the time field opens a chooser" belongs to a field, not
+            // to an arrow) — a screen reader announced a combo box that offered
+            // nothing to choose.
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::ComboBox,
+                role: azul_core::a11y::AccessibilityRole::PushButton,
                 ..Default::default()
             })
     };
@@ -500,6 +517,20 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SPINNER_STYLE))
+        // The WHOLE column takes the wheel, not just the arrows: spinning the
+        // hours by pointing at them is what a native time field does, and the
+        // arrows are far too small to aim a gesture at.
+        .with_callbacks(
+            alloc::vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::Scroll),
+                callback: CoreCallback {
+                    cb: scroll_cb,
+                    ctx: OptionRefAny::None,
+                },
+                refany: state.clone(),
+            }]
+            .into(),
+        )
         .with_children(
             alloc::vec![
                 arrow_cell(UP_ARROW, up_cb, state.clone()),
@@ -516,15 +547,31 @@ fn build_spinner(value: AzString, state: RefAny, up_cb: usize, down_cb: usize) -
 /// (the middle child of the clicked arrow's parent spinner), and fires the
 /// optional `on_change`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
-fn adjust_spinner(mut data: RefAny, mut info: CallbackInfo, is_hour: bool, delta: i64) -> Update {
-    // The clicked node is an arrow `<p>`; its parent is the spinner; the
-    // spinner's first child is the up arrow and the next sibling is the value
-    // display `<p>`, whose only child is the re-textable bare text node.
+fn adjust_spinner(data: RefAny, mut info: CallbackInfo, is_hour: bool, delta: i64) -> Update {
+    // The clicked node is an arrow `<p>`; its parent is the spinner.
     let hit = info.get_hit_node();
-    let Some(parent) = info.get_parent(hit) else {
+    let Some(spinner) = info.get_parent(hit) else {
         return Update::DoNothing;
     };
-    let Some(up) = info.get_first_child(parent) else {
+    adjust_spinner_at(data, info, spinner, is_hour, delta)
+}
+
+/// The shared body of [`adjust_spinner`], addressed by the SPINNER node.
+///
+/// A click arrives on an arrow (whose parent is the spinner); a wheel arrives
+/// on the spinner itself, because the whole column is the scroll target. Both
+/// need the same clamp + re-text + `on_change`, so the walk starts from the
+/// spinner in one place rather than being duplicated per entry point.
+fn adjust_spinner_at(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    spinner: azul_core::dom::DomNodeId,
+    is_hour: bool,
+    delta: i64,
+) -> Update {
+    // The spinner's first child is the up arrow and its next sibling is the
+    // value display `<p>`, whose only child is the re-textable bare text node.
+    let Some(up) = info.get_first_child(spinner) else {
         return Update::DoNothing;
     };
     let Some(display_box) = info.get_next_sibling(up) else {
@@ -562,6 +609,94 @@ fn adjust_spinner(mut data: RefAny, mut info: CallbackInfo, is_hour: bool, delta
 
     info.change_node_text(display, display_text);
     update
+}
+
+/// How much wheel travel advances the spinner by one unit.
+///
+/// A trackpad flick is not one event: it is 20-40 wheel events plus a momentum
+/// tail. Stepping by `delta.signum()` per event — the obvious implementation —
+/// walks the hour through a whole day on a single gesture (the same trap the
+/// map widget documents). So the deltas are ACCUMULATED and one step is emitted
+/// per this many pixels of travel.
+const SCROLL_PX_PER_STEP: f32 = 40.0;
+
+/// Which spinner the accumulator currently belongs to, plus its travel.
+///
+/// Thread-local because only one pointer is scrolling at a time, and the
+/// `TimePickerState` it would otherwise live on is a `#[repr(C)]` FFI struct.
+/// Switching columns resets the travel, so leftover motion over the hours
+/// cannot leak into the minutes.
+#[cfg(feature = "std")]
+thread_local! {
+    static SCROLL_ACCUM: core::cell::Cell<(u8, f32)> = const { core::cell::Cell::new((0, 0.0)) };
+}
+
+/// Accumulate `dy` for `which` (1 = hour, 2 = minute) and return how many whole
+/// steps that unlocks, keeping the remainder for the next event.
+#[cfg(feature = "std")]
+fn take_scroll_steps(which: u8, dy: f32) -> i64 {
+    SCROLL_ACCUM.with(|cell| {
+        let (owner, mut travel) = cell.get();
+        if owner != which {
+            travel = 0.0;
+        }
+        travel += dy;
+        let steps = (travel / SCROLL_PX_PER_STEP) as i64;
+        // Keep at most one step per event: a momentum burst must not jump.
+        let steps = steps.clamp(-1, 1);
+        if steps != 0 {
+            travel -= steps as f32 * SCROLL_PX_PER_STEP;
+        }
+        cell.set((which, travel));
+        steps
+    })
+}
+
+#[cfg(not(feature = "std"))]
+fn take_scroll_steps(_which: u8, dy: f32) -> i64 {
+    // No thread-locals without `std`: fall back to one step per event.
+    if dy > 0.0 { 1 } else if dy < 0.0 { -1 } else { 0 }
+}
+
+/// Wheel over a spinner column: scroll the value, not the page.
+///
+/// Registered on the SPINNER div, so the whole column is the target (the arrows
+/// are tiny). Scrolling UP (negative dy in platform terms) increases the value,
+/// which is what a native stepper does.
+fn spin_on_scroll(data: RefAny, mut info: CallbackInfo, is_hour: bool) -> Update {
+    let spinner = info.get_hit_node();
+    let Some(node_id) = spinner.node.into_crate_internal() else {
+        return Update::DoNothing;
+    };
+    let Some(delta) = info.get_scroll_delta(spinner.dom, node_id) else {
+        return Update::DoNothing;
+    };
+    // A platform can hand us NaN/Inf (they are forwarded unchanged); an
+    // accumulator poisoned by one never recovers.
+    if !delta.y.is_finite() || delta.y == 0.0 {
+        return Update::DoNothing;
+    }
+
+    let steps = take_scroll_steps(u8::from(!is_hour) + 1, delta.y);
+    if steps == 0 {
+        // Still consumed: the gesture belongs to this spinner even on the
+        // events that do not yet complete a step.
+        info.stop_propagation();
+        return Update::DoNothing;
+    }
+
+    // Wheel-up (dy < 0) must INCREASE the value.
+    let update = adjust_spinner_at(data, info, spinner, is_hour, -steps);
+    info.stop_propagation();
+    update
+}
+
+extern "C" fn on_hour_scroll(data: RefAny, info: CallbackInfo) -> Update {
+    spin_on_scroll(data, info, true)
+}
+
+extern "C" fn on_minute_scroll(data: RefAny, info: CallbackInfo) -> Update {
+    spin_on_scroll(data, info, false)
 }
 
 extern "C" fn on_hour_up(data: RefAny, info: CallbackInfo) -> Update {
@@ -2001,18 +2136,36 @@ mod autotest_generated {
         let mut interactive = 0;
         for nd in styled.node_data.as_ref() {
             for cb in nd.callbacks.as_ref() {
-                assert_eq!(
+                // Arrows and the AM/PM toggle fire on mouse-up; the two spinner
+                // COLUMNS additionally take the wheel, so a gesture anywhere on
+                // a column spins its value instead of scrolling the page.
+                assert!(
+                    matches!(
+                        cb.event,
+                        EventFilter::Hover(HoverEventFilter::MouseUp)
+                            | EventFilter::Hover(HoverEventFilter::Scroll)
+                    ),
+                    "a time-picker cell fires on {:?}, not mouse-up or scroll",
                     cb.event,
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    "a time-picker cell fires on something other than mouse-up",
                 );
                 assert!(
                     matches!(cb.callback.ctx, OptionRefAny::None),
                     "a native handler carries an FFI context",
                 );
-                interactive += 1;
+                if cb.event == EventFilter::Hover(HoverEventFilter::MouseUp) {
+                    interactive += 1;
+                }
             }
-            if !nd.callbacks.as_ref().is_empty() {
+            // CLICK targets must be keyboard-reachable. A WHEEL target need not
+            // be: you do not tab to a scroll area to spin it — the arrows inside
+            // the column are its keyboard affordance, and making the column a
+            // tab stop would put a focus ring on a box with no keyboard action.
+            let has_click = nd
+                .callbacks
+                .as_ref()
+                .iter()
+                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::MouseUp));
+            if has_click {
                 assert_eq!(
                     nd.flags.get_tab_index(),
                     Some(TabIndex::Auto),
@@ -2028,28 +2181,31 @@ mod autotest_generated {
         // Only the arrows and the toggle are clickable; a handler on a display
         // would fire on a click meant to select the text.
         let styled = StyledDom::create_from_dom(TimePicker::create(8, 8).with_24h(false).dom());
-        for idx in [
-            N_CONTAINER,
-            N_HOUR_SPINNER,
-            N_HOUR_DISPLAY,
-            N_SEPARATOR,
-            N_MINUTE_SPINNER,
-            N_MINUTE_DISPLAY,
-        ] {
+        // The displays, the separator and the container stay wholly inert.
+        for idx in [N_CONTAINER, N_HOUR_DISPLAY, N_SEPARATOR, N_MINUTE_DISPLAY] {
             assert!(
                 styled.node_data.as_ref()[idx].callbacks.as_ref().is_empty(),
-                "flattened node {idx} registered a click handler it should not have",
+                "flattened node {idx} registered a handler it should not have",
             );
+        }
+        // The spinner columns take the WHEEL (and nothing else): scrolling over
+        // the hours must spin the hours, not scroll the page.
+        for idx in [N_HOUR_SPINNER, N_MINUTE_SPINNER] {
+            let cbs = styled.node_data.as_ref()[idx].callbacks.clone();
+            let cbs = cbs.as_ref();
+            assert_eq!(cbs.len(), 1, "a spinner column carries exactly the scroll handler");
+            assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Scroll));
         }
     }
 
     #[test]
     fn dom_shares_one_state_refany_across_every_handler() {
-        // Four arrows and the toggle must all mutate the *same* state; a per-cell
-        // copy would let the hour and the minute drift apart.
+        // Four arrows, the AM/PM toggle and the two column wheel handlers must
+        // all mutate the *same* state; a per-cell copy would let the hour and
+        // the minute drift apart.
         let styled = StyledDom::create_from_dom(TimePicker::create(5, 5).with_24h(false).dom());
         let payloads = state_payloads(&styled);
-        assert_eq!(payloads.len(), 5, "not every handler carries the widget state");
+        assert_eq!(payloads.len(), 7, "not every handler carries the widget state");
 
         {
             let mut first = payloads[0].clone();
@@ -2157,7 +2313,7 @@ mod autotest_generated {
             (1, 2),
             (usize::MAX / 2, usize::MAX - 1),
         ] {
-            let dom = build_spinner(AzString::from_const_str("0"), RefAny::new(0u8), up, down);
+            let dom = build_spinner(AzString::from_const_str("0"), RefAny::new(0u8), up, down, on_hour_scroll as usize);
             let cells = dom.children.as_ref();
             assert_eq!(cells.len(), 3);
             assert_eq!(
@@ -2173,7 +2329,7 @@ mod autotest_generated {
 
     #[test]
     fn build_spinner_puts_the_value_between_the_two_arrows() {
-        let dom = build_spinner(AzString::from_const_str("42"), RefAny::new(0u8), 1, 2);
+        let dom = build_spinner(AzString::from_const_str("42"), RefAny::new(0u8), 1, 2, on_hour_scroll as usize);
         assert_eq!(classes(&dom), vec![CLASS_SPINNER.to_string()]);
         let cells = dom.children.as_ref();
         assert_eq!(text_of(&cells[0]).as_deref(), Some(UP_GLYPH));
@@ -2205,7 +2361,7 @@ mod autotest_generated {
             long,
         ];
         for v in values {
-            let dom = build_spinner(AzString::from(v.clone()), RefAny::new(0u8), 1, 2);
+            let dom = build_spinner(AzString::from(v.clone()), RefAny::new(0u8), 1, 2, 3);
             let shown = text_of(&dom.children.as_ref()[1]);
             assert_eq!(
                 shown.as_deref(),
@@ -2219,7 +2375,7 @@ mod autotest_generated {
     #[test]
     fn build_spinner_shares_the_state_between_both_arrows() {
         let state = RefAny::new(TimePickerStateWrapper::default());
-        let dom = build_spinner(AzString::from_const_str("0"), state.clone(), 1, 2);
+        let dom = build_spinner(AzString::from_const_str("0"), state.clone(), 1, 2, on_hour_scroll as usize);
         let cells = dom.children.as_ref();
 
         {
@@ -2241,7 +2397,7 @@ mod autotest_generated {
 
     #[test]
     fn build_spinner_makes_both_arrows_focusable_click_targets() {
-        let dom = build_spinner(AzString::from_const_str("0"), RefAny::new(0u8), 1, 2);
+        let dom = build_spinner(AzString::from_const_str("0"), RefAny::new(0u8), 1, 2, on_hour_scroll as usize);
         for (which, cell) in [("up", 0usize), ("down", 2usize)] {
             let cell = &dom.children.as_ref()[cell];
             let cbs = cell.root.callbacks.as_ref();
@@ -2259,7 +2415,7 @@ mod autotest_generated {
     #[test]
     fn build_spinner_reports_its_three_children() {
         for value in ["", "0", "999999"] {
-            let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2);
+            let dom = build_spinner(AzString::from(value.to_string()), RefAny::new(0u8), 1, 2, 3);
             assert_eq!(dom.estimated_total_children, descendants(&dom));
             // Three cells (▲ / value / ▼), each a styled `<p>` wrapping its
             // bare text leaf per the label convention: 6 descendants.

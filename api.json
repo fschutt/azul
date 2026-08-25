@@ -48017,6 +48017,44 @@
                                     "type": "DropDown"
                                 },
                                 "fn_body": "object.with_accessibility_name(name)"
+                            },
+                            "with_selected": {
+                                "doc": [
+                                    "Builder variant of [`Self::set_selected`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DropDown"
+                                },
+                                "fn_body": "object.with_selected(index)"
+                            },
+                            "set_selected": {
+                                "doc": [
+                                    "Selects the choice at `index` — what the trigger DISPLAYS.",
+                                    "",
+                                    "A drop-down is rebuilt from the host's state on every layout, so the",
+                                    "host must write the index its `on_choice_change` callback was handed",
+                                    "back here; otherwise the trigger keeps showing choice 0 no matter what",
+                                    "the user picks (there was no setter at all, so this was the only",
+                                    "possible outcome). An out-of-range index displays the empty string",
+                                    "rather than panicking, the same as an empty choice list."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_selected(index)"
                             }
                         },
                         "repr": "C"

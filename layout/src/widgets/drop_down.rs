@@ -271,6 +271,25 @@ impl DropDown {
         }
     }
 
+    /// Selects the choice at `index` — what the trigger DISPLAYS.
+    ///
+    /// A drop-down is rebuilt from the host's state on every layout, so the
+    /// host must write the index its `on_choice_change` callback was handed
+    /// back here; otherwise the trigger keeps showing choice 0 no matter what
+    /// the user picks (there was no setter at all, so this was the only
+    /// possible outcome). An out-of-range index displays the empty string
+    /// rather than panicking, the same as an empty choice list.
+    pub fn set_selected(&mut self, index: usize) {
+        self.selected = index;
+    }
+
+    /// Builder variant of [`Self::set_selected`].
+    #[must_use]
+    pub fn with_selected(mut self, index: usize) -> Self {
+        self.set_selected(index);
+        self
+    }
+
     /// Sets the callback invoked when the user selects a different choice.
     pub fn set_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(&mut self, data: RefAny, callback: C) {
         self.on_choice_change = Some(DropDownOnChoiceChange {
@@ -893,6 +912,40 @@ mod autotest_generated {
             record_choice as usize, reject_choice as usize,
             "the two probes must not have been folded into one symbol",
         );
+    }
+
+    /// The trigger must DISPLAY the selected choice, and `set_selected` /
+    /// `with_selected` must be the way a host says which one that is.
+    ///
+    /// `selected` was a public field with no setter, so a host had no supported
+    /// way to feed back the index its `on_choice_change` callback was handed —
+    /// and since the widget is rebuilt from host state every layout, the trigger
+    /// showed choice 0 forever no matter what the user picked.
+    #[test]
+    fn selecting_a_choice_changes_what_the_trigger_displays() {
+        let items = choices(&["Alpha", "Beta", "Gamma"]);
+
+        // Default: the first choice.
+        assert_eq!(label_of(&DropDown::new(items.clone()).dom()), "Alpha");
+
+        // Every index round-trips into the rendered label.
+        for (i, expected) in ["Alpha", "Beta", "Gamma"].iter().enumerate() {
+            let dd = DropDown::new(items.clone()).with_selected(i);
+            assert_eq!(dd.selected, i, "with_selected must store the index");
+            assert_eq!(
+                label_of(&dd.dom()),
+                *expected,
+                "the trigger must display choice {i}",
+            );
+        }
+
+        // The setter and the builder agree.
+        let mut a = DropDown::new(items.clone());
+        a.set_selected(2);
+        assert_eq!(a, DropDown::new(items.clone()).with_selected(2));
+
+        // Out of range renders empty rather than panicking (same as no choices).
+        assert_eq!(label_of(&DropDown::new(items).with_selected(99).dom()), "");
     }
 
     #[test]
