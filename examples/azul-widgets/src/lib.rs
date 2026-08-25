@@ -46,6 +46,12 @@ struct Showcase {
     /// this on every layout, so a literal would snap the field back to it and
     /// merge the typed text into the stale value.
     number: f32,
+    /// The `TextInput`'s text. MUST live here for the same reason: a widget is
+    /// rebuilt from host state on every layout, so a `TextInput::create()` with
+    /// no round-trip loses everything typed into it the moment ANY unrelated
+    /// callback returns `RefreshDom` — and the placeholder, hidden imperatively
+    /// on the first keystroke, does not come back either.
+    text: azul::str::String,
     checkbox_checked: bool,
     selected_radio: usize,
     selected_segment: usize,
@@ -473,7 +479,9 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             labelled(
                 "TextInput",
                 TextInput::create()
+                    .with_text(s.text.clone())
                     .with_placeholder("Type something...")
+                    .with_on_text_input(data.clone(), on_text_input)
                     .dom(),
             ),
             labelled(
@@ -977,6 +985,24 @@ extern "C" fn on_number(mut data: RefAny, _: CallbackInfo, state: NumberInputSta
     Update::DoNothing
 }
 
+/// Stores the typed text WITHOUT asking for a rebuild.
+///
+/// `DoNothing` for the same reason as `on_number`: the engine already renders
+/// what was typed, and a rebuild per keystroke would re-emit the field from
+/// this mirror. The host copy only has to be current for the NEXT rebuild,
+/// which is what stops an unrelated `RefreshDom` from blanking the field.
+extern "C" fn on_text_input(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: TextInputState,
+) -> OnTextInputReturn {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.text = state.get_text().as_str().into();
+        s.interactions += 1;
+    }
+    OnTextInputReturn { update: Update::DoNothing, valid: TextInputValid::Yes }
+}
+
 /// The picker reports every change; storing it is what makes the swatch
 /// (and the rest of the UI) follow the pick.
 extern "C" fn on_color(mut data: RefAny, _: CallbackInfo, state: ColorInputState) -> Update {
@@ -1072,6 +1098,7 @@ pub fn start() {
         switch_on: true,
         slider_value: 40.0,
         number: 42.0,
+        text: "".into(),
         checkbox_checked: true,
         selected_radio: 0,
         selected_segment: 1,

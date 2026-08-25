@@ -1124,6 +1124,23 @@ fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
 }
 
 /// Shows or hides the placeholder prompt.
+/// Drop the imperative placeholder override so the CASCADE decides again.
+///
+/// `set_placeholder_visible` writes a USER OVERRIDE, and an override is copied
+/// onto every rebuild by `migrate_user_overrides_from` and OUTRANKS the
+/// cascade — permanently. `dom()` already derives the placeholder's visibility
+/// from the widget's own text (`hidden_placeholder_style`), so once the widget
+/// is about to be rebuilt the override is at best redundant and at worst a
+/// latch: a placeholder hidden on the first keystroke stayed hidden for the
+/// rest of the window's life, even over an empty field. Exactly the bug the
+/// Accordion had, and it takes the same remedy — clear when the callback asks
+/// for a rebuild, keep the concrete value when it does not (there is no
+/// rebuild coming, so the override IS the only mechanism).
+fn clear_placeholder_override(info: &mut CallbackInfo, placeholder: DomNodeId) {
+    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Opacity));
+    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Display));
+}
+
 fn set_placeholder_visible(info: &mut CallbackInfo, placeholder: DomNodeId, visible: bool) {
     let (display, opacity) = if visible {
         (LayoutDisplay::Block, StyleOpacity::const_new(100))
@@ -1310,6 +1327,12 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
                 },
             }
         };
+        // A rebuild re-derives the placeholder from the widget's own text, so
+        // the override written above must not outlive it. See
+        // `clear_placeholder_override`.
+        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            clear_placeholder_override(&mut info, placeholder_node_id);
+        }
         return Some(result.update);
     }
 
@@ -1388,6 +1411,15 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         mirror_insertion(&mut text_input.inner, &inserted_text, caret);
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
+        // Same as above: an override must not outlive the rebuild that
+        // supersedes it. See `clear_placeholder_override`. Inside the ACCEPTED
+        // branch on purpose — a rejected edit changed nothing observable and
+        // must stay a strict no-op, which is what
+        // `text_input_rejected_by_the_hook_leaves_the_buffer_and_the_screen_untouched`
+        // pins.
+        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            clear_placeholder_override(&mut info, placeholder_node_id);
+        }
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
