@@ -208,3 +208,6 @@ examples/node/package-lock.json
 /azul.pdb
 examples/c/*.pdb
 examples/c/*.ilk
+
+# lockfile_guard.py publish-date cache (regenerable, per-machine)
+.supply-chain-cache.json

@@ -1,0 +1,40 @@
+# cooldown-exempt.txt — crates exempt from the publish-age floor.
+#
+# The cooldown exists to defend against a COMPROMISED MAINTAINER ACCOUNT: a
+# malicious version published from a stolen credential is typically yanked
+# within hours, so refusing anything younger than 14 days makes that window
+# irrelevant. (arrayref/internment/append-only-vec, 2026-08-20: 86-107 minutes
+# from publish to yank.)
+#
+# That threat model does not describe azul's own releases. When this repository
+# bumps a crate it publishes itself, the publish and the lockfile bump are the
+# same change, made by the same person, in the open — waiting two weeks to
+# consume it adds no safety and would make the release process impossible. Left
+# unexempted, the gate fires on every release, and a gate that fires on every
+# release is a gate somebody deletes.
+#
+# So: first-party crates only. Everything here must be published from an account
+# this project controls. A third-party crate does NOT belong in this file — if a
+# third-party bump is urgent enough to skip the floor, pass --min-age-days on
+# that one run and say why in the commit message, so the exception is visible
+# rather than permanent.
+#
+# Verified 2026-08-25: each of these was <14 days old in the tree at the time
+# this gate was written, i.e. every one of them would have failed the build.
+
+# azul's own crates, published from this repository.
+azul-css
+azul-core
+azul-layout
+azul-simplecss
+
+# First-party crates maintained by the same owner, consumed from crates.io.
+printpdf
+rust-fontconfig
+agg-rust-azul
+allsorts-azul
+micromail
+gilrs-azul
+gilrs-core-azul
+libudev-sys-azul
+gpu-video-azul
