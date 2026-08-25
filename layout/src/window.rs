@@ -13152,6 +13152,20 @@ impl LayoutWindow {
                 }
             }
 
+            // The true content extent of the fresh layout. `bounds()` alone is
+            // not enough: a nowrap line that overflows the box reports its full
+            // width in `unclipped_bounds` (captured during line breaking and
+            // surviving the dense-text sentinel swap), and `overflow_content_size`
+            // is what `get_content_size` → `register_scroll_nodes` reads to
+            // decide whether this IFC became a scroll box. Leaving it stale
+            // meant a single-line text input never registered horizontal
+            // overflow while typing, so the caret-reveal had nothing to scroll.
+            let unclipped = new_layout.overflow.unclipped_bounds;
+            let content_extent = LogicalSize {
+                width: new_bounds.width.max(unclipped.width),
+                height: new_bounds.height.max(unclipped.height),
+            };
+
             // Update the inline layout result with the new layout but preserve constraints (warm data)
             if let Some(warm_node) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(ifc_layout_index)) {
                 warm_node.inline_layout_result = Some(Box::new(CachedInlineLayout::new_with_constraints(
@@ -13160,6 +13174,7 @@ impl LayoutWindow {
                     false, // No floats in quick relayout
                     constraints,
                 )));
+                warm_node.overflow_content_size = Some(content_extent);
             }
         }
 

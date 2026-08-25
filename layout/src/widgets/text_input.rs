@@ -473,8 +473,22 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    // The value line SCROLLS horizontally (no visible bar) so the caret stays
+    // in view once the text runs past the right edge. This is where the scroll
+    // MUST live: the container is a block box this value `<p>` fills exactly
+    // (394 px in a 400 px field), so the overflowing line is INSIDE this box,
+    // not the container's. `overflow-x: hidden` trapped it and the field went
+    // append-only — the caret walked off the right edge and new characters were
+    // invisible. `auto` makes this the horizontal scroll box the caret-reveal
+    // (`scroll_selection_into_view` → `find_scrollable_ancestor`) shifts to
+    // follow the caret; `scrollbar-width: none` keeps a one-line field from
+    // reserving vertical space for a horizontal bar. `white-space: pre` keeps
+    // the value on one line so it overflows horizontally rather than wrapping.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
+        LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )),
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
@@ -490,8 +504,22 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    // The value line SCROLLS horizontally (no visible bar) so the caret stays
+    // in view once the text runs past the right edge. This is where the scroll
+    // MUST live: the container is a block box this value `<p>` fills exactly
+    // (394 px in a 400 px field), so the overflowing line is INSIDE this box,
+    // not the container's. `overflow-x: hidden` trapped it and the field went
+    // append-only — the caret walked off the right edge and new characters were
+    // invisible. `auto` makes this the horizontal scroll box the caret-reveal
+    // (`scroll_selection_into_view` → `find_scrollable_ancestor`) shifts to
+    // follow the caret; `scrollbar-width: none` keeps a one-line field from
+    // reserving vertical space for a horizontal bar. `white-space: pre` keeps
+    // the value on one line so it overflows horizontally rather than wrapping.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
+        LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )),
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
@@ -507,8 +535,22 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    // The value line SCROLLS horizontally (no visible bar) so the caret stays
+    // in view once the text runs past the right edge. This is where the scroll
+    // MUST live: the container is a block box this value `<p>` fills exactly
+    // (394 px in a 400 px field), so the overflowing line is INSIDE this box,
+    // not the container's. `overflow-x: hidden` trapped it and the field went
+    // append-only — the caret walked off the right edge and new characters were
+    // invisible. `auto` makes this the horizontal scroll box the caret-reveal
+    // (`scroll_selection_into_view` → `find_scrollable_ancestor`) shifts to
+    // follow the caret; `scrollbar-width: none` keeps a one-line field from
+    // reserving vertical space for a horizontal bar. `white-space: pre` keeps
+    // the value on one line so it overflows horizontally rather than wrapping.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
+        LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )),
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),

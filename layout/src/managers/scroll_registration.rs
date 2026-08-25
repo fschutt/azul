@@ -87,6 +87,31 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 }
             }
 
+            // The same amendment for ORDINARY nodes: a text edit can grow an
+            // IFC's content after layout (`reshape_text_node` refreshes
+            // `overflow_content_size` but nothing re-runs Phase 3), so re-derive
+            // the necessity from the CURRENT content size. For nodes whose
+            // content is unchanged since layout this reads the same
+            // `overflow_content_size` Phase 3 wrote and is a no-op; flags are
+            // only ever raised, never lowered.
+            {
+                let content_now = layout_result
+                    .layout_tree
+                    .get_content_size(LayoutNodeId::new(node_idx));
+                let raised = crate::solver3::cache::apply_content_scroll_necessity(
+                    &layout_result.styled_dom,
+                    dom_node_id,
+                    content_now,
+                    container_size,
+                    &mut scrollbar_info,
+                );
+                if raised {
+                    if let Some(warm) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                        warm.scrollbar_info = Some(scrollbar_info);
+                    }
+                }
+            }
+
             if !(scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal) {
                 continue;
             }

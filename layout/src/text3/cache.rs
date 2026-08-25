@@ -10806,6 +10806,20 @@ pub fn position_one_line<T: ParsedFontTrait>(
     let mut item_cursor = 0;
     let is_first_line_of_para = line_index == 0; // Simplified assumption
 
+    // white-space: nowrap / pre suppress soft wrapping, so break_one_line already
+    // put the WHOLE line (overflowing content and all) into `line_items`. The
+    // per-segment fit test below is a distribution step for wrapped/shaped text —
+    // for a nowrap line it must NOT stop at `segment.width`, or every item past
+    // the box edge is silently dropped (a single-line text-input then loses its
+    // overflow tail: only ~one box-width of glyphs is positioned, `unclipped_bounds`
+    // never exceeds the box, and no horizontal scroll box is registered). Keep every
+    // item on the (single) segment and let it overflow; paint-time clipping handles
+    // visual overflow.
+    let no_wrap = matches!(
+        constraints.white_space_mode,
+        WhiteSpaceMode::Nowrap | WhiteSpaceMode::Pre
+    );
+
     for (segment_idx, segment) in line_constraints.segments.iter().enumerate() {
         if item_cursor >= line_items.len() {
             break;
@@ -10818,7 +10832,11 @@ pub fn position_one_line<T: ParsedFontTrait>(
             let item = &line_items[item_cursor];
             let item_measure = get_item_measure(item, is_vertical);
             // Put at least one item in the segment to avoid getting stuck.
-            if current_segment_width + item_measure > segment.width && !segment_items.is_empty() {
+            // For nowrap/pre the overflow must stay on the line (see above).
+            if !no_wrap
+                && current_segment_width + item_measure > segment.width
+                && !segment_items.is_empty()
+            {
                 break;
             }
             segment_items.push(item.clone());

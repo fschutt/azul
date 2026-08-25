@@ -4240,4 +4240,150 @@ mod tests {
              ApplySelectionOp path (not the C-API shortcut the harness used to take)",
         );
     }
+
+    /// The horizontal caret-reveal regression: typing past the right edge of a
+    /// single-line `TextInput` must SCROLL the field so the caret stays visible.
+    ///
+    /// The container is `overflow-x: auto` + `scrollbar-width: none` so its
+    /// overflowing value line makes it a horizontal scroll box the caret-reveal
+    /// (`scroll_selection_into_view` → `find_scrollable_ancestor`) can shift. It
+    /// regressed on macOS/Linux because those `cfg` blocks still carried
+    /// `overflow-x: hidden` (only the Windows block had been fixed): the
+    /// container never registered as a scroll node, the reveal found no
+    /// scrollable ancestor and bailed, and every character typed past the right
+    /// edge walked off-screen with the caret frozen at the last visible glyph —
+    /// exactly the "text is invisible when I type" report. `justify-content`
+    /// must also be `flex-start`, not `center`: a centred overflowing line puts
+    /// the START of the text at negative x, which the clamp `[0, max]` can never
+    /// bring back.
+    #[test]
+    fn typing_past_the_right_edge_scrolls_the_text_input_to_keep_the_caret_visible() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        // The same 400px body the `abc` helper uses (so the click lands and
+        // focuses); the field is then overflowed by TYPING a long line rather
+        // than by shrinking the field — which is exactly the user's scenario
+        // (a normal-width input filled past its right edge).
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // ~90 printable characters, each a key_down{text}+key_up pair (two
+        // identical consecutive downs are a no-op diff, so the release re-arms
+        // the ingress — same reason the `abc` helper alternates down/up). At the
+        // 11px value font this line is far wider than the ~396px field.
+        // ~250 chars: at the 11px value font this is far wider than the ~394px
+        // field, so it overflows several times over (the 88-char string used
+        // earlier measured ~390px and merely GRAZED the edge — no overflow).
+        let typed: String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            .chars()
+            .cycle()
+            .take(250)
+            .collect();
+        let mut steps = vec![
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "click", "selector": ".__azul-native-text-input-container" }),
+            serde_json::json!({ "op": "wait_frame" }),
+        ];
+        for ch in typed.chars() {
+            let s = ch.to_string();
+            steps.push(serde_json::json!({ "op": "key_down", "key": s, "text": s }));
+            steps.push(serde_json::json!({ "op": "key_up", "key": s }));
+        }
+        steps.push(serde_json::json!({ "op": "wait_frame" }));
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "text_input_horizontal_scroll_reveal",
+            "setup": { "window_width": 500, "window_height": 200, "dpi": 96 },
+            "steps": steps,
+        }))
+        .expect("scenario json");
+
+        let (_result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("clicking the text input must focus its container");
+        let _node_id = focused.node.into_crate_internal().expect("focused node id");
+        let dom = focused.dom;
+
+        // The text3 layer of the bug, pinned directly: `position_one_line`'s
+        // per-segment fit test used to DROP every item past `segment.width`
+        // even for a nowrap line, so only ~one box-width of glyphs (≈64 of
+        // 250) was ever positioned and the tail did not exist to scroll to.
+        // Every typed character must be laid out and reach the display list.
+        {
+            let lr = runner.layout_window.get_layout_result(&dom).expect("layout result");
+            let painted: usize = lr
+                .display_list
+                .items
+                .iter()
+                .map(|item| match item {
+                    DisplayListItem::Text { glyphs, .. } => glyphs.len(),
+                    _ => 0,
+                })
+                .sum();
+            assert!(
+                painted >= typed.chars().count(),
+                "every typed character must be positioned and painted \
+                 (white-space:pre must not truncate at the box edge): \
+                 painted {painted} glyphs for {} typed characters",
+                typed.chars().count(),
+            );
+        }
+
+        // The single-line field scrolls on the VALUE `<p>`, NOT the container:
+        // the container is a block box the value box fills exactly (394 px in a
+        // 400 px field), so the overflowing line lives INSIDE the value box and
+        // the value box is where the scroll must register. The fix makes that
+        // value `<p>` `overflow-x: auto`; before, `overflow-x: hidden` trapped
+        // the line and registered no scroll box at all.
+        let value_node = *runner
+            .layout_window
+            .scroll_manager
+            .get_scroll_states_for_dom(dom)
+            .keys()
+            .next()
+            .expect(
+                "typing past the right edge must register a horizontal scroll box (the value \
+                 <p> with overflow-x:auto); none registered — the append-only caret bug",
+            );
+
+        // Drive the caret-reveal exactly as a keystroke does: it anchors on the
+        // editing session's node (the value <p>), walks to that scroll box and
+        // shifts it so the caret stays in view. Idempotent — a re-run after the
+        // harness's own reveal is a zero-delta no-op, so the assertion does not
+        // hinge on frame timing. That this advances the offset at all proves the
+        // reveal's anchor actually reaches the value scroll box.
+        runner.layout_window.scroll_selection_into_view(
+            azul_layout::window::SelectionScrollType::Cursor,
+            azul_layout::window::ScrollMode::Instant,
+        );
+
+        let scroll = runner
+            .layout_window
+            .scroll_manager
+            .get_scroll_state(dom, value_node)
+            .expect("the value scroll box must carry a scroll state");
+        assert!(
+            scroll.content_rect.size.width > scroll.container_rect.size.width + 1.0,
+            "precondition: the typed line must overflow the field (content {:.1} vs container {:.1})",
+            scroll.content_rect.size.width,
+            scroll.container_rect.size.width,
+        );
+        assert!(
+            scroll.current_offset.x > 0.0,
+            "typing past the right edge must scroll the value box so the caret follows the text; \
+             offset.x stayed at {:.1} (append-only / caret frozen — the reveal never reached the \
+             value scroll box)",
+            scroll.current_offset.x,
+        );
+    }
 }

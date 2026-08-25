@@ -3988,7 +3988,22 @@ fn layout_ifc<T: ParsedFontTrait>(
         // Extract the overall size and baseline for the IFC root.
         // +spec:display-property:a0d0ab - IFC height = top of topmost line box to bottom of bottommost line box
         // +spec:display-property:a63b8f - baseline-source defaults to auto (last baseline for inline-block/IFC)
-        output.overflow_size = LogicalSize::new(frag_bounds.width, frag_bounds.height);
+        //
+        // Use the UNCLIPPED content bounds, not `bounds()`. `bounds()` maxes over
+        // `layout.items`, which under dense-text retention is an empty sentinel
+        // (the real clusters live in the dense view) — so `bounds()` collapses to
+        // 0 and a horizontal scroll container's overflow was never detected
+        // (`overflow_size.width == 0` → `needs_horizontal == false` → the value
+        // `<p>` of a single-line field never became a scroll box the caret-reveal
+        // could shift: the append-only caret bug). `unclipped_bounds` is captured
+        // during line breaking to enclose every positioned item and survives the
+        // sentinel swap. Take the max so a path that leaves `unclipped_bounds`
+        // at its default still gets the fragment's own bounds.
+        let unclipped = main_frag.overflow.unclipped_bounds;
+        output.overflow_size = LogicalSize::new(
+            frag_bounds.width.max(unclipped.width),
+            frag_bounds.height.max(unclipped.height),
+        );
         output.baseline = main_frag.last_baseline();
         warm_node.baseline = output.baseline;
 
