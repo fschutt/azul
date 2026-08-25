@@ -27,6 +27,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "AzReview"
+version = "0.1.0"
+dependencies = [
+ "azul-dll",
+]
+
+[[package]]
 name = "AzWidgets"
 version = "0.1.0"
 dependencies = [
