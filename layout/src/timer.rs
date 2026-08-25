@@ -203,15 +203,49 @@ impl Timer {
         let now = (get_system_time_fn.cb)();
 
         // Check if timer should run based on last_run, delay, and interval
+        //
+        // Admission is unchanged (see the note at the comparison). What DID
+        // change is what the met deadline is recorded as — the schedule is now
+        // phase-accumulating rather than stamped from the arrival time.
+        let mut phase_target: Option<Instant> = None;
         match self.last_run.as_ref() {
             Some(last_run) => {
                 // Timer has run before - check interval
                 if let OptionDuration::Some(interval) = self.interval {
-                    if now.duration_since(last_run).smaller_than(&interval) {
+                    let elapsed = now.duration_since(last_run);
+                    // Nanoseconds: the one scale a Tick span and a System span
+                    // can be compared on.
+                    //
+                    // NO early-fire tolerance. An interval means exactly that
+                    // interval — `a_tick_interval_throttles_a_wall_clock_timer_at_the_converted_boundary`
+                    // and `invoke_throttles_a_wall_clock_interval_on_a_tick_clock_at_the_exact_frame`
+                    // both pin that boundary deliberately, and admitting a fire
+                    // early would redefine "5 frames" as "4.94 frames". The
+                    // half-rate pump that motivated a tolerance is addressed
+                    // where it actually belongs: the scroll physics now
+                    // integrates over the elapsed time it is given, so a
+                    // doubled gap costs sample rate and nothing else.
+                    let interval_ns = interval.as_nanos();
+                    if elapsed.smaller_than(&interval) {
                         return TimerCallbackReturn {
                             should_update: Update::DoNothing,
                             should_terminate: TerminateTimer::Continue,
                         };
+                    }
+                    // PHASE-ACCUMULATING schedule: the next deadline is
+                    // measured from the one just met, not from the moment this
+                    // fire happened to arrive. Stamping the arrival time let
+                    // every late delivery push the whole schedule later, so the
+                    // period drifted and never recovered.
+                    //
+                    // Only while we are keeping up: if more than one interval
+                    // has already elapsed the timer is behind (a stalled app, a
+                    // debugger breakpoint), and accumulating from the old
+                    // deadline would demand a burst of catch-up fires. Fall back
+                    // to the arrival time and resynchronise.
+                    if elapsed.as_nanos() < interval_ns.saturating_mul(2) {
+                        phase_target =
+                            Some(last_run.add_optional_duration(Some(&interval)));
                     }
                 }
             }
@@ -254,7 +288,9 @@ impl Timer {
         }
 
         self.run_count += 1;
-        self.last_run = OptionInstant::Some(now);
+        // The deadline just met, when the schedule is being kept (see above);
+        // otherwise the arrival time, which resynchronises.
+        self.last_run = OptionInstant::Some(phase_target.unwrap_or(now));
 
         result
     }
@@ -1881,6 +1917,69 @@ mod autotest_generated {
             assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2);
             assert_eq!(t.run_count, 2);
             assert_eq!(t.last_run, OptionInstant::Some(tick(10)));
+        });
+    }
+
+    /// A LATE fire must not push the whole schedule later.
+    ///
+    /// `last_run` used to be stamped with the arrival time, so a periodic timer
+    /// that was delivered late never recovered its phase: every late tick moved
+    /// the next deadline out by the same lateness, and the period drifted. It
+    /// now records the DEADLINE THAT WAS MET, so the schedule self-corrects.
+    #[test]
+    fn invoke_keeps_its_phase_when_a_fire_arrives_late() {
+        let _g = clock_guard();
+        with_env(|env| {
+            let mut t =
+                timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
+            let info = env.info();
+
+            // First run establishes the schedule at t=0.
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(t.last_run, OptionInstant::Some(tick(0)));
+
+            // The 10-tick deadline is delivered 3 ticks LATE.
+            set_now(13);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2);
+            assert_eq!(
+                t.last_run,
+                OptionInstant::Some(tick(10)),
+                "the met DEADLINE is recorded, not the arrival time",
+            );
+
+            // Because the phase was kept, the next deadline is 20 — not 23.
+            set_now(20);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                3,
+                "the schedule self-corrects instead of drifting by the lateness",
+            );
+        });
+    }
+
+    /// …but a timer that has fallen MORE than one interval behind resynchronises.
+    ///
+    /// Accumulating from a long-stale deadline (a suspended app, a debugger
+    /// breakpoint) would demand a burst of catch-up fires to work off the debt.
+    #[test]
+    fn invoke_resynchronises_after_falling_far_behind() {
+        let _g = clock_guard();
+        with_env(|env| {
+            let mut t =
+                timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
+            let info = env.info();
+            let _ = t.invoke(&info, &fake_clock_cb());
+
+            // Five intervals of nothing.
+            set_now(50);
+            let _ = t.invoke(&info, &fake_clock_cb());
+            assert_eq!(
+                t.last_run,
+                OptionInstant::Some(tick(50)),
+                "a long stall resyncs to now rather than queueing catch-up fires",
+            );
         });
     }
 

@@ -620,12 +620,13 @@ fn adjust_spinner_at(
 /// per this many pixels of travel.
 const SCROLL_PX_PER_STEP: f32 = 40.0;
 
-/// Which spinner the accumulator currently belongs to, plus its travel.
-///
-/// Thread-local because only one pointer is scrolling at a time, and the
-/// `TimePickerState` it would otherwise live on is a `#[repr(C)]` FFI struct.
-/// Switching columns resets the travel, so leftover motion over the hours
-/// cannot leak into the minutes.
+// Which spinner the accumulator currently belongs to, plus its travel.
+//
+// Thread-local because only one pointer is scrolling at a time, and the
+// `TimePickerState` it would otherwise live on is a `#[repr(C)]` FFI struct.
+// Switching columns resets the travel, so leftover motion over the hours
+// cannot leak into the minutes.
+// (A `///` doc comment cannot document a macro invocation.)
 #[cfg(feature = "std")]
 thread_local! {
     static SCROLL_ACCUM: core::cell::Cell<(u8, f32)> = const { core::cell::Cell::new((0, 0.0)) };
