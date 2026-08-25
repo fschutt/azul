@@ -11,7 +11,7 @@ file, following existing patterns); link the showcase on the releases page.
 |---|------|--------|
 | W1 | Paint HiDPI click fix | DONE (ebd19c71a) |
 | W2 | Maps jumbled-tiles fix | DONE — fractional-zoom contiguous tile sizing (map.rs) + f32→f64 MVT projection (mvt.rs); see W2 note |
-| W3 | Widget gap research | DONE (→ scripts/WIDGETS_RESEARCH.md) |
+| W3 | Widget gap research | DONE (→ scripts/ideas/components/WIDGETS_RESEARCH.md) |
 | W4 | Build new widgets (queue below; one file each) | DONE — 24/24 widget queue complete (date_picker + time_picker finish Tier3) |
 | WX | API-quality gate + api.json export of 24 widgets | DONE — APIs already exceed gold standard (repr(C)/Default/docs/config/callbacks); 145 types exported additions-only (210e4729d tool fix + e3f16d209 export); build-dll clean |
 | W5 | `azul-widgets` showcase demo crate (from widgets.c) | DONE — `examples/azul-widgets/` mirrors azul-paint (bin+lib+Dockerfile); showcases all 24 new widgets + 7 existing in 7 labelled sections; `cargo build -p azul-widgets` green |
@@ -72,7 +72,7 @@ Both compile (`cargo build -p azul-maps` ✓, `cargo check -p azul-layout` ✓) 
 pass (19 + 7). RUNTIME CAVEAT: not GUI-verified here. If a *first-load (z2)* jumble persists, the cause
 is NOT the grid math (proven correct) — chase the cpurender VirtualView child-DOM composite instead.
 
-## W4 — widget build queue (recipe + per-widget detail in scripts/WIDGETS_RESEARCH.md)
+## W4 — widget build queue (recipe + per-widget detail in scripts/ideas/components/WIDGETS_RESEARCH.md)
 Each = its own file in `layout/src/widgets/`; follow the recipe (struct → callbacks via
 `impl_widget_callback!`+`impl_managed_callback!` → builders → `.dom()`+internal handler), register in
 `mod.rs` + api.json (via **azul-doc autofix**, NOT hand-edits), compile-verify (`cargo check -p azul-layout`

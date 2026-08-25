@@ -126,7 +126,7 @@ impl FontManager<FontRef> {
     /// from a memory-pressure hook or on a timer; servo-shot
     /// exposes it via `--azul-evict-after-each` for measurement.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    pub fn evict_unused(&self, idle: std::time::Duration) -> usize {
+    #[must_use] pub fn evict_unused(&self, idle: std::time::Duration) -> usize {
         use crate::font::parsed::ParsedFont;
         let Ok(parsed) = self.parsed_fonts.lock() else {
             return 0;

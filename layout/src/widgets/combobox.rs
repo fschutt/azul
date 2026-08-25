@@ -667,7 +667,7 @@ impl ComboBox {
         ));
         transient.add_callback(
             EventFilter::Component(ComponentEventFilter::Dismissed),
-            state_ref.clone(),
+            state_ref,
             Callback::from_ptr(on_combobox_dismissed).to_core(),
         );
         let popup = Dom::create_from_data(transient).with_child(list);

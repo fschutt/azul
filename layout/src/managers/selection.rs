@@ -11,12 +11,12 @@
 //! this type. A copy goes the other way: [`ClipboardExtract`] pulls per-run
 //! formatting off each source `StyledRun` as the selection is walked, and the
 //! transports fan that out as RTF *and* HTML *and* plain text at once — so a
-//! copy out of azul pastes into Word or LibreOffice formatted.
+//! copy out of azul pastes into Word or `LibreOffice` formatted.
 //!
 //! Two platforms are less capable, and both say so in their own docs: X11's
 //! selection owner can serve only one target (`x11/clipboard.rs`), so it
 //! publishes plain text; and a Wayland session with no compositor selection
-//! falls back through XWayland to that same single-target path.
+//! falls back through `XWayland` to that same single-target path.
 //!
 //! `to_html()` below predates all of this and is not on the clipboard path:
 //! `rich-clipboard`'s `RichText::to_html_fragment` is what actually gets

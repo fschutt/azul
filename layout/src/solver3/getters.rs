@@ -4962,7 +4962,7 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
 /// in a single pass over the DOM nodes. Replaces the old two-pass approach
 /// where `register_embedded_fonts_from_styled_dom` + `collect_and_resolve_font_chains`
 /// each independently scanned all nodes.
-pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
+#[must_use] pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
     font_manager: &crate::text3::cache::FontManager<T>,

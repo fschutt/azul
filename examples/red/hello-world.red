@@ -6,7 +6,7 @@ Red/System [
                   redc -r hello-world.red      # then run ./hello-world
 
               ALPHA / unverified — constructed from the Red/System spec without a
-              local Red toolchain to compile-check. See scripts/RED_FFI_FINDINGS.md.}
+              local Red toolchain to compile-check. See scripts/ideas/bindings/RED_FFI_FINDINGS.md.}
 ]
 
 #include %azul.reds

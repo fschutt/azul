@@ -1649,7 +1649,7 @@ impl LayoutWindow {
     /// font the parent can — its parsed system faces AND its embedded (icon)
     /// fonts — instead of rebuilding an empty manager and rendering the macOS
     /// last-resort "tofu" face for text and icons.
-    pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
+    #[must_use] pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
             pending_css_dirty: None,
             e2e_mount: E2eMountOverride::default(),
@@ -15341,7 +15341,7 @@ impl LayoutWindow {
     ///
     /// The styled runs are what the platform clipboard transports fan out as
     /// RTF and HTML (see `dll/src/desktop/shell2/common/clipboard.rs`), so a
-    /// copy out of azul pastes into Word or LibreOffice with its formatting
+    /// copy out of azul pastes into Word or `LibreOffice` with its formatting
     /// intact rather than as a flat string.
     ///
     /// ## Arguments

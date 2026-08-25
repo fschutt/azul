@@ -76,6 +76,7 @@ impl TrayIconImage {
     /// Returns `OptionTrayIconImage` rather than `Option<Self>` so the
     /// signature crosses the C ABI unchanged.
     #[must_use]
+    #[allow(clippy::new_ret_no_self, reason = "C-ABI: must return OptionTrayIconImage")]
     pub fn new(width: u32, height: u32, rgba: U8Vec) -> OptionTrayIconImage {
         if width == 0 || height == 0 {
             return OptionTrayIconImage::None;
@@ -149,14 +150,15 @@ pub enum TrayIconSource {
     /// This is the preferred form, for two reasons.
     ///
     /// It resolves through the SAME registry and resolver `<icon>` DOM nodes
-    /// use, so anything registered there works with no tray-specific icon path
-    ///  -  Material Icons (the default pack), an image pack loaded from a ZIP, or
-    /// a custom resolver. Because resolution yields a `StyledDom` which is then
+    /// use, so anything registered there works with no tray-specific icon
+    /// path: Material Icons (the default pack), an image pack loaded from a
+    /// ZIP, or a custom resolver. Because resolution yields a `StyledDom`
+    /// which is then
     /// rendered, an icon can be anything expressible as a DOM: a font glyph, a
     /// bitmap, later an SVG or an emoji.
     ///
     /// And a spec can be rendered at ANY size on demand, which a fixed bitmap
-    /// cannot  -  a tray needs the same icon at several sizes and cannot know
+    /// cannot: a tray needs the same icon at several sizes and cannot know
     /// them up front (Windows re-asks at every taskbar DPI: 16/20/24/32; macOS
     /// wants 18pt, which is 36px on a 2x display; SNI publishes an array).
     Named(AzString),
@@ -286,10 +288,11 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// Everything a tray icon shows. This is *state*: set it, mutate it, and the
-/// backend republishes. It is deliberately not a set of imperative calls,
-/// because the Linux backend has to be able to answer the panel's `GetLayout`
-/// at any moment.
+/// Everything a tray icon shows.
+///
+/// This is *state*: set it, mutate it, and the backend republishes. It is
+/// deliberately not a set of imperative calls, because the Linux backend has
+/// to be able to answer the panel's `GetLayout` at any moment.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TrayIconData {

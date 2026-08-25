@@ -63,7 +63,7 @@ pub struct RenderedIcon {
 /// to a text node whose colour comes from the cascade, and the default is
 /// opaque black. That is correct for a light menu bar / taskbar and invisible
 /// on a dark one. Callers that know the tray's background — macOS, where a
-/// template image is tinted by AppKit anyway — should pass `tint`.
+/// template image is tinted by `AppKit` anyway — should pass `tint`.
 ///
 /// Returns `None` if the spec resolves to nothing (an unregistered icon), or if
 /// the renderer fails.
@@ -154,7 +154,7 @@ pub fn render_icon_to_rgba(
 
     let result = render_component_preview(
         &styled,
-        &font_manager,
+        font_manager,
         ComponentPreviewOptions {
             width: Some(size),
             height: Some(size),
@@ -172,7 +172,9 @@ pub fn render_icon_to_rgba(
     // success. `AZ_TRAY_ICON_DUMP=<dir>` writes the exact bitmap we hand the OS.
     if let Ok(dir) = std::env::var("AZ_TRAY_ICON_DUMP") {
         let path = format!("{dir}/tray-icon-{size_px}.png");
-        let _ = std::fs::write(&path, &result.png_data);
+        // Diagnostic dump only: a write failure here must never affect the
+        // icon actually being handed to the OS.
+        drop(std::fs::write(&path, &result.png_data));
     }
 
     if result.rgba.is_empty() || result.pixel_width == 0 || result.pixel_height == 0 {

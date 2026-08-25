@@ -29,7 +29,7 @@ default-search-keys:
 > **Status: ALPHA (unverified).** These bindings are constructed from the
 > published Red/System specification and have **not** been compiled with a Red
 > toolchain (none was available at generation time). The FFI mechanism is sound
-> and cited in `scripts/RED_FFI_FINDINGS.md`, but expect to fix small syntax
+> and cited in `scripts/ideas/bindings/RED_FFI_FINDINGS.md`, but expect to fix small syntax
 > issues on first build, and see the *Honest limitations* section below.
 
 ## Introduction
@@ -150,7 +150,7 @@ Red/System directly, which is why the shipped example is Red/System.
 - **Unverified.** No Red toolchain was available to compile-check the output.
 - **64-bit integers.** Red/System's `integer!` is 32-bit and it lacks a portable
   int64. Host-handle ids stay small (they start at 1) and 64-bit-valued API
-  fields need an int64 shim. See `scripts/RED_FFI_FINDINGS.md`.
+  fields need an int64 shim. See `scripts/ideas/bindings/RED_FFI_FINDINGS.md`.
 - **Tagged unions.** `AzOption*` / `AzResult*` / union types are emitted as
   opaque blobs pending exact-size wiring of the shared layout pass; construct and
   inspect them through C-API helpers, never by field access. The counter demo

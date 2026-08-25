@@ -1380,7 +1380,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// Pass this to `from_arc_shared()` to create a new `FontManager` that
     /// reuses already-parsed fonts.
-    pub fn shared_parsed_fonts(&self) -> Arc<Mutex<HashMap<FontId, T>>> {
+    #[must_use] pub fn shared_parsed_fonts(&self) -> Arc<Mutex<HashMap<FontId, T>>> {
         Arc::clone(&self.parsed_fonts)
     }
 
@@ -1424,7 +1424,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     }
 
     /// Get a reference to the font chain cache
-    pub const fn get_font_chain_cache(
+    #[must_use] pub const fn get_font_chain_cache(
         &self,
     ) -> &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> {
         &self.font_chain_cache
@@ -1435,7 +1435,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    pub fn get_embedded_font_by_hash(&self, font_hash: u64) -> Option<azul_css::props::basic::FontRef> {
+    #[must_use] pub fn get_embedded_font_by_hash(&self, font_hash: u64) -> Option<azul_css::props::basic::FontRef> {
         let embedded = self.embedded_fonts.lock().unwrap();
         embedded.get(&font_hash).cloned()
     }
@@ -1445,7 +1445,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
+    #[must_use] pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // Linear search through all cached fonts to find one with matching hash
         let found = parsed
@@ -1525,7 +1525,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
+    #[must_use] pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         parsed
             .iter()
@@ -1540,7 +1540,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    pub fn get_loaded_font_ids(&self) -> HashSet<FontId> {
+    #[must_use] pub fn get_loaded_font_ids(&self) -> HashSet<FontId> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // M12.7: skip hashbrown's RawIterRange on an empty map — its NEON
         // control-byte group-scan mis-lifts to wasm and iterates forever
@@ -1667,7 +1667,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    pub fn remove_font(&self, font_id: &FontId) -> Option<T> {
+    #[must_use] pub fn remove_font(&self, font_id: &FontId) -> Option<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         parsed.remove(font_id)
     }

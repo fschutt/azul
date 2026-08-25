@@ -9,7 +9,7 @@ ending every session). Cron `…` fires :13/:43 — when all slices are ✅ or h
 this file, CronList → CronDelete.
 
 **Read first each session:** this file → `scripts/SESSION_PROMPT_web_1to1.md` (hard rules, CDP
-loop, build commands) → `scripts/WEB_BACKEND_1TO1_PLAN.md` (architecture reference).
+loop, build commands) → `scripts/ideas/web/WEB_BACKEND_1TO1_PLAN.md` (architecture reference).
 
 ---
 ## ✅ MECHANISM B ROOT-CAUSED + FIXED (2026-06-12, Fable dedicated session) — it was NEVER a mis-lift

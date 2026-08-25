@@ -34,7 +34,7 @@ use azul_css::{
     props::{
         basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
         layout::{LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutOverflow, LayoutAlignItems, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
-        property::{CssProperty, *},
+        property::{CssProperty, CssPropertyType},
         style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleCursor, StyleUserSelect, StyleTextAlign},
     },
     impl_option_inner, AzString,

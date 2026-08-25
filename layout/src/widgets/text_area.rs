@@ -679,7 +679,7 @@ fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
 /// override is at best redundant and at worst a latch: a placeholder hidden on
 /// the first keystroke never comes back, even over an emptied field.
 ///
-/// Identical to the TextInput's, and to the Accordion's before it. Caught here
+/// Identical to the `TextInput`'s, and to the Accordion's before it. Caught here
 /// by `scripts/preflight_contracts.py::check_widget_override_latch` rather than
 /// by a third user report.
 fn clear_placeholder_override(info: &mut CallbackInfo, placeholder: DomNodeId) {

@@ -279,13 +279,13 @@ impl DropDown {
     /// the user picks (there was no setter at all, so this was the only
     /// possible outcome). An out-of-range index displays the empty string
     /// rather than panicking, the same as an empty choice list.
-    pub fn set_selected(&mut self, index: usize) {
+    pub const fn set_selected(&mut self, index: usize) {
         self.selected = index;
     }
 
     /// Builder variant of [`Self::set_selected`].
     #[must_use]
-    pub fn with_selected(mut self, index: usize) -> Self {
+    pub const fn with_selected(mut self, index: usize) -> Self {
         self.set_selected(index);
         self
     }

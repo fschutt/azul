@@ -136,7 +136,7 @@ pub struct ScrollPhysicsState {
     /// macOS synthesises the momentum tail from the finger velocity AT LIFT-OFF
     /// and replays that decay curve for 1-2 s. It is a canned animation: it
     /// knows nothing about our content bounds, there is no API to cancel it,
-    /// and AppKit keeps delivering it to the view that was under the pointer
+    /// and `AppKit` keeps delivering it to the view that was under the pointer
     /// when momentum began. So deltas keep arriving long after the content is
     /// pinned at an edge and the bounce has already finished.
     ///

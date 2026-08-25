@@ -370,9 +370,10 @@ pub mod selection;
 ///
 /// Stateful manager lives in `azul_layout::managers::sensors`.
 pub mod sensors;
-/// Pointer coordinate spaces as distinct, zero-cost newtypes (window space,
-/// static layout space, border-box-local, content-box-local, scrolled content)
-/// plus the explicit ancestor-walk [`spaces::Inclusivity`].
+/// Pointer coordinate spaces as distinct, zero-cost newtypes.
+///
+/// Window space, static layout space, border-box-local, content-box-local and
+/// scrolled content, plus the explicit ancestor-walk [`spaces::Inclusivity`].
 pub mod spaces;
 /// CSS cascade: selector matching, specificity, and property inheritance.
 pub mod style;
@@ -382,8 +383,10 @@ pub mod styled_dom;
 pub mod svg;
 /// Timer, thread, and async task management.
 pub mod task;
-/// System tray / status icon POD types — icon bitmaps, category/status, and
-/// the tray event kinds. The OS plumbing lives in `azul-dll` (`desktop/tray`).
+/// System tray / status icon POD types.
+///
+/// Icon bitmaps, category/status and the tray event kinds. The OS plumbing
+/// lives in `azul-dll` (`desktop/tray`).
 pub mod tray;
 /// 3D transform matrix computation for CSS transforms.
 pub mod transform;

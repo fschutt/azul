@@ -630,17 +630,17 @@ impl DatePicker {
             .with_tab_index(TabIndex::Auto)
             .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
                 role: azul_core::a11y::AccessibilityRole::ComboBox,
-                accessibility_name: a11y_name.into(),
+                accessibility_name: a11y_name,
                 accessibility_value: Some(AzString::from(format_date(&inner))).into(),
                 ..Default::default()
             })
             .with_callbacks(
-                alloc::vec![azul_core::callbacks::CoreCallbackData {
+                alloc::vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     refany: shared,
-                    callback: azul_core::callbacks::CoreCallback {
+                    callback: CoreCallback {
                         cb: on_date_field_toggle as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
+                        ctx: OptionRefAny::None,
                     },
                 }]
                 .into(),
@@ -904,7 +904,7 @@ extern "C" fn on_next_month(data: RefAny, info: CallbackInfo) -> Update {
 /// The field's text: `YYYY-MM-DD`, zero-padded so the field never changes width
 /// as the user moves through the month (a jittering field under an anchored
 /// popup would drag the popup with it).
-fn format_date(state: &DatePickerState) -> alloc::string::String {
+fn format_date(state: &DatePickerState) -> String {
     alloc::format!("{:04}-{:02}-{:02}", state.year, state.month, state.day)
 }
 

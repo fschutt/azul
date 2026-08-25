@@ -343,7 +343,7 @@ impl ScrolledContentPoint {
     /// miss.
     #[inline]
     #[must_use]
-    pub fn clamp_to(self, width: f32, height: f32) -> Self {
+    pub const fn clamp_to(self, width: f32, height: f32) -> Self {
         Self(LogicalPosition {
             x: self.0.x.clamp(0.0, width.max(0.0)),
             y: self.0.y.clamp(0.0, height.max(0.0)),

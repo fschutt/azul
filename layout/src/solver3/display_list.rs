@@ -153,7 +153,6 @@ pub struct BorderBoxRect(pub LogicalRect);
 /// * Passing a `WindowLogicalRect` directly to a `WebRender` push function is a
 ///   **type error** (it wraps `LogicalRect`, not `LayoutRect`).
 ///
-/// See `doc/SCROLL_COORDINATE_ARCHITECTURE.md` for background.
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct WindowLogicalRect(pub LogicalRect);
 

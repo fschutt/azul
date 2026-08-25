@@ -293,7 +293,7 @@ jobs:
         run: python3 scripts/preflight_contracts.py
 
       - name: Backends must not touch content state
-        # The content-overlay architecture (scripts/OVERLAY_JOURNAL_REFACTOR_PLAN.md)
+        # The content-overlay architecture (scripts/ideas/architecture/OVERLAY_JOURNAL_REFACTOR_PLAN.md)
         # allows content mutations ONLY through LayoutWindow::apply_content_change,
         # and content reads only through the resolver. A platform backend that
         # names any of these identifiers is reintroducing the per-backend bug

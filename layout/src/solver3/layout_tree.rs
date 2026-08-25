@@ -1546,7 +1546,7 @@ impl LayoutTree {
     /// a malformed (cyclic) `parent` chain terminates instead of spinning,
     /// while a legitimately deep tree is never truncated.
     #[inline]
-    pub fn ancestor_chain(
+    #[must_use] pub fn ancestor_chain(
         &self,
         index: LayoutNodeId,
         inclusivity: Inclusivity,
