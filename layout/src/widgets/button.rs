@@ -182,21 +182,26 @@ const fn get_button_text_color(button_type: ButtonType) -> ColorU {
 
 /// Build container style properties for a button type
 fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithConditions> {
-    // ⚠ BISECTION PROBE (2026-06-02, REVERT): return a MINIMAL container style — no const
-    // background, no hover/active gradients, no conditions — to test whether the
-    // container's COMPLEX props cause the web cascade OOB on AzButton. If web-button-nocb
-    // RUNS with this → the complex container props are the root; if it still OOBs → the
-    // label/structure is. Remove this `return` to restore the real button styling.
-    // ⚠ BISECTION step 7 (REVERT): InlineFlex → Block. The cascade + inline style now work
-    // (rules=3, disp correct), but layout returns InvalidTree + width=0 because InlineFlex
-    // triggers the (deferred) taffy flex-algorithm lift gap. Block layout is known-good on web.
-    // If this lays out (no InvalidTree, sized button) → confirms flex is the layout blocker.
-    return alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
-        CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(6))),
-    ];
-    #[allow(unreachable_code)]
+    // The 2026-06-02 BISECTION PROBE used to `return` a minimal 3-property style
+    // HERE, unconditionally — which made every branch below dead code, so all 8
+    // button types rendered identically (no background, no border, no hover /
+    // active / focus). It was a web-lift experiment ("Remove this `return` to
+    // restore the real button styling") that shipped to every target and was
+    // never reverted; Default / Primary / Danger were visually indistinguishable.
+    //
+    // The probe's two findings still hold for the WEB LIFT only: the container's
+    // complex props tripped a cascade OOB, and `display: inline-flex` hits the
+    // (deferred) taffy flex-algorithm lift gap, so block layout is the
+    // known-good shape there. Keep that minimal style — but behind the
+    // `web_lift` feature that actually needs it, instead of on every platform.
+    if cfg!(feature = "web_lift") {
+        return alloc::vec![
+            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+            CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
+            CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(6))),
+        ];
+    }
+
     let (bg_normal, bg_hover, bg_active) = get_button_colors(button_type);
     let text_color = get_button_text_color(button_type);
     
@@ -287,7 +292,7 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
         props.push(CssPropertyWithConditions::on_focus(CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: focus_outline_color }.into())));
         props.push(CssPropertyWithConditions::on_focus(CssProperty::BorderRightColor(StyleBorderRightColor { inner: focus_outline_color }.into())));
     }
-    
+
     props
 }
 
@@ -969,32 +974,59 @@ mod autotest_generated {
         }
     }
 
+    /// Every button type must be VISUALLY DISTINGUISHABLE.
+    ///
+    /// Replaces the 2026-06-02 characterisation test that pinned the opposite:
+    /// a bisection probe `return`ed a 3-property minimal style before any of the
+    /// type-dependent styling ran, so Default / Primary / Danger rendered
+    /// identically on every platform for months. The probe now applies only
+    /// under the `web_lift` feature that needed it (see
+    /// `build_button_container_style`), and this test is the guard that it never
+    /// escapes again.
     #[test]
-    fn build_button_container_style_currently_ignores_the_button_type() {
-        // ⚠ CHARACTERISATION TEST — pins the 2026-06-02 BISECTION PROBE, not a
-        // desirable behaviour. `build_button_container_style` begins with an
-        // unconditional `return` of a 3-property minimal style, so *everything*
-        // below it (backgrounds, borders, hover/active/focus states, and therefore
-        // both `get_button_colors` and `get_button_text_color`) is dead code, and
-        // all 8 button types render with the identical container style. Reverting
-        // the probe — as its own comment instructs — will trip this test on
-        // purpose; delete it then.
-        let baseline = properties(&CssPropertyWithConditionsVec::from_vec(build_button_container_style(ButtonType::Default)));
+    fn build_button_container_style_gives_each_type_its_own_look() {
+        // The probe shape is what web_lift deliberately keeps; there the
+        // distinction genuinely does not exist, so assert the native contract.
+        if cfg!(feature = "web_lift") {
+            return;
+        }
+
+        fn background_of(v: &CssPropertyWithConditionsVec) -> Option<StyleBackgroundContentVec> {
+            v.as_ref().iter().find_map(|p| match &p.property {
+                CssProperty::BackgroundContent(b) if p.apply_if.as_ref().is_empty() => {
+                    b.get_property().cloned()
+                }
+                _ => None,
+            })
+        }
+
+        // A background and a text colour exist at all — the probe emitted neither.
         for ty in ALL_TYPES {
             let v = CssPropertyWithConditionsVec::from_vec(build_button_container_style(ty));
-            assert_eq!(properties(&v), baseline, "{ty:?}: container style diverged — was the bisection probe reverted?");
             assert!(
-                !v.as_ref().iter().any(|p| matches!(
-                    p.property,
-                    CssProperty::BackgroundContent(_) | CssProperty::TextColor(_)
-                )),
-                "{ty:?}: the probe is no longer returning early — restore the type-dependent assertions",
+                v.as_ref().iter().any(|p| matches!(p.property, CssProperty::TextColor(_))),
+                "{ty:?}: no text colour — is the bisection probe back?",
             );
             assert!(
-                v.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()),
-                "{ty:?}: the probe emits only unconditional properties",
+                v.as_ref().iter().any(|p| !p.apply_if.as_ref().is_empty()),
+                "{ty:?}: no conditional (hover/active/focus) properties — is the probe back?",
             );
         }
+
+        // The three the user sees side by side must not collide.
+        let default_bg = background_of(&CssPropertyWithConditionsVec::from_vec(
+            build_button_container_style(ButtonType::Default),
+        ));
+        let primary_bg = background_of(&CssPropertyWithConditionsVec::from_vec(
+            build_button_container_style(ButtonType::Primary),
+        ));
+        let danger_bg = background_of(&CssPropertyWithConditionsVec::from_vec(
+            build_button_container_style(ButtonType::Danger),
+        ));
+        assert!(default_bg.is_some(), "Default has no background");
+        assert_ne!(default_bg, primary_bg, "Default and Primary look identical");
+        assert_ne!(default_bg, danger_bg, "Default and Danger look identical");
+        assert_ne!(primary_bg, danger_bg, "Primary and Danger look identical");
     }
 
     // ------------------------------------------------------------------
