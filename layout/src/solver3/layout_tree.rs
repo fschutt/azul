@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use azul_core::diff::NodeDataFingerprint;
+use azul_core::{diff::NodeDataFingerprint, spaces::Inclusivity};
 
 use crate::text3::cache::UnifiedConstraints;
 
@@ -1329,6 +1329,30 @@ impl LayoutTreeMemoryReport {
     }
 }
 
+/// Iterator over a node's ancestor chain — see [`LayoutTree::ancestor_chain`].
+///
+/// Yields layout indices child-first (nearest ancestor first).
+#[derive(Debug)]
+pub struct AncestorChain<'a> {
+    nodes: &'a [LayoutNodeHot],
+    cursor: Option<usize>,
+    budget: usize,
+}
+
+impl Iterator for AncestorChain<'_> {
+    type Item = LayoutNodeId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.budget == 0 {
+            return None;
+        }
+        let idx = self.cursor?;
+        self.budget -= 1;
+        self.cursor = self.nodes.get(idx).and_then(|n| n.parent);
+        Some(LayoutNodeId::new(idx))
+    }
+}
+
 impl LayoutTree {
     /// Approximate heap bytes retained by this `LayoutTree`.
     #[must_use] pub fn memory_report(&self) -> LayoutTreeMemoryReport {
@@ -1474,6 +1498,42 @@ impl LayoutTree {
     #[inline]
     #[must_use] pub fn get(&self, index: LayoutNodeId) -> Option<&LayoutNodeHot> {
         self.nodes.get(index.index())
+    }
+
+    /// THE ancestor walk: `index` (only when `inclusivity` says so) followed by
+    /// every parent up to the root.
+    ///
+    /// Five separate hand-rolled versions of this loop used to exist, and each
+    /// encoded "does this include the node itself?" in its starting value —
+    /// `let mut cursor = Some(idx)` vs `let mut cur = node.parent`. That is
+    /// invisible at the call site, which is how `accumulated_scroll_for_node`
+    /// (self-inclusive) and [`node_rect_to_screen`] (ancestors-only) came to
+    /// look like the same helper under two names, and how the auto-scroll
+    /// timer ended up unable to target the caret's own scroll box. Taking
+    /// [`Inclusivity`] as an argument forces every call site to say which it
+    /// means.
+    ///
+    /// [`node_rect_to_screen`]: crate::headless::node_rect_to_screen
+    ///
+    /// The walk is bounded by `nodes.len()`: no acyclic path can be longer, so
+    /// a malformed (cyclic) `parent` chain terminates instead of spinning,
+    /// while a legitimately deep tree is never truncated.
+    #[inline]
+    pub fn ancestor_chain(
+        &self,
+        index: LayoutNodeId,
+        inclusivity: Inclusivity,
+    ) -> AncestorChain<'_> {
+        let start = if inclusivity.includes_self() {
+            Some(index.index())
+        } else {
+            self.nodes.get(index.index()).and_then(|n| n.parent)
+        };
+        AncestorChain {
+            nodes: &self.nodes,
+            cursor: start,
+            budget: self.nodes.len(),
+        }
     }
 
     /// Get mutable hot layout data for a node.
@@ -7241,5 +7301,81 @@ mod autotest_generated {
             assert!(depth <= 202, "the parent/child links formed a cycle");
         }
         assert_eq!(depth, 201);
+    }
+
+    // ==================================================================
+    // ancestor_chain — THE ancestor walk, with explicit inclusivity
+    // ==================================================================
+
+    /// body > a > b, a straight chain, so the ancestor order is unambiguous.
+    fn chain_tree() -> LayoutTree {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("a").with_child(div_class("b"))),
+            ".a, .b { display: block; }",
+        );
+        build_tree(&sd)
+    }
+
+    fn chain_from(tree: &LayoutTree, start: usize, incl: Inclusivity) -> Vec<usize> {
+        tree.ancestor_chain(LayoutNodeId::new(start), incl)
+            .map(LayoutNodeId::index)
+            .collect()
+    }
+
+    #[test]
+    fn ancestor_chain_inclusivity_decides_only_the_first_element() {
+        let tree = chain_tree();
+        // The deepest node is the last one the straight chain reaches.
+        let mut deepest = tree.root;
+        while let Some(&next) = tree.children(deepest).first() {
+            deepest = next;
+        }
+        let with_self = chain_from(&tree, deepest, Inclusivity::SelfAndAncestors);
+        let without = chain_from(&tree, deepest, Inclusivity::AncestorsOnly);
+        assert_eq!(with_self.first(), Some(&deepest));
+        assert_eq!(&with_self[1..], &without[..]);
+        assert_eq!(
+            with_self.last(),
+            Some(&tree.root),
+            "the walk must reach the root"
+        );
+        assert_eq!(with_self.len(), without.len() + 1);
+    }
+
+    #[test]
+    fn ancestor_chain_at_the_root_is_the_root_or_nothing() {
+        let tree = chain_tree();
+        assert_eq!(
+            chain_from(&tree, tree.root, Inclusivity::SelfAndAncestors),
+            vec![tree.root]
+        );
+        assert!(chain_from(&tree, tree.root, Inclusivity::AncestorsOnly).is_empty());
+    }
+
+    #[test]
+    fn ancestor_chain_on_an_out_of_range_index_yields_at_most_that_index() {
+        let tree = chain_tree();
+        assert!(chain_from(&tree, 9_999, Inclusivity::AncestorsOnly).is_empty());
+        // Self-inclusive still reports the requested index once (callers
+        // filter on `tree.get()`), then stops: no panic, no spin.
+        assert_eq!(
+            chain_from(&tree, 9_999, Inclusivity::SelfAndAncestors),
+            vec![9_999]
+        );
+    }
+
+    #[test]
+    fn ancestor_chain_terminates_on_a_cyclic_parent_link() {
+        let mut tree = chain_tree();
+        // Forge a cycle: root's parent points at its own child.
+        let child = tree.children(tree.root).first().copied().expect("body has a child");
+        tree.nodes[tree.root].parent = Some(child);
+        let walked = chain_from(&tree, child, Inclusivity::SelfAndAncestors);
+        assert!(
+            walked.len() <= tree.nodes.len(),
+            "the budget must stop a cyclic chain, walked {} of {} nodes",
+            walked.len(),
+            tree.nodes.len()
+        );
     }
 }

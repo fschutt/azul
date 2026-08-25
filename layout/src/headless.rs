@@ -24,6 +24,7 @@ use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::FullHitTest,
+    spaces::Inclusivity,
     styled_dom::StyledDom,
 };
 
@@ -317,24 +318,26 @@ pub fn node_rect_to_screen(
     // Collect links walking child→root; reversing yields outermost-first
     // with, per ancestor, Transform before Scroll (the builder nests the
     // reference frame OUTSIDE the scroll frame).
+    //
+    // ANCESTORS ONLY, and now said so out loud: a scroll container's own
+    // offset moves its CONTENT, so it must not move the container's own box.
+    // `LayoutWindow::accumulated_scroll` answers the same question with an
+    // explicit `Inclusivity`; the two used to differ only in a loop's
+    // starting value.
     let mut links_rev: Vec<HitChainLink> = Vec::new();
-    let mut cur = nodes.get(layout_idx).and_then(|n| n.parent);
-    let mut guard = 0usize;
-    while let Some(anc) = cur {
-        guard += 1;
-        if guard > nodes.len() {
-            break;
-        }
-        let Some(anc_node) = nodes.get(anc) else { break };
+    for anc in layout_result
+        .layout_tree
+        .ancestor_chain(LayoutNodeId::new(layout_idx), Inclusivity::AncestorsOnly)
+    {
+        let Some(anc_node) = nodes.get(anc.index()) else { break };
         if let Some(anid) = anc_node.dom_node_id {
-            if layout_result.scroll_ids.contains_key(&LayoutNodeId::new(anc)) {
+            if layout_result.scroll_ids.contains_key(&anc) {
                 links_rev.push(HitChainLink::Scroll(dom_id, anid));
             }
             if resolve_transform(dom_id, anid).is_some() {
                 links_rev.push(HitChainLink::Transform(dom_id, anid));
             }
         }
-        cur = anc_node.parent;
     }
     if links_rev.is_empty() {
         return rect;

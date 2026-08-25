@@ -47,6 +47,10 @@ use azul_core::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionAnchor, SelectionFocus,
         SelectionRange, SelectionState, TextCursor, TextSelection,
     },
+    spaces::{
+        BorderBoxLocal, ContentBoxLocal, ContentInset, Inclusivity, ScrollOffset,
+        ScrolledContentPoint, StaticLayoutPoint, WindowPoint,
+    },
     styled_dom::{
         collect_nodes_in_document_order, is_before_in_document_order, NodeHierarchyItemId,
         StyledDom,
@@ -983,9 +987,6 @@ const NESTED_DOM_HOST_WALK_LIMIT: usize = 32;
 /// small; the bound only stops a malformed hierarchy from spinning.
 const IFC_CANDIDATE_SCAN_LIMIT: usize = 4096;
 
-/// How far [`LayoutWindow::accumulated_scroll_for_node`] walks up summing
-/// scroll offsets. Bounded only so a malformed tree cannot spin.
-const SCROLL_ANCESTOR_WALK_LIMIT: usize = 256;
 
 
 #[allow(clippy::struct_excessive_bools)]
@@ -3625,6 +3626,15 @@ impl LayoutWindow {
     ///
     /// GPU transforms on ancestors are not applied (the IME caret path does;
     /// popups under a `transform`ed ancestor are a follow-up).
+    ///
+    /// ANCESTORS ONLY. A node's own scroll offset moves its CONTENT, not its
+    /// box — this used to subtract the node's own offset too (the walk was
+    /// self-inclusive), so a scrollable anchor reported its box shifted by its
+    /// own scroll position: popups anchored to it opened in the wrong place,
+    /// and the drag-capture fallback in `invoke_single_callback_at` measured
+    /// the node-local cursor against a rect that was not where the node is.
+    /// This now matches [`crate::headless::node_rect_to_screen`], which
+    /// answers the same question for the a11y snapshot and menu anchoring.
     #[must_use]
     pub fn get_node_rect_in_viewport(&self, node: DomNodeId) -> Option<LogicalRect> {
         let mut rect = self.get_node_layout_rect(node)?;
@@ -3636,7 +3646,9 @@ impl LayoutWindow {
             .dom_to_layout
             .get(&node_id)
             .and_then(|v| v.first().copied())?;
-        let scroll = self.accumulated_scroll_for_node(node.dom, layout_idx.index());
+        let scroll = self
+            .accumulated_scroll(node.dom, layout_idx.index(), Inclusivity::AncestorsOnly)
+            .get();
         rect.origin.x -= scroll.x;
         rect.origin.y -= scroll.y;
         Some(rect)
@@ -10044,8 +10056,16 @@ impl LayoutWindow {
         let (layout_result, layout_idx) = self.session_geometry_node(session_node)?;
         let layout_tree = &layout_result.layout_tree;
 
-        // STEP 1: Apply scroll offsets from the node and all scrollable ancestors
-        let scroll = self.accumulated_scroll_for_node(session_node.dom, layout_idx.index());
+        // STEP 1: Apply scroll offsets from the node and all scrollable
+        // ancestors. SELF-inclusive on purpose: the caret is CONTENT of the
+        // node it sits on, so that node's own scrolling moves it.
+        let scroll = self
+            .accumulated_scroll(
+                session_node.dom,
+                layout_idx.index(),
+                Inclusivity::SelfAndAncestors,
+            )
+            .get();
         cursor_rect.origin.x -= scroll.x;
         cursor_rect.origin.y -= scroll.y;
 
@@ -10108,43 +10128,34 @@ impl LayoutWindow {
         let layout_result = self.layout_results.get(&node_id.dom)?;
         let layout_tree = &layout_result.layout_tree;
 
-        let mut current_layout_idx = *layout_tree
+        let start = *layout_tree
             .dom_to_layout
             .get(&node_id.node.into_crate_internal()?)?
             .first()?;
 
-        // Walk up the tree looking for a scrollable node
-        for _ in 0..SCROLL_ANCESTOR_WALK_LIMIT {
-            // Check if this node has scrollbar info (meaning it's scrollable)
-            // and actually has a scroll state registered
-            if layout_tree
-                .warm(current_layout_idx)
-                .and_then(|w| w.scrollbar_info.as_ref())
-                .is_some()
-            {
-                if let Some(check_node_id) =
-                    layout_tree.get(current_layout_idx).and_then(|n| n.dom_node_id)
-                {
-                    if self
-                        .scroll_manager
-                        .get_scroll_state(node_id.dom, check_node_id)
-                        .is_some()
-                    {
-                        // Found a scrollable ancestor
-                        return Some(DomNodeId {
-                            dom: node_id.dom,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(check_node_id)),
-                        });
-                    }
-                }
-            }
-
-            // Move to parent
-            let parent_idx = layout_tree.get(current_layout_idx)?.parent?;
-            current_layout_idx = LayoutNodeId::new(parent_idx);
-        }
-
-        None
+        // SELF-inclusive: "which scroll box does this node live in?" — a
+        // TextInput's value `<p>` is both the caret's IFC root and the
+        // horizontal scroll box the caret reveal must move.
+        layout_tree
+            .ancestor_chain(start, Inclusivity::SelfAndAncestors)
+            .filter(|idx| {
+                // Has scrollbar info (i.e. layout thinks it can scroll)...
+                layout_tree
+                    .warm(*idx)
+                    .and_then(|w| w.scrollbar_info.as_ref())
+                    .is_some()
+            })
+            .filter_map(|idx| layout_tree.get(idx).and_then(|n| n.dom_node_id))
+            // ...and a registered scroll state (i.e. it actually overflows).
+            .find(|check| {
+                self.scroll_manager
+                    .get_scroll_state(node_id.dom, *check)
+                    .is_some()
+            })
+            .map(|check| DomNodeId {
+                dom: node_id.dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(check)),
+            })
     }
 
     /// The nearest FOCUSABLE ancestor of `node_id` (itself included) — the
@@ -10166,31 +10177,25 @@ impl LayoutWindow {
         let layout_tree = &layout_result.layout_tree;
         let node_data = layout_result.styled_dom.node_data.as_container();
 
-        let mut current_layout_idx = *layout_tree
+        let start = *layout_tree
             .dom_to_layout
             .get(&node_id.node.into_crate_internal()?)?
             .first()?;
 
-        for _ in 0..SCROLL_ANCESTOR_WALK_LIMIT {
-            if let Some(dom_node_id) =
-                layout_tree.get(current_layout_idx).and_then(|n| n.dom_node_id)
-            {
-                if node_data
-                    .get(dom_node_id)
+        // SELF-inclusive, as the doc comment above says: a focusable node is
+        // its own focus scope.
+        layout_tree
+            .ancestor_chain(start, Inclusivity::SelfAndAncestors)
+            .filter_map(|idx| layout_tree.get(idx).and_then(|n| n.dom_node_id))
+            .find(|dom_node_id| {
+                node_data
+                    .get(*dom_node_id)
                     .is_some_and(azul_core::dom::NodeData::is_focusable)
-                {
-                    return Some(DomNodeId {
-                        dom: node_id.dom,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(dom_node_id)),
-                    });
-                }
-            }
-
-            let parent_idx = layout_tree.get(current_layout_idx)?.parent?;
-            current_layout_idx = LayoutNodeId::new(parent_idx);
-        }
-
-        None
+            })
+            .map(|dom_node_id| DomNodeId {
+                dom: node_id.dom,
+                node: NodeHierarchyItemId::from_crate_internal(Some(dom_node_id)),
+            })
     }
 
     /// Scroll selection or cursor into view with distance-based acceleration.
@@ -13369,11 +13374,13 @@ impl LayoutWindow {
                         .warm(ifc_idx)
                         .and_then(|w| w.overflow_content_size)
                         .unwrap_or_default();
-                    let mut idx = ifc_idx;
-                    for _ in 0..SCROLL_ANCESTOR_WALK_LIMIT {
-                        let Some(node) = layout_result.layout_tree.get(idx) else { break };
-                        let Some(parent) = node.parent else { break };
-                        idx = crate::solver3::layout_tree::LayoutNodeId::new(parent);
+                    // ANCESTORS ONLY: the IFC root's own scrollability is
+                    // handled by `apply_content_scroll_necessity`; this is
+                    // about growing the box AROUND it.
+                    for idx in layout_result
+                        .layout_tree
+                        .ancestor_chain(ifc_idx, Inclusivity::AncestorsOnly)
+                    {
                         let Some(pnode) = layout_result.layout_tree.get(idx) else { break };
                         let Some(pdom) = pnode.dom_node_id else { continue };
                         let st = layout_result
@@ -13383,11 +13390,11 @@ impl LayoutWindow {
                             .get(pdom)
                             .map(|n| n.styled_node_state)
                             .unwrap_or_default();
-                        let scrolls = crate::solver3::getters::get_overflow_x(
+                        let scrolls = solver3::getters::get_overflow_x(
                             &layout_result.styled_dom, pdom, &st,
                         )
                         .is_scroll()
-                            || crate::solver3::getters::get_overflow_y(
+                            || solver3::getters::get_overflow_y(
                                 &layout_result.styled_dom, pdom, &st,
                             )
                             .is_scroll();
@@ -13888,34 +13895,39 @@ impl LayoutWindow {
     /// geometry readers — caret rect, selection rects, click hittest.
     /// Flag-off / verify / non-pure layouts return the stored Arc
     /// untouched.
-    /// The scroll the raster has ALREADY applied to a node: the sum of its own
-    /// and every ancestor's current scroll offset, within one DOM.
+    /// The scroll the raster has ALREADY applied along a node's chain, within
+    /// one DOM.
     ///
     /// The CPU raster paints `screen = T_total(static_pos - scroll_total)`, so
-    /// a window-space pointer converts to node-local space as
-    /// `local = screen - static_pos + scroll_total`. `calculated_positions` is
-    /// STATIC (unscrolled) geometry — reading it without this term is why
-    /// drag-select disagreed with the click that started it by exactly the
-    /// scroll offset, and why a drag held past the edge resolved the SAME
-    /// endpoint on every autoscroll tick while the view moved underneath it.
-    fn accumulated_scroll_for_node(&self, dom_id: DomId, layout_idx: usize) -> LogicalPosition {
+    /// a window-space pointer converts back to the DOM's STATIC layout space by
+    /// adding this term. `calculated_positions` is STATIC (unscrolled)
+    /// geometry — reading it without this term is why drag-select disagreed
+    /// with the click that started it by exactly the scroll offset, and why a
+    /// drag held past the edge resolved the SAME endpoint on every autoscroll
+    /// tick while the view moved underneath it.
+    ///
+    /// `inclusivity` is mandatory because the two answers are different
+    /// questions and used to be two similarly-named helpers:
+    ///
+    /// * [`Inclusivity::AncestorsOnly`] — "where is this node's BOX?" A
+    ///   container's own scrolling moves its content, never its own border
+    ///   box. This is what [`crate::headless::node_rect_to_screen`] does.
+    /// * [`Inclusivity::SelfAndAncestors`] — "where is this node's CONTENT?"
+    ///   The caret and the glyphs inside a scroll box DO move with it.
+    fn accumulated_scroll(
+        &self,
+        dom_id: DomId,
+        layout_idx: usize,
+        inclusivity: Inclusivity,
+    ) -> ScrollOffset {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
-            return LogicalPosition::zero();
+            return ScrollOffset::zero();
         };
         let tree = &layout_result.layout_tree;
-        let mut total = LogicalPosition::zero();
-        let mut cursor = Some(layout_idx);
-        for _ in 0..SCROLL_ANCESTOR_WALK_LIMIT {
-            let Some(idx) = cursor else { break };
-            if let Some(node_dom_id) = tree.nodes.get(idx).and_then(|n| n.dom_node_id) {
-                if let Some(offset) = self.scroll_manager.get_current_offset(dom_id, node_dom_id) {
-                    total.x += offset.x;
-                    total.y += offset.y;
-                }
-            }
-            cursor = tree.nodes.get(idx).and_then(|n| n.parent);
-        }
-        total
+        tree.ancestor_chain(LayoutNodeId::new(layout_idx), inclusivity)
+            .filter_map(|idx| tree.get(idx).and_then(|n| n.dom_node_id))
+            .filter_map(|nid| self.scroll_manager.get_current_offset(dom_id, nid))
+            .fold(ScrollOffset::zero(), |acc, off| acc.plus(ScrollOffset(off)))
     }
 
     fn materialized_inline_layout(
@@ -14494,7 +14506,7 @@ impl LayoutWindow {
                     // in an overflowing TextInput the visible text could not be
                     // selected and the caret could not be placed at all. The
                     // drag path already adds this term
-                    // (`accumulated_scroll_for_node` is self-inclusive), so
+                    // (`accumulated_scroll` self-inclusive), so
                     // click and drag disagreed by exactly the scroll offset.
                     let local_pos = {
                         let mut p = hit_item.point_relative_to_item;
@@ -14566,7 +14578,9 @@ impl LayoutWindow {
                         let bounds = cached_layout.layout.bounds();
                         LogicalSize::new(bounds.width, bounds.height)
                     });
-                    let node_scroll = self.accumulated_scroll_for_node(*dom_id, node_idx);
+                    let node_scroll = self
+                        .accumulated_scroll(*dom_id, node_idx, Inclusivity::SelfAndAncestors)
+                        .get();
                     let screen_x = node_pos.x - node_scroll.x;
                     let screen_y = node_pos.y - node_scroll.y;
 
@@ -14805,7 +14819,9 @@ impl LayoutWindow {
         // after the cross-block branch may have taken &mut self)
         tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
 
-        let drag_scroll = self.accumulated_scroll_for_node(dom_id, layout_idx);
+        let drag_scroll = self
+            .accumulated_scroll(dom_id, layout_idx, Inclusivity::SelfAndAncestors)
+            .get();
         let local_pos = LogicalPosition {
             x: current_position.x - node_pos.x + drag_scroll.x,
             y: current_position.y - node_pos.y + drag_scroll.y,
@@ -14913,7 +14929,9 @@ impl LayoutWindow {
                 .copied()
                 .unwrap_or_default();
             let size = node.used_size.unwrap_or_default();
-            let candidate_scroll = self.accumulated_scroll_for_node(dom_id, idx);
+            let candidate_scroll = self
+                .accumulated_scroll(dom_id, idx, Inclusivity::SelfAndAncestors)
+                .get();
             let local = LogicalPosition {
                 x: position.x - pos.x + candidate_scroll.x,
                 y: position.y - pos.y + candidate_scroll.y,
@@ -18248,6 +18266,114 @@ mod autotest_generated {
         assert!(
             win.find_scrollable_ancestor(dnid(0)).is_none(),
             "no layout result for the node's dom => no scrollable ancestor"
+        );
+    }
+
+    // ==================================================================
+    // accumulated_scroll — the ONE scroll walk, with explicit inclusivity
+    // ==================================================================
+
+    /// Lay out `body > div×3`, scroll the body by (10, 20) and the first div
+    /// by (3, 4), and return the window plus the two layout indices.
+    fn window_with_two_scrolled_boxes() -> (LayoutWindow, usize, usize) {
+        let mut win = laid_out(fixture_dom(), 200.0, 150.0);
+        let idx_of = |w: &LayoutWindow, n: usize| -> usize {
+            w.layout_results[&DomId::ROOT_ID]
+                .layout_tree
+                .dom_to_layout
+                .get(&NodeId::new(n))
+                .and_then(|v| v.first().copied())
+                .expect("fixture node must be in the layout tree")
+                .index()
+        };
+        let body_idx = idx_of(&win, 0);
+        let child_idx = idx_of(&win, 1);
+        assert_eq!(
+            win.layout_results[&DomId::ROOT_ID].layout_tree.nodes[child_idx].parent,
+            Some(body_idx),
+            "the fixture's first div must be a child of body"
+        );
+        win.set_scroll_position(
+            DomId::ROOT_ID,
+            NodeId::new(0),
+            ScrollPosition {
+                parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+                children_rect: rect(10.0, 20.0, 500.0, 500.0),
+            },
+        );
+        win.set_scroll_position(
+            DomId::ROOT_ID,
+            NodeId::new(1),
+            ScrollPosition {
+                parent_rect: rect(0.0, 0.0, 100.0, 100.0),
+                children_rect: rect(3.0, 4.0, 500.0, 500.0),
+            },
+        );
+        (win, body_idx, child_idx)
+    }
+
+    #[test]
+    fn accumulated_scroll_inclusivity_selects_the_content_or_the_box() {
+        let (win, body_idx, child_idx) = window_with_two_scrolled_boxes();
+
+        // The child's CONTENT has moved by its own scroll AND the body's.
+        assert_eq!(
+            win.accumulated_scroll(DomId::ROOT_ID, child_idx, Inclusivity::SelfAndAncestors)
+                .get(),
+            pos(13.0, 24.0),
+        );
+        // The child's BOX has moved only by the body's scroll — a container
+        // scrolling itself never moves its own border box.
+        assert_eq!(
+            win.accumulated_scroll(DomId::ROOT_ID, child_idx, Inclusivity::AncestorsOnly)
+                .get(),
+            pos(10.0, 20.0),
+        );
+        // The body has no scrolling ancestor at all.
+        assert_eq!(
+            win.accumulated_scroll(DomId::ROOT_ID, body_idx, Inclusivity::AncestorsOnly)
+                .get(),
+            pos(0.0, 0.0),
+        );
+        assert_eq!(
+            win.accumulated_scroll(DomId::ROOT_ID, body_idx, Inclusivity::SelfAndAncestors)
+                .get(),
+            pos(10.0, 20.0),
+        );
+    }
+
+    #[test]
+    fn accumulated_scroll_is_zero_for_an_unknown_dom_or_index() {
+        let (win, _, _) = window_with_two_scrolled_boxes();
+        for incl in [Inclusivity::AncestorsOnly, Inclusivity::SelfAndAncestors] {
+            assert_eq!(
+                win.accumulated_scroll(DomId { inner: 42 }, 0, incl).get(),
+                pos(0.0, 0.0),
+            );
+            assert_eq!(
+                win.accumulated_scroll(DomId::ROOT_ID, 9_999, incl).get(),
+                pos(0.0, 0.0),
+            );
+        }
+    }
+
+    #[test]
+    fn get_node_rect_in_viewport_ignores_the_nodes_own_scroll() {
+        // REGRESSION: this walk was self-inclusive, so a node that is ITSELF a
+        // scroll container reported its box shifted by its own scroll offset —
+        // popups anchored to it opened in the wrong place, and the
+        // drag-capture fallback for `get_cursor_relative_to_node` measured
+        // against a rect that is not where the node is. `node_rect_to_screen`,
+        // which answers the same question for menus and the a11y snapshot,
+        // was ancestors-only all along.
+        let (win, _, child_idx) = window_with_two_scrolled_boxes();
+        let scroll = win
+            .accumulated_scroll(DomId::ROOT_ID, child_idx, Inclusivity::AncestorsOnly)
+            .get();
+        assert_eq!(
+            scroll,
+            pos(10.0, 20.0),
+            "only the body's (10,20) may move the div's box, never its own (3,4)"
         );
     }
 

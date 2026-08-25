@@ -394,8 +394,17 @@ extern "C" fn auto_scroll_timer_callback(
         }
     };
 
-    // Find the scrollable ancestor of the focused node
-    let scroll_parent = match callback_info.find_scroll_parent(dom_id, node_id) {
+    // The scroll box the anchor node LIVES IN — itself included.
+    //
+    // This used to be `find_scroll_parent`, whose walk was hardcoded to skip
+    // the node itself. The caret in a `TextInput` sits on the value `<p>`,
+    // which IS the horizontal scroll box (see `TEXT_INPUT_LABEL_PROPS`), so
+    // the strict-ancestor search walked straight past the field and returned
+    // the page: dragging a selection past the right edge of an overflowing
+    // text field scrolled the PAGE instead of the field, and the field's own
+    // content never moved. Same shape for any editable that is its own
+    // scroller (TextArea, code editors).
+    let scroll_parent = match callback_info.find_scroll_target(dom_id, node_id) {
         Some(parent_id) => parent_id,
         None => {
             // No scrollable ancestor — continue timer but nothing to do
@@ -417,7 +426,8 @@ extern "C" fn auto_scroll_timer_callback(
     // scrolled — so for a NESTED scroller the edge tests below ran against a
     // box that is not where the container appears, and it autoscrolled from
     // the wrong edges. Subtract the scroll of every ancestor ABOVE it; its own
-    // offset does not move its box.
+    // offset does not move its box. `find_scroll_parent` (STRICT ancestors) is
+    // the right walker here, unlike the target lookup above.
     let mut ancestor_scroll = azul_core::geom::LogicalPosition::zero();
     let mut walk = scroll_parent;
     for _ in 0..AUTO_SCROLL_ANCESTOR_WALK_LIMIT {

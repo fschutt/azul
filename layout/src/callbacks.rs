@@ -29,6 +29,7 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
     resources::{ImageCache, ImageMask, ImageRef, LoadedFont, LoadedFontVec, RendererResources},
     selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
+    spaces::Inclusivity,
     styled_dom::{NodeHierarchyItemId, NodeHierarchyItemIdVec, StyledDom},
     task::{self, GetSystemTimeCallback, Instant, ThreadId, ThreadIdVec, TimerId, TimerIdVec},
     window::{KeyboardState, Monitor, MonitorVec, MouseState, OptionMonitor, RawWindowHandle, WindowFlags, WindowSize},
@@ -4865,14 +4866,40 @@ impl CallbackInfo {
         false
     }
 
-    /// Find the closest scrollable ancestor of a node.
+    /// The closest scrollable STRICT ancestor of a node — `node_id` itself is
+    /// never the answer.
     ///
-    /// Walks up the node hierarchy to find a node registered in the `ScrollManager`.
-    /// Used by auto-scroll timer to find which container to scroll.
+    /// This is the "chain outwards" question: which OTHER container takes over
+    /// when this one is exhausted (momentum hand-off), and whose scrolling
+    /// moves this one's box on screen. For "which scroll box does this node
+    /// live in?" use [`Self::find_scroll_target`], which may answer `node_id`.
     #[must_use] pub fn find_scroll_parent(
         &self,
         dom_id: DomId,
         node_id: NodeId,
+    ) -> Option<NodeId> {
+        self.find_scroll_container(dom_id, node_id, Inclusivity::AncestorsOnly)
+    }
+
+    /// The scroll box `node_id` LIVES IN — itself, if it is one.
+    ///
+    /// Drag-autoscroll wants this, not [`Self::find_scroll_parent`]: the caret
+    /// in a `TextInput` sits on the value `<p>`, which is simultaneously the
+    /// IFC root and the horizontal scroll box, so a strict-ancestor search
+    /// skipped straight past the field and scrolled the page instead.
+    #[must_use] pub fn find_scroll_target(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<NodeId> {
+        self.find_scroll_container(dom_id, node_id, Inclusivity::SelfAndAncestors)
+    }
+
+    fn find_scroll_container(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        inclusivity: Inclusivity,
     ) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_results = &layout_window.layout_results;
@@ -4880,7 +4907,7 @@ impl CallbackInfo {
         let node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
             lr.styled_dom.node_hierarchy.as_ref();
         self.get_scroll_manager()
-            .find_scroll_parent(dom_id, node_id, node_hierarchy)
+            .find_scroll_parent(dom_id, node_id, node_hierarchy, inclusivity)
     }
 
     /// Get a clone of the scroll input queue for consuming pending inputs.

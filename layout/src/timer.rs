@@ -574,16 +574,29 @@ impl TimerCallbackInfo {
         self.callback_info.get_scroll_node_info(dom_id, node_id)
     }
 
-    /// Find the closest scrollable ancestor of a node.
+    /// The closest scrollable STRICT ancestor of a node — see
+    /// [`CallbackInfo::find_scroll_parent`](crate::callbacks::CallbackInfo::find_scroll_parent).
     ///
-    /// Used by auto-scroll timer to find which container to scroll when
-    /// the user drags beyond the container edge.
+    /// Used by the scroll physics timer to chain leftover momentum OUTWARDS.
     #[must_use] pub fn find_scroll_parent(
         &self,
         dom_id: DomId,
         node_id: NodeId,
     ) -> Option<NodeId> {
         self.callback_info.find_scroll_parent(dom_id, node_id)
+    }
+
+    /// The scroll box a node LIVES IN, itself included — see
+    /// [`CallbackInfo::find_scroll_target`](crate::callbacks::CallbackInfo::find_scroll_target).
+    ///
+    /// Used by the auto-scroll timer to pick which container to scroll when
+    /// the user drags beyond its edge.
+    #[must_use] pub fn find_scroll_target(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<NodeId> {
+        self.callback_info.find_scroll_target(dom_id, node_id)
     }
 
     /// Get the scroll input queue for consuming pending scroll inputs.

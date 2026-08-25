@@ -1004,6 +1004,8 @@ pub extern "C" fn scroll_physics_timer_callback(
     for ((dom_id, node_id), vel) in momentum_handoffs {
         let mut cur = node_id;
         for _ in 0..64 {
+            // STRICT ancestors: chaining must move OUTWARDS, and a node that
+            // handed its momentum off must never receive it back.
             let Some(parent) = timer_info.find_scroll_parent(dom_id, cur) else {
                 break;
             };
