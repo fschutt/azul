@@ -17463,9 +17463,15 @@ mod non_interference_can_fail {
             "eyedropper",
             azul_layout::managers::eyedropper::EyedropperManager::new(),
             |m: &mut azul_layout::managers::eyedropper::EyedropperManager| {
-                // begin_request pushes an outstanding id, so `issued` grows and
-                // the fingerprint must move.
-                let _ = m.begin_request();
+                // begin_request() bumps the PROCESS-GLOBAL `IN_FLIGHT` counter
+                // and only fold_result() releases it — a bare begin here leaked
+                // one in-flight pick forever and raced
+                // `results_are_routed_to_the_window_that_asked`'s
+                // `assert!(!in_flight_anywhere())` in the parallel test run.
+                // Complete the pick: the fingerprint still moves, via
+                // `last_result` (None → Some(None)).
+                let id = m.begin_request();
+                let _ = m.fold_result(id, None);
             },
             super::fp_eyedropper
         );
