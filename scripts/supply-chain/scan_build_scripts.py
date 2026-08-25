@@ -275,8 +275,6 @@ def evaluate(found: list[dict], policy: dict) -> tuple[list[dict], list[dict]]:
                                "build-time code references files outside the crate: "
                                + ", ".join(entry["escapes"][:3])})
             continue
-        if rule is None and entry["kind"] == "build-dependency" and entry["risk"] == "low":
-            continue        # linked into build scripts, but behaves trivially
         if rule is None:
             violations.append({**entry, "why": "UNREVIEWED", "detail":
                                "no entry in build-script-policy.toml"})
@@ -298,6 +296,14 @@ def evaluate(found: list[dict], policy: dict) -> tuple[list[dict], list[dict]]:
                           f'(reviewed: {", ".join(known) or "none"})')
             violations.append({**entry, "why": "DIGEST", "detail": detail})
             continue
+        # A build script or proc macro is code that asked to run. It does not
+        # get to hide behind the generated descriptor that build-dependency
+        # libraries carry — those were pinned, not read, and the file says so.
+        if entry["kind"] != "build-dependency" and rule.get("review") == "digest-only":
+            violations.append({**entry, "why": "UNAUDITED", "detail":
+                               "has its own build-time entry point but is marked "
+                               "review = \"digest-only\"; it needs a written reason"})
+            continue
         ack = rule.get("risk", "low")
         if rank(entry["risk"]) > rank(ack):
             violations.append({**entry, "why": "RISK", "detail":
@@ -307,6 +313,11 @@ def evaluate(found: list[dict], policy: dict) -> tuple[list[dict], list[dict]]:
             continue
         ok.append({**entry, "reason": rule.get("reason", "")})
     return violations, ok
+
+
+_GENERATED_LIB_REASON = (
+    "build-dependency: ordinary library linked into other crates' build "
+    "scripts; no build-time entry point of its own")
 
 
 def render_policy(found: list[dict], policy: dict) -> str:
@@ -322,8 +333,28 @@ def render_policy(found: list[dict], policy: dict) -> str:
         "# Fields:",
         "#   allow    — may this crate run code at build time at all",
         "#   risk     — behaviour level a human ACKNOWLEDGED: low | medium | high",
+        "#   review   — audited | digest-only (see below)",
         "#   reason   — one line: why does this crate need to run code at build time",
-        "#   reviewed — [\"<version>:<sha256-of-build-time-files>\"] — the exact bytes read",
+        "#   reviewed — [\"<version>:<sha256-of-build-time-files>\"] — the exact bytes pinned",
+        "#",
+        "# TWO TIERS, and this file does not pretend otherwise.",
+        "#",
+        "#   review = \"audited\"      somebody read this crate's build-time code and",
+        "#                          wrote the reason. Every crate with its own",
+        "#                          build.rs or proc macro is here, plus the",
+        "#                          build dependencies that behave interestingly",
+        "#                          enough to have been read (built, git2, ureq…).",
+        "#",
+        "#   review = \"digest-only\"  an ordinary library — regex, chrono, cc — that",
+        "#                          never asked to run at build time and is only",
+        "#                          here because someone else's build script links",
+        "#                          it. Nobody read it. Its BYTES ARE PINNED, which",
+        "#                          is what detects a change; the sentence beside",
+        "#                          it is generated and carries no claim.",
+        "#",
+        "# A crate with its own build-time entry point may not be digest-only: the",
+        "# gate rejects that combination. Downgrading an audited entry to",
+        "# digest-only is therefore a deliberate act, not something --update does.",
         "#",
         "# Re-pinning after a version bump is DELIBERATELY manual: the digest changing",
         "# is the signal that somebody has to read the diff. `--update` writes the new",
@@ -336,14 +367,42 @@ def render_policy(found: list[dict], policy: dict) -> str:
     for name in sorted(by_name):
         entries = by_name[name]
         old = policy.get(name, {})
-        reason = old.get("reason") or "TODO: why does this crate run code at build time?"
+        kinds = "/".join(sorted({e["kind"] for e in entries}))
+        # TWO TIERS, and the file says which is which.
+        #
+        # A crate with its own build script or proc macro ASKED to run at build
+        # time; somebody has to write down why, and `review = "audited"` records
+        # that they did. A build-DEPENDENCY is an ordinary library that never
+        # asked — `regex`, `chrono`, `cc` — pulled in because someone else's
+        # build script links it. Demanding hand-written prose for 163 of those
+        # produces 163 lines of nothing and buries the ones that matter.
+        #
+        # They are still PINNED, which is the point: the digest is what detects
+        # a change, not the sentence next to it. `review = "digest-only"` is an
+        # honest label for "nobody read this crate; we pinned its bytes".
+        is_lib = all(e["kind"] == "build-dependency" for e in entries)
+        had_written_reason = bool(old.get("reason")) and not str(
+            old["reason"]).startswith(("TODO", _GENERATED_LIB_REASON[:40]))
+        # A build-DEPENDENCY that somebody actually read keeps `audited`. The
+        # first cut derived the tier from `kind` alone, which relabelled built,
+        # git2, ureq, libloading and a dozen others as "digest-only" — crates a
+        # reviewer had read line by line. A security record that understates
+        # what was reviewed is as bad as one that overstates it.
+        review = old.get("review") or (
+            "audited" if had_written_reason or not is_lib else "digest-only")
+        if old.get("reason"):
+            reason = old["reason"]
+        elif is_lib:
+            reason = _GENERATED_LIB_REASON
+        else:
+            reason = "TODO: why does this crate run code at build time?"
         ack = old.get("risk") or max((e["risk"] for e in entries), key=rank)
         allow = old.get("allow", True)
         pins = sorted(f'{e["version"]}:{e["digest"]}' for e in entries)
-        kinds = "/".join(sorted({e["kind"] for e in entries}))
         lines.append(f'[crate."{name}"]  # {kinds}')
         lines.append(f'allow = {"true" if allow else "false"}')
         lines.append(f'risk = "{ack}"')
+        lines.append(f'review = "{review}"')
         lines.append(f'reason = "{reason.replace(chr(92), chr(92)*2).replace(chr(34), chr(92) + chr(34))}"')
         lines.append("reviewed = [" + ", ".join(f'"{p}"' for p in pins) + "]")
         lines.append("")
@@ -383,12 +442,7 @@ def main() -> int:
     policy = load_policy(args.policy) if args.policy.is_file() else {}
 
     if args.update:
-        # Only crates that must carry a policy line are written out; a
-        # trivially-behaved build dependency is scanned every run but does not
-        # need a hand-written justification.
-        needed = [e for e in found if e["kind"] != "build-dependency"
-                  or e["risk"] != "low" or e["name"] in policy]
-        args.policy.write_text(render_policy(needed, policy), encoding="utf-8")
+        args.policy.write_text(render_policy(found, policy), encoding="utf-8")
         todo = sum(1 for n, r in load_policy(args.policy).items()
                    if str(r.get("reason", "")).startswith("TODO"))
         print(f"wrote {args.policy} — {len(found)} build-time crates, {todo} awaiting a written reason")
