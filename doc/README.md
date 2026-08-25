@@ -434,7 +434,7 @@ and one or more `[[group.outputs]]` with `slug`, `path`, `title`,
 `[meta.writing_style]` and `[meta.agent_thinking]` blocks ship into
 every prompt; agents are anchored on the Servo book style and the
 project's existing `shared_context_files` (AUTODOC.md,
-architecture.md, scripts/ARCHITECTURE.md, api.json).
+architecture.md, scripts/ideas/architecture/ARCHITECTURE.md, api.json).
 
 `design_docs` lists files in `scripts/` (e.g. `TEXT_INPUT_ARCHITECTURE_V4.md`)
 that capture the original system design. They are *intent*, not authoritative

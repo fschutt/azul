@@ -141,7 +141,7 @@ The `assert_damage*` ops look at the damage **accumulated since the last `reset_
 
 The engine keeps ~20 managers on `LayoutWindow` (scroll, focus, hover, gesture, text edit, undo, virtual view, GPU state, the capability managers …). Two different questions can be asked about them, and they need two different assertions.
 
-**Is any manager's state internally wrong?** — `assert_manager_invariants` (params: `managers?`, `cross?`, `min_checked?`). It sweeps for dangling node keys (X10: no manager key may name a node that no longer exists) plus the pairwise invariants from `scripts/E2E_PLAN.md`. Six of them (`X2 X3 X5 X6 X9 X10`) hold unconditionally and run by default. Four are opt-in because each is a statement *about an interaction* and hard-fails when the scenario never performed it:
+**Is any manager's state internally wrong?** — `assert_manager_invariants` (params: `managers?`, `cross?`, `min_checked?`). It sweeps for dangling node keys (X10: no manager key may name a node that no longer exists) plus the pairwise invariants from `scripts/ideas/product/E2E_PLAN.md`. Six of them (`X2 X3 X5 X6 X9 X10`) hold unconditionally and run by default. Four are opt-in because each is a statement *about an interaction* and hard-fails when the scenario never performed it:
 
 - `X1` — after a `scroll_into_view`, the target is inside its container's visible rect according to `ScrollManager`'s own offset.
 - `X4` — the `DragState` the public drag API hands out describes the same drag the engine is running.

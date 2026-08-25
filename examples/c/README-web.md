@@ -108,8 +108,7 @@ HTML are served by the binary at request time.
 ## Benchmark
 
 The `azul-bench-flat.c` example + `scripts/bench-runner.js`
-measure dispatch throughput. Initial numbers
-(`scripts/BENCH_REPORT_M11_2026_05_19.md`): ~94,000 ops/sec at
+measure dispatch throughput. Initial numbers: ~94,000 ops/sec at
 10.7 μs/op on macOS arm64.
 
 A `azul-bench-virtual.c` for the 10k-rows-via-VirtualView case
