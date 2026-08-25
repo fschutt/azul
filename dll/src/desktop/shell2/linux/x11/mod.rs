@@ -663,6 +663,17 @@ pub(super) fn absolute_origin_plan(
         _ => AbsoluteOriginPlan::Translate,
     }
 }
+/// Ring / strip valuator of a tablet PAD, and the range needed to normalise it.
+///
+/// `xf86-input-wacom` labels these `Abs Wheel` (Intuos touch ring), `Abs Ring`
+/// / `Abs Ring2`, or `Abs Strip X` / `Abs Strip Y`. All are absolute valuators
+/// with a device-specific range, so the raw value means nothing without min/max.
+#[derive(Debug, Clone, Copy, Default)]
+struct PadAxes {
+    /// `(valuator number, min, max)` of the ring or strip, if the pad has one.
+    ring: Option<(i32, f64, f64)>,
+}
+
 
 /// The smooth-scroll (XI2.1) axes of ONE physical device.
 ///
@@ -771,6 +782,8 @@ fn init_xinput2(
     c_int,
     std::collections::HashMap<c_int, (i32, i32, i32, f64)>,
     std::collections::HashMap<c_int, ScrollAxes>,
+    std::collections::HashSet<c_int>,
+    std::collections::HashMap<c_int, PadAxes>,
 ) {
     use std::collections::HashMap;
     unsafe {
@@ -784,7 +797,14 @@ fn init_xinput2(
             &mut first_err,
         ) == 0
         {
-            return (None, 0, HashMap::new(), HashMap::new());
+            return (
+                None,
+                0,
+                HashMap::new(),
+                HashMap::new(),
+                std::collections::HashSet::new(),
+                HashMap::new(),
+            );
         }
         let xi = match dlopen::Xi::new() {
             Ok(x) => x,
@@ -796,7 +816,14 @@ fn init_xinput2(
                      touch/pen input will NOT work in this window",
                     e
                 );
-                return (None, 0, HashMap::new(), HashMap::new());
+                return (
+                    None,
+                    0,
+                    HashMap::new(),
+                    HashMap::new(),
+                    std::collections::HashSet::new(),
+                    HashMap::new(),
+                );
             }
         };
         let (mut maj, mut min) = (2i32, 2i32);
@@ -825,15 +852,38 @@ fn init_xinput2(
         let p_atom = (xlib.XInternAtom)(display, b"Abs Pressure\0".as_ptr() as *const _, 0);
         let tx_atom = (xlib.XInternAtom)(display, b"Abs Tilt X\0".as_ptr() as *const _, 0);
         let ty_atom = (xlib.XInternAtom)(display, b"Abs Tilt Y\0".as_ptr() as *const _, 0);
+        // Pad ring / strip. `xf86-input-wacom` uses `Abs Wheel` on Intuos touch
+        // rings and `Abs Ring`/`Abs Strip *` elsewhere, so all are accepted.
+        let ring_atoms = [
+            (xlib.XInternAtom)(display, b"Abs Wheel\0".as_ptr() as *const _, 0),
+            (xlib.XInternAtom)(display, b"Abs Ring\0".as_ptr() as *const _, 0),
+            (xlib.XInternAtom)(display, b"Abs Ring2\0".as_ptr() as *const _, 0),
+            (xlib.XInternAtom)(display, b"Abs Strip X\0".as_ptr() as *const _, 0),
+            (xlib.XInternAtom)(display, b"Abs Strip Y\0".as_ptr() as *const _, 0),
+        ];
         let mut map = HashMap::new();
         let mut scroll: HashMap<c_int, ScrollAxes> = HashMap::new();
+        let mut erasers: std::collections::HashSet<c_int> = std::collections::HashSet::new();
+        let mut pads: HashMap<c_int, PadAxes> = HashMap::new();
         let mut ndev = 0i32;
         let devs = (xi.XIQueryDevice)(display, defines::XIAllDevices, &mut ndev);
         if !devs.is_null() {
             for i in 0..ndev as isize {
                 let dev = &*devs.offset(i);
+                // XI2 has no "what kind of tool is this" field, so the driver's
+                // device NAME is the only signal — `xf86-input-wacom` emits
+                // "<tablet> Pen stylus", "<tablet> Pen eraser", "<tablet> Pad pad".
+                // Same convention the touchpad detection below already relies on.
+                let dev_name = if dev.name.is_null() {
+                    String::new()
+                } else {
+                    std::ffi::CStr::from_ptr(dev.name).to_string_lossy().to_lowercase()
+                };
+                let is_eraser = dev_name.contains("eraser");
+                let is_pad = dev_name.ends_with(" pad") || dev_name.contains(" pad ");
                 let (mut p, mut tx, mut ty, mut pmax) = (-1i32, -1i32, -1i32, 1.0f64);
                 let mut axes = ScrollAxes::default();
+                let mut pad_axes = PadAxes::default();
                 for c in 0..dev.num_classes as isize {
                     let cls = *dev.classes.offset(c);
                     if cls.is_null() {
@@ -856,6 +906,15 @@ fn init_xinput2(
                         continue;
                     }
                     let v = &*(cls as *const defines::XIValuatorClassInfo);
+                    if is_pad && ring_atoms.contains(&v.label) && pad_axes.ring.is_none() {
+                        // Absolute valuator with a device-specific range: keep
+                        // min/max, the raw number is meaningless without them.
+                        let (lo, hi) = (v.min, v.max);
+                        if hi > lo {
+                            pad_axes.ring = Some((v.number, lo, hi));
+                        }
+                        continue;
+                    }
                     if v.label == p_atom {
                         p = v.number;
                         pmax = if v.max > 0.0 { v.max } else { 1.0 };
@@ -867,6 +926,30 @@ fn init_xinput2(
                 }
                 if p >= 0 || tx >= 0 || ty >= 0 {
                     map.insert(dev.deviceid, (p, tx, ty, pmax));
+                }
+                if is_eraser {
+                    erasers.insert(dev.deviceid);
+                }
+                if is_pad {
+                    // A pad is a SLAVE device that is usually floating: its
+                    // buttons are not routed through a master pointer, so the
+                    // XIAllMasterDevices selection above never delivers them.
+                    // Select on this device explicitly or the pad stays silent.
+                    let mut pad_mask = [0u8; 3];
+                    for e in [
+                        defines::XI_ButtonPress,
+                        defines::XI_ButtonRelease,
+                        defines::XI_Motion,
+                    ] {
+                        pad_mask[(e >> 3) as usize] |= 1 << (e & 7);
+                    }
+                    let mut pad_evmask = defines::XIEventMask {
+                        deviceid: dev.deviceid,
+                        mask_len: pad_mask.len() as c_int,
+                        mask: pad_mask.as_mut_ptr(),
+                    };
+                    (xi.XISelectEvents)(display, window, &mut pad_evmask, 1);
+                    pads.insert(dev.deviceid, pad_axes);
                 }
                 if axes.vert.is_some() || axes.horiz.is_some() {
                     // XI2 exposes no "is a touchpad" bit. The device NAME is
@@ -887,7 +970,7 @@ fn init_xinput2(
             }
             (xi.XIFreeDeviceInfo)(devs);
         }
-        (Some(xi), opcode, map, scroll)
+        (Some(xi), opcode, map, scroll, erasers, pads)
     }
 }
 
@@ -1255,6 +1338,56 @@ fn handle_xi_device_event(
             // otherwise every click / move / wheel is silently dropped (dead
             // caret, hover, drag-select, scroll).
 
+            // Tablet PAD: ExpressKeys and the touch ring/strip. Handled BEFORE
+            // the pointer translation below and returned from, because a pad is
+            // not a pointer — it has no cursor and no meaningful surface
+            // coordinates, so letting it fall through would synthesise clicks
+            // and moves at whatever stale position the event carries.
+            if let Some(&pad_axes) = win.pad_devices.get(&ev.sourceid) {
+                match evtype {
+                    defines::XI_ButtonPress | defines::XI_ButtonRelease => {
+                        // XI2 buttons are 1-based; `express_keys` is a 0-based
+                        // u32 bitset, so button 1 is bit 0. Anything past 32
+                        // is dropped rather than wrapped onto another key.
+                        let index = ev.detail - 1;
+                        if (0..32).contains(&index) {
+                            let bit = 1u32 << index;
+                            if evtype == defines::XI_ButtonPress {
+                                win.pad_state.express_keys |= bit;
+                            } else {
+                                win.pad_state.express_keys &= !bit;
+                            }
+                        }
+                    }
+                    defines::XI_Motion => {
+                        if let Some((number, lo, hi)) = pad_axes.ring {
+                            // The ring reports an ABSOLUTE position in a
+                            // device-specific range, and only while a finger is
+                            // on it — an absent valuator this frame means the
+                            // finger lifted, which is the only "released" signal
+                            // the protocol gives.
+                            match decode_valuator(ev, number) {
+                                Some(v) => {
+                                    let span = hi - lo;
+                                    win.pad_state.touch_ring =
+                                        (((v - lo) / span) as f32).clamp(0.0, 1.0);
+                                    win.pad_state.touch_ring_active = true;
+                                }
+                                None => win.pad_state.touch_ring_active = false,
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                win.pad_state.device_id = ev.sourceid as u64;
+                if let Some(lw) = win.common.layout_window.as_mut() {
+                    lw.gesture_drag_manager.update_pad_state(win.pad_state);
+                }
+                // `handle_xi_event` owns the cookie for the whole of this
+                // call, so this returns rather than freeing anything.
+                return result;
+            }
+
             // Pen/tablet: additionally feed pressure/tilt for known pen devices.
             // Key the valuator map by sourceid (the originating SLAVE/physical
             // device), NOT deviceid: events selected on XIAllMasterDevices carry
@@ -1274,7 +1407,7 @@ fn handle_xi_device_event(
                         pressure,
                         (tilt_x, tilt_y),
                         in_contact,
-                        false, // eraser: identified via tool/button labels, not valuators
+                        win.eraser_devices.contains(&ev.sourceid),
                         false,
                         ev.deviceid as u64,
                         0.0,
@@ -1521,6 +1654,12 @@ pub struct X11Window {
     pen_valuators: std::collections::HashMap<c_int, (i32, i32, i32, f64)>,
     /// deviceid -> smooth-scroll (XI2.1) axes of that device.
     scroll_valuators: std::collections::HashMap<c_int, ScrollAxes>,
+    /// Slave device ids that are the ERASER end of a stylus, by device name.
+    eraser_devices: std::collections::HashSet<c_int>,
+    /// Slave device ids that are tablet PADs (ExpressKeys + ring/strip).
+    pad_devices: std::collections::HashMap<c_int, PadAxes>,
+    /// Accumulated pad state, published to the gesture manager on each event.
+    pad_state: azul_layout::managers::gesture::WacomPadState,
     /// `(deviceid, valuator number)` -> last absolute value seen. Scroll
     /// valuators accumulate, so a delta needs the previous reading.
     scroll_last_values: std::collections::HashMap<(c_int, c_int), f64>,
@@ -2197,7 +2336,7 @@ impl X11Window {
         unsafe { (xlib.XSelectInput)(display, window_handle, event_mask) };
 
         // XInput2: select touch + pen/tablet events (best-effort; core events otherwise).
-        let (xi, xi_opcode, pen_valuators, scroll_valuators) =
+        let (xi, xi_opcode, pen_valuators, scroll_valuators, eraser_devices, pad_devices) =
             init_xinput2(&xlib, display, window_handle);
         let modifier_masks = query_modifier_masks(&xlib, display);
 
@@ -2638,6 +2777,9 @@ impl X11Window {
             xi_opcode,
             pen_valuators,
             scroll_valuators,
+            eraser_devices,
+            pad_devices,
+            pad_state: azul_layout::managers::gesture::WacomPadState::default(),
             scroll_last_values: std::collections::HashMap::new(),
             modifier_masks,
             pressed_key_vks: std::collections::BTreeMap::new(),
