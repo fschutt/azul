@@ -36,14 +36,18 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{
+        ComponentEventFilter, Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
+        IdOrClassVec, NodeData, NodeType, TabIndex,
+    },
+    transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
     refany::{OptionRefAny, RefAny},
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{OptionString, 
     props::{
-        basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutAlignItems, LayoutWidth, LayoutHeight},
+        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
+        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignSelf, LayoutFlexGrow, LayoutPosition, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutAlignItems, LayoutWidth, LayoutHeight},
         property::{CssProperty, *},
         style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleCursor, StyleUserSelect, StyleTextColor},
     },
@@ -52,9 +56,22 @@ use azul_css::{OptionString,
 
 use crate::callbacks::{Callback, CallbackInfo};
 
+const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
+const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
+    StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
+
 // ---- classes ----
 static DATE_PICKER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-date-picker"))];
+/// The always-visible field (what the calendar hangs off).
+static DATE_PICKER_VALUE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-value",
+))];
+/// The calendar body, inside the `<transient-window>`.
+static DATE_PICKER_PANEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-panel",
+))];
 static HEADER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-date-picker-header"))];
 static HEADER_LABEL_CLASS: &[IdOrClass] =
@@ -244,6 +261,84 @@ const CELL_W: isize = 32;
 const CELL_H: isize = 28;
 
 /// Outer container: a column that hugs its content, bordered + white.
+/// The closed-state field: a one-line box showing the selected date.
+static FIELD_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    // Hug the content so the popup (anchored to this node's rect) lines up with
+    // the field rather than with a full-width flex line.
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
+        8,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(8),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle { inner: BorderStyle::Solid },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+        StyleBorderRightStyle { inner: BorderStyle::Solid },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: BORDER_COLOR,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor { inner: BORDER_COLOR },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: BORDER_COLOR,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+        StyleBorderRightColor { inner: BORDER_COLOR },
+    )),
+];
+
+/// The date text inside the field.
+static FIELD_VALUE_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The little calendar glyph at the field's right edge.
+static FIELD_ICON_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
+        6,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
 static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
@@ -426,6 +521,19 @@ struct DayCellData {
     state: RefAny,
 }
 
+/// What every date-picker callback shares.
+///
+/// `DatePickerState` is a `#[repr(C)]` FFI struct, so the popup's open flag
+/// cannot live on it — it lives here, beside the state, exactly as
+/// `color_input.rs`'s `ColorPickerData` carries the picker's own open flag.
+/// The ENGINE owns the authoritative open state (keyed by the transient node's
+/// id, and it survives a `RefreshDom`); this flag only decides which way the
+/// next field click toggles, which is why `Dismissed` resyncs it.
+struct DatePickerData {
+    state: DatePickerStateWrapper,
+    open: bool,
+}
+
 impl DatePicker {
     /// Creates a new `DatePicker` showing `year`/`month` with `day` selected.
     /// `month` is clamped to `1..=12` and `day` to `1..=days_in_month`.
@@ -482,17 +590,78 @@ impl DatePicker {
         let month = inner.month.clamp(1, 12);
         let sel_day = inner.day;
         let container_style = self.container_style.clone();
+        let a11y_name = self.accessibility_name.clone();
 
-        let shared = RefAny::new(self.state);
+        let shared = RefAny::new(DatePickerData {
+            state: self.state,
+            open: false,
+        });
 
         let header = build_header(year, month, shared.clone());
         let weekday_row = build_weekday_row();
-        let grid = build_grid(year, month, sel_day, shared);
+        let grid = build_grid(year, month, sel_day, shared.clone());
 
+        // The calendar is the body of a REAL OS popup anchored under the field,
+        // the same shape `color_input.rs` uses for its colour panel. As an
+        // always-visible inline block it took a calendar's worth of space in the
+        // page and could not overlap anything below it; a popup window has no
+        // such ceiling, and a closed `<transient-window>` costs nothing inline.
+        let panel = Dom::create_div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(DATE_PICKER_PANEL_CLASS))
+            .with_css_props(container_style)
+            .with_children(alloc::vec![header, weekday_row, grid].into());
+
+        let mut transient = NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed()
+                .with_anchor(TransientAnchor::Bottom)
+                .with_dismiss(TransientDismiss::Outside),
+        ));
+        transient.add_callback(
+            EventFilter::Component(ComponentEventFilter::Dismissed),
+            shared.clone(),
+            Callback::from_ptr(on_date_picker_dismissed).to_core(),
+        );
+        let popup = Dom::create_from_data(transient).with_child(panel);
+
+        // The field: what the user sees when the calendar is shut.
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(DATE_PICKER_CLASS))
-            .with_css_props(container_style)
-            .with_children(alloc::vec![header, weekday_row, grid].into())
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(FIELD_STYLE))
+            .with_tab_index(TabIndex::Auto)
+            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+                role: azul_core::a11y::AccessibilityRole::ComboBox,
+                accessibility_name: a11y_name.into(),
+                accessibility_value: Some(AzString::from(format_date(&inner))).into(),
+                ..Default::default()
+            })
+            .with_callbacks(
+                alloc::vec![azul_core::callbacks::CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    refany: shared,
+                    callback: azul_core::callbacks::CoreCallback {
+                        cb: on_date_field_toggle as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
+                }]
+                .into(),
+            )
+            .with_children(
+                alloc::vec![
+                    crate::widgets::widget_p_with_text(AzString::from(format_date(&inner)))
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(
+                            DATE_PICKER_VALUE_CLASS
+                        ))
+                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                            FIELD_VALUE_STYLE
+                        )),
+                    Dom::create_icon(AzString::from_const_str("calendar_today"))
+                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                            FIELD_ICON_STYLE
+                        )),
+                    popup,
+                ]
+                .into(),
+            )
     }
 }
 
@@ -642,22 +811,45 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
         (cell.day, cell.state.clone())
     };
 
-    let update = {
-        let Some(mut w) = shared.downcast_mut::<DatePickerStateWrapper>() else {
+    let (update, new_label) = {
+        let Some(mut w) = shared.downcast_mut::<DatePickerData>() else {
             return Update::DoNothing;
         };
-        w.inner.day = day;
-        let inner = w.inner;
-        let w = &mut *w;
-        match w.on_change.as_mut() {
+        w.state.inner.day = day;
+        w.open = false;
+        let inner = w.state.inner;
+        let label = format_date(&inner);
+        let w = &mut w.state;
+        let update = match w.on_change.as_mut() {
             Some(DatePickerOnChange { callback, refany }) => {
                 (callback.cb)(refany.clone(), info, inner)
             }
             None => Update::DoNothing,
-        }
+        };
+        (update, label)
     };
 
     restyle_days(&mut info, clicked);
+
+    // Reflect the pick in the FIELD and shut the calendar — the popup is a real
+    // window now, so it does not go away by itself on a click inside it.
+    // clicked -> week row -> grid -> panel -> <transient-window> -> field.
+    if let Some(row) = info.get_parent(clicked) {
+        if let Some(grid) = info.get_parent(row) {
+            if let Some(panel) = info.get_parent(grid) {
+                if let Some(popup) = info.get_parent(panel) {
+                    if let Some(field) = info.get_parent(popup) {
+                        if let Some(value_p) = info.get_first_child(field) {
+                            if let Some(text) = info.get_first_child(value_p) {
+                                info.change_node_text(text, AzString::from(new_label));
+                            }
+                        }
+                        info.set_transient_window_open(popup, false);
+                    }
+                }
+            }
+        }
+    }
 
     update
 }
@@ -709,15 +901,55 @@ extern "C" fn on_next_month(data: RefAny, info: CallbackInfo) -> Update {
     month_nav(data, info, 1)
 }
 
+/// The field's text: `YYYY-MM-DD`, zero-padded so the field never changes width
+/// as the user moves through the month (a jittering field under an anchored
+/// popup would drag the popup with it).
+fn format_date(state: &DatePickerState) -> alloc::string::String {
+    alloc::format!("{:04}-{:02}-{:02}", state.year, state.month, state.day)
+}
+
+/// Field click: open or close the calendar popup.
+///
+/// The hit node is the field; the popup is its LAST child (value, icon, popup),
+/// so `get_last_child` names it without counting siblings.
+extern "C" fn on_date_field_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let field = info.get_hit_node();
+    let Some(popup) = info.get_last_child(field) else {
+        return Update::DoNothing;
+    };
+
+    let now_open = {
+        let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
+            return Update::DoNothing;
+        };
+        w.open = !w.open;
+        w.open
+    };
+
+    info.set_transient_window_open(popup, now_open);
+    Update::DoNothing
+}
+
+/// The popup dismissed itself (outside click / Escape). Clear `open` so the
+/// next field click opens instead of "closing" an already-closed calendar.
+extern "C" fn on_date_picker_dismissed(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
+        return Update::DoNothing;
+    };
+    w.open = false;
+    Update::DoNothing
+}
+
 /// Month navigation. Updates month/year (wrapping across year boundaries),
 /// clamps the selected day into the new month, and fires `on_change` so host
 /// code can rebuild the widget. TODO2: the in-widget grid is NOT rebuilt (see
 /// module docs) — only the reported state changes.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 fn month_nav(mut data: RefAny, info: CallbackInfo, delta: i32) -> Update {
-    let Some(mut w) = data.downcast_mut::<DatePickerStateWrapper>() else {
+    let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
         return Update::DoNothing;
     };
+    let w = &mut w.state;
 
     let mut month = w.inner.month as i32 + delta;
     let mut year = w.inner.year as i32;
@@ -922,8 +1154,16 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     /// The three sections a date picker always renders, in order.
+    /// `(header, weekday row, grid)`, descending through the field and the
+    /// `<transient-window>`.
+    ///
+    /// A date picker now renders `field[value, icon, <transient-window>[panel]]`
+    /// — the calendar is a REAL OS popup anchored under the field, not an
+    /// always-visible inline block. The three calendar sections are the panel's
+    /// children.
     fn sections(dom: &Dom) -> (&Dom, &Dom, &Dom) {
-        let c = dom.children.as_ref();
+        let panel = panel_of(dom);
+        let c = panel.children.as_ref();
         assert_eq!(
             c.len(),
             3,
@@ -931,6 +1171,40 @@ mod autotest_generated {
             c.len(),
         );
         (&c[0], &c[1], &c[2])
+    }
+
+    /// The `<transient-window>` node: the field's LAST child.
+    fn popup_of(dom: &Dom) -> &Dom {
+        let c = dom.children.as_ref();
+        assert_eq!(c.len(), 3, "the field is [value, icon, popup], got {}", c.len());
+        let popup = &c[2];
+        assert!(
+            matches!(popup.root.get_node_type(), NodeType::TransientWindow(_)),
+            "the calendar must live in a <transient-window> so it can overlap \
+             what follows it instead of taking a calendar's worth of page space",
+        );
+        popup
+    }
+
+    /// The calendar body inside the popup.
+    fn panel_of(dom: &Dom) -> &Dom {
+        let popup = popup_of(dom);
+        let kids = popup.children.as_ref();
+        assert_eq!(kids.len(), 1, "the popup holds exactly the calendar panel");
+        &kids[0]
+    }
+
+    /// Every `SetTransientWindowOpen` a handler pushed, as `(node, open)`.
+    fn transient_writes(changes: &[CallbackChange]) -> Vec<(usize, bool)> {
+        changes
+            .iter()
+            .filter_map(|change| match change {
+                CallbackChange::SetTransientWindowOpen { node, open } => {
+                    Some((node.node.into_crate_internal()?.index(), *open))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     /// Every cell of the grid, in reading order (blanks included).
@@ -992,7 +1266,7 @@ mod autotest_generated {
             for cb in nd.callbacks.as_ref() {
                 let matches = {
                     let mut r = cb.refany.clone();
-                    let matches = r.downcast_ref::<DatePickerStateWrapper>().is_some();
+                    let matches = r.downcast_ref::<DatePickerData>().is_some();
                     matches
                 };
                 if matches {
@@ -1000,7 +1274,7 @@ mod autotest_generated {
                 }
             }
         }
-        panic!("the rendered date picker carries no DatePickerStateWrapper");
+        panic!("the rendered date picker carries no DatePickerData");
     }
 
     /// `(flattened node id, the cell's own payload)` of the day cell showing `day`.
@@ -1034,9 +1308,9 @@ mod autotest_generated {
     fn read_state(shared: &RefAny) -> DatePickerState {
         let mut s = shared.clone();
         let w = s
-            .downcast_ref::<DatePickerStateWrapper>()
+            .downcast_ref::<DatePickerData>()
             .expect("the widget state changed type");
-        w.inner
+        w.state.inner
     }
 
     /// Renders a picker and hands back its flattened DOM plus the very shared
@@ -1065,9 +1339,12 @@ mod autotest_generated {
         next: bool,
         times: usize,
     ) -> (DatePickerState, Update, Vec<CallbackChange>) {
-        let shared = RefAny::new(DatePickerStateWrapper {
-            inner,
-            on_change: None.into(),
+        let shared = RefAny::new(DatePickerData {
+            state: DatePickerStateWrapper {
+                inner,
+                on_change: None.into(),
+            },
+            open: false,
         });
         let (update, changes) = with_info(StyledDom::default(), node(0), |info| {
             let mut last = Update::DoNothing;
@@ -2685,15 +2962,18 @@ mod autotest_generated {
         // The whole point of the TODO2 design: the widget cannot rebuild its own
         // grid, so it *must* tell the host what changed.
         let probe = log_refany();
-        let shared = RefAny::new(DatePickerStateWrapper {
-            inner: DatePickerState { year: 2024, month: 1, day: 31 },
-            on_change: Some(DatePickerOnChange {
-                callback: DatePickerOnChangeCallback::from(
-                    record_change as DatePickerOnChangeCallbackType,
-                ),
-                refany: probe.clone(),
-            })
-            .into(),
+        let shared = RefAny::new(DatePickerData {
+            state: DatePickerStateWrapper {
+                inner: DatePickerState { year: 2024, month: 1, day: 31 },
+                on_change: Some(DatePickerOnChange {
+                    callback: DatePickerOnChangeCallback::from(
+                        record_change as DatePickerOnChangeCallbackType,
+                    ),
+                    refany: probe.clone(),
+                })
+                .into(),
+            },
+            open: false,
         });
 
         let (update, _) = with_info(StyledDom::default(), node(0), |info| {

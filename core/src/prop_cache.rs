@@ -72,6 +72,7 @@ use azul_css::{
             LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue,
             LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue,
             LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
+            OverscrollBehaviorValue,
             LayoutTableLayoutValue, LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue,
             LayoutWritingModeValue, LayoutZIndexValue, OrphansValue, PageBreakValue,
             StyleBackgroundContentValue, ScrollbarFadeDelayValue, ScrollbarFadeDurationValue,
@@ -2773,6 +2774,8 @@ impl CssPropertyCache {
     }
 
     impl_get_prop!(get_scrollbar_width, LayoutScrollbarWidthValue, ScrollbarWidth, as_scrollbar_width);
+    impl_get_prop!(get_overscroll_behavior_x, OverscrollBehaviorValue, OverscrollBehaviorX, as_overscroll_behavior_x);
+    impl_get_prop!(get_overscroll_behavior_y, OverscrollBehaviorValue, OverscrollBehaviorY, as_overscroll_behavior_y);
 
     impl_get_prop!(get_scrollbar_color, StyleScrollbarColorValue, ScrollbarColor, as_scrollbar_color);
 

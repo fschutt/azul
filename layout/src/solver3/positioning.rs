@@ -647,6 +647,21 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     &mut reflow_float_cache,
                 );
 
+                // The interior run writes each child's position into
+                // `output.positions` but NOT into `warm.relative_position`,
+                // which `position_bfc_child_descendants` (below) reads. Without
+                // this transfer, an absolutely-positioned box's 2nd+ in-flow
+                // children all collapse onto its content-box origin — a
+                // multi-item dropdown/list draws every row on top of the first.
+                // Mirrors the flex-item transfer in taffy_bridge.rs (~L2110).
+                if let Ok(res) = &interior {
+                    for (child_idx, child_pos) in &res.output.positions {
+                        if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_idx)) {
+                            child_warm.relative_position = Some(*child_pos);
+                        }
+                    }
+                }
+
                 // §10.6.4 rules 1 and 3: with height:auto and at most one
                 // vertical inset, the used height IS the laid-out content
                 // height — adopt it from the interior run (the pre-layout

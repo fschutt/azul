@@ -272,6 +272,18 @@ impl NumberInput {
             .map(|s| s as u32)
             .collect::<Vec<_>>()
             .into();
+        // The caret goes with the value it belongs to.
+        //
+        // This rewrites the buffer from `number` on EVERY rebuild but used to
+        // leave `cursor_pos` untouched — and a freshly built `TextInputState`
+        // has `cursor_pos: 0`. So a rebuild left the caret claiming offset 0
+        // over a value it had never seen, and the next keystroke was mirrored
+        // in at the FRONT: clearing "42" and typing "33" produced "3342".
+        // End-of-value is what a programmatic assignment means (it is where a
+        // browser leaves the caret after setting `input.value`), and it is
+        // where `default_on_focus_received` seeds it too.
+        self.text_input.text_input_state.inner.cursor_pos =
+            self.text_input.text_input_state.inner.text.len();
 
         let state = RefAny::new(self.number_input_state);
 

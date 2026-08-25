@@ -80,6 +80,12 @@ fn build_editor_window(animations: SystemAnimations) -> LayoutWindow {
     lw.text_edit_manager
         .initialize_editing(cursor(0), DomId::ROOT_ID, NodeId::new(TEXT), 0);
     lw.text_edit_manager.blink.set_visibility(true);
+    // A real focused field has BOTH an editing session AND focus. The caret is
+    // only painted when the edited node lives inside the focused subtree
+    // (`LayoutWindow::caret_editable_is_focused`, so a blurred field drops its
+    // caret) — set focus here so the tween tests exercise the focused state they
+    // model instead of reading as "blurred" and never painting a caret.
+    lw.focus_manager.set_focused_node(Some(text_dom_node_id()));
     lw
 }
 

@@ -413,6 +413,15 @@ objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, f
     "NSOpenGLView",
     "NSDragging",
     "NSPasteboard",
+    # The eyedropper: NSColorSampler is the system loupe (no screen-recording
+    # permission); NSColor/NSColorSpace read the picked colour's sRGB parts.
+    "NSColorSampler",
+    "NSColor",
+    "NSColorSpace",
+    "block2",
+    # Transparent windows on the CPU path: the frame is drawn with the Copy
+    # operation (NSCompositingOperation lives in NSGraphics).
+    "NSGraphics",
 ] }
 # Biometric auth (P4.1) — LAContext / evaluatePolicy / biometryType.
 objc2-local-authentication = { version = "0.3.2", default-features = true, optional = true, features = [

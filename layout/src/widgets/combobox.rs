@@ -46,10 +46,11 @@ use alloc::{string::String, vec::Vec};
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
-        Dom, DomVec, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
-        IdOrClassVec, TabIndex,
+        ComponentEventFilter, Dom, DomVec, EventFilter, FocusEventFilter, HoverEventFilter,
+        IdOrClass, IdOrClass::Class, IdOrClassVec, NodeData, NodeType, TabIndex,
     },
     refany::{OptionRefAny, RefAny},
+    transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
     window::VirtualKeyCode,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
@@ -340,21 +341,22 @@ static COMBOBOX_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
 ];
 
-/// Builds the floating options-list style. Only the `display` (open vs closed)
-/// differs; all positioning/visual props are present in both so the runtime
-/// `set_css_property(display)` toggle has everything it needs (mirroring the
-/// popover/accordion approach).
-fn build_list_style(open: bool) -> CssPropertyWithConditionsVec {
-    let display = if open {
-        LayoutDisplay::Block
-    } else {
-        LayoutDisplay::None
-    };
+/// Builds the options-list panel style.
+///
+/// The list lives inside a `<transient-window>` — a REAL OS popup — so it is
+/// laid out at the origin of its own window, NOT absolutely-positioned inside
+/// the parent DOM. It used to be an `position: absolute` sibling toggled with
+/// `set_css_property(display)`, which is why it collided with everything
+/// painted after it: an in-DOM panel is bound by its stacking context and
+/// clipped by the window, so no z-index could lift it above later siblings.
+/// The popup window has no such ceiling.
+///
+/// `open` therefore no longer selects `display` — the WINDOW opens and closes —
+/// but the parameter stays so the caller keeps one entry point, and the panel
+/// is explicitly `display: block` in both states.
+fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
-        CssPropertyWithConditions::simple(CssProperty::const_display(display)),
-        CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-        CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(LIST_OFFSET_Y))),
-        CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
         CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
             MIN_WIDTH,
         ))),
@@ -650,11 +652,32 @@ impl ComboBox {
             .with_css_props(list_style)
             .with_children(DomVec::from_vec(option_doms));
 
+        // The list is a REAL OS popup anchored under the field, not an
+        // absolutely-positioned sibling: an in-DOM panel is trapped in its
+        // stacking context and clipped by the window, so the old one was
+        // painted under later siblings and cut off at the window edge. The
+        // popup dismisses itself on an outside click; `Dismissed` syncs the
+        // widget's own `open` flag so the next field click still toggles
+        // correctly (without it the state says "open" and the click closes
+        // nothing).
+        let mut transient = NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed()
+                .with_anchor(TransientAnchor::Bottom)
+                .with_dismiss(TransientDismiss::Outside),
+        ));
+        transient.add_callback(
+            EventFilter::Component(ComponentEventFilter::Dismissed),
+            state_ref.clone(),
+            Callback::from_ptr(on_combobox_dismissed).to_core(),
+        );
+        let popup = Dom::create_from_data(transient).with_child(list);
+
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COMBOBOX_WRAPPER_CLASS))
             .with_css_props(self.wrapper_style)
-            // children: [field, list] — the list is the field's next sibling.
-            .with_children(DomVec::from_vec(alloc::vec![field, list]))
+            // children: [field, popup] — the popup (holding the list) is the
+            // field's next sibling, so `get_next_sibling(field)` still names it.
+            .with_children(DomVec::from_vec(alloc::vec![field, popup]))
     }
 }
 
@@ -664,11 +687,13 @@ impl Default for ComboBox {
     }
 }
 
-/// Field click handler. The hit node is the field; its next sibling is the list.
-/// Flips `open` on the shared state and shows/hides the list via `display`.
+/// Field click handler. The hit node is the field; its next sibling is the
+/// `<transient-window>` holding the list. Flips `open` and opens/closes that
+/// popup WINDOW (it used to toggle `display` on an in-DOM panel, which could
+/// never escape its stacking context).
 extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let field = info.get_hit_node();
-    let Some(list) = info.get_next_sibling(field) else {
+    let Some(popup) = info.get_next_sibling(field) else {
         return Update::DoNothing;
     };
 
@@ -680,15 +705,19 @@ extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Up
         combo.inner.open
     };
 
-    // TODO2: shows/hides the list by toggling `display` via set_css_property; the
-    // display:none/block relayout itself is not GUI-verified in this build.
-    let display = if now_open {
-        LayoutDisplay::Block
-    } else {
-        LayoutDisplay::None
-    };
-    info.set_css_property(list, CssProperty::const_display(display));
+    info.set_transient_window_open(popup, now_open);
 
+    Update::DoNothing
+}
+
+/// The popup dismissed itself (outside click / Escape). Clear `open` so the
+/// widget's flag matches reality — otherwise the next field click would "toggle
+/// off" an already-closed list and the user would have to click twice.
+extern "C" fn on_combobox_dismissed(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    combo.inner.open = false;
     Update::DoNothing
 }
 
@@ -768,10 +797,15 @@ extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo)
         cursor = prev;
     }
 
+    // option -> list -> <transient-window> -> wrapper. The popup window is an
+    // extra level the old absolutely-positioned panel did not have.
     let Some(list) = info.get_parent(option) else {
         return Update::DoNothing;
     };
-    let Some(wrapper) = info.get_parent(list) else {
+    let Some(popup) = info.get_parent(list) else {
+        return Update::DoNothing;
+    };
+    let Some(wrapper) = info.get_parent(popup) else {
         return Update::DoNothing;
     };
     let Some(field) = info.get_first_child(wrapper) else {
@@ -806,9 +840,9 @@ extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo)
     };
     drop(inner);
 
-    // Fill the field with the chosen label and close the list.
+    // Fill the field with the chosen label and close the popup WINDOW.
     info.change_node_text(text_node, label);
-    info.set_css_property(list, CssProperty::const_display(LayoutDisplay::None));
+    info.set_transient_window_open(popup, false);
 
     result
 }
@@ -928,10 +962,36 @@ mod autotest_generated {
     }
 
     /// `(field, list)` of a rendered combobox DOM.
+    /// `(field, list)`, descending THROUGH the `<transient-window>`.
+    ///
+    /// A combobox is `[field, <transient-window> > list]`: the options list is a
+    /// real OS popup, not an absolutely-positioned sibling, so the list is the
+    /// popup's only child rather than the wrapper's second child.
     fn parts(dom: &Dom) -> (&Dom, &Dom) {
         let children = dom.children.as_ref();
-        assert_eq!(children.len(), 2, "a combobox is exactly [field, list]");
-        (&children[0], &children[1])
+        assert_eq!(
+            children.len(),
+            2,
+            "a combobox is exactly [field, <transient-window>]"
+        );
+        let popup = &children[1];
+        assert!(
+            matches!(popup.root.get_node_type(), NodeType::TransientWindow(_)),
+            "the list must live in a <transient-window> so it can escape the \
+             parent's stacking context and the window bounds",
+        );
+        let popup_children = popup.children.as_ref();
+        assert_eq!(
+            popup_children.len(),
+            1,
+            "the popup holds exactly the options list"
+        );
+        (&children[0], &popup_children[0])
+    }
+
+    /// The `<transient-window>` node itself (the wrapper's second child).
+    fn popup_of(dom: &Dom) -> &Dom {
+        &dom.children.as_ref()[1]
     }
 
     /// Flattened indices of every node carrying `class`, in tree order. Used
@@ -960,6 +1020,8 @@ mod autotest_generated {
         wrapper: usize,
         field: usize,
         text: usize,
+        /// The `<transient-window>` node — what the handlers open/close.
+        popup: usize,
         list: usize,
         options: Vec<usize>,
     }
@@ -984,6 +1046,16 @@ mod autotest_generated {
             "the combobox field label must be `p > text`"
         );
         let list = one(&styled, "__azul-native-combobox-list");
+        // The popup is the list's PARENT: pre-order flattening puts the
+        // `<transient-window>` immediately before the list it wraps.
+        let popup = list - 1;
+        assert!(
+            matches!(
+                styled.node_data.as_ref()[popup].get_node_type(),
+                NodeType::TransientWindow(_)
+            ),
+            "the options list must be wrapped in a <transient-window>",
+        );
         let options = nodes_with_class(&styled, "__azul-native-combobox-option");
         assert_eq!(options.len(), items.len());
 
@@ -992,6 +1064,7 @@ mod autotest_generated {
             wrapper,
             field,
             text,
+            popup,
             list,
             options,
         }
@@ -1098,6 +1171,22 @@ mod autotest_generated {
     }
 
     /// Every `display` write in the change log, as `(node index, display)`.
+    /// Every `SetTransientWindowOpen` a handler pushed, as `(node, open)`.
+    /// The open/close of the options list travels this way now — it used to be
+    /// a `display` write on an in-DOM panel (see `display_writes`).
+    fn transient_writes(changes: &[CallbackChange]) -> Vec<(usize, bool)> {
+        changes
+            .iter()
+            .filter_map(|change| match change {
+                CallbackChange::SetTransientWindowOpen { node, open } => {
+                    Some((node.node.into_crate_internal()?.index(), *open))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[allow(dead_code)]
     fn display_writes(changes: &[CallbackChange]) -> Vec<(usize, LayoutDisplay)> {
         let mut out = Vec::new();
         for change in changes {
@@ -1201,68 +1290,49 @@ mod autotest_generated {
     // build_list_style
     // ------------------------------------------------------------------
 
+    /// The panel is ALWAYS visible and ALWAYS in normal flow.
+    ///
+    /// The list now lives inside a `<transient-window>` — a real OS popup — so
+    /// the WINDOW opens and closes, not a `display` property, and the panel is
+    /// laid out at its own window's origin rather than absolutely-positioned in
+    /// the parent DOM. These replace four tests that asserted the opposite
+    /// (display flips with `open`, `position: absolute` in both states); that
+    /// design is exactly what made the list collide with later siblings and
+    /// clip at the window edge, which is the bug this widget was changed to fix.
     #[test]
-    fn build_list_style_differs_only_in_display() {
+    fn build_list_style_is_open_state_independent() {
         let closed = build_list_style(false);
         let open = build_list_style(true);
-        let (c, o) = (closed.as_ref(), open.as_ref());
-
-        assert!(!c.is_empty(), "the list style must not be empty");
         assert_eq!(
-            c.len(),
-            o.len(),
-            "open and closed must declare the same property set so the runtime \
-             `set_css_property(display)` toggle has everything it needs"
-        );
-
-        let differing: Vec<usize> = (0..c.len()).filter(|&i| c[i] != o[i]).collect();
-        assert_eq!(
-            differing.len(),
-            1,
-            "exactly one property may differ between open and closed"
-        );
-        assert!(matches!(
-            &c[differing[0]].property,
-            CssProperty::Display(_)
-        ));
-    }
-
-    #[test]
-    fn build_list_style_display_follows_the_flag() {
-        assert_eq!(
-            display_of(&build_list_style(false)),
-            Some(LayoutDisplay::None),
-            "a closed list is hidden"
-        );
-        assert_eq!(
-            display_of(&build_list_style(true)),
-            Some(LayoutDisplay::Block),
-            "an open list is shown"
+            closed, open,
+            "the popup WINDOW carries the open/closed state; the panel style must not",
         );
     }
 
     #[test]
-    fn build_list_style_always_positions_absolutely() {
-        // Positioning must be present in BOTH states — the toggle only rewrites
-        // `display`, so a missing `position` in the closed style would leave the
-        // list statically positioned once opened.
+    fn build_list_style_is_always_displayed_and_never_absolutely_positioned() {
         for open in [false, true] {
             let props = build_list_style(open);
             assert_eq!(
+                display_of(&props),
+                Some(LayoutDisplay::Block),
+                "open={open}: the panel fills its popup window and is always shown",
+            );
+            assert_ne!(
                 position_of(&props),
                 Some(LayoutPosition::Absolute),
-                "open={open}"
+                "open={open}: absolute positioning belonged to the old in-DOM panel; \
+                 inside a popup window it would offset the list away from the window origin",
             );
         }
     }
 
     #[test]
     fn build_list_style_is_deterministic_and_unshared() {
-        // Two calls with the same flag must be equal, and neither may alias the
-        // other (it allocates a fresh vec every call).
+        // Two calls must be equal, and neither may alias the other (it
+        // allocates a fresh vec every call).
         assert_eq!(build_list_style(true), build_list_style(true));
         assert_eq!(build_list_style(false), build_list_style(false));
-        assert_ne!(build_list_style(true), build_list_style(false));
     }
 
     // ------------------------------------------------------------------
@@ -1607,14 +1677,28 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_list_display_follows_open() {
-        let closed = ComboBox::new(sv(&["a"])).dom();
-        assert_eq!(inline_display(parts(&closed).1), Some(LayoutDisplay::None));
-
-        let mut open = ComboBox::new(sv(&["a"]));
-        open.combo_state.inner.open = true;
-        let open = open.dom();
-        assert_eq!(inline_display(parts(&open).1), Some(LayoutDisplay::Block));
+    fn dom_list_is_always_displayed_inside_its_popup() {
+        // The panel no longer hides itself — the popup WINDOW is what opens and
+        // closes, so the list is `display: block` whatever `open` says. (It used
+        // to flip between block/none as an in-DOM sibling, which is the design
+        // that could not escape the stacking context.)
+        for open_flag in [false, true] {
+            let mut combo = ComboBox::new(sv(&["a"]));
+            combo.combo_state.inner.open = open_flag;
+            let dom = combo.dom();
+            assert_eq!(
+                inline_display(parts(&dom).1),
+                Some(LayoutDisplay::Block),
+                "open={open_flag}",
+            );
+            assert!(
+                matches!(
+                    popup_of(&dom).root.get_node_type(),
+                    NodeType::TransientWindow(_)
+                ),
+                "open={open_flag}: the list must be wrapped in a popup window",
+            );
+        }
     }
 
     #[test]
@@ -1797,7 +1881,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn toggle_flips_open_and_shows_then_hides_the_list() {
+    fn toggle_flips_open_and_opens_then_closes_the_popup_window() {
         let fx = fixture(&["a", "b"]);
         let mut data = state(&["a", "b"], "", false, 0);
 
@@ -1813,9 +1897,9 @@ mod autotest_generated {
         );
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(fx.list, LayoutDisplay::Block)],
-            "the field's next sibling (the list) is the node that is shown"
+            transient_writes(&changes),
+            alloc::vec![(fx.popup, true)],
+            "the field's next sibling (the <transient-window>) is the node that opens"
         );
         assert!(inner_of(&mut data).open);
 
@@ -1831,8 +1915,8 @@ mod autotest_generated {
         );
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(fx.list, LayoutDisplay::None)]
+            transient_writes(&changes),
+            alloc::vec![(fx.popup, false)]
         );
         assert!(!inner_of(&mut data).open);
     }
@@ -2401,8 +2485,9 @@ mod autotest_generated {
                 alloc::vec![(fx.text, String::from(*label))]
             );
             assert_eq!(
-                display_writes(&changes),
-                alloc::vec![(fx.list, LayoutDisplay::None)]
+                transient_writes(&changes),
+                alloc::vec![(fx.popup, false)],
+                "selecting closes the popup WINDOW",
             );
         }
     }
@@ -2559,8 +2644,8 @@ mod autotest_generated {
             alloc::vec![(fx.text, String::from("b"))]
         );
         assert_eq!(
-            display_writes(&changes),
-            alloc::vec![(fx.list, LayoutDisplay::None)]
+            transient_writes(&changes),
+            alloc::vec![(fx.popup, false)]
         );
 
         let logged = log

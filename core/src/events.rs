@@ -320,6 +320,15 @@ pub enum LifecycleReason {
     Update,
     /// Node was removed from DOM
     Unmount,
+    /// A `<transient-window>` was closed by the USER (outside click, Escape),
+    /// not by the app flipping `open`.
+    Dismiss,
+    /// A `<transient-window>` was torn off its anchor into a free toplevel
+    /// by the user's drag. `current_bounds` is where it went, in the parent.
+    TearOff,
+    /// A torn-off `<transient-window>` was docked back (onto its anchor or a
+    /// drop zone) by the user's drag.
+    Dock,
 }
 
 /// Keyboard modifier keys state.
@@ -650,6 +659,17 @@ pub enum EventType {
     Update,
     /// Component layout bounds changed
     Resize,
+    /// A `<transient-window>` was dismissed by the user (outside click or
+    /// Escape). Fired on the transient node so the app can drop its `open`
+    /// flag; the surface is already gone by the time this runs.
+    Dismiss,
+    /// A `<transient-window>` was torn off by the user's drag and is now a
+    /// free toplevel. Fired on the transient node; the lifecycle data's
+    /// `current_bounds` is the toplevel's rect in the parent's coordinates,
+    /// for apps that persist their palette layout.
+    TearOff,
+    /// A torn-off `<transient-window>` was docked back by the user's drag.
+    Dock,
 
     // Window Events
     /// Window resized
@@ -718,6 +738,11 @@ pub enum EventType {
     /// A biometric authentication prompt completed. Read the outcome via
     /// `CallbackInfo::get_biometric_result`.
     BiometricResult,
+    /// The screen eyedropper started by `CallbackInfo::pick_screen_color`
+    /// finished - the user picked a pixel, or cancelled. Window-level (the
+    /// pick is not bound to a node); read the colour via
+    /// `CallbackInfo::get_picked_screen_color` (`None` = cancelled).
+    ScreenColorPicked,
     /// A keyring store / get / delete operation completed. Read the outcome
     /// via `CallbackInfo::get_keyring_result`.
     KeyringResult,
@@ -1284,6 +1309,9 @@ const fn matches_component_filter(
             | (ComponentEventFilter::BeforeUnmount, EventType::Unmount)
             | (ComponentEventFilter::Updated, EventType::Update)
             | (ComponentEventFilter::NodeResized, EventType::Resize)
+            | (ComponentEventFilter::Dismissed, EventType::Dismiss)
+            | (ComponentEventFilter::TornOff, EventType::TearOff)
+            | (ComponentEventFilter::Docked, EventType::Dock)
     )
 }
 
@@ -1306,7 +1334,7 @@ fn matches_hover_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult};
+    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, ScreenColorPicked};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1356,6 +1384,7 @@ fn matches_hover_filter(
         (GeolocationError, EventType::GeolocationError) => true,
         (PermissionChanged, EventType::PermissionChanged) => true,
         (BiometricResult, EventType::BiometricResult) => true,
+        (ScreenColorPicked, EventType::ScreenColorPicked) => true,
         (KeyringResult, EventType::KeyringResult) => true,
         // Gestures. These filters existed, the detectors produced the events,
         // and this table had no arm for them — a `PinchOut` handler on a map
@@ -1449,7 +1478,7 @@ fn matches_window_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, FrameChanged, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
+    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, FrameChanged, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, ScreenColorPicked, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1500,6 +1529,7 @@ fn matches_window_filter(
         (GeolocationError, EventType::GeolocationError) => true,
         (PermissionChanged, EventType::PermissionChanged) => true,
         (BiometricResult, EventType::BiometricResult) => true,
+        (ScreenColorPicked, EventType::ScreenColorPicked) => true,
         (KeyringResult, EventType::KeyringResult) => true,
         (DragStart, EventType::DragStart) => true,
         (Drag, EventType::Drag) => true,
@@ -1987,6 +2017,8 @@ pub enum HoverEventFilter {
     PermissionChanged,
     /// A biometric authentication prompt completed.
     BiometricResult,
+    /// The screen eyedropper finished (picked or cancelled).
+    ScreenColorPicked,
     /// A keyring store / get / delete operation completed.
     KeyringResult,
 }
@@ -2075,6 +2107,7 @@ impl HoverEventFilter {
             // Async capability outcomes — no focus-filter equivalents
             Self::PermissionChanged => None,
             Self::BiometricResult => None,
+            Self::ScreenColorPicked => None,
             Self::KeyringResult => None,
         }
     }
@@ -2350,6 +2383,8 @@ pub enum WindowEventFilter {
     PermissionChanged,
     /// A biometric authentication prompt completed.
     BiometricResult,
+    /// The screen eyedropper finished (picked or cancelled).
+    ScreenColorPicked,
     /// A keyring store / get / delete operation completed.
     KeyringResult,
 }
@@ -2433,6 +2468,7 @@ impl WindowEventFilter {
             // Async capability outcomes — mirror to the hover twin
             Self::PermissionChanged => Some(HoverEventFilter::PermissionChanged),
             Self::BiometricResult => Some(HoverEventFilter::BiometricResult),
+            Self::ScreenColorPicked => Some(HoverEventFilter::ScreenColorPicked),
             Self::KeyringResult => Some(HoverEventFilter::KeyringResult),
         }
     }
@@ -2454,6 +2490,18 @@ pub enum ComponentEventFilter {
     Selected,
     /// Fired when a keyed component's content has changed (props/state update).
     Updated,
+    /// Fired on a `<transient-window>` the user dismissed (outside click or
+    /// Escape). The popup is closed by the engine regardless; this is where
+    /// the app clears its own `open` state so the next layout agrees.
+    Dismissed,
+    /// Fired on a `<transient-window>` the user tore off its anchor by
+    /// dragging its `-azul-app-region: drag` strip; it is a free toplevel
+    /// now. The event's `current_bounds` is its rect in the parent.
+    TornOff,
+    /// Fired on a torn-off `<transient-window>` the user docked back - onto
+    /// its anchor, or onto a `tearoff-zone` node, which is its anchor from
+    /// here on.
+    Docked,
 }
 
 /// Defines application-level events not tied to a specific window or node.
@@ -2794,6 +2842,9 @@ pub trait EventProvider {
         E::Unmount => vec![EF::Component(ComponentEventFilter::BeforeUnmount)],
         E::Update => vec![EF::Component(ComponentEventFilter::Updated)],
         E::Resize => vec![EF::Component(ComponentEventFilter::NodeResized)],
+        E::Dismiss => vec![EF::Component(ComponentEventFilter::Dismissed)],
+        E::TearOff => vec![EF::Component(ComponentEventFilter::TornOff)],
+        E::Dock => vec![EF::Component(ComponentEventFilter::Docked)],
 
         // Hardware input-device events (P6) — node-level Hover mirror + the
         // window-level filter (the device isn't bound to a node).
@@ -2811,6 +2862,7 @@ pub trait EventProvider {
         // window-level filter.
         E::PermissionChanged => vec![EF::Hover(H::PermissionChanged), EF::Window(W::PermissionChanged)],
         E::BiometricResult => vec![EF::Hover(H::BiometricResult), EF::Window(W::BiometricResult)],
+        E::ScreenColorPicked => vec![EF::Hover(H::ScreenColorPicked), EF::Window(W::ScreenColorPicked)],
         E::KeyringResult => vec![EF::Hover(H::KeyringResult), EF::Window(W::KeyringResult)],
 
         // MWA-C-clipboard: W3C clipboard events — fire on the focused
@@ -4287,6 +4339,7 @@ mod tests {
     fn make_hit_test_with_node(node_idx: usize) -> FullHitTest {
         use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
         use crate::dom::OptionDomNodeId;
+        use crate::spaces::ContentBoxLocal;
         use std::collections::BTreeMap;
 
         let node_id = NodeId::new(node_idx);
@@ -4295,7 +4348,7 @@ mod tests {
         let mut regular = BTreeMap::new();
         regular.insert(node_id, HitTestItem {
             point_in_viewport: LogicalPosition::new(100.0, 200.0),
-            point_relative_to_item: LogicalPosition::new(50.0, 30.0),
+            point_relative_to_item: ContentBoxLocal::new(LogicalPosition::new(50.0, 30.0)),
             is_focusable: true,
             is_virtual_view_hit: None,
             hit_depth: 0,
@@ -4544,11 +4597,12 @@ mod tests {
     fn first_hovered_node_picks_frontmost_by_depth() {
         use crate::hit_test::{FullHitTest, HitTest, HitTestItem};
         use crate::dom::OptionDomNodeId;
+        use crate::spaces::ContentBoxLocal;
         use std::collections::BTreeMap;
 
         let item = |depth: u32| HitTestItem {
             point_in_viewport: LogicalPosition::zero(),
-            point_relative_to_item: LogicalPosition::zero(),
+            point_relative_to_item: ContentBoxLocal::zero(),
             is_focusable: true,
             is_virtual_view_hit: None,
             hit_depth: depth,
@@ -4620,6 +4674,7 @@ mod autotest_generated {
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         hit_test::{FullHitTest, HitTest, HitTestItem},
         id::{Node, NodeHierarchy, NodeId},
+        spaces::ContentBoxLocal,
         styled_dom::NodeHierarchyItemId,
         task::{Instant, SystemTick},
         window::{CursorPosition, KeyboardState, MouseState, VirtualKeyCode, VirtualKeyCodeVec},
@@ -4649,7 +4704,7 @@ mod autotest_generated {
     fn hit_item(depth: u32) -> HitTestItem {
         HitTestItem {
             point_in_viewport: LogicalPosition::new(1.0, 2.0),
-            point_relative_to_item: LogicalPosition::new(3.0, 4.0),
+            point_relative_to_item: ContentBoxLocal::new(LogicalPosition::new(3.0, 4.0)),
             is_focusable: true,
             is_virtual_view_hit: None,
             hit_depth: depth,
@@ -5368,6 +5423,7 @@ mod autotest_generated {
             WindowEventFilter::DoubleClick,
             WindowEventFilter::PermissionChanged,
             WindowEventFilter::BiometricResult,
+            WindowEventFilter::ScreenColorPicked,
             WindowEventFilter::KeyringResult,
         ] {
             let hover = w
@@ -5789,6 +5845,9 @@ mod autotest_generated {
             (ComponentEventFilter::BeforeUnmount, EventType::Unmount),
             (ComponentEventFilter::Updated, EventType::Update),
             (ComponentEventFilter::NodeResized, EventType::Resize),
+            (ComponentEventFilter::Dismissed, EventType::Dismiss),
+            (ComponentEventFilter::TornOff, EventType::TearOff),
+            (ComponentEventFilter::Docked, EventType::Dock),
         ];
         for (filter, ty) in pairs {
             let ev = lifecycle(ty);
@@ -5883,6 +5942,9 @@ mod autotest_generated {
             (EventType::Unmount, EventData::None),
             (EventType::Update, EventData::None),
             (EventType::Resize, EventData::None),
+            (EventType::Dismiss, EventData::None),
+            (EventType::TearOff, EventData::None),
+            (EventType::Dock, EventData::None),
             (EventType::WindowResize, EventData::None),
             (EventType::WindowMove, EventData::None),
             (EventType::WindowClose, EventData::None),
@@ -5899,6 +5961,7 @@ mod autotest_generated {
             (EventType::GeolocationError, EventData::None),
             (EventType::PermissionChanged, EventData::None),
             (EventType::BiometricResult, EventData::None),
+            (EventType::ScreenColorPicked, EventData::None),
             (EventType::KeyringResult, EventData::None),
             (EventType::LongPress, EventData::None),
             (EventType::Play, EventData::None),

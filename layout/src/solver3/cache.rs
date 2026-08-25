@@ -864,37 +864,17 @@ const fn style_text_align_to_fc(text_align: StyleTextAlign) -> fc::TextAlign {
 /// Children with `display: none` are filtered out since they generate no boxes.
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/counter/fixed-point cast
 #[must_use] pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -> Vec<NodeId> {
-    let hierarchy_container = styled_dom.node_hierarchy.as_container();
-    let mut children = Vec::new();
-
-    let Some(hierarchy_item) = hierarchy_container.get(parent_dom_id) else {
-        return children;
-    };
-
-    let Some(mut child_id) = hierarchy_item.first_child_id(parent_dom_id) else {
-        // DEBUG (2026-06-02 children-None): first_child_id returned None for this
-        // parent → 0xC0000000 marker @0x40540+parent*4. REVERT before commit.
-        unsafe {
-            let pi = parent_dom_id.index();
-            if pi < 8 { crate::az_mark((0x40540 + pi * 4) as u32, (0xC000_0000u32)); }
-        }
-        return children;
-    };
-
+    // The same child list the tree builder lays out (`layout_children`:
+    // DOM children, minus inline transient windows grafted elsewhere, plus
+    // the ones grafted onto this parent) - so a panel dropped onto another
+    // zone reads as a STRUCTURAL change here and its old position is not
+    // kept. Then the display:none filter.
     // +spec:display-property:9f02c6 - display:none elements generate no boxes
     // +spec:display-property:3b507e - display:none excludes subtree from box tree
-    if get_display_type(styled_dom, child_id) != LayoutDisplay::None {
-        children.push(child_id);
-    }
-    while let Some(hierarchy_item) = hierarchy_container.get(child_id) {
-        let Some(next) = hierarchy_item.next_sibling_id() else {
-            break;
-        };
-        if get_display_type(styled_dom, next) != LayoutDisplay::None {
-            children.push(next);
-        }
-        child_id = next;
-    }
+    let children: Vec<NodeId> = crate::solver3::layout_tree::layout_children(styled_dom, parent_dom_id)
+        .into_iter()
+        .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
+        .collect();
 
     // DEBUG (2026-06-02 children-None): record collected child count per parent
     // @0x40540+parent*4 (0xCC00_00NN). N=0 with first_child Some ⇒ get_display_type
@@ -2322,10 +2302,6 @@ pub fn apply_virtual_scroll_necessity(
     padding_box_size: LogicalSize,
     reqs: &mut ScrollbarRequirements,
 ) -> bool {
-    // Same tolerance as `check_scrollbar_necessity`: a sub-pixel difference must
-    // not raise a bar.
-    const EPSILON: f32 = 1.0;
-
     let is_virtual_view = styled_dom
         .node_data
         .as_container()
@@ -2334,6 +2310,35 @@ pub fn apply_virtual_scroll_necessity(
     if !is_virtual_view {
         return false;
     }
+    apply_content_scroll_necessity(styled_dom, dom_id, virtual_content_size, padding_box_size, reqs)
+}
+
+/// The axis-raising core of [`apply_virtual_scroll_necessity`], without the
+/// `VirtualView` gate: raise `needs_horizontal` / `needs_vertical` when the
+/// node's resolved `overflow-x`/`overflow-y` allows user scrolling and
+/// `content_size` exceeds the padding box.
+///
+/// `register_scroll_nodes` also calls this for ORDINARY nodes, because a text
+/// edit can grow an IFC's content after layout: `reshape_text_node` re-runs
+/// text3 and refreshes `overflow_content_size`, but nothing re-runs the
+/// Phase-3 `compute_scrollbar_info` pass — so a single-line text input whose
+/// value outgrew the field would keep `needs_horizontal == false` forever and
+/// never register the scroll box the caret-reveal needs. For nodes whose
+/// content did NOT change after layout this is a no-op (both sides read the
+/// same `overflow_content_size` Phase 3 wrote). Nothing is ever lowered.
+///
+/// Returns `true` if a flag was raised.
+pub fn apply_content_scroll_necessity(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    content_size: LogicalSize,
+    padding_box_size: LogicalSize,
+    reqs: &mut ScrollbarRequirements,
+) -> bool {
+    // Same tolerance as `check_scrollbar_necessity`: a sub-pixel difference must
+    // not raise a bar.
+    const EPSILON: f32 = 1.0;
+    let virtual_content_size = content_size;
 
     let node_state = styled_dom
         .styled_nodes
@@ -3055,21 +3060,25 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     };
 
     // +spec:overflow:44ef3b - scroll container detection: overflow scroll/auto makes box a scroll container
-    // Check if this node is a scroll container (overflow: scroll/auto).
-    // Scroll containers must NOT expand to fit content — their height is
-    // determined by the containing block, and overflow is scrollable.
+    // A box whose BLOCK (height) axis scrolls must NOT expand to fit content —
+    // its height comes from the containing block and the overflow scrolls. But
+    // that gate is per-AXIS: `overflow-x` / `overflow-y` are PHYSICAL, so only a
+    // VERTICAL scroll container (`overflow-y: scroll|auto`) fixes the height.
+    // A purely HORIZONTAL scroll container — e.g. a single-line text field with
+    // `overflow-x: auto, overflow-y: hidden` — must still grow its height to the
+    // text line. Gating on EITHER axis collapsed such a field to zero height, so
+    // its overflowing line was never measured and it never became a scroll box
+    // the caret-reveal could shift (the append-only caret bug).
     //
     // Exception: if the containing block height is infinite (unconstrained),
     // we must still grow, since you can't scroll inside an infinitely tall box.
-    let is_scroll_container = dom_id.is_some_and(|id| {
-        let ov_x = get_overflow_x(ctx.styled_dom, id, &styled_node_state);
+    let scrolls_vertically = dom_id.is_some_and(|id| {
         let ov_y = get_overflow_y(ctx.styled_dom, id, &styled_node_state);
-        matches!(ov_x, MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto))
-            || matches!(ov_y, MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto))
+        matches!(ov_y, MultiValue::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto))
     });
 
     if should_use_content_height(&css_height) {
-        let skip_expansion = is_scroll_container
+        let skip_expansion = scrolls_vertically
             && containing_block_size.height.is_finite()
             && containing_block_size.height > 0.0;
 

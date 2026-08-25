@@ -653,6 +653,62 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]
 );
 
+/// Iterator over a DOM node's ancestor chain — see [`hierarchy_ancestors`].
+#[derive(Debug)]
+pub struct HierarchyAncestors<'a> {
+    hierarchy: &'a [NodeHierarchyItem],
+    cursor: Option<NodeId>,
+    budget: usize,
+}
+
+impl Iterator for HierarchyAncestors<'_> {
+    type Item = NodeId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.budget == 0 {
+            return None;
+        }
+        let nid = self.cursor?;
+        self.budget -= 1;
+        self.cursor = self
+            .hierarchy
+            .get(nid.index())
+            .and_then(NodeHierarchyItem::parent_id);
+        Some(nid)
+    }
+}
+
+/// THE ancestor walk over a `NodeHierarchy` — the DOM-tree twin of
+/// `LayoutTree::ancestor_chain`.
+///
+/// Yields `node` (only when `inclusivity` says so) followed by every parent up
+/// to the root, nearest first. `inclusivity` is an argument rather than a
+/// property of the function's name because that is exactly the distinction
+/// `ScrollManager::find_scroll_parent` used to bury in a `nid != node_id`
+/// guard, where no caller could see it.
+///
+/// The walk is bounded by `hierarchy.len()`: no acyclic path can be longer, so
+/// a corrupt parent chain terminates instead of spinning.
+#[inline]
+pub fn hierarchy_ancestors(
+    hierarchy: &[NodeHierarchyItem],
+    node: NodeId,
+    inclusivity: crate::spaces::Inclusivity,
+) -> HierarchyAncestors<'_> {
+    let cursor = if inclusivity.includes_self() {
+        Some(node)
+    } else {
+        hierarchy
+            .get(node.index())
+            .and_then(NodeHierarchyItem::parent_id)
+    };
+    HierarchyAncestors {
+        hierarchy,
+        cursor,
+        budget: hierarchy.len(),
+    }
+}
+
 impl NodeHierarchyItem {
     /// Creates a zeroed hierarchy item (no parent, siblings, or children).
     #[must_use] pub const fn zeroed() -> Self {
@@ -4801,5 +4857,60 @@ mod autotest_generated {
         // Idempotent.
         strip_css_from_dom(&mut dom);
         assert!(dom.css.as_ref().is_empty());
+    }
+
+    // ---------------------------------------------------------------------
+    // hierarchy_ancestors — THE DOM ancestor walk, explicit inclusivity
+    // ---------------------------------------------------------------------
+
+    /// 0 <- 1 <- 2 (the `parent` field is 1-based encoded: 0 = none).
+    fn linear_hierarchy() -> [NodeHierarchyItem; 3] {
+        [
+            NodeHierarchyItem { parent: 0, previous_sibling: 0, next_sibling: 0, last_child: 2 },
+            NodeHierarchyItem { parent: 1, previous_sibling: 0, next_sibling: 0, last_child: 3 },
+            NodeHierarchyItem { parent: 2, previous_sibling: 0, next_sibling: 0, last_child: 0 },
+        ]
+    }
+
+    fn walk(h: &[NodeHierarchyItem], n: usize, incl: crate::spaces::Inclusivity) -> Vec<usize> {
+        hierarchy_ancestors(h, NodeId::new(n), incl)
+            .map(|n| n.index())
+            .collect()
+    }
+
+    #[test]
+    fn hierarchy_ancestors_inclusivity_decides_only_the_first_element() {
+        use crate::spaces::Inclusivity;
+        let h = linear_hierarchy();
+        assert_eq!(walk(&h, 2, Inclusivity::SelfAndAncestors), vec![2, 1, 0]);
+        assert_eq!(walk(&h, 2, Inclusivity::AncestorsOnly), vec![1, 0]);
+        assert_eq!(walk(&h, 0, Inclusivity::SelfAndAncestors), vec![0]);
+        assert!(walk(&h, 0, Inclusivity::AncestorsOnly).is_empty());
+    }
+
+    #[test]
+    fn hierarchy_ancestors_survives_empty_and_out_of_range_input() {
+        use crate::spaces::Inclusivity;
+        for incl in [Inclusivity::AncestorsOnly, Inclusivity::SelfAndAncestors] {
+            // An empty hierarchy has a zero budget, so nothing is yielded even
+            // self-inclusively — and, crucially, nothing is indexed.
+            assert!(walk(&[], 0, incl).is_empty());
+            assert!(walk(&[], 9_999, incl).is_empty());
+        }
+        let h = linear_hierarchy();
+        assert!(walk(&h, 9_999, Inclusivity::AncestorsOnly).is_empty());
+        assert_eq!(walk(&h, 9_999, Inclusivity::SelfAndAncestors), vec![9_999]);
+    }
+
+    #[test]
+    fn hierarchy_ancestors_terminates_on_a_cycle() {
+        use crate::spaces::Inclusivity;
+        // 0 -> 1 -> 0
+        let h = [
+            NodeHierarchyItem { parent: 2, previous_sibling: 0, next_sibling: 0, last_child: 0 },
+            NodeHierarchyItem { parent: 1, previous_sibling: 0, next_sibling: 0, last_child: 0 },
+        ];
+        let walked = walk(&h, 0, Inclusivity::SelfAndAncestors);
+        assert!(walked.len() <= h.len(), "the budget must stop a cyclic chain");
     }
 }

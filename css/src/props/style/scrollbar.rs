@@ -504,6 +504,16 @@ impl crate::codegen::format::FormatAsRustCode for ScrollbarStyle {
     }
 }
 
+impl crate::codegen::format::FormatAsRustCode for OverscrollBehavior {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            Self::Auto => String::from("OverscrollBehavior::Auto"),
+            Self::Contain => String::from("OverscrollBehavior::Contain"),
+            Self::None => String::from("OverscrollBehavior::None"),
+        }
+    }
+}
+
 impl crate::codegen::format::FormatAsRustCode for LayoutScrollbarWidth {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -893,6 +903,58 @@ pub const SCROLLBAR_ANDROID_DARK: ScrollbarInfo = ScrollbarInfo {
 };
 
 // --- PARSERS ---
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum OverscrollBehaviorParseError<'a> {
+    InvalidValue(&'a str),
+}
+impl_debug_as_display!(OverscrollBehaviorParseError<'a>);
+impl_display! { OverscrollBehaviorParseError<'a>, {
+    InvalidValue(v) => format!("Invalid overscroll-behavior value: \"{}\"", v),
+}}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum OverscrollBehaviorParseErrorOwned {
+    InvalidValue(AzString),
+}
+impl OverscrollBehaviorParseError<'_> {
+    #[must_use] pub fn to_contained(&self) -> OverscrollBehaviorParseErrorOwned {
+        match self {
+            Self::InvalidValue(s) => {
+                OverscrollBehaviorParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
+        }
+    }
+}
+impl OverscrollBehaviorParseErrorOwned {
+    #[must_use] pub fn to_shared(&self) -> OverscrollBehaviorParseError<'_> {
+        match self {
+            Self::InvalidValue(s) => OverscrollBehaviorParseError::InvalidValue(s.as_str()),
+        }
+    }
+}
+
+#[cfg(feature = "parser")]
+/// # Errors
+///
+/// Returns an error if `input` is not a valid CSS `overscroll-behavior` value.
+///
+/// `contain` and `none` both stop scroll CHAINING to an ancestor; `none`
+/// additionally suppresses the local bounce/glow. (CSS also defines `auto` as
+/// the initial value.) The `-x` / `-y` longhands and the shorthand all parse
+/// through here — the shorthand simply assigns the same value to both axes,
+/// which is what the one-value form means in CSS.
+pub fn parse_overscroll_behavior(
+    input: &str,
+) -> Result<OverscrollBehavior, OverscrollBehaviorParseError<'_>> {
+    match input.trim() {
+        "auto" => Ok(OverscrollBehavior::Auto),
+        "contain" => Ok(OverscrollBehavior::Contain),
+        "none" => Ok(OverscrollBehavior::None),
+        _ => Err(OverscrollBehaviorParseError::InvalidValue(input)),
+    }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum LayoutScrollbarWidthParseError<'a> {

@@ -20,11 +20,22 @@ const MAX_HOVER_HISTORY: usize = 5;
 /// Pick the front-most deepest hovered node across all hit DOMs.
 ///
 /// Iterates DOMs from highest `DomId` (most-nested child, composited on top)
-/// to lowest and returns the deepest node (last in `NodeId` order) of the first
-/// DOM that actually has a regular hit. See [`HoverManager::current_hover_node_full`].
-fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
+/// to lowest and returns the FRONT-MOST hit of the first DOM that has a
+/// regular hit: the smallest `hit_depth` (both hit testers number hits
+/// front to back). Ties fall back to the highest `NodeId`, which is what
+/// this used to return outright - right while the arena's DFS order was
+/// also the depth order, wrong for an inline-docked `<transient-window>`
+/// grafted under a zone with a higher id than its own subtree.
+/// See [`HoverManager::current_hover_node_full`].
+#[must_use]
+pub fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
     for (dom_id, hit) in ht.hovered_nodes.iter().rev() {
-        if let Some(node_id) = hit.regular_hit_test_nodes.keys().last().copied() {
+        let front = hit
+            .regular_hit_test_nodes
+            .iter()
+            .min_by(|(a_id, a), (b_id, b)| a.hit_depth.cmp(&b.hit_depth).then(b_id.cmp(a_id)))
+            .map(|(node_id, _)| *node_id);
+        if let Some(node_id) = front {
             return Some(DomNodeId {
                 dom: *dom_id,
                 node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
@@ -528,7 +539,7 @@ mod autotest_generated {
     fn hit_item(depth: u32) -> HitTestItem {
         HitTestItem {
             point_in_viewport: LogicalPosition::zero(),
-            point_relative_to_item: LogicalPosition::zero(),
+            point_relative_to_item: Default::default(),
             is_focusable: false,
             is_virtual_view_hit: None,
             hit_depth: depth,
@@ -538,7 +549,7 @@ mod autotest_generated {
     fn scroll_item() -> ScrollHitTestItem {
         ScrollHitTestItem {
             point_in_viewport: LogicalPosition::zero(),
-            point_relative_to_item: LogicalPosition::zero(),
+            point_relative_to_item: Default::default(),
             scroll_node: OverflowingScrollNode::default(),
         }
     }
@@ -554,7 +565,7 @@ mod autotest_generated {
     fn scrollbar_item() -> ScrollbarHitTestItem {
         ScrollbarHitTestItem {
             point_in_viewport: LogicalPosition::zero(),
-            point_relative_to_item: LogicalPosition::zero(),
+            point_relative_to_item: Default::default(),
             orientation: ScrollbarOrientation::Vertical,
         }
     }
@@ -610,6 +621,18 @@ mod autotest_generated {
         // Inserted 2, 9, 7 — BTreeMap key order makes 9 the deepest regardless.
         let ht = hits(&[(0, &[2, 9, 7])]);
         assert_eq!(deepest_node_across_doms(&ht), Some(dom_node(0, 9)));
+    }
+
+    #[test]
+    fn deepest_node_across_doms_prefers_the_front_most_hit_over_the_highest_id() {
+        // A grafted subtree (an inline-docked transient window under a zone
+        // with a HIGHER id): the grip (3) is in front of the zone (5).
+        let mut full = FullHitTest::empty(None);
+        let ht = full.hovered_nodes.entry(dom(0)).or_insert_with(HitTest::empty);
+        ht.regular_hit_test_nodes.insert(NodeId::new(3), hit_item(0));
+        ht.regular_hit_test_nodes.insert(NodeId::new(5), hit_item(1));
+        ht.regular_hit_test_nodes.insert(NodeId::new(0), hit_item(2));
+        assert_eq!(deepest_node_across_doms(&full), Some(dom_node(0, 3)));
     }
 
     #[test]

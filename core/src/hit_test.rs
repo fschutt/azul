@@ -212,9 +212,30 @@ pub struct HitTestItem {
     /// The viewport is the scroll node formed by the root reference frame of the display item's
     /// pipeline.
     pub point_in_viewport: LogicalPosition,
-    /// The coordinates of the original hit test point relative to the origin of this item.
-    /// This is useful for calculating things like text offsets in the client.
-    pub point_relative_to_item: LogicalPosition,
+    /// The hit point relative to this node's static CONTENT-box origin, with
+    /// the node's own scroll offset NOT applied.
+    ///
+    /// ## Why this space, and why it is typed
+    ///
+    /// The two hosts used to disagree here. `WebRender` reports the point
+    /// relative to the hit RECT, which azul pushes before the scroll frame —
+    /// i.e. [`BorderBoxLocal`](crate::spaces::BorderBoxLocal) — while the CPU
+    /// tester used in headless E2E subtracted `padding + border` and reported
+    /// [`ContentBoxLocal`]. Same click, two answers, differing by exactly the
+    /// node's content inset. It stayed latent only because the default
+    /// `TextInput`'s value `<p>` sets neither padding nor border; it goes live
+    /// for any padded editable.
+    ///
+    /// Both producers now emit `ContentBoxLocal`, because that is the space
+    /// the consumer that cares (`UnifiedLayout::hittest_cursor`, via
+    /// `LayoutWindow::ifc_local_point`) actually needs. Consumers wanting the
+    /// border-box-relative point the public
+    /// `CallbackInfo::get_cursor_relative_to_node` promises convert back with
+    /// [`ContentBoxLocal::to_border_box_local`].
+    ///
+    /// [`ContentBoxLocal`]: crate::spaces::ContentBoxLocal
+    /// [`ContentBoxLocal::to_border_box_local`]: crate::spaces::ContentBoxLocal::to_border_box_local
+    pub point_relative_to_item: crate::spaces::ContentBoxLocal,
     /// Necessary to easily get the nearest `VirtualView` node
     pub is_focusable: bool,
     /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the origin of the `VirtualView`
@@ -232,9 +253,15 @@ pub struct ScrollHitTestItem {
     /// The viewport is the scroll node formed by the root reference frame of the display item's
     /// pipeline.
     pub point_in_viewport: LogicalPosition,
-    /// The coordinates of the original hit test point relative to the origin of this item.
-    /// This is useful for calculating things like text offsets in the client.
-    pub point_relative_to_item: LogicalPosition,
+    /// The hit point relative to the container's static BORDER-box origin,
+    /// with its own scroll NOT applied — i.e. where in its scrollPORT the
+    /// pointer is.
+    ///
+    /// Deliberately a different space from [`HitTestItem::point_relative_to_item`]:
+    /// this one is about the scroll box's chrome (which edge is the pointer
+    /// near, is it over the scrollbar gutter), not about its text content, and
+    /// scroll geometry is measured against the border box everywhere else.
+    pub point_relative_to_item: crate::spaces::BorderBoxLocal,
     /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the origin of the `VirtualView`
     pub scroll_node: OverflowingScrollNode,
 }
@@ -1048,7 +1075,7 @@ mod autotest_generated {
             NodeId::ZERO,
             HitTestItem {
                 point_in_viewport: LogicalPosition::zero(),
-                point_relative_to_item: LogicalPosition::zero(),
+                point_relative_to_item: Default::default(),
                 is_focusable: false,
                 is_virtual_view_hit: None,
                 hit_depth: 0,
@@ -1061,7 +1088,7 @@ mod autotest_generated {
             NodeId::new(usize::MAX),
             ScrollHitTestItem {
                 point_in_viewport: LogicalPosition::zero(),
-                point_relative_to_item: LogicalPosition::zero(),
+                point_relative_to_item: Default::default(),
                 scroll_node: OverflowingScrollNode::default(),
             },
         );
@@ -1072,7 +1099,7 @@ mod autotest_generated {
             ScrollbarHitId::VerticalTrack(DomId::ROOT_ID, NodeId::ZERO),
             ScrollbarHitTestItem {
                 point_in_viewport: LogicalPosition::zero(),
-                point_relative_to_item: LogicalPosition::zero(),
+                point_relative_to_item: Default::default(),
                 orientation: ScrollbarOrientation::Vertical,
             },
         );

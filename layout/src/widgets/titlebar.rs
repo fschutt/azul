@@ -2077,8 +2077,8 @@ mod autotest_generated {
                     + usize::from(buttons.has_minimize)
                     + usize::from(buttons.has_maximize);
                 // title + label <p> + text + button container
-                // + 2 nodes per enabled button
-                assert_eq!(dom.estimated_total_children, 4 + 2 * enabled);
+                // + 3 nodes per enabled button (button, icon, its glyph slot)
+                assert_eq!(dom.estimated_total_children, 4 + 3 * enabled);
             }
         }
     }

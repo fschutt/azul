@@ -142,6 +142,12 @@ static NATIVE_DIB_SUPPORTED: core::sync::atomic::AtomicBool =
 pub struct Win32Window {
     /// Win32 window handle
     pub hwnd: HWND,
+    /// This window was created as an OWNED popup of another azul window
+    /// (a transient window or fallback menu): never made topmost.
+    owned_popup: bool,
+    /// The owner's registry id (its HWND), for re-placing a
+    /// `RelativeToParentWindow` popup against the owner's live position.
+    owner_id: u64,
     /// Application instance handle
     pub hinstance: HINSTANCE,
 
@@ -325,11 +331,25 @@ impl Win32Window {
         wcreate::register_window_class(hinstance, Some(window_proc), &win32)?;
         timing_log!("Register window class");
 
+        // A parent-owned popup (Menu type + parent id) gets its parent's HWND
+        // as OWNER: it orders above the owner, hides/minimises with it, and
+        // (with WS_EX_TOOLWINDOW, see create_hwnd) has no taskbar button —
+        // instead of HWND_TOPMOST floating over every other application.
+        let owner_hwnd: Option<HWND> = if options.window_state.flags.window_type
+            == azul_core::window::WindowType::Menu
+            && options.parent_window_id != 0
+        {
+            registry::get_window(options.parent_window_id as usize as HWND)
+                .map(|_| options.parent_window_id as usize as HWND)
+        } else {
+            None
+        };
+
         // Create HWND (invisible initially to avoid black flash)
         let hwnd = wcreate::create_hwnd(
             hinstance,
             &options,
-            None,            // No parent window
+            owner_hwnd,
             ptr::null_mut(), // User data will be set later
             &win32,
         )?;
@@ -664,6 +684,8 @@ impl Win32Window {
 
         let mut result = Win32Window {
             hwnd,
+            owned_popup: owner_hwnd.is_some(),
+            owner_id: owner_hwnd.map_or(0, |h| h as usize as u64),
             hinstance,
             render_mode,
             gl_functions,
@@ -1139,6 +1161,10 @@ impl Win32Window {
                             // thin-strip scroll-shift with eligibility + offset-aware
                             // render. Replaces the logic that used to live here and
                             // lacked all the scroll machinery (#13/#14).
+                            // Transparent material: the frame clears to alpha 0;
+                            // the DWM (blur-behind, see apply_background_material)
+                            // composites the DIB's premultiplied alpha.
+                            self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
                             self.cpu_backend.render_frame(
                                 layout_window,
                                 &layout_window.renderer_resources,
@@ -1286,6 +1312,11 @@ impl Win32Window {
                                     }
                                 }
                                 rendered = true;
+                            }
+                            // A transparent window's input + visual shape
+                            // follows the frame's alpha (SetWindowRgn).
+                            if let Some(rects) = self.cpu_backend.take_changed_shape() {
+                                self.apply_window_shape(&rects);
                             }
                             // (previous-display-list tracking now lives inside
                             // CpuBackend::render_frame.)
@@ -2020,9 +2051,15 @@ impl Win32Window {
     /// This method applies the remaining fields and seeds both baselines
     /// (event-diff and OS-sync) so that sync_window_state() works correctly for
     /// future changes.
+    /// Created as an owned popup of another azul window (see `new`).
+    const fn is_owned_popup(&self) -> bool {
+        self.owned_popup
+    }
+
     fn apply_initial_window_state(&mut self) {
-        // is_always_on_top
-        if self.common.current_window_state().flags.is_always_on_top {
+        // is_always_on_top — except for an owned popup, which already orders
+        // above its owner and must not float over other applications.
+        if self.common.current_window_state().flags.is_always_on_top && !self.is_owned_popup() {
             use dlopen::constants::*;
             unsafe {
                 (self.win32.user32.SetWindowPos)(
@@ -2370,9 +2407,27 @@ impl Win32Window {
                         SWP_NOSIZE | SWP_NOZORDER,
                     );
                 },
-                // Relative (child) windows are positioned once at creation and not
-                // re-synced at runtime; Uninitialized lets the OS decide.
-                WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => {}
+                // A popup's offset from its owner changed (a
+                // `<transient-window>` following its anchor, or its tear-off
+                // drag): re-place it against the owner's live position.
+                WindowPosition::RelativeToParentWindow(offset) => {
+                    if let Some((px, py)) = resolve_windows_parent_origin(self.owner_id) {
+                        unsafe {
+                            use dlopen::constants::{SWP_NOSIZE, SWP_NOZORDER};
+                            (self.win32.user32.SetWindowPos)(
+                                self.hwnd,
+                                std::ptr::null_mut(),
+                                px + offset.x,
+                                py + offset.y,
+                                0,
+                                0,
+                                SWP_NOSIZE | SWP_NOZORDER,
+                            );
+                        }
+                    }
+                }
+                // Uninitialized lets the OS decide.
+                WindowPosition::Uninitialized => {}
             }
         }
 
@@ -6221,6 +6276,45 @@ impl Win32Window {
 // PlatformWindow Trait Implementation
 
 impl PlatformWindow for Win32Window {
+    fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
+        crate::desktop::eyedropper::windows::capture(self)
+    }
+
+    /// `SetWindowRgn` with the union of the alpha-shape rects (window-client
+    /// coordinates: the DIB covers the client area of a borderless popup;
+    /// a decorated window's region is offset by its frame, which a shaped
+    /// window does not have). The region's ownership passes to the system.
+    fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {
+        const RGN_OR: i32 = 2;
+        if rects.is_empty() {
+            return;
+        }
+        unsafe {
+            let gdi32 = &self.win32.gdi32;
+            let region = (gdi32.CreateRectRgn)(0, 0, 0, 0);
+            if region.is_null() {
+                return;
+            }
+            #[allow(clippy::cast_possible_wrap)] // pixel coordinates
+            for r in rects {
+                let piece = (gdi32.CreateRectRgn)(
+                    r.x as i32,
+                    r.y as i32,
+                    (r.x + r.width) as i32,
+                    (r.y + r.height) as i32,
+                );
+                if piece.is_null() {
+                    continue;
+                }
+                (gdi32.CombineRgn)(region, region, piece, RGN_OR);
+                (gdi32.DeleteObject)(piece);
+            }
+            // Ownership of `region` passes to the window; no redraw needed,
+            // the frame that produced the shape was just presented.
+            (self.win32.user32.SetWindowRgn)(self.hwnd, region, 0);
+        }
+    }
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
@@ -6359,6 +6453,22 @@ impl PlatformWindow for Win32Window {
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
                 layout_window.threads.remove(thread_id);
+            }
+        }
+    }
+
+    fn request_regeneration_all_windows(&mut self) {
+        let hwnd = self.hwnd;
+        for other_hwnd in registry::get_all_window_handles() {
+            if other_hwnd == hwnd {
+                continue;
+            }
+            if let Some(wptr) = registry::get_window(other_hwnd) {
+                let w = unsafe { &mut *wptr };
+                w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                unsafe {
+                    (w.win32.user32.InvalidateRect)(other_hwnd, ptr::null(), 0);
+                }
             }
         }
     }

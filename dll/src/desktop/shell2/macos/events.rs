@@ -285,8 +285,23 @@ impl MacOSWindow {
         // had just recorded (`right_down = false`), so MouseUp(Right) callbacks
         // never fired on a node that carried a context menu.
         if button == MouseButton::Right {
-            if let Some(hit_node) = self.get_first_hovered_node() {
-                self.resolve_context_menu(hit_node, position);
+            // The DEEPEST hovered node (not the shallowest — `get_first_hovered_node`
+            // returns the smallest NodeId, ~the body), so the ancestor walk in
+            // `resolve_context_menu` starts BELOW the node carrying the menu and
+            // can reach it. A right-click on a label inside a box opens the box's
+            // menu; picking the body found nothing (no "[Context Menu] Queuing").
+            let deepest = self
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.hover_manager.current_hover_node_full());
+            if let Some(dn) = deepest {
+                if let Some(nid) = dn.node.into_crate_internal() {
+                    self.resolve_context_menu(
+                        HitTestNode { dom_id: dn.dom.inner as u64, node_id: nid.index() as u64 },
+                        position,
+                    );
+                }
             }
         }
 
@@ -1242,9 +1257,23 @@ impl MacOSWindow {
         let binding = layout_result.styled_dom.node_data.as_container();
         let node_data = binding.get(node_id)?;
 
-        // Context menus are stored directly on NodeData, not as callbacks
-        // Clone the menu to avoid borrow conflicts
-        let context_menu = node_data.get_context_menu()?.clone();
+        // Context menus are stored directly on NodeData. A right-click on a
+        // CHILD of the node that carries the menu opens it too (every OS does
+        // this) - walk up from the hit node to the first ancestor with one,
+        // the same walk the keyboard-accelerator lookup already does.
+        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let mut current = Some(node_id);
+        let mut context_menu = None;
+        for _ in 0..256 {
+            let Some(n) = current else { break };
+            if let Some(menu) = binding.get(n).and_then(azul_core::dom::NodeData::get_context_menu) {
+                context_menu = Some(menu.clone());
+                break;
+            }
+            current = hierarchy.get(n).and_then(|h| h.parent_id());
+        }
+        let context_menu = context_menu?;
+        let _ = node_data;
 
         log_debug!(
             LogCategory::Input,

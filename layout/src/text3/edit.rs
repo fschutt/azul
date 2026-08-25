@@ -8,7 +8,7 @@ use azul_core::selection::{
     CursorAffinity, GraphemeClusterId, Selection, SelectionRange, TextCursor,
 };
 
-use crate::text3::cache::{InlineContent, StyledRun};
+use crate::text3::cache::{BreakType, ClearType, InlineBreak, InlineContent, StyledRun};
 
 /// An enum representing a single text editing action.
 #[derive(Debug, Clone)]
@@ -386,7 +386,21 @@ pub fn insert_text(
     text_to_insert: &str,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
-    
+
+    // A newline is a STRUCTURAL forced break, not a shapeable character. A raw
+    // '\n' left inside a Text run renders as .notdef (tofu): the shaper only
+    // treats an `InlineContent::LineBreak` item as a forced break, which is why
+    // a <br> and every preserved DOM newline are turned into one in
+    // `solver3/fc.rs`. Route an insert that carries newlines through that SAME
+    // model — split it into Text segments joined by hard `LineBreak` items — so
+    // a typed Enter in a multi-line field and a multi-line paste both land as
+    // real line breaks instead of a tofu glyph. (Single-line hosts veto '\n'
+    // upstream in `widgets::text_input`, so this path only runs where newlines
+    // are meant to break.)
+    if text_to_insert.contains('\n') {
+        return insert_text_with_line_breaks(content, cursor, text_to_insert);
+    }
+
     let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
@@ -432,6 +446,110 @@ pub fn insert_text(
 
     // If insertion failed, return original state
     (content.to_vec(), *cursor)
+}
+
+/// Insert text that CONTAINS one or more newlines at the cursor, splitting the
+/// target Text run and emitting hard [`InlineContent::LineBreak`] items between
+/// the segments (see [`insert_text`] for why a raw `'\n'` cannot stay in a run).
+///
+/// `"a\nb"` inserted mid-run `"XY|Z"` becomes `Text("XYa") · LineBreak · Text("bZ")`,
+/// the caret landing at the start of `b` (i.e. just after the break). The
+/// trailing text of the original run rides on the LAST new segment, so the caret
+/// sits between the inserted text and the old tail exactly as a plain insert
+/// would. The style and source node of the split run are carried onto every new
+/// segment.
+#[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+#[must_use]
+fn insert_text_with_line_breaks(
+    content: &[InlineContent],
+    cursor: &TextCursor,
+    text_to_insert: &str,
+) -> (Vec<InlineContent>, TextCursor) {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let run_idx = cursor.cluster_id.source_run as usize;
+    let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
+
+    // Only a Text run can be split around a caret; anything else is a no-op
+    // (mirrors `insert_text`, which silently leaves a non-text run alone).
+    let Some(InlineContent::Text(run)) = content.get(run_idx) else {
+        return (content.to_vec(), *cursor);
+    };
+    let run = run.clone();
+
+    // Same affinity → byte-offset resolution as `insert_text`.
+    let byte_offset = match cursor.affinity {
+        CursorAffinity::Leading => cluster_start_byte,
+        CursorAffinity::Trailing => {
+            if cluster_start_byte >= run.text.len() {
+                run.text.len()
+            } else {
+                run.text[cluster_start_byte..]
+                    .grapheme_indices(true)
+                    .next()
+                    .map_or(run.text.len(), |(_, g)| cluster_start_byte + g.len())
+            }
+        }
+    };
+    if byte_offset > run.text.len() {
+        return (content.to_vec(), *cursor);
+    }
+
+    let head = &run.text[..byte_offset];
+    let tail = &run.text[byte_offset..];
+
+    // At least two segments, since the caller guaranteed a '\n'.
+    let segments: Vec<&str> = text_to_insert.split('\n').collect();
+
+    let mk_run = |text: String| {
+        InlineContent::Text(StyledRun {
+            text: alloc::sync::Arc::from(text.as_str()),
+            style: run.style.clone(),
+            logical_start_byte: 0,
+            source_node_id: run.source_node_id,
+        })
+    };
+    let mk_break = || {
+        InlineContent::LineBreak(InlineBreak {
+            break_type: BreakType::Hard,
+            clear: ClearType::None,
+            content_index: 0,
+        })
+    };
+
+    // head+seg0 · [break · seg]... with the original tail appended to the last
+    // segment.
+    let mut items: Vec<InlineContent> = Vec::with_capacity(segments.len() * 2);
+    let last = segments.len() - 1;
+    for (i, seg) in segments.iter().enumerate() {
+        if i > 0 {
+            items.push(mk_break());
+        }
+        let text = match (i, i == last) {
+            (0, true) => format!("{head}{seg}{tail}"),
+            (0, false) => format!("{head}{seg}"),
+            (_, true) => format!("{seg}{tail}"),
+            (_, false) => (*seg).to_string(),
+        };
+        items.push(mk_run(text));
+    }
+
+    // The caret sits at the START of the original tail on the last new run:
+    // after the last inserted segment, before the old trailing text.
+    let last_run_new_idx = run_idx + items.len() - 1;
+    let caret_byte = segments[last].len();
+
+    let mut new_content = content.to_vec();
+    new_content.splice(run_idx..=run_idx, items);
+
+    let new_cursor = TextCursor {
+        cluster_id: GraphemeClusterId {
+            source_run: last_run_new_idx as u32,
+            start_byte_in_run: caret_byte as u32,
+        },
+        affinity: CursorAffinity::Leading,
+    };
+    (new_content, new_cursor)
 }
 
 /// Deletes one grapheme cluster backward from the cursor.
@@ -1705,6 +1823,48 @@ mod autotest_generated {
         let (new_content, cursor) = insert_text(&content, &lead(0, 1), &big);
         assert_eq!(run_text_len(&new_content, 0), 200_002);
         assert_eq!(cursor, lead(0, 200_001));
+    }
+
+    #[test]
+    fn insert_newline_splits_the_run_around_a_hard_line_break() {
+        // Enter in the middle of a run: "hello|world" -> "hello" · <break> ·
+        // "world", caret at the START of the new line. A raw '\n' left in the
+        // run would shape to tofu.
+        let content = vec![text("helloworld")];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 5), "\n");
+        assert_eq!(dump(&new_content), vec!["hello", "<obj>", "world"]);
+        assert!(
+            matches!(new_content.get(1), Some(InlineContent::LineBreak(_))),
+            "the middle item must be a LineBreak, not a text run with '\\n'"
+        );
+        assert_eq!(cursor, lead(2, 0));
+    }
+
+    #[test]
+    fn insert_newline_at_the_end_appends_an_empty_trailing_line() {
+        let content = vec![text("hi")];
+        let (new_content, cursor) = insert_text(&content, &trail(0, 999), "\n");
+        assert_eq!(dump(&new_content), vec!["hi", "<obj>", ""]);
+        assert_eq!(cursor, lead(2, 0));
+    }
+
+    #[test]
+    fn insert_multiline_paste_emits_one_break_per_newline_with_the_tail_on_the_last_line() {
+        // "X|Z" with "a\nb" pasted -> "Xa" · <break> · "bZ", caret between the
+        // pasted "b" and the original tail "Z".
+        let content = vec![text("XZ")];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 1), "a\nb");
+        assert_eq!(dump(&new_content), vec!["Xa", "<obj>", "bZ"]);
+        assert_eq!(cursor, lead(2, 1));
+    }
+
+    #[test]
+    fn insert_two_newlines_makes_a_blank_line_between_two_breaks() {
+        let content = vec![text("ab")];
+        let (new_content, cursor) = insert_text(&content, &lead(0, 1), "\n\n");
+        // "a" · break · "" · break · "b"
+        assert_eq!(dump(&new_content), vec!["a", "<obj>", "", "<obj>", "b"]);
+        assert_eq!(cursor, lead(4, 0));
     }
 
     // ------------------------------------------------------- delete_backward

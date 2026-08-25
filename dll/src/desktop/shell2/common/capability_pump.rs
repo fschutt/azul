@@ -127,6 +127,18 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed = true;
     }
 
+    // Eyedropper: only the results addressed to THIS window's requests (the
+    // loupe / system sampler answers by request id; another window's pick
+    // stays in the channel for that window).
+    let issued = lw.eyedropper_manager.issued().to_vec();
+    if !issued.is_empty() {
+        for result in azul_layout::managers::eyedropper::drain_results_for(&issued) {
+            if lw.eyedropper_manager.fold_result(result.request_id, result.color) {
+                changed = true;
+            }
+        }
+    }
+
     changed
 }
 
@@ -161,6 +173,7 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
         // unrelated event before being shown.
         || azul_layout::managers::biometric::has_queued_requests()
         || azul_layout::managers::keyring::has_queued_requests()
+        || lw.eyedropper_manager.has_pending_async()
     {
         want(ASYNC_RESULT_INTERVAL_MS);
     }

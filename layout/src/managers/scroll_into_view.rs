@@ -401,7 +401,11 @@ fn check_if_scrollable(
         return None;
     }
     
-    // Get the visible rect (container rect minus current scroll offset)
+    // The visible rect = the SCROLLPORT (padding box, static layout coords —
+    // see `managers::scroll_registration`) shifted by the current scroll
+    // offset. Origin and size both come off the one box the manager published,
+    // so this cannot drift from what the caret reveal and the auto-scroll
+    // timer measure against.
     let visible_rect = LogicalRect {
         origin: LogicalPosition {
             x: scroll_state.container_rect.origin.x + scroll_state.current_offset.x,

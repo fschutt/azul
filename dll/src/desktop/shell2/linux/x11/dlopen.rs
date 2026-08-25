@@ -171,6 +171,7 @@ pub struct Xlib {
     pub XDefineCursor: XDefineCursor,
     pub XFreeCursor: XFreeCursor,
     pub XDisplayWidth: XDisplayWidth,
+    pub XGetImage: XGetImage,
     pub XDisplayHeight: XDisplayHeight,
     pub XDisplayWidthMM: XDisplayWidthMM,
     pub XDisplayHeightMM: XDisplayHeightMM,
@@ -275,6 +276,7 @@ impl Xlib {
             XDefineCursor: load_symbol!(lib, _, "XDefineCursor"),
             XFreeCursor: load_symbol!(lib, _, "XFreeCursor"),
             XDisplayWidth: load_symbol!(lib, _, "XDisplayWidth"),
+            XGetImage: load_symbol!(lib, _, "XGetImage"),
             XDisplayHeight: load_symbol!(lib, _, "XDisplayHeight"),
             XDisplayWidthMM: load_symbol!(lib, _, "XDisplayWidthMM"),
             XDisplayHeightMM: load_symbol!(lib, _, "XDisplayHeightMM"),
@@ -498,6 +500,26 @@ impl Gtk3Im {
             gtk_im_context_focus_in: load_symbol!(lib, _, "gtk_im_context_focus_in"),
             gtk_im_context_focus_out: load_symbol!(lib, _, "gtk_im_context_focus_out"),
             gtk_im_context_reset: load_symbol!(lib, _, "gtk_im_context_reset"),
+            _lib: lib,
+        }))
+    }
+}
+
+/// Dynamically loaded XShape (libXext) functions: a window shaped by its
+/// rendered alpha (`WindowFlags::shape_from_alpha`). Optional - without
+/// the library a shaped window is simply rectangular.
+pub struct Xext {
+    _lib: Library,
+    pub XShapeQueryExtension: XShapeQueryExtension,
+    pub XShapeCombineRectangles: XShapeCombineRectangles,
+}
+
+impl Xext {
+    pub fn new() -> Result<Rc<Self>, DlError> {
+        let lib = load_first_available::<Library>(&["libXext.so.6", "libXext.so"])?;
+        Ok(Rc::new(Self {
+            XShapeQueryExtension: load_symbol!(lib, _, "XShapeQueryExtension"),
+            XShapeCombineRectangles: load_symbol!(lib, _, "XShapeCombineRectangles"),
             _lib: lib,
         }))
     }

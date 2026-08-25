@@ -31,6 +31,7 @@ pub mod a11y;
 #[cfg(feature = "a11y")]
 pub mod a11y_snapshot;
 pub mod biometric;
+pub mod eyedropper;
 pub mod changeset;
 pub mod clipboard;
 pub mod drag_drop;
@@ -522,7 +523,7 @@ mod preceding_sibling_remap_tests {
         fn hit(depth: u32) -> HitTestItem {
             HitTestItem {
                 point_in_viewport: LogicalPosition::zero(),
-                point_relative_to_item: LogicalPosition::zero(),
+                point_relative_to_item: Default::default(),
                 is_focusable: false,
                 is_virtual_view_hit: None,
                 hit_depth: depth,

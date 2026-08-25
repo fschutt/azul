@@ -859,6 +859,70 @@ impl Runner {
             .get_current(&azul_layout::managers::hover::InputPointId::Mouse)
             .cloned();
 
+        // ── 2b. PRE-CALLBACK INPUT INTERPRETER ───────────────────────────
+        //
+        // Port of the DLL's `pre_filter` step (`event.rs`: build
+        // `InputInterpreterInfo`, call `layout_window.input_interpreter`, then
+        // apply the resulting pre-callback `SystemChange`s BEFORE user dispatch).
+        // THIS STAGE DID NOT EXIST: the runner derived the KeyDown event but
+        // never ran the interpreter, so the keyboard editing ops it produces —
+        // arrow-key caret movement and Backspace/Delete
+        // (`SystemChange::ApplySelectionOp`) — were silently dropped. Every
+        // keyboard-delete e2e test only passed because the `key_down` op used to
+        // shortcut Backspace/Delete straight to the C-API `delete_backward`; once
+        // that shortcut is removed to match native macOS, the real path has to
+        // run here. We apply `ApplySelectionOp` (arrows / Backspace / Delete) via
+        // the same `apply_selection_op` the DLL's arm calls; other pre-callback
+        // changes (clipboard shortcuts, select-all) still flow through the
+        // existing `CallbackChange` machinery.
+        {
+            use azul_core::events::{
+                InputInterpreterInfo, InputInterpreterState, SystemChange,
+            };
+            let pre_filter = {
+                let lw = &self.layout_window;
+                let info = InputInterpreterInfo {
+                    events: &synthetic_events,
+                    hit_test: hit_test_for_dispatch.as_ref(),
+                    keyboard_state: &self.window_state.keyboard_state,
+                    mouse_state: &self.window_state.mouse_state,
+                    state: InputInterpreterState {
+                        focused_node: lw.focus_manager.get_focused_node().copied(),
+                        click_count: 1,
+                        drag_start_position: if self.window_state.mouse_state.left_down
+                            && lw.text_edit_manager.has_active_editing()
+                        {
+                            self.window_state.mouse_state.cursor_position.get_position()
+                        } else {
+                            None
+                        },
+                        has_selection: lw
+                            .text_edit_manager
+                            .multi_cursor
+                            .as_ref()
+                            .map(|mc| {
+                                mc.selections.iter().any(|s| {
+                                    matches!(
+                                        &s.selection,
+                                        azul_core::selection::Selection::Range(_)
+                                    )
+                                })
+                            })
+                            .unwrap_or(false),
+                    },
+                };
+                azul_core::events::default_input_interpreter(&info)
+            };
+            for change in &pre_filter.system_changes {
+                if let SystemChange::ApplySelectionOp { target, op } = change {
+                    if self.layout_window.apply_selection_op(*target, op) {
+                        result = result
+                            .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                    }
+                }
+            }
+        }
+
         // ── 3. USER CALLBACK DISPATCH (W3C capture → target → bubble) ────
         let old_focus = self.layout_window.focus_manager.get_focused_node().copied();
         let (changes_result, callback_update, prevent_default) =
@@ -2543,6 +2607,55 @@ impl Runner {
             CallbackChange::OpenMenu { .. } => {
                 self.unsupported("OpenMenu", "no native menu host")
             }
+            // Pointer capture is pure engine state: mirror the DLL arm.
+            CallbackChange::CapturePointer { node } => {
+                self.layout_window.pointer_capture = Some(*node);
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::ReleasePointerCapture => {
+                self.layout_window.pointer_capture = None;
+                ProcessEventResult::DoNothing
+            }
+            // The hold is engine state too; the popup window it leads to is a
+            // second platform window the headless runner does not create, but
+            // the manager's bookkeeping (and a scenario asserting on it) works.
+            CallbackChange::SetTransientWindowOpen { node, open } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != DomId::ROOT_ID {
+                    return ProcessEventResult::DoNothing;
+                }
+                if self.layout_window.transient_windows.set_forced_open(node_id, *open) {
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+            CallbackChange::SetTransientWindowTorn { node, torn } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != DomId::ROOT_ID {
+                    return ProcessEventResult::DoNothing;
+                }
+                if self.layout_window.set_transient_window_torn(node_id, *torn) {
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+            CallbackChange::PickScreenColor => {
+                // The request is recorded (a scenario can assert the widget
+                // asked); there is no screen to read headless, so the answer
+                // is an immediate "cancelled" on the next pass.
+                let id = self.layout_window.eyedropper_manager.begin_request();
+                crate::managers::eyedropper::push_result(crate::managers::eyedropper::EyedropperResult {
+                    request_id: id,
+                    color: None,
+                });
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::ShowTooltip { .. } => {
                 self.unsupported("ShowTooltip", "tooltips are a second platform window")
             }
@@ -3946,6 +4059,483 @@ mod tests {
         assert!(
             !runs.iter().any(|n| *n > 2),
             "the placeholder prompt must be hidden once there is text: {runs:?}"
+        );
+    }
+
+    /// Build a `TextInput` widget in a laid-out headless window, type `abc` into
+    /// it through the shell key ingress, and return the runner focused on it.
+    ///
+    /// The widget's shape is `container[contenteditable] > placeholder + value`,
+    /// with the inline layout living on the VALUE child, not the focused
+    /// container — the exact shape the keyboard-delete regression turns on.
+    fn text_input_runner_typed_abc() -> (Runner, DomNodeId, NodeId) {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // key_up between keystrokes: two identical consecutive key_downs are a
+        // Some(k)->Some(k) diff (no fresh VirtualKeyDown), so the shell ingress
+        // needs the release to re-arm — exactly what a real user does.
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "text_input_typed_abc",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".__azul-native-text-input-container" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "a", "text": "a" }, { "op": "key_up", "key": "a" },
+                { "op": "key_down", "key": "b", "text": "b" }, { "op": "key_up", "key": "b" },
+                { "op": "key_down", "key": "c", "text": "c" }, { "op": "key_up", "key": "c" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (_result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("clicking the text input must focus its container");
+        let node_id = focused
+            .node
+            .into_crate_internal()
+            .expect("the focused container has a node id");
+        (runner, focused, node_id)
+    }
+
+    fn text_input_value(runner: &Runner, dom: DomId, node_id: NodeId) -> String {
+        runner.layout_window.extract_text_from_inline_content(
+            &runner.layout_window.get_text_before_textinput(dom, node_id),
+        )
+    }
+
+    /// The direct-call regression: `apply_selection_op` with a Delete op on the
+    /// focused TextInput HOST must delete a character.
+    ///
+    /// Before the fix, `apply_selection_op` read the inline layout from the host
+    /// node and returned `false` the instant it was `None` — which it always is
+    /// for a widget whose IFC lives on a value child — so keyboard Backspace /
+    /// Delete / arrow keys were DEAD in every TextInput / TextArea. Mouse editing
+    /// worked (hit testing resolves the child), and the C-API delete path worked
+    /// (it never consulted the host's layout), so nothing caught it.
+    #[test]
+    fn keyboard_delete_op_deletes_inside_a_text_input_widget() {
+        use azul_core::events::{SelectionDirection, SelectionMode, SelectionOp, SelectionStep};
+
+        let (mut runner, focused, node_id) = text_input_runner_typed_abc();
+
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "abc",
+            "typing through the shell ingress must fill the value node",
+        );
+        // The precondition that IS the bug: the focused host block carries no
+        // inline layout — the value child does. `apply_selection_op` must not
+        // treat that as "nothing to edit".
+        assert!(
+            runner
+                .layout_window
+                .get_inline_layout_for_node(focused.dom, node_id)
+                .is_none(),
+            "precondition: the TextInput host block has no inline layout of its own",
+        );
+
+        let backspace = SelectionOp::new(
+            SelectionDirection::Backward,
+            SelectionStep::Character,
+            SelectionMode::Delete,
+        );
+        assert!(
+            runner.layout_window.apply_selection_op(focused, &backspace),
+            "apply_selection_op(Delete) must report an edit (it used to bail on the \
+             host's missing inline layout)",
+        );
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "ab",
+            "Backspace must remove the last character of the value node",
+        );
+
+        // A range delete (select-all then Backspace) must clear it too.
+        let select_all = SelectionOp::new(
+            SelectionDirection::Backward,
+            SelectionStep::Document,
+            SelectionMode::Extend,
+        );
+        runner.layout_window.apply_selection_op(focused, &select_all);
+        let delete_range = SelectionOp::new(
+            SelectionDirection::Backward,
+            SelectionStep::Character,
+            SelectionMode::Delete,
+        );
+        runner.layout_window.apply_selection_op(focused, &delete_range);
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "",
+            "selecting the whole value and pressing Backspace must clear it",
+        );
+    }
+
+    /// The end-to-end regression through the SAME shell ingress a real keystroke
+    /// takes: a `key_down {"key":"Backspace"}` op must delete a character.
+    ///
+    /// This pins the unification — the e2e `key_down` op used to shortcut
+    /// Backspace/Delete straight to the C-API `delete_backward()` (a DIFFERENT
+    /// code path than native macOS, which routes KeyDown(Back) →
+    /// `SystemChange::ApplySelectionOp` → `apply_selection_op`). That shortcut
+    /// hid the dead keyboard-delete: every backspace test passed while the real
+    /// path was broken. The op now drives the real path, so this test exercises
+    /// exactly what the user's keyboard does.
+    #[test]
+    fn key_down_backspace_op_deletes_through_the_shell_ingress() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "key_down_backspace",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".__azul-native-text-input-container" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "a", "text": "a" }, { "op": "key_up", "key": "a" },
+                { "op": "key_down", "key": "b", "text": "b" }, { "op": "key_up", "key": "b" },
+                { "op": "key_down", "key": "c", "text": "c" }, { "op": "key_up", "key": "c" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Backspace" }, { "op": "key_up", "key": "Backspace" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (_result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("clicking the text input must focus its container");
+        let node_id = focused.node.into_crate_internal().expect("focused node id");
+        assert_eq!(
+            text_input_value(&runner, focused.dom, node_id),
+            "ab",
+            "a Backspace key_down must delete the last character through the real \
+             ApplySelectionOp path (not the C-API shortcut the harness used to take)",
+        );
+    }
+
+    /// The placeholder must not FLICKER while the window is slowly resized.
+    ///
+    /// User report: "Type something..." blinks during a slow drag-resize. The
+    /// placeholder is an absolutely-positioned sibling of the value `<p>`, and
+    /// the value `<p>` became a horizontal scroll box (`overflow-x: auto`) when
+    /// the caret-reveal was fixed — so every width the resize sweeps through
+    /// re-decides whether that box overflows. If any of that feeds back into
+    /// whether the placeholder is laid out, it blinks.
+    ///
+    /// Sweeps one pixel at a time and requires the painted glyph count to be
+    /// the SAME on every width: an empty field shows its prompt at 400 px and
+    /// at 401 px alike.
+    #[test]
+    fn the_placeholder_does_not_flicker_while_the_window_resizes() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "placeholder_resize_flicker",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [ { "op": "wait_frame" } ]
+        }))
+        .expect("scenario json");
+
+        let (_r, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+
+        let painted = |r: &Runner| -> usize {
+            r.layout_window
+                .get_layout_result(&DomId::ROOT_ID)
+                .map(|lr| {
+                    lr.display_list
+                        .items
+                        .iter()
+                        .map(|it| match it {
+                            DisplayListItem::Text { glyphs, .. } => glyphs.len(),
+                            _ => 0,
+                        })
+                        .sum()
+                })
+                .unwrap_or(0)
+        };
+
+        let baseline = painted(&runner);
+        assert!(
+            baseline > 0,
+            "precondition: an empty field must paint its placeholder prompt",
+        );
+
+        // Slow resize: one pixel per frame, the way a drag delivers it.
+        let mut seen: Vec<(f32, usize)> = Vec::new();
+        for w in 380..=420 {
+            let mut state = runner.window_state.clone();
+            state.size.dimensions =
+                azul_core::geom::LogicalSize::new(w as f32, 200.0);
+            let _ = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+            seen.push((w as f32, painted(&runner)));
+        }
+
+        let odd: Vec<&(f32, usize)> = seen.iter().filter(|(_, n)| *n != baseline).collect();
+        assert!(
+            odd.is_empty(),
+            "the placeholder blinked while resizing (expected {baseline} glyphs at every \
+             width): {odd:?}",
+        );
+    }
+
+    /// `overscroll-behavior` must travel CSS -> cascade -> ScrollManager.
+    ///
+    /// The `OverscrollBehavior` enum and every physics branch reading it
+    /// existed all along, but nothing ever SET the two state fields — they
+    /// were hardcoded to `Auto` at each construction site, and the property was
+    /// not in the CSS property table at all, so `contain` and `none` were
+    /// unreachable. This walks the whole path a stylesheet takes, through the
+    /// same `register_scroll_nodes` the shell and the runner both use.
+    fn overscroll_behavior_for(
+        css: &str,
+    ) -> (
+        azul_css::props::style::scrollbar::OverscrollBehavior,
+        azul_css::props::style::scrollbar::OverscrollBehavior,
+    ) {
+        // Inline `with_css` rather than a stylesheet rule: it runs the same
+        // declaration parser, so this still proves parse -> CssProperty ->
+        // cascade -> ScrollManager, without also depending on selector
+        // matching. The child overflows the box, which is what makes the box
+        // register as a scroll node at all.
+        let mut dom = Dom::create_body()
+            .with_css("width: 300px; height: 300px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css(css)
+                    .with_child(Dom::create_div().with_css("width: 400px; height: 400px;")),
+            );
+        let styled_dom = StyledDom::create_from_dom(dom.clone());
+        let _ = &mut dom;
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "overscroll_behavior",
+            "setup": { "window_width": 300, "window_height": 300, "dpi": 96 },
+            "steps": [ { "op": "wait_frame" } ]
+        }))
+        .expect("scenario json");
+
+        let (_r, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let states = runner
+            .layout_window
+            .scroll_manager
+            .get_scroll_states_for_dom(DomId::ROOT_ID);
+        let node = *states
+            .keys()
+            .next()
+            .expect("the overflowing box must register as a scroll node");
+        let st = runner
+            .layout_window
+            .scroll_manager
+            .get_scroll_state(DomId::ROOT_ID, node)
+            .expect("a registered node has state");
+        (st.overscroll_behavior_x, st.overscroll_behavior_y)
+    }
+
+    #[test]
+    fn overscroll_behavior_reaches_the_scroll_manager() {
+        use azul_css::props::style::scrollbar::OverscrollBehavior;
+        const BOX: &str = "width: 100px; height: 100px; overflow: auto;";
+
+        // Absent => the CSS initial value.
+        let (x, y) = overscroll_behavior_for(BOX);
+        assert_eq!(x, OverscrollBehavior::Auto, "default x");
+        assert_eq!(y, OverscrollBehavior::Auto, "default y");
+
+        // The SHORTHAND sets both axes.
+        let (x, y) = overscroll_behavior_for(&format!(
+            "{BOX} overscroll-behavior: contain;"
+        ));
+        assert_eq!(x, OverscrollBehavior::Contain, "shorthand must set x");
+        assert_eq!(y, OverscrollBehavior::Contain, "shorthand must set y");
+
+        // The LONGHANDS are independent.
+        let (x, y) = overscroll_behavior_for(&format!(
+            "{BOX} overscroll-behavior-x: none; overscroll-behavior-y: contain;"
+        ));
+        assert_eq!(x, OverscrollBehavior::None, "longhand x");
+        assert_eq!(y, OverscrollBehavior::Contain, "longhand y");
+    }
+
+    /// The horizontal caret-reveal regression: typing past the right edge of a
+    /// single-line `TextInput` must SCROLL the field so the caret stays visible.
+    ///
+    /// The container is `overflow-x: auto` + `scrollbar-width: none` so its
+    /// overflowing value line makes it a horizontal scroll box the caret-reveal
+    /// (`scroll_selection_into_view` → `find_scrollable_ancestor`) can shift. It
+    /// regressed on macOS/Linux because those `cfg` blocks still carried
+    /// `overflow-x: hidden` (only the Windows block had been fixed): the
+    /// container never registered as a scroll node, the reveal found no
+    /// scrollable ancestor and bailed, and every character typed past the right
+    /// edge walked off-screen with the caret frozen at the last visible glyph —
+    /// exactly the "text is invisible when I type" report. `justify-content`
+    /// must also be `flex-start`, not `center`: a centred overflowing line puts
+    /// the START of the text at negative x, which the clamp `[0, max]` can never
+    /// bring back.
+    #[test]
+    fn typing_past_the_right_edge_scrolls_the_text_input_to_keep_the_caret_visible() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        // The same 400px body the `abc` helper uses (so the click lands and
+        // focuses); the field is then overflowed by TYPING a long line rather
+        // than by shrinking the field — which is exactly the user's scenario
+        // (a normal-width input filled past its right edge).
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // ~90 printable characters, each a key_down{text}+key_up pair (two
+        // identical consecutive downs are a no-op diff, so the release re-arms
+        // the ingress — same reason the `abc` helper alternates down/up). At the
+        // 11px value font this line is far wider than the ~396px field.
+        // ~250 chars: at the 11px value font this is far wider than the ~394px
+        // field, so it overflows several times over (the 88-char string used
+        // earlier measured ~390px and merely GRAZED the edge — no overflow).
+        let typed: String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            .chars()
+            .cycle()
+            .take(250)
+            .collect();
+        let mut steps = vec![
+            serde_json::json!({ "op": "wait_frame" }),
+            serde_json::json!({ "op": "click", "selector": ".__azul-native-text-input-container" }),
+            serde_json::json!({ "op": "wait_frame" }),
+        ];
+        for ch in typed.chars() {
+            let s = ch.to_string();
+            steps.push(serde_json::json!({ "op": "key_down", "key": s, "text": s }));
+            steps.push(serde_json::json!({ "op": "key_up", "key": s }));
+        }
+        steps.push(serde_json::json!({ "op": "wait_frame" }));
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "text_input_horizontal_scroll_reveal",
+            "setup": { "window_width": 500, "window_height": 200, "dpi": 96 },
+            "steps": steps,
+        }))
+        .expect("scenario json");
+
+        let (_result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        let focused = runner
+            .layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .expect("clicking the text input must focus its container");
+        let _node_id = focused.node.into_crate_internal().expect("focused node id");
+        let dom = focused.dom;
+
+        // The text3 layer of the bug, pinned directly: `position_one_line`'s
+        // per-segment fit test used to DROP every item past `segment.width`
+        // even for a nowrap line, so only ~one box-width of glyphs (≈64 of
+        // 250) was ever positioned and the tail did not exist to scroll to.
+        // Every typed character must be laid out and reach the display list.
+        {
+            let lr = runner.layout_window.get_layout_result(&dom).expect("layout result");
+            let painted: usize = lr
+                .display_list
+                .items
+                .iter()
+                .map(|item| match item {
+                    DisplayListItem::Text { glyphs, .. } => glyphs.len(),
+                    _ => 0,
+                })
+                .sum();
+            assert!(
+                painted >= typed.chars().count(),
+                "every typed character must be positioned and painted \
+                 (white-space:pre must not truncate at the box edge): \
+                 painted {painted} glyphs for {} typed characters",
+                typed.chars().count(),
+            );
+        }
+
+        // The single-line field scrolls on the VALUE `<p>`, NOT the container:
+        // the container is a block box the value box fills exactly (394 px in a
+        // 400 px field), so the overflowing line lives INSIDE the value box and
+        // the value box is where the scroll must register. The fix makes that
+        // value `<p>` `overflow-x: auto`; before, `overflow-x: hidden` trapped
+        // the line and registered no scroll box at all.
+        let value_node = *runner
+            .layout_window
+            .scroll_manager
+            .get_scroll_states_for_dom(dom)
+            .keys()
+            .next()
+            .expect(
+                "typing past the right edge must register a horizontal scroll box (the value \
+                 <p> with overflow-x:auto); none registered — the append-only caret bug",
+            );
+
+        // Drive the caret-reveal exactly as a keystroke does: it anchors on the
+        // editing session's node (the value <p>), walks to that scroll box and
+        // shifts it so the caret stays in view. Idempotent — a re-run after the
+        // harness's own reveal is a zero-delta no-op, so the assertion does not
+        // hinge on frame timing. That this advances the offset at all proves the
+        // reveal's anchor actually reaches the value scroll box.
+        runner.layout_window.scroll_selection_into_view(
+            azul_layout::window::SelectionScrollType::Cursor,
+            azul_layout::window::ScrollMode::Instant,
+        );
+
+        let scroll = runner
+            .layout_window
+            .scroll_manager
+            .get_scroll_state(dom, value_node)
+            .expect("the value scroll box must carry a scroll state");
+        assert!(
+            scroll.content_rect.size.width > scroll.container_rect.size.width + 1.0,
+            "precondition: the typed line must overflow the field (content {:.1} vs container {:.1})",
+            scroll.content_rect.size.width,
+            scroll.container_rect.size.width,
+        );
+        assert!(
+            scroll.current_offset.x > 0.0,
+            "typing past the right edge must scroll the value box so the caret follows the text; \
+             offset.x stayed at {:.1} (append-only / caret frozen — the reveal never reached the \
+             value scroll box)",
+            scroll.current_offset.x,
         );
     }
 }

@@ -105,6 +105,20 @@ static DISPLAY_INLINE_BLOCK: CssProperty =
     CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::InlineBlock));
 
 /// display: none
+// <transient-window> UA defaults. `position: absolute; top: 100%` is the web
+// fallback in full: a closed popup is display:none, an open one is a block
+// anchored to the bottom edge of its parent. The NATIVE path does not read
+// these — it positions a real surface from the anchor edge instead — but they
+// are the same statement in two dialects, so an app that opts into neither
+// gets a popup that opens below its anchor on every target.
+static POSITION_ABSOLUTE: CssProperty = CssProperty::Position(CssPropertyValue::Exact(
+    azul_css::props::layout::position::LayoutPosition::Absolute,
+));
+static TOP_100_PERCENT: CssProperty = CssProperty::Top(CssPropertyValue::Exact(
+    azul_css::props::layout::position::LayoutTop {
+        inner: PixelValue::const_percent(100),
+    },
+));
 static DISPLAY_NONE: CssProperty =
     CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::None));
 
@@ -576,6 +590,13 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         // the same as width: 100%. The difference is critical for flexbox: width: auto
         // allows flex-grow/flex-shrink to control sizing, while width: 100% prevents it.
         (NT::Div, PT::Display) => Some(&DISPLAY_BLOCK),
+        // <transient-window>: see the statics' comment. `display` is resolved
+        // per node from `TransientWindowConfig::open` in the layout tree, so
+        // the UA value here is only the OPEN case's block-ness; a closed one is
+        // cut out before display is consulted.
+        (NT::TransientWindow(_), PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::TransientWindow(_), PT::Position) => Some(&POSITION_ABSOLUTE),
+        (NT::TransientWindow(_), PT::Top) => Some(&TOP_100_PERCENT),
         (NT::P, PT::Display) => Some(&DISPLAY_BLOCK),
         // REMOVED - blocks have width: auto by default
         // (NT::Div, PT::Width) => Some(&WIDTH_100_PERCENT),

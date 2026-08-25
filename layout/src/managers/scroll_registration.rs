@@ -10,14 +10,49 @@
 //! It lives here now and all three call it.
 
 use azul_core::{
-    dom::{DomId, NodeId},
+    dom::{DomId, DomNodeId, NodeId},
     task::Instant,
 };
 
 use crate::{solver3::layout_tree::LayoutNodeId, window::LayoutWindow};
 
+/// Extra scrollable width given to the box that hosts the active caret.
+///
+/// THE CARET IS CONTENT, and `overflow_content_size` does not know that: it
+/// measures the TEXT. At the end of the value the caret stands ON the text's
+/// right edge, so its own width lies past it — and in a horizontally scrolled
+/// field that edge is exactly `max_scroll_x`, which the reveal cannot scroll
+/// beyond by definition. The blinking caret was therefore clipped away
+/// precisely when the field started to overflow, which is the one moment it
+/// matters. Trailing padding cannot fix this either: azul measures content
+/// against the PADDING box, so padding shrinks the scroll range rather than
+/// extending it.
+///
+/// Sized as the default caret width (1px) plus the 5px the caret reveal
+/// (`calculate_instant_scroll_delta`) asks for, so the margin the reveal wants
+/// is actually reachable instead of being clamped away at the end of the line.
+pub const CARET_SCROLL_GUTTER_PX: f32 = 6.0;
+
 pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
+    // Which node owns the active caret. Snapshotted BEFORE the loop below takes
+    // `layout_results` mutably.
+    let caret_node: Option<DomNodeId> = layout_window
+        .text_edit_manager
+        .multi_cursor
+        .as_ref()
+        .map(|mc| mc.node_id);
+
     for (dom_id, layout_result) in &mut layout_window.layout_results {
+        // ONLY the node the caret sits on — which in a TextInput is the value
+        // <p>, i.e. both the IFC root and the horizontal scroll box.
+        //
+        // This deliberately does NOT walk the ancestor chain. Widening every
+        // ancestor by the gutter makes the BODY 6px wider than the viewport, so
+        // the whole page turns horizontally scrollable the moment a text field
+        // takes focus — which is a far worse bug than the one being fixed.
+        let caret_host: Option<NodeId> = caret_node
+            .filter(|c| c.dom == *dom_id)
+            .and_then(|c| c.node.into_crate_internal());
         // What the VirtualView callbacks published for this DOM, read the way
         // `display_list::paint_scrollbars` reads it — same producer, same
         // `children_rect.size`, so the two cannot disagree about the extent.
@@ -31,30 +66,40 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 continue;
             };
 
-            // CSS spec: scrolling occurs within the padding box, so the
-            // viewport for scroll clamp must be padding-box, not content-box.
-            // This must match compute_scrollbar_geometry() which also uses
-            // padding-box (inner_rect = paint_rect - borders).
-            let border_box_size = node.used_size.unwrap_or_default();
-            let resolved = node.box_props.unpack();
-            let border = &resolved.border;
-            let container_size = azul_core::geom::LogicalSize {
-                width: (border_box_size.width
-                        - border.left - border.right).max(0.0),
-                height: (border_box_size.height
-                         - border.top - border.bottom).max(0.0),
-            };
-
-            // STATIC (unscrolled) layout coordinates, NOT window coordinates —
-            // the comment here used to claim otherwise. `scroll_selection_into_view`
-            // depends on static, because it compares against a caret rect measured
-            // the same way. A consumer that needs where the container APPEARS must
-            // subtract the scroll of its ancestors itself.
-            let container_origin = layout_result
+            // THE SCROLLPORT IS THE PADDING BOX. CSS Overflow 3 §2: "scrolling
+            // occurs within the padding box", and `compute_scrollbar_geometry`
+            // agrees (inner_rect = paint_rect − borders).
+            //
+            // ORIGIN AND SIZE now both come off that one box. This used to
+            // publish a padding-box SIZE with a border-box ORIGIN — a
+            // rectangle that is not any CSS box — so every consumer reading
+            // `container_rect` as a whole (the auto-scroll timer's edge tests,
+            // `scroll_into_view`'s `visible_rect`) was off by the border width
+            // on the top and left, in window space, against a raw pointer.
+            //
+            // Coordinates are STATIC (unscrolled) layout, NOT window — the
+            // comment here once claimed otherwise. `scroll_selection_into_view`
+            // depends on static, because it compares against a caret rect
+            // measured the same way. A consumer that needs where the container
+            // APPEARS must subtract the scroll of its ANCESTORS itself.
+            let border_box_origin = layout_result
                 .calculated_positions
                 .get(node_idx)
                 .copied()
                 .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+            let scrollport = crate::solver3::display_list::BorderBoxRect(
+                azul_core::geom::LogicalRect {
+                    origin: border_box_origin,
+                    size: node.used_size.unwrap_or_default(),
+                },
+            )
+            .to_padding_box(&node.box_props.unpack().border)
+            .rect();
+            let container_size = azul_core::geom::LogicalSize {
+                width: scrollport.size.width.max(0.0),
+                height: scrollport.size.height.max(0.0),
+            };
+            let container_origin = scrollport.origin;
 
             let Some(mut scrollbar_info) = layout_result
                 .layout_tree
@@ -87,6 +132,31 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 }
             }
 
+            // The same amendment for ORDINARY nodes: a text edit can grow an
+            // IFC's content after layout (`reshape_text_node` refreshes
+            // `overflow_content_size` but nothing re-runs Phase 3), so re-derive
+            // the necessity from the CURRENT content size. For nodes whose
+            // content is unchanged since layout this reads the same
+            // `overflow_content_size` Phase 3 wrote and is a no-op; flags are
+            // only ever raised, never lowered.
+            {
+                let content_now = layout_result
+                    .layout_tree
+                    .get_content_size(LayoutNodeId::new(node_idx));
+                let raised = crate::solver3::cache::apply_content_scroll_necessity(
+                    &layout_result.styled_dom,
+                    dom_node_id,
+                    content_now,
+                    container_size,
+                    &mut scrollbar_info,
+                );
+                if raised {
+                    if let Some(warm) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                        warm.scrollbar_info = Some(scrollbar_info);
+                    }
+                }
+            }
+
             if !(scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal) {
                 continue;
             }
@@ -96,7 +166,45 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 size: container_size,
             };
 
-            let content_size = layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
+            // `overscroll-behavior` from CSS, resolved per axis. Until this
+            // was wired the two fields were hardcoded to `Auto` at every
+            // construction site, so `contain` (stop scroll CHAINING to an
+            // ancestor) and `none` (also suppress the local bounce) were
+            // unreachable — the enum and every physics branch reading it had
+            // existed all along with nothing to set them.
+            let node_state = layout_result
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .get(dom_node_id)
+                .map(|n| n.styled_node_state)
+                .unwrap_or_default();
+            let overscroll_x = match crate::solver3::getters::get_overscroll_behavior_x(
+                &layout_result.styled_dom,
+                dom_node_id,
+                &node_state,
+            ) {
+                crate::solver3::getters::MultiValue::Exact(v) => v,
+                _ => azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+            };
+            let overscroll_y = match crate::solver3::getters::get_overscroll_behavior_y(
+                &layout_result.styled_dom,
+                dom_node_id,
+                &node_state,
+            ) {
+                crate::solver3::getters::MultiValue::Exact(v) => v,
+                _ => azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+            };
+
+            let mut content_size =
+                layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
+            // See [`CARET_SCROLL_GUTTER_PX`]: the caret is content the text
+            // extent does not account for, so without this the reveal has
+            // nowhere to scroll to and the caret is clipped at the end of an
+            // overflowing line.
+            if caret_host == Some(dom_node_id) {
+                content_size.width += CARET_SCROLL_GUTTER_PX;
+            }
 
             // Use the layout-computed scrollbar width, not the
             // hardcoded default. On macOS with overlay scrollbars,
@@ -106,6 +214,12 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
             let scrollbar_thickness = scrollbar_info.scrollbar_width
                 .max(scrollbar_info.scrollbar_height);
 
+            layout_window.scroll_manager.set_overscroll_behavior(
+                *dom_id,
+                dom_node_id,
+                overscroll_x,
+                overscroll_y,
+            );
             layout_window.scroll_manager.register_or_update_scroll_node(
                 *dom_id,
                 dom_node_id,
@@ -122,3 +236,4 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
     }
     layout_window.scroll_manager.calculate_scrollbar_states();
 }
+

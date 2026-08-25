@@ -243,6 +243,9 @@ pub struct Wayland {
     pub wl_region_destroy: unsafe extern "C" fn(*mut wl_region),
     pub wl_region_add: unsafe extern "C" fn(*mut wl_region, i32, i32, i32, i32),
     pub wl_surface_set_opaque_region: unsafe extern "C" fn(*mut wl_surface, *mut wl_region),
+    /// The region that receives input (`WindowFlags::shape_from_alpha`);
+    /// NULL = the whole surface. Double-buffered: applied on commit.
+    pub wl_surface_set_input_region: unsafe extern "C" fn(*mut wl_surface, *mut wl_region),
 
     // wayland-egl functions
     pub wl_egl_window_create: unsafe extern "C" fn(
@@ -514,6 +517,7 @@ impl Wayland {
             wl_compositor_create_region: wl_compositor_create_region_impl,
             wl_region_destroy: wl_region_destroy_impl,
             wl_region_add: wl_region_add_impl,
+            wl_surface_set_input_region: wl_surface_set_input_region_impl,
             wl_surface_set_opaque_region: wl_surface_set_opaque_region_impl,
 
             wl_egl_window_create: load_symbol!(lib_egl, _, "wl_egl_window_create"),
@@ -891,6 +895,11 @@ unsafe extern "C" fn wl_surface_damage_buffer_impl(
 unsafe extern "C" fn wl_surface_set_opaque_region_impl(s: *mut wl_surface, region: *mut wl_region) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_region) = std::mem::transmute(ctx().marshal);
     f(s as *mut wl_proxy, 4, region);
+}
+unsafe extern "C" fn wl_surface_set_input_region_impl(s: *mut wl_surface, region: *mut wl_region) {
+    // wl_surface.set_input_region: opcode 5 (set_opaque_region is 4).
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_region) = std::mem::transmute(ctx().marshal);
+    f(s as *mut wl_proxy, 5, region);
 }
 unsafe extern "C" fn xdg_wm_base_pong_impl(wm: *mut xdg_wm_base, serial: u32) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);

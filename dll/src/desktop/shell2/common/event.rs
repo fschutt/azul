@@ -394,8 +394,17 @@ extern "C" fn auto_scroll_timer_callback(
         }
     };
 
-    // Find the scrollable ancestor of the focused node
-    let scroll_parent = match callback_info.find_scroll_parent(dom_id, node_id) {
+    // The scroll box the anchor node LIVES IN — itself included.
+    //
+    // This used to be `find_scroll_parent`, whose walk was hardcoded to skip
+    // the node itself. The caret in a `TextInput` sits on the value `<p>`,
+    // which IS the horizontal scroll box (see `TEXT_INPUT_LABEL_PROPS`), so
+    // the strict-ancestor search walked straight past the field and returned
+    // the page: dragging a selection past the right edge of an overflowing
+    // text field scrolled the PAGE instead of the field, and the field's own
+    // content never moved. Same shape for any editable that is its own
+    // scroller (TextArea, code editors).
+    let scroll_parent = match callback_info.find_scroll_target(dom_id, node_id) {
         Some(parent_id) => parent_id,
         None => {
             // No scrollable ancestor — continue timer but nothing to do
@@ -411,13 +420,21 @@ extern "C" fn auto_scroll_timer_callback(
         }
     };
 
-    // `container_rect.origin` is STATIC layout geometry (see
-    // `managers::scroll_registration`), but `mouse_position` arrives in WINDOW
-    // space. They agree only while no ancestor of this container is itself
-    // scrolled — so for a NESTED scroller the edge tests below ran against a
-    // box that is not where the container appears, and it autoscrolled from
-    // the wrong edges. Subtract the scroll of every ancestor ABOVE it; its own
-    // offset does not move its box.
+    // `container_rect` is the SCROLLPORT (the padding box) in STATIC layout
+    // coordinates — ONE box for origin and size, published by
+    // `managers::scroll_registration` and read identically by
+    // `scroll_selection_into_view` and `scroll_into_view`. It used to be a
+    // padding-box size at a border-box origin, so the edge tests below ran
+    // against a rectangle that is not any CSS box and triggered a border-width
+    // early on the top and left edges.
+    //
+    // `mouse_position` arrives in WINDOW space, and the two agree only while no
+    // ancestor of this container is itself scrolled — so for a NESTED scroller
+    // the edge tests ran against a box that is not where the container appears,
+    // and it autoscrolled from the wrong edges. Subtract the scroll of every
+    // ancestor ABOVE it; its own offset does not move its box.
+    // `find_scroll_parent` (STRICT ancestors) is the right walker here, unlike
+    // the target lookup above.
     let mut ancestor_scroll = azul_core::geom::LogicalPosition::zero();
     let mut walk = scroll_parent;
     for _ in 0..AUTO_SCROLL_ANCESTOR_WALK_LIMIT {
@@ -595,7 +612,16 @@ fn apply_focus_restyle(
     );
 
     if restyle_result.changed_nodes.is_empty() {
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
+        // A focus change with no detected resolved-style delta STILL needs the
+        // display list REBUILT, not merely re-presented. Two focus visuals are
+        // not captured in `changed_nodes`: (1) the caret, painted from focus /
+        // editing state at build time (not a restyle property), and (2)
+        // `:focus`-CONDITIONAL properties like the text input's focus border,
+        // re-evaluated against the node's focused flag when the display list is
+        // built. Returning `ShouldReRenderCurrentWindow` re-presented the STALE
+        // list, so after a blur the caret and the blue focus border stayed on
+        // screen ("focus doesn't get unset"). Rebuild so both re-resolve.
+        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
     }
 
     if restyle_result.gpu_only_changes {
@@ -3013,11 +3039,22 @@ pub trait PlatformWindow {
         );
         let started = std::time::Instant::now();
 
+        self.poll_transient_mailbox();
         let mut result = self.regenerate_layout_once()?;
         let mut passes = 1usize;
 
         for _pass in 1..MAX_LIFECYCLE_REGEN_PASSES {
-            if !self.dispatch_pending_lifecycle_events() {
+            // Popups first: a dismissal queues its `Dismissed` lifecycle event,
+            // which the drain below then delivers in this same call.
+            self.sync_transient_windows();
+            // An inline-docked panel dropped onto another zone (or torn off /
+            // docked back) re-grafts the layout tree: that is a layout change
+            // of its own, whether or not its `Docked` handler asked for one.
+            let docks_changed = self
+                .get_layout_window()
+                .is_some_and(|lw| lw.transient_docks_changed());
+            let lifecycle_wants_pass = self.dispatch_pending_lifecycle_events();
+            if !lifecycle_wants_pass && !docks_changed {
                 self.refill_a11y_tree_after_regeneration();
                 self.flush_a11y_tree_update();
                 _span.note(format_args!(
@@ -3029,6 +3066,7 @@ pub trait PlatformWindow {
             result = self.regenerate_layout_once()?;
             passes += 1;
         }
+        self.sync_transient_windows();
 
         // One last drain, so callbacks still RUN on the final pass even though we
         // will not lay out again for them.
@@ -3291,6 +3329,198 @@ pub trait PlatformWindow {
     /// ## Parameters
     /// * `options` - Configuration for the new window
     fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions);
+
+    /// This window's key in the backend's window registry — what a child
+    /// passes as `WindowCreateOptions::parent_window_id`. Every backend keys
+    /// its registry by the native handle the raw window handle carries
+    /// (`NSWindow*`, `HWND`, the X11 window id, the `wl_surface*`), so the
+    /// default derives it; headless has no registry and reports 0.
+    fn registry_window_id(&self) -> u64 {
+        use azul_core::window::RawWindowHandle;
+        match self.get_raw_window_handle() {
+            RawWindowHandle::MacOS(h) => h.ns_window as usize as u64,
+            RawWindowHandle::Windows(h) => h.hwnd as usize as u64,
+            RawWindowHandle::Xlib(h) => h.window,
+            RawWindowHandle::Wayland(h) => h.surface as usize as u64,
+            _ => 0,
+        }
+    }
+
+    /// Ask every OTHER window of this app to regenerate its layout and
+    /// redraw. Backends implement it by walking their registry — the same
+    /// fan-out they do for `Update::RefreshDomAllWindows`. It is how a parent
+    /// wakes the popups it wrote a mailbox for, and how a popup wakes its
+    /// parent after dismissing itself. Headless has nobody to wake.
+    fn request_regeneration_all_windows(&mut self) {}
+
+    /// Make this window pass mouse events straight through to whatever is
+    /// behind it (macOS `setIgnoresMouseEvents:`). Used for a live drag proxy
+    /// — a torn panel following the parent's cursor — so the parent keeps the
+    /// gesture. Default: no-op (headless, or a backend without click-through).
+    fn set_window_mouse_transparent(&mut self, _transparent: bool) {}
+
+    /// `<transient-window>`, parent side: after a layout pass, turn the
+    /// engine's popup diff into child windows / mailbox writes, and act on
+    /// popups that dismissed themselves. See `common::transient`.
+    fn sync_transient_windows(&mut self) {
+        let parent_id = self.registry_window_id();
+        let parent_state = self.get_current_window_state().clone();
+        let Some(lw) = self.get_layout_window_mut() else {
+            return;
+        };
+        let outcome = super::transient::sync_parent(parent_id, &parent_state, lw);
+        for options in outcome.create {
+            self.queue_window_create(options);
+        }
+        if outcome.wake_all {
+            self.request_regeneration_all_windows();
+        }
+    }
+
+    /// Give the OS the window's shape: `rects` (physical pixels of the
+    /// frame just presented) cover every pixel that IS the window; outside
+    /// them clicks fall through and, where the OS draws shapes (X11 /
+    /// Windows), nothing is drawn. An empty `rects` means "the whole frame
+    /// is transparent": backends keep the previous shape rather than vanish.
+    /// Called after a CPU present while `WindowFlags::shape_from_alpha` is
+    /// set, only when the shape changed. macOS needs no call - a non-opaque
+    /// window hit-tests by its alpha - so the default is a no-op.
+    fn apply_window_shape(&mut self, _rects: &[azul_layout::cpurender::ShapeRect]) {}
+
+    /// Start the OS's own eyedropper for `request_id` (macOS: the system
+    /// sampler). `true` if one started - the answer arrives through
+    /// `azul_layout::managers::eyedropper::push_result`. The default has none.
+    fn start_native_eyedropper(&mut self, _request_id: u64) -> bool {
+        false
+    }
+
+    /// Read the screen for the eyedropper's loupe window. `None` when the
+    /// platform cannot (or the user declined - Wayland asks through the
+    /// portal). The default reads nothing.
+    fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
+        None
+    }
+
+    /// Run every queued `pick_screen_color`: the native sampler where there
+    /// is one, else a screenshot in a fullscreen loupe window; a request
+    /// neither can serve is answered "cancelled" so the asking callback is
+    /// not left waiting.
+    fn dispatch_eyedropper_requests(&mut self) {
+        for req in azul_layout::managers::eyedropper::drain_requests() {
+            if self.start_native_eyedropper(req.request_id) {
+                continue;
+            }
+            let dpi = self.get_current_window_state().size.dpi;
+            match self
+                .capture_screen_for_eyedropper()
+                .and_then(|shot| crate::desktop::eyedropper::loupe_window(shot, req.request_id, dpi))
+            {
+                Some(options) => {
+                    log_debug!(
+                        super::debug_server::LogCategory::Window,
+                        "[eyedropper] opening the loupe window for request {}",
+                        req.request_id
+                    );
+                    self.queue_window_create(options);
+                }
+                None => crate::desktop::eyedropper::finish(req.request_id, None),
+            }
+        }
+    }
+
+    /// Does applying a new `position` through `sync_window_state` actually
+    /// move this window? `true` everywhere a window can be placed; a Wayland
+    /// popup (no `xdg_popup.reposition` at the bound protocol version) says
+    /// `false`, and the tear-off drag then tracks the pointer arithmetically.
+    fn window_follows_position_changes(&self) -> bool {
+        true
+    }
+
+    /// `<transient-window>`, popup side: close if the parent said so; move
+    /// and resize to the placement the parent last wrote (the anchor moved,
+    /// the content re-measured) - a torn-off toplevel only resizes.
+    fn poll_transient_mailbox(&mut self) {
+        use super::transient::{poll_popup, proxy_is_following, relative_position, PopupAction};
+        // A drag proxy (a torn panel the parent is dragging) must let the mouse
+        // through to the parent that owns the gesture; a settled window takes
+        // its own clicks again.
+        let following = proxy_is_following(self.get_current_window_state());
+        self.set_window_mouse_transparent(following);
+        match poll_popup(self.get_current_window_state()) {
+            PopupAction::Close => {
+                let _ = self.request_window_close("transient.closed_by_parent");
+            }
+            PopupAction::Place { origin, size } => {
+                self.get_common_mut().update_window_state(WindowStateSource::App, |ws| {
+                    if let Some(o) = origin {
+                        ws.position = relative_position(o);
+                    }
+                    ws.size.dimensions = size;
+                });
+                self.sync_window_state();
+            }
+            PopupAction::Nothing => {}
+        }
+    }
+
+    /// `<transient-window>`, both sides, on every input transition:
+    /// - a popup dismisses itself on Escape / focus loss (per its policy),
+    /// - a parent dismisses its `outside`-dismissable popups on a fresh press.
+    fn process_transient_dismissal(&mut self) {
+        use super::transient::{dismiss_outside_on_press, popup_dismiss_cause, post_dismissed};
+        let Some(previous) = self.get_previous_window_state().clone() else {
+            return;
+        };
+        let current = self.get_current_window_state().clone();
+
+        if let Some(cause) = popup_dismiss_cause(&previous, &current) {
+            if post_dismissed(&current) {
+                log_debug!(
+                    super::debug_server::LogCategory::Window,
+                    "[transient] popup dismissing itself: {cause:?}"
+                );
+                // The dismissing input (the Escape press / the focus-loss
+                // transition) is CONSUMED by the popup — the documented "key
+                // eaten by an open popup" swallow. Without this,
+                // `request_window_close`'s baseline snapshot reads the very
+                // delta that caused the dismissal as an unconsumed input and
+                // the debug validator aborts (`transient.dismissed:
+                // keyboard_state`). The parent still hears the key through its
+                // OWN window state; only this closing popup's copy is spent.
+                self.discard_input_delta("transient.dismissed");
+                let _ = self.request_window_close("transient.dismissed");
+                self.request_regeneration_all_windows();
+            }
+            return;
+        }
+        // The window is closing for a reason of its own (a torn-off
+        // toplevel's close button): the parent's node closes with it.
+        if super::transient::post_dismissed_on_close(&previous, &current) {
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[transient] closing window reports itself dismissed"
+            );
+            self.request_regeneration_all_windows();
+            return;
+        }
+
+        let dismissed_any = match self.get_layout_window_mut() {
+            Some(lw) => {
+                dismiss_outside_on_press(&previous, &current, lw)
+                    | super::transient::dismiss_on_escape(&previous, &current, lw)
+            }
+            None => false,
+        };
+        if dismissed_any {
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[transient] press in the parent dismissed its popups"
+            );
+            // The Dismissed lifecycle event is queued; a regeneration drains it.
+            self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            self.request_regeneration_all_windows();
+        }
+    }
 
     // REQUIRED: Menu Display (Platform-Specific Implementation)
 
@@ -4299,6 +4529,85 @@ pub trait PlatformWindow {
                 let pos = position.unwrap_or(LogicalPosition::new(0.0, 0.0));
                 self.show_menu_from_callback(menu, pos);
                 ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::CapturePointer { node } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = Some(*node);
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::ReleasePointerCapture => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = None;
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::SetTransientWindowOpen { node, open } => {
+                // Only this window's root dom hangs popups; a node id from a
+                // popup's own dom (or any child dom) means nothing here.
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != azul_core::dom::DomId::ROOT_ID {
+                    log_warn!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] set_transient_window_open on a non-root dom {:?}: ignored",
+                        node.dom
+                    );
+                    return ProcessEventResult::DoNothing;
+                }
+                let changed = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.transient_windows.set_forced_open(node_id, *open));
+                if changed {
+                    // The popup set is reconciled after a layout pass.
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
+            CallbackChange::SetTransientWindowTorn { node, torn } => {
+                let Some(node_id) = node.node.into_crate_internal() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if node.dom != azul_core::dom::DomId::ROOT_ID {
+                    log_warn!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] set_transient_window_torn on a non-root dom {:?}: ignored",
+                        node.dom
+                    );
+                    return ProcessEventResult::DoNothing;
+                }
+                let changed = self
+                    .get_layout_window_mut()
+                    .is_some_and(|lw| lw.set_transient_window_torn(node_id, *torn));
+                if changed {
+                    // The surface change (popup <-> toplevel) is synced after
+                    // a layout pass, which also drains the TornOff/Docked event.
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
+            CallbackChange::PickScreenColor => {
+                // Issued on THIS window's manager so the answer routes back
+                // here; dispatched right away (the loupe is queued, or the
+                // system sampler starts) rather than on the next pump.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let id = lw.eyedropper_manager.begin_request();
+                    azul_layout::managers::eyedropper::push_request(
+                        azul_layout::managers::eyedropper::EyedropperRequest { request_id: id },
+                    );
+                }
+                self.dispatch_eyedropper_requests();
+                ProcessEventResult::DoNothing
             }
 
             CallbackChange::ShowTooltip { text, position } => {
@@ -6103,6 +6412,28 @@ pub trait PlatformWindow {
     /// * `ProcessEventResult` - The maximum framework-determined processing level from applied changes
     /// * `Update` - The maximum update level requested by all invoked callbacks
     /// * `bool` - Whether any callback called preventDefault()
+    /// The deepest node under the point where the current drag gesture was
+    /// PRESSED - the drag's source element. `None` when no gesture session
+    /// is running.
+    fn drag_source_node(&mut self) -> Option<azul_core::dom::DomNodeId> {
+        let start = self.drag_press_position()?;
+        let hit = self.get_common_mut().perform_hit_test(start);
+        // The front-most hit (by hit depth, not by NodeId: a grafted
+        // inline-docked panel sits under a zone with a higher id).
+        azul_layout::managers::hover::deepest_node_across_doms(&hit)
+    }
+
+    /// Where the current drag gesture was pressed (window-local).
+    fn drag_press_position(&self) -> Option<azul_core::geom::LogicalPosition> {
+        Some(
+            self.get_layout_window()?
+                .gesture_drag_manager
+                .get_current_session()?
+                .first_sample()?
+                .position,
+        )
+    }
+
     /// Does this node — or an ancestor — declare `-azul-app-region: drag`?
     ///
     /// The property does NOT cascade, deliberately: a drag region names the
@@ -6178,18 +6509,157 @@ pub trait PlatformWindow {
         // of the bar — the text inside it — and the bar is what declared the
         // region. Walking up is how a click on the title text still drags,
         // while a button that sets `no-drag` stops the walk at itself.
+        //
+        // In a `<transient-window>` the drag is the TEAR-OFF drag instead:
+        // the window's own pipeline moves it with the pointer and reports
+        // the drop to the parent (see `common::transient`). A popup has no
+        // window manager to hand the gesture to.
         for ev in events {
-            let is_drag_start =
-                matches!(ev.event_type, azul_core::events::EventType::DragStart);
-            let is_double = matches!(ev.event_type, azul_core::events::EventType::DoubleClick);
+            use azul_core::events::EventType;
+            // An INLINE-docked panel's grip being dragged in this (parent)
+            // window: the panel has no window to move, so the drag only
+            // decides on release - same container: nothing; another zone:
+            // grafted there; the open: torn off into a toplevel there.
+            let inline_tear_active = self.get_layout_window().is_some_and(|lw| lw.inline_tear.is_some());
+            if inline_tear_active {
+                match ev.event_type {
+                    EventType::Drag => {
+                        // Slide the frameless proxy so the grip stays under the
+                        // cursor. The parent owns the gesture (the mouse went
+                        // down here), so the parent writes the child window's
+                        // origin every frame; the child just honours it.
+                        if let Some(cursor) = self
+                            .get_current_window_state()
+                            .mouse_state
+                            .cursor_position
+                            .get_position()
+                        {
+                            let drive = self.get_layout_window().and_then(|lw| {
+                                let (node, origin) = lw.inline_tear_origin_at(cursor)?;
+                                let m = super::transient::inline_tear_mailbox(lw, node)?;
+                                Some((m, origin))
+                            });
+                            if let Some((mailbox, origin)) = drive {
+                                super::transient::drive_proxy(&mailbox, origin);
+                                self.request_regeneration_all_windows();
+                            }
+                        }
+                        continue;
+                    }
+                    EventType::DragEnd => {
+                        let cursor = self
+                            .get_current_window_state()
+                            .mouse_state
+                            .cursor_position
+                            .get_position()
+                            .unwrap_or(azul_core::geom::LogicalPosition::zero());
+                        // Stop driving the proxy, then let the engine decide
+                        // what the drop meant (dock back inline, re-dock onto
+                        // another zone, or stay floating where it was dropped).
+                        if let Some(mailbox) = self.get_layout_window().and_then(|lw| {
+                            let node = lw.inline_tear?.node;
+                            super::transient::inline_tear_mailbox(lw, node)
+                        }) {
+                            super::transient::release_proxy(&mailbox);
+                        }
+                        let changed = self
+                            .get_layout_window_mut()
+                            .is_some_and(|lw| lw.end_inline_tear(cursor));
+                        if changed {
+                            log_debug!(
+                                super::debug_server::LogCategory::Window,
+                                "[transient] inline panel dropped at {cursor:?}: re-laying out"
+                            );
+                        }
+                        self.request_regeneration_all_windows();
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            match ev.event_type {
+                EventType::Drag if super::transient::tear_drag_active(self.get_current_window_state()) => {
+                    let follows = self.window_follows_position_changes();
+                    if let Some(position) = super::transient::tear_drag_move(self.get_current_window_state(), follows) {
+                        self.get_common_mut()
+                            .update_window_state(WindowStateSource::App, |ws| ws.position = position);
+                    }
+                    continue;
+                }
+                EventType::DragEnd if super::transient::tear_drag_active(self.get_current_window_state()) => {
+                    let follows = self.window_follows_position_changes();
+                    if super::transient::tear_drag_end(self.get_current_window_state(), follows) {
+                        log_debug!(
+                            super::debug_server::LogCategory::Window,
+                            "[transient] tear-off drag ended; reporting the drop to the parent"
+                        );
+                        self.request_regeneration_all_windows();
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            let is_drag_start = matches!(ev.event_type, EventType::DragStart);
+            let is_double = matches!(ev.event_type, EventType::DoubleClick);
             if !(is_drag_start || is_double) {
                 continue;
             }
-            let target = ev.target;
-            if !self.node_is_window_drag_region(target) {
+            // A DragStart targets the node under the pointer NOW - after the
+            // drag threshold, by which time a fast press on a thin title strip
+            // has already left it. The region is the one that was PRESSED
+            // (W3C: `dragstart` fires on the source element), so hit-test the
+            // gesture's start position; the current target is the fallback.
+            let target = if is_drag_start {
+                self.drag_source_node().unwrap_or(ev.target)
+            } else {
+                ev.target
+            };
+            let is_region = self.node_is_window_drag_region(target);
+            log_debug!(
+                super::debug_server::LogCategory::Input,
+                "[app-region] {:?} on {:?} (drag region: {})",
+                ev.event_type,
+                target,
+                is_region
+            );
+            if !is_region {
                 continue;
             }
             if is_drag_start {
+                let press = self.drag_press_position();
+                if super::transient::tear_drag_begin(self.get_current_window_state(), press) {
+                    log_debug!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] tear-off drag begins"
+                    );
+                    continue;
+                }
+                if super::transient::mailbox_of(self.get_current_window_state()).is_some() {
+                    continue; // a popup without tearoff: the strip does nothing
+                }
+                // A grip inside an inline-docked panel: tear THAT off, not
+                // the window it is docked in.
+                let panel = target
+                    .node
+                    .into_crate_internal()
+                    .filter(|_| target.dom == azul_core::dom::DomId::ROOT_ID)
+                    .and_then(|n| self.get_layout_window().and_then(|lw| lw.inline_docked_panel_of(n)));
+                if let (Some(panel), Some(press)) = (panel, press) {
+                    let began = self
+                        .get_layout_window_mut()
+                        .is_some_and(|lw| lw.begin_inline_tear(panel, press));
+                    if began {
+                        log_debug!(
+                            super::debug_server::LogCategory::Window,
+                            "[transient] inline panel {panel:?} tear-off drag begins"
+                        );
+                        // The panel tore off immediately: create its frameless
+                        // proxy window now so it follows the cursor from the
+                        // first move, not only once the pointer leaves us.
+                        self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        continue;
+                    }
+                }
                 self.handle_begin_interactive_move();
             } else {
                 // Double-click on a drag region toggles the frame, the way
@@ -7018,6 +7488,15 @@ pub trait PlatformWindow {
         if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
+        if update == Update::RefreshDomAllWindows
+            || result == ProcessEventResult::ShouldRegenerateDomAllWindows
+        {
+            // A menu item's action mutates SHARED app state: every other
+            // window (a popup's parent, say) must re-layout too, not only
+            // the one the menu belonged to.
+            result = result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
+            self.request_regeneration_all_windows();
+        }
         // Window-state changes the callback made (title, size, close) reach
         // the OS now, as after a native click. The surrounding input pass
         // syncs after an accelerator.
@@ -7160,7 +7639,18 @@ pub trait PlatformWindow {
             r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
         }
 
-        let result = self.process_window_events_inner(depth);
+        let mut result = self.process_window_events_inner(depth);
+
+        // A callback that ran INSIDE a transient popup and asked for a
+        // refresh must refresh the PARENT: the popup only mirrors the
+        // parent's subtree (see `common::transient`), so re-laying the popup
+        // out alone would show the old content. The parent's pass then
+        // pushes the new subtree back into the popup's mailbox.
+        if result == ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            && super::transient::mailbox_of(self.get_current_window_state()).is_some()
+        {
+            result = ProcessEventResult::ShouldRegenerateDomAllWindows;
+        }
 
         // CONSUME the state delta this pass just processed. The
         // previous→current diff is a one-shot: without this, the delta
@@ -7300,6 +7790,7 @@ pub trait PlatformWindow {
                 super::capability_pump::pump(lw);
             }
             self.sync_capability_pump_timer();
+            self.process_transient_dismissal();
         }
 
         // Get previous state (or use current as fallback for first frame)
@@ -7337,6 +7828,7 @@ pub trait PlatformWindow {
                 &w.permission_manager,
                 &w.biometric_manager,
                 &w.keyring_manager,
+                &w.eyedropper_manager,
             )
         });
 
@@ -7353,7 +7845,7 @@ pub trait PlatformWindow {
         if let Some(p) = document_edit_provider.as_ref() {
             event_providers.push(p as &dyn azul_core::events::EventProvider);
         }
-        if let Some((tm, sm, gm, geo, pm, bm, km)) = providers_ref {
+        if let Some((tm, sm, gm, geo, pm, bm, km, ed)) = providers_ref {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
             event_providers.push(sm as &dyn azul_core::events::EventProvider);
             event_providers.push(gm as &dyn azul_core::events::EventProvider);
@@ -7361,6 +7853,7 @@ pub trait PlatformWindow {
             event_providers.push(pm as &dyn azul_core::events::EventProvider);
             event_providers.push(bm as &dyn azul_core::events::EventProvider);
             event_providers.push(km as &dyn azul_core::events::EventProvider);
+            event_providers.push(ed as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -7434,6 +7927,26 @@ pub trait PlatformWindow {
                 .apply_press_target_capture(&mut synthetic_events, &in_release_path);
         }
 
+        // Pointer capture: while a node holds the pointer, moves and the
+        // release go to IT, not to whatever the hit test found. The capture
+        // ends with the release (W3C `setPointerCapture` semantics).
+        if let Some(captured) = self.get_layout_window().and_then(|lw| lw.pointer_capture) {
+            use azul_core::events::EventType;
+            let mut released = false;
+            for ev in &mut synthetic_events {
+                if matches!(ev.event_type, EventType::MouseOver | EventType::MouseUp) {
+                    ev.target = captured;
+                    ev.current_target = captured;
+                    released |= ev.event_type == EventType::MouseUp;
+                }
+            }
+            if released {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.pointer_capture = None;
+                }
+            }
+        }
+
         // Clear the sensor/gamepad pending-event flags now that this pass has
         // collected their events (the immutable event_providers borrow ended
         // above). One SensorChanged/GamepadInput fires per change, not per frame.
@@ -7454,6 +7967,7 @@ pub trait PlatformWindow {
             w.permission_manager.clear_pending_changed();
             w.biometric_manager.clear_pending_event();
             w.keyring_manager.clear_pending_event();
+            w.eyedropper_manager.clear_pending_event();
             w.gesture_drag_manager.clear_pen_event_pending();
             // The injected native gesture (macOS magnify/rotate, debug-server
             // injection) is NOT cleared here: the PinchIn/PinchOut callbacks
@@ -7722,6 +8236,43 @@ pub trait PlatformWindow {
         // Managers have already been updated with current state (hit test, clicks, etc.)
         // Now we query them to detect multi-frame event patterns.
 
+        // Latch the anchor of a text-selection drag on the PRESS, and only when
+        // that press landed on an editable. See
+        // `LayoutWindow::text_selection_drag_anchor` for what the previous
+        // "current cursor position whenever left_down && editing" produced:
+        // dragging the window by its custom titlebar became a selection drag
+        // (armed drag-autoscroll, scrolled the UI to the top), and anchor ==
+        // current made every selection range empty.
+        {
+            let (left_down, pos) = {
+                let st = self.get_current_window_state();
+                (st.mouse_state.left_down, st.mouse_state.cursor_position.get_position())
+            };
+            let press_on_editable = hit_test_for_dispatch.as_ref().is_some_and(|ht| {
+                self.get_layout_window().is_some_and(|lw| {
+                    ht.hovered_nodes.iter().any(|(dom_id, hit)| {
+                        lw.layout_results.get(dom_id).is_some_and(|lr| {
+                            hit.regular_hit_test_nodes.keys().any(|nid| {
+                                azul_layout::solver3::getters::is_node_contenteditable_inherited(
+                                    &lr.styled_dom,
+                                    *nid,
+                                )
+                            })
+                        })
+                    })
+                })
+            });
+            if let Some(lw) = self.get_layout_window_mut() {
+                if left_down && !lw.prev_left_down {
+                    // Press edge: this is the only moment an anchor is born.
+                    lw.text_selection_drag_anchor = if press_on_editable { pos } else { None };
+                } else if !left_down {
+                    lw.text_selection_drag_anchor = None;
+                }
+                lw.prev_left_down = left_down;
+            }
+        }
+
         let current_window_state = self.get_current_window_state();
 
         // Filter events via the configurable input interpreter callback.
@@ -7737,15 +8288,9 @@ pub trait PlatformWindow {
                 state: InputInterpreterState {
                     focused_node: layout_window.focus_manager.get_focused_node().copied(),
                     click_count: 1,
-                    // Provide drag start position when left mouse is down and editing is active.
-                    // This enables TextSelectionDrag events during mouse drag.
-                    drag_start_position: if current_window_state.mouse_state.left_down
-                        && layout_window.text_edit_manager.has_active_editing()
-                    {
-                        current_window_state.mouse_state.cursor_position.get_position()
-                    } else {
-                        None
-                    },
+                    // Where the press that began this drag landed — latched
+                    // above, and only when it was on an editable.
+                    drag_start_position: layout_window.text_selection_drag_anchor,
                     has_selection: layout_window.text_edit_manager.multi_cursor.as_ref()
                         .map(|mc| mc.selections.iter().any(|s| matches!(&s.selection, azul_core::selection::Selection::Range(_))))
                         .unwrap_or(false),
@@ -8007,6 +8552,18 @@ pub trait PlatformWindow {
                 }
                 None => {
                     post_system_changes.push(SystemChange::ActivateWindowDrag);
+                }
+            }
+
+            // Record the drag SOURCE (the node under the PRESS point) so
+            // DragStart/Drag/DragEnd stick to it for the whole gesture, W3C
+            // style — resolved here, where the hit-tester is, and held in the
+            // gesture manager (remapped across rebuilds). Without it the drag
+            // followed the live hover and "stopped" when the cursor left the
+            // dragged element.
+            if let Some(source) = self.drag_source_node() {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.gesture_drag_manager.set_drag_source_node(source);
                 }
             }
         }

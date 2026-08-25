@@ -6645,6 +6645,12 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     ("keyring", "host capability with no headless backend"),
     ("sensors", "host capability with no headless backend"),
     (
+        "eyedropper",
+        "host capability (a native screen colour-sampler) with no headless backend — its \
+         issued/last_result/pending_event never populate in a headless run, so there is no \
+         latch to assert. The state it CAN hold is fingerprinted as `eyedropper`",
+    ),
+    (
         "a11y",
         "HAS state (A11yManager.tree) and IS a LayoutWindow field, so this one is a real gap, \
          not an impossibility: proving a tree node still maps to a live DOM node needs an \
@@ -7637,6 +7643,7 @@ fn fingerprinted_managers() -> Vec<&'static str> {
         "biometric",
         "keyring",
         "sensors",
+        "eyedropper",
     ];
     #[cfg(feature = "a11y")]
     names.push("a11y");
@@ -7757,6 +7764,7 @@ pub(crate) fn manager_fingerprints(
     out.insert("biometric".to_string(), fp_biometric(&lw.biometric_manager));
     out.insert("keyring".to_string(), fp_keyring(&lw.keyring_manager));
     out.insert("sensors".to_string(), fp_sensors(&lw.sensor_manager));
+    out.insert("eyedropper".to_string(), fp_eyedropper(&lw.eyedropper_manager));
     #[cfg(feature = "a11y")]
     out.insert("a11y".to_string(), fp_a11y(&lw.a11y_manager));
     out
@@ -8179,6 +8187,18 @@ fn fp_sensors(m: &azul_layout::managers::sensors::SensorManager) -> ManagerFinge
         format!(
             "accel={:?} gyro={:?} mag={:?} pending={} listeners={}",
             m.accelerometer, m.gyroscope, m.magnetometer, m.pending_event, m.has_listeners
+        ),
+    )
+}
+
+fn fp_eyedropper(m: &azul_layout::managers::eyedropper::EyedropperManager) -> ManagerFingerprint {
+    ManagerFingerprint::new(
+        m.issued().len() + usize::from(m.last_result().is_some()),
+        format!(
+            "issued={:?} last_result={:?} pending_async={}",
+            m.issued(),
+            m.last_result(),
+            m.has_pending_async(),
         ),
     )
 }
@@ -15290,24 +15310,23 @@ pub fn process_debug_event(
             // triggers process_window_events() internally. Setting needs_update would
             // cause Update::RefreshDom → full DOM rebuild, overwriting text edits.
 
-            // Special handling for text editing keys on contenteditable nodes.
-            // On native macOS, these go through NSTextInputClient → doCommandBySelector:.
-            // The debug server must simulate that by pushing the appropriate CallbackChange.
-            if let Some(keycode) = parse_virtual_keycode(key) {
-                let layout_window = callback_info.get_layout_window();
-                let focused = layout_window.focus_manager.get_focused_node().copied();
-                if let Some(focused) = focused {
-                    match keycode {
-                        VirtualKeyCode::Back => {
-                            callback_info.delete_backward(focused);
-                        }
-                        VirtualKeyCode::Delete => {
-                            callback_info.delete_forward(focused);
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            // Backspace / Delete are deliberately NOT special-cased here — they
+            // ride the exact route a real keystroke takes. The
+            // `current_virtual_keycode` set above makes the state-diff pass emit
+            // VirtualKeyDown(Back/Delete), whose default action is
+            // `SystemChange::ApplySelectionOp { Delete }` →
+            // `LayoutWindow::apply_selection_op` → `delete_selection`.
+            //
+            // This used to shortcut them to `callback_info.delete_backward()` /
+            // `delete_forward()` (the C-API arm), on the false premise that native
+            // macOS routes them through `doCommandBySelector:` — that selector is
+            // a NO-OP; the real macOS `keyDown:` falls through to
+            // `handle_key_down` → the SAME ApplySelectionOp path. The shortcut
+            // BYPASSED `apply_selection_op`, so keyboard delete could be entirely
+            // dead (as it was for TextInput/TextArea, whose IFC lives on a value
+            // child the focused host block does not carry) while every e2e
+            // backspace test still passed. Driving the real path keeps the
+            // headless e2e route and the native keyDown route one code path.
 
             send_ok(request, None, None);
         }
@@ -17439,6 +17458,22 @@ mod non_interference_can_fail {
                 m.pending_event = true;
             },
             super::fp_sensors
+        );
+        assert_moves!(
+            "eyedropper",
+            azul_layout::managers::eyedropper::EyedropperManager::new(),
+            |m: &mut azul_layout::managers::eyedropper::EyedropperManager| {
+                // begin_request() bumps the PROCESS-GLOBAL `IN_FLIGHT` counter
+                // and only fold_result() releases it — a bare begin here leaked
+                // one in-flight pick forever and raced
+                // `results_are_routed_to_the_window_that_asked`'s
+                // `assert!(!in_flight_anywhere())` in the parallel test run.
+                // Complete the pick: the fingerprint still moves, via
+                // `last_result` (None → Some(None)).
+                let id = m.begin_request();
+                let _ = m.fold_result(id, None);
+            },
+            super::fp_eyedropper
         );
         #[cfg(feature = "a11y")]
         assert_moves!(

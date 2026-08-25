@@ -596,9 +596,9 @@ fn label_beside_a_resolved_fontref_icon_stays_on_one_line() {
         )
         .unwrap();
 
-    // 0 body, 1 btn, 2 glyph(icon->text), 3 lbl
+    // 0 body, 1 btn, 2 glyph (icon -> span), 3 its text leaf, 4 lbl
     let btn_rect = layout_window.get_node_layout_rect(node_id(1)).expect("btn rect");
-    let lbl_rect = layout_window.get_node_layout_rect(node_id(3)).expect("lbl rect");
+    let lbl_rect = layout_window.get_node_layout_rect(node_id(4)).expect("lbl rect");
     println!("btn = {btn_rect:?}\nlbl = {lbl_rect:?}");
 
     assert!(

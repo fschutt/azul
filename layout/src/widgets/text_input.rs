@@ -167,8 +167,17 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
             inner: COLOR_9B9B9B,
         },
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    // A single-line field CLIPS vertically but SCROLLS horizontally WITHOUT a
+    // scrollbar, so the caret stays visible once the text runs past the right
+    // edge. `overflow-x: hidden` clipped the caret (the "append-only" feel the
+    // user hit); `auto` makes the container a scroll box the caret-reveal
+    // (`scroll_selection_into_view`) can shift, and `scrollbar-width: none` keeps
+    // a one-line input from sprouting a horizontal bar under it.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
+        LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
@@ -464,8 +473,22 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    // The value line SCROLLS horizontally (no visible bar) so the caret stays
+    // in view once the text runs past the right edge. This is where the scroll
+    // MUST live: the container is a block box this value `<p>` fills exactly
+    // (394 px in a 400 px field), so the overflowing line is INSIDE this box,
+    // not the container's. `overflow-x: hidden` trapped it and the field went
+    // append-only — the caret walked off the right edge and new characters were
+    // invisible. `auto` makes this the horizontal scroll box the caret-reveal
+    // (`scroll_selection_into_view` → `find_scrollable_ancestor`) shifts to
+    // follow the caret; `scrollbar-width: none` keeps a one-line field from
+    // reserving vertical space for a horizontal bar. `white-space: pre` keeps
+    // the value on one line so it overflows horizontally rather than wrapping.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
+        LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )),
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
@@ -481,8 +504,22 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    // The value line SCROLLS horizontally (no visible bar) so the caret stays
+    // in view once the text runs past the right edge. This is where the scroll
+    // MUST live: the container is a block box this value `<p>` fills exactly
+    // (394 px in a 400 px field), so the overflowing line is INSIDE this box,
+    // not the container's. `overflow-x: hidden` trapped it and the field went
+    // append-only — the caret walked off the right edge and new characters were
+    // invisible. `auto` makes this the horizontal scroll box the caret-reveal
+    // (`scroll_selection_into_view` → `find_scrollable_ancestor`) shifts to
+    // follow the caret; `scrollbar-width: none` keeps a one-line field from
+    // reserving vertical space for a horizontal bar. `white-space: pre` keeps
+    // the value on one line so it overflows horizontally rather than wrapping.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
+        LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )),
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
@@ -498,8 +535,22 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
-    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    // The value line SCROLLS horizontally (no visible bar) so the caret stays
+    // in view once the text runs past the right edge. This is where the scroll
+    // MUST live: the container is a block box this value `<p>` fills exactly
+    // (394 px in a 400 px field), so the overflowing line is INSIDE this box,
+    // not the container's. `overflow-x: hidden` trapped it and the field went
+    // append-only — the caret walked off the right edge and new characters were
+    // invisible. `auto` makes this the horizontal scroll box the caret-reveal
+    // (`scroll_selection_into_view` → `find_scrollable_ancestor`) shifts to
+    // follow the caret; `scrollbar-width: none` keeps a one-line field from
+    // reserving vertical space for a horizontal bar. `white-space: pre` keeps
+    // the value on one line so it overflows horizontally rather than wrapping.
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
+        LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
+    )),
     CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
         StyleWhiteSpace::Pre,
     ))),
@@ -735,7 +786,11 @@ impl Default for TextInputState {
         Self {
             text: Vec::new().into(),
             placeholder: None.into(),
-            max_len: 50,
+            // Unlimited, like a browser <input> without `maxlength`. The old
+            // default was an arbitrary 50 that nothing enforced; now that
+            // typing past `max_len` is vetoed (default_on_text_input), keeping
+            // 50 would have silently capped every existing field.
+            max_len: usize::MAX,
             selection: None.into(),
             cursor_pos: 0,
         }
@@ -1069,6 +1124,23 @@ fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
 }
 
 /// Shows or hides the placeholder prompt.
+/// Drop the imperative placeholder override so the CASCADE decides again.
+///
+/// `set_placeholder_visible` writes a USER OVERRIDE, and an override is copied
+/// onto every rebuild by `migrate_user_overrides_from` and OUTRANKS the
+/// cascade — permanently. `dom()` already derives the placeholder's visibility
+/// from the widget's own text (`hidden_placeholder_style`), so once the widget
+/// is about to be rebuilt the override is at best redundant and at worst a
+/// latch: a placeholder hidden on the first keystroke stayed hidden for the
+/// rest of the window's life, even over an empty field. Exactly the bug the
+/// Accordion had, and it takes the same remedy — clear when the callback asks
+/// for a rebuild, keep the concrete value when it does not (there is no
+/// rebuild coming, so the override IS the only mechanism).
+fn clear_placeholder_override(info: &mut CallbackInfo, placeholder: DomNodeId) {
+    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Opacity));
+    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Display));
+}
+
 fn set_placeholder_visible(info: &mut CallbackInfo, placeholder: DomNodeId, visible: bool) {
     let (display, opacity) = if visible {
         (LayoutDisplay::Block, StyleOpacity::const_new(100))
@@ -1255,6 +1327,12 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
                 },
             }
         };
+        // A rebuild re-derives the placeholder from the widget's own text, so
+        // the override written above must not outlive it. See
+        // `clear_placeholder_override`.
+        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            clear_placeholder_override(&mut info, placeholder_node_id);
+        }
         return Some(result.update);
     }
 
@@ -1268,6 +1346,41 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     let caret = engine_caret(&info, container);
     adopt_engine_text(&mut text_input.inner, &info, container);
+
+    // maxlength: veto an insertion that would GROW the value past `max_len`
+    // (counted in characters, the stored unit). Replacement-aware: the engine
+    // deletes the live selection before inserting, so the prospective length
+    // is current − selected + inserted. An edit that shrinks or holds the
+    // length always passes — a select-all-and-type at the limit must not be
+    // blocked, and a value pushed over the limit programmatically
+    // (`set_text` is deliberately NOT capped, like a browser's programmatic
+    // assignment) can still be edited back down.
+    {
+        let current = text_input.inner.get_text();
+        let current_chars = current.chars().count();
+        let selected_chars = match engine_selection(&info, container, current.len()) {
+            Some(TextInputSelection::All) => current_chars,
+            Some(TextInputSelection::FromTo(r)) => {
+                let (a, b) = (r.dir_from.min(r.dir_to), r.dir_from.max(r.dir_to));
+                if b <= current.len()
+                    && current.is_char_boundary(a)
+                    && current.is_char_boundary(b)
+                {
+                    current[a..b].chars().count()
+                } else {
+                    0
+                }
+            }
+            None => 0,
+        };
+        let prospective = current_chars
+            .saturating_sub(selected_chars)
+            .saturating_add(inserted_text.chars().count());
+        if prospective > text_input.inner.max_len && prospective > current_chars {
+            info.prevent_default();
+            return Some(Update::DoNothing);
+        }
+    }
 
     let result = {
         // rustc doesn't understand the borrowing lifetime here
@@ -1298,6 +1411,15 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         mirror_insertion(&mut text_input.inner, &inserted_text, caret);
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
+        // Same as above: an override must not outlive the rebuild that
+        // supersedes it. See `clear_placeholder_override`. Inside the ACCEPTED
+        // branch on purpose — a rejected edit changed nothing observable and
+        // must stay a strict no-op, which is what
+        // `text_input_rejected_by_the_hook_leaves_the_buffer_and_the_screen_untouched`
+        // pins.
+        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            clear_placeholder_override(&mut info, placeholder_node_id);
+        }
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
@@ -2038,15 +2160,20 @@ mod autotest_generated {
 
     #[test]
     fn set_text_does_not_enforce_max_len() {
-        // KNOWN GAP: `max_len` defaults to 50 and is never read anywhere in this
-        // module — not by `set_text`, not by the text-input handler. A 200-char
-        // assignment is stored whole. Pinned so that adding enforcement later shows
-        // up as a deliberate change rather than a silent one.
+        // INTENDED: `max_len` caps USER input (the text-input handler vetoes a
+        // growing keystroke), but a PROGRAMMATIC assignment is stored whole —
+        // the same split a browser makes: `maxlength` never truncates a value
+        // set from script. The default is unlimited (`usize::MAX`), like an
+        // <input> without `maxlength`.
         let long: String = "x".repeat(200);
-        let input = TextInput::create().with_text(long.clone().into());
-        assert_eq!(input.text_input_state.inner.max_len, 50);
+        let mut input = TextInput::create().with_text(long.clone().into());
+        assert_eq!(input.text_input_state.inner.max_len, usize::MAX);
         assert_eq!(input.text_input_state.inner.text.len(), 200);
         assert_eq!(input.text_input_state.inner.get_text(), long);
+        // Even a field WITH a limit accepts a longer programmatic value.
+        input.text_input_state.inner.max_len = 50;
+        input.set_text("y".repeat(80).into());
+        assert_eq!(input.text_input_state.inner.text.len(), 80);
     }
 
     #[test]
@@ -2376,7 +2503,8 @@ mod autotest_generated {
         assert!(input.text_input_state.inner.placeholder.is_none());
         assert!(input.text_input_state.inner.selection.is_none());
         assert_eq!(input.text_input_state.inner.cursor_pos, 0);
-        assert_eq!(input.text_input_state.inner.max_len, 50);
+        // Unlimited by default, like an <input> without `maxlength`.
+        assert_eq!(input.text_input_state.inner.max_len, usize::MAX);
         assert!(input.text_input_state.on_text_input.as_ref().is_none());
         assert!(input.text_input_state.on_virtual_key_down.as_ref().is_none());
         assert!(input.text_input_state.on_focus_lost.as_ref().is_none());
@@ -3066,17 +3194,42 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_ignores_max_len() {
-        // KNOWN GAP (same root cause as `set_text_does_not_enforce_max_len`): typing
-        // past `max_len` is accepted, one changeset at a time.
+    fn text_input_default_max_len_is_unlimited() {
+        // The default is unlimited, like an <input> without `maxlength`: an
+        // 80-char insertion into a fresh field is accepted whole.
         let (styled_dom, state) = rendered(TextInput::create());
         let filler: String = "x".repeat(80);
         let (_, _, _) = run(Env::new(styled_dom).insert(&filler), |info| {
             default_on_text_input(state.clone(), info)
         });
         let after = state_of(&state);
-        assert_eq!(after.max_len, 50);
+        assert_eq!(after.max_len, usize::MAX);
         assert_eq!(after.text.len(), 80);
+    }
+
+    #[test]
+    fn typing_past_max_len_is_vetoed() {
+        // maxlength: a keystroke that would GROW the value past `max_len` is
+        // vetoed — the widget state keeps the old text and `PreventDefault`
+        // stops the engine from applying the recorded changeset. (Programmatic
+        // `set_text` stays uncapped; see `set_text_does_not_enforce_max_len`.)
+        let mut input = TextInput::create().with_text("abc".into());
+        input.text_input_state.inner.max_len = 3;
+        let (styled_dom, state) = rendered(input);
+        let (_, changes, _) = run(Env::new(styled_dom).insert("d"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(
+            state_of(&state).get_text(),
+            "abc",
+            "the over-limit keystroke was applied anyway",
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "the over-limit keystroke did not veto the engine changeset: {changes:?}",
+        );
     }
 
     // ==================================================================

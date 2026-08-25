@@ -509,6 +509,22 @@ impl X11Window {
                 // Drop→close() to skip XDestroyWindow (its `if self.is_open` guard is
                 // now false), so the dismissed menu's X window would leak — stay
                 // mapped and keep grabbing — and the menu would never disappear.
+                // A `<transient-window>` popup must go through the engine's
+                // dismissal instead (post `dismissed`, request the close, wake
+                // the parent), so the parent's manager and the widget learn
+                // about it — closing the X window alone left the popup "open"
+                // in the engine, and the next click on the swatch only closed
+                // that ghost. The requested close reaches close() → ungrab.
+                {
+                    use crate::desktop::shell2::common::event::PlatformWindow;
+                    if crate::desktop::shell2::common::transient::post_dismissed(
+                        self.common.current_window_state(),
+                    ) {
+                        let _ = self.request_window_close("x11.popup.outside_press");
+                        self.request_regeneration_all_windows();
+                        return ProcessEventResult::DoNothing;
+                    }
+                }
                 self.close();
                 return ProcessEventResult::DoNothing;
             }
@@ -1767,7 +1783,7 @@ mod tests {
             NodeId::new(node),
             HitTestItem {
                 point_in_viewport: LogicalPosition::zero(),
-                point_relative_to_item: LogicalPosition::zero(),
+                point_relative_to_item: Default::default(),
                 is_focusable: false,
                 is_virtual_view_hit: None,
                 hit_depth: 0,

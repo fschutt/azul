@@ -72,6 +72,12 @@ pub struct LayerId(pub u64);
 /// only damaged layers are re-rendered, and scroll is handled by pixel-shift.
 #[derive(Debug)]
 pub struct CompositorState {
+    /// What the ROOT layer is cleared to every frame: opaque white for an
+    /// ordinary window, transparent black for a window whose background
+    /// material is `Transparent` (the OS composites whatever the content
+    /// leaves at alpha 0 - the desktop shows through a popup's rounded
+    /// corners). Set through [`Self::set_clear_color`] before rendering.
+    pub clear_color: [u8; 4],
     /// All layers keyed by ID.
     pub layers: HashMap<LayerId, Layer>,
     /// Root layer of the tree.
@@ -222,6 +228,7 @@ impl CompositorState {
         let mut layers = HashMap::new();
         layers.insert(root_id, root_layer);
         Self {
+            clear_color: [255, 255, 255, 255],
             layers,
             root_layer: root_id,
             next_layer_id: 1,
@@ -714,10 +721,12 @@ impl CompositorState {
             let layer = self.layers.get_mut(layer_id).unwrap();
             layer.scroll_offset = soff;
 
-            // Clear the layer pixbuf: white for the root, the parent's
-            // backdrop for a plain layer, transparent for an effect layer.
+            // Clear the layer pixbuf: the clear colour (white; transparent
+            // for a transparent window) for the root, the parent's backdrop
+            // for a plain layer, transparent for an effect layer.
             if *layer_id == self.root_layer {
-                layer.pixbuf.fill(255, 255, 255, 255);
+                let [r, g, b, a] = self.clear_color;
+                layer.pixbuf.fill(r, g, b, a);
             } else if let Some(seed) = seed.filter(|s| s.len() == layer.pixbuf.data().len()) {
                 layer.pixbuf.data_mut().copy_from_slice(&seed);
             } else {
@@ -747,6 +756,11 @@ impl CompositorState {
     }
 
     /// Composite all layers bottom-up into the final output pixmap.
+    /// Clear the root layer to `color` from now on (see the field).
+    pub const fn set_clear_color(&mut self, color: [u8; 4]) {
+        self.clear_color = color;
+    }
+
     pub fn composite_frame(&self, output: &mut AzulPixmap, dpi_factor: f32) {
         // Start from root layer, with an identity device transform, unclipped.
         self.composite_layer_recursive(self.root_layer, output, MAT3_IDENTITY, None, dpi_factor);

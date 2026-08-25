@@ -12,13 +12,12 @@ use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo},
-    geom::{LogicalPosition, LogicalRect, LogicalSize, PhysicalPosition},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     menu::{Menu, MenuPopupPosition},
     refany::RefAny,
-    window::{WindowPosition, WindowType},
 };
 use azul_css::system::SystemStyle;
-use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
+use azul_layout::window_state::WindowCreateOptions;
 
 use crate::desktop::display::{get_display_at_point, get_primary_display};
 use crate::desktop::shell2::common::debug_server::LogCategory;
@@ -430,27 +429,21 @@ pub fn show_menu(
         child_menu_ids: Arc::new(std::sync::Mutex::new(Vec::new())),
     };
 
-    let mut window_state = FullWindowState::default();
-
-    window_state.flags.window_type = WindowType::Menu;
-    window_state.flags.is_always_on_top = true;
-    window_state.flags.is_visible = true;
-    window_state.flags.decorations = azul_core::window::WindowDecorations::None;
-    window_state.flags.is_resizable = false;
-    window_state.title = "Menu".into();
-    window_state.window_id = "azul-menu".into();
-    // Position the popup RELATIVE to the parent window's top-left. `menu_pos` is
-    // an absolute (work-area-clamped) screen position; convert it to a
-    // parent-local offset so the backend re-resolves it against the parent's live
-    // origin. This is the single unified positioning model: it works where
-    // absolute screen coords aren't available (Wayland's xdg_popup) and degrades
-    // to monitor-relative when there is no parent. The spawner sets
-    // `parent_window_id` (0 here = filled in by the caller).
-    window_state.position = WindowPosition::RelativeToParentWindow(PhysicalPosition::new(
-        (menu_pos.x - parent_window_position.x) as i32,
-        (menu_pos.y - parent_window_position.y) as i32,
-    ));
-
+    // A menu is a popup window like any other (`<transient-window>` shares
+    // this builder): Menu-type, borderless, always on top, parent-relative.
+    // `menu_pos` is an absolute (work-area-clamped) screen position; convert
+    // it to a parent-local offset so the backend re-resolves it against the
+    // parent's live origin. Wayland cannot take screen coordinates at all, and
+    // it degrades to monitor-relative when there is no parent.
+    let mut window_state = crate::desktop::shell2::common::transient::popup_window_state(
+        "Menu",
+        "azul-menu",
+        estimated_size,
+        LogicalPosition::new(
+            menu_pos.x - parent_window_position.x,
+            menu_pos.y - parent_window_position.y,
+        ),
+    );
     window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
         // Carry the per-window MenuWindowData to menu_layout_callback via the callback
@@ -458,20 +451,6 @@ pub fn show_menu(
         // data, so the menu data cannot travel that way.
         ctx: azul_core::refany::OptionRefAny::Some(RefAny::new(menu_data)),
     };
-
-    // A menu is a borderless, WM-unmanaged popup: declare override-redirect + a
-    // WM_CLASS on the window options. The X11 backend honors x11_override_redirect
-    // (creates the window frameless so the WM doesn't draw a titlebar); the
-    // compositor reads the WM_CLASS + _NET_WM_WINDOW_TYPE=POPUP_MENU to classify it.
-    {
-        use azul_core::window::{AzStringPair, StringPairVec};
-        let lin = &mut window_state.platform_specific_options.linux_options;
-        lin.x11_override_redirect = true;
-        lin.x11_wm_classes = StringPairVec::from_vec(vec![AzStringPair {
-            key: "azul-menu".into(),
-            value: "Azul".into(),
-        }]);
-    }
 
     WindowCreateOptions {
         window_state,

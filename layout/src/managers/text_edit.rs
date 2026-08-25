@@ -197,6 +197,15 @@ pub struct TextTweenState {
     /// describing a rectangle that belongs to nothing: the next frame then
     /// glides the caret across the screen from a dead rect.
     pub node: Option<DomNodeId>,
+    /// Focusable the tracked caret geometry currently sits inside, as
+    /// [`super::super::window::LayoutWindow::find_focusable_ancestor`] reports
+    /// it. `None` is a real value — text outside any focusable — and compares
+    /// equal to itself.
+    ///
+    /// A text field is a focusable container around a contenteditable child, so
+    /// the caret's own node cannot tell two fields apart from two paragraphs of
+    /// one field. This can.
+    pub focus_scope: Option<DomNodeId>,
     /// In-flight caret tween, if any.
     pub caret: Option<CaretTweenTrack>,
     /// Caret rect the last display-list pass RENDERED (tween target space).
@@ -227,6 +236,7 @@ impl Clone for TextTweenState {
         Self {
             dom_id: self.dom_id,
             node: self.node,
+            focus_scope: self.focus_scope,
             caret: self.caret.clone(),
             last_caret: self.last_caret,
             selection: self.selection.clone(),
@@ -256,6 +266,7 @@ impl TextTweenState {
     pub fn reset(&mut self) {
         self.dom_id = None;
         self.node = None;
+        self.focus_scope = None;
         self.caret = None;
         self.last_caret = None;
         self.selection = None;
@@ -272,6 +283,7 @@ impl TextTweenState {
     /// ring.
     pub fn reset_text_tweens(&mut self) {
         self.node = None;
+        self.focus_scope = None;
         self.caret = None;
         self.last_caret = None;
         self.selection = None;
@@ -452,6 +464,31 @@ impl TextEditManager {
     ///
     /// `Instant::now()` honours the thread-scoped E2E test clock, so this stays
     /// deterministic under `tick_ms`.
+    /// Record which focusable the caret is about to sit inside, dropping the
+    /// tracked caret/selection geometry when that is a DIFFERENT one.
+    ///
+    /// Call this immediately before [`Self::initialize_editing`], with
+    /// `LayoutWindow::find_focusable_ancestor` of the node the caret is landing
+    /// on. The geometry is what the tween glides FROM, so dropping it is what
+    /// turns a glide into a jump.
+    ///
+    /// Node identity is the wrong test: a text field is a focusable container
+    /// wrapping a contenteditable child, so every caret move inside one field
+    /// would look like a "different node" while two separate fields' carets
+    /// look no different from two paragraphs of the same editor. The caret
+    /// should glide between paragraphs sitting next to each other — it really
+    /// did travel that distance — but never between two text inputs, where it
+    /// would animate out of one box, across whatever lies between, and into
+    /// the other.
+    pub fn enter_focus_scope(&mut self, scope: Option<DomNodeId>) {
+        // A scope of None (text in no focusable at all) compares equal to
+        // itself, so plain prose keeps gliding within itself.
+        if self.tween.focus_scope != scope {
+            self.tween.reset_text_tweens();
+        }
+        self.tween.focus_scope = scope;
+    }
+
     pub fn initialize_editing(
         &mut self,
         cursor: TextCursor,
@@ -470,7 +507,13 @@ impl TextEditManager {
         ));
         // The tween now tracks THIS node's caret. The previously rendered
         // geometry is kept on purpose — that is what makes the caret glide
-        // from the field it left to the one it entered.
+        // from where it was to where it landed.
+        //
+        // Whether that glide is WANTED is decided by focus scope, not by node
+        // identity, and only the tree knows the scopes: see
+        // [`Self::enter_focus_scope`], which the caller invokes first and which
+        // drops this geometry when the caret crosses into a different
+        // focusable.
         self.tween.node = Some(dom_node_id);
         self.blink.reset_blink_on_input(Instant::now());
         self.clear_preedit();

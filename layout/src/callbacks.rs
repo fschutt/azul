@@ -29,6 +29,7 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
     resources::{ImageCache, ImageMask, ImageRef, LoadedFont, LoadedFontVec, RendererResources},
     selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
+    spaces::Inclusivity,
     styled_dom::{NodeHierarchyItemId, NodeHierarchyItemIdVec, StyledDom},
     task::{self, GetSystemTimeCallback, Instant, ThreadId, ThreadIdVec, TimerId, TimerIdVec},
     window::{KeyboardState, Monitor, MonitorVec, MouseState, OptionMonitor, RawWindowHandle, WindowFlags, WindowSize},
@@ -482,6 +483,29 @@ pub enum CallbackChange {
         /// Optional position override (if None, uses menu.position)
         position: Option<LogicalPosition>,
     },
+
+    /// Hold a `<transient-window>` node open (or let it close) regardless of
+    /// its `open` attribute — how a self-contained widget opens its own popup
+    /// without the app carrying a flag. Node-keyed in the window's transient
+    /// manager, so it survives rebuilds; a user dismissal clears it.
+    SetTransientWindowOpen { node: DomNodeId, open: bool },
+
+    /// Tear a `tearoff`-capable `<transient-window>` off into a free toplevel
+    /// (`torn = true`) or dock it back onto its anchor (`false`) — what the
+    /// user's drag of its `-azul-app-region: drag` strip does, available to a
+    /// "float" / "dock" button as well.
+    SetTransientWindowTorn { node: DomNodeId, torn: bool },
+
+    /// Start the platform eyedropper (`CallbackInfo::pick_screen_color`). The
+    /// request is routed through this window's `EyedropperManager` so the
+    /// answer - `EventType::ScreenColorPicked` - comes back to THIS window.
+    PickScreenColor,
+
+    /// Route every mouse move and the release to `node` until the button
+    /// comes up, whatever is under the cursor (W3C `setPointerCapture`).
+    CapturePointer { node: DomNodeId },
+    /// Drop an active pointer capture before the release would.
+    ReleasePointerCapture,
 
     // Tooltip Management
     /// Show a tooltip at a specific position
@@ -2212,6 +2236,96 @@ impl CallbackInfo {
             menu,
             position: None,
         });
+    }
+
+    /// Open (or close) the `<transient-window>` at `node` regardless of its
+    /// `open` attribute. The popup appears after this callback's layout pass;
+    /// it stays open across rebuilds until closed here, by the attribute
+    /// going false, or by the user dismissing it (outside click / Escape —
+    /// which also fires `ComponentEventFilter::Dismissed` on the node).
+    ///
+    /// `node` must be in THIS window's dom: a popup's own callbacks cannot
+    /// reach into the parent's manager this way — close from inside a popup
+    /// is the dismiss path.
+    pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
+        self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
+    }
+
+    /// Tear the open `<transient-window>` at `node` off into a free toplevel
+    /// (`torn = true`, placed where the popup is) or dock it back onto its
+    /// anchor (`false`). Needs `tearoff` on the node; a plain popup ignores
+    /// it. The same thing the user's drag of the window's
+    /// `-azul-app-region: drag` strip does, and it fires the same
+    /// `ComponentEventFilter::TornOff` / `Docked` on the node.
+    pub fn set_transient_window_torn(&mut self, node: DomNodeId, torn: bool) {
+        self.push_change(CallbackChange::SetTransientWindowTorn { node, torn });
+    }
+
+    /// The drop zone the `tearoff="zone:..."` window at `node` is docked
+    /// onto, if any - the node matching the zone selector that the user
+    /// last dropped it on. `None` while it sits in its own parent (or is
+    /// torn off / not open). Informational: with `dock="inline"` the engine
+    /// already lays the panel out inside that zone; an app reads this in a
+    /// `Docked` handler to persist its workspace layout.
+    #[must_use]
+    #[allow(unused_qualifications)]
+    pub fn get_transient_window_zone(&self, node: DomNodeId) -> azul_core::dom::OptionDomNodeId {
+        let Some(n) = node.node.into_crate_internal() else {
+            return azul_core::dom::OptionDomNodeId::None;
+        };
+        if node.dom != azul_core::dom::DomId::ROOT_ID {
+            return azul_core::dom::OptionDomNodeId::None;
+        }
+        self.get_layout_window()
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == n)
+            .and_then(|w| w.anchor_override)
+            .map_or(azul_core::dom::OptionDomNodeId::None, |zone| {
+                azul_core::dom::OptionDomNodeId::Some(DomNodeId {
+                    dom: azul_core::dom::DomId::ROOT_ID,
+                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(zone)),
+                })
+            })
+    }
+
+    /// Let the user pick a colour from the screen with the platform
+    /// eyedropper: macOS's system sampler; elsewhere a screenshot shown in
+    /// a fullscreen loupe window (Wayland asks the user's permission through
+    /// the desktop portal first - the screen is not readable there without
+    /// it). Asynchronous: when the user picks or cancels, every callback in
+    /// THIS window registered for `WindowEventFilter::ScreenColorPicked`
+    /// runs and reads the answer with [`Self::get_picked_screen_color`].
+    pub fn pick_screen_color(&mut self) {
+        self.push_change(CallbackChange::PickScreenColor);
+    }
+
+    /// The outcome of the most recent [`Self::pick_screen_color`] in this
+    /// window: the colour under the pointer when the user clicked, or
+    /// `None` if they cancelled (or no pick has completed yet).
+    #[must_use]
+    pub const fn get_picked_screen_color(&self) -> azul_css::props::basic::color::OptionColorU {
+        match self.get_layout_window().eyedropper_manager.last_result() {
+            Some(Some(c)) => azul_css::props::basic::color::OptionColorU::Some(c),
+            _ => azul_css::props::basic::color::OptionColorU::None,
+        }
+    }
+
+    /// Capture the pointer for `node`: until the mouse button is released,
+    /// `MouseOver` and `MouseUp` are delivered to `node` even when the cursor
+    /// has left it — a drag that must follow the mouse (a slider thumb, a
+    /// colour plane) calls this from its `MouseDown` handler.
+    /// `get_cursor_relative_to_node` keeps reading against the node's rect
+    /// while captured, so coordinates may run outside `[0, size]`.
+    /// Released automatically on mouse-up, or by [`Self::release_pointer_capture`].
+    pub fn capture_pointer(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::CapturePointer { node });
+    }
+
+    /// End an active pointer capture early.
+    pub fn release_pointer_capture(&mut self) {
+        self.push_change(CallbackChange::ReleasePointerCapture);
     }
 
     /// Open a menu at a specific position
@@ -4752,14 +4866,40 @@ impl CallbackInfo {
         false
     }
 
-    /// Find the closest scrollable ancestor of a node.
+    /// The closest scrollable STRICT ancestor of a node — `node_id` itself is
+    /// never the answer.
     ///
-    /// Walks up the node hierarchy to find a node registered in the `ScrollManager`.
-    /// Used by auto-scroll timer to find which container to scroll.
+    /// This is the "chain outwards" question: which OTHER container takes over
+    /// when this one is exhausted (momentum hand-off), and whose scrolling
+    /// moves this one's box on screen. For "which scroll box does this node
+    /// live in?" use [`Self::find_scroll_target`], which may answer `node_id`.
     #[must_use] pub fn find_scroll_parent(
         &self,
         dom_id: DomId,
         node_id: NodeId,
+    ) -> Option<NodeId> {
+        self.find_scroll_container(dom_id, node_id, Inclusivity::AncestorsOnly)
+    }
+
+    /// The scroll box `node_id` LIVES IN — itself, if it is one.
+    ///
+    /// Drag-autoscroll wants this, not [`Self::find_scroll_parent`]: the caret
+    /// in a `TextInput` sits on the value `<p>`, which is simultaneously the
+    /// IFC root and the horizontal scroll box, so a strict-ancestor search
+    /// skipped straight past the field and scrolled the page instead.
+    #[must_use] pub fn find_scroll_target(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<NodeId> {
+        self.find_scroll_container(dom_id, node_id, Inclusivity::SelfAndAncestors)
+    }
+
+    fn find_scroll_container(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        inclusivity: Inclusivity,
     ) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_results = &layout_window.layout_results;
@@ -4767,7 +4907,7 @@ impl CallbackInfo {
         let node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
             lr.styled_dom.node_hierarchy.as_ref();
         self.get_scroll_manager()
-            .find_scroll_parent(dom_id, node_id, node_hierarchy)
+            .find_scroll_parent(dom_id, node_id, node_hierarchy, inclusivity)
     }
 
     /// Get a clone of the scroll input queue for consuming pending inputs.

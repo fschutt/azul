@@ -70,6 +70,36 @@ const ASSUMED_FPS: f32 = 60.0;
 /// a stretched view without a spring-back.
 const GESTURE_STALE_TICKS: u32 = 12;
 
+/// Ticks without a momentum delta after which an IGNORED momentum tail is
+/// considered finished and its latch is dropped (≈ 200 ms at the 16 ms tick).
+///
+/// The macOS tail is dense — one event per frame or better — right up to its
+/// last delta, so a gap this long means it really stopped, and a genuinely new
+/// fling must not be swallowed by a stale latch.
+const MOMENTUM_LATCH_STALE_TICKS: u32 = 12;
+
+/// Per-axis "ignore the OS momentum tail on this axis" latch for one node.
+///
+/// See [`ScrollPhysicsState::momentum_latched`] for why this is stored state
+/// and not a predicate over the live physics.
+#[derive(Copy, Debug, Clone, Default)]
+pub struct MomentumLatch {
+    /// The rubber-band spring owns X: drop this node's momentum X deltas.
+    pub x: bool,
+    /// The rubber-band spring owns Y: drop this node's momentum Y deltas.
+    pub y: bool,
+    /// Ticks since the last momentum delta arrived for this node.
+    pub idle: u32,
+}
+
+impl MomentumLatch {
+    /// True once neither axis is being ignored any more.
+    #[must_use]
+    pub const fn is_clear(&self) -> bool {
+        !self.x && !self.y
+    }
+}
+
 /// State stored in the timer's `RefAny` data.
 ///
 /// Contains the shared input queue, per-node velocity state, and the global
@@ -100,6 +130,67 @@ pub struct ScrollPhysicsState {
     /// delta, advanced by every delta, dropped at `TrackpadEnd` or after
     /// [`GESTURE_STALE_TICKS`] without one.
     pub trackpad_raw_positions: BTreeMap<(DomId, NodeId), (LogicalPosition, u32)>,
+    /// Per-node, per-axis latch: "the rubber-band spring owns this axis, so
+    /// the OS momentum tail for it is being IGNORED".
+    ///
+    /// macOS synthesises the momentum tail from the finger velocity AT LIFT-OFF
+    /// and replays that decay curve for 1-2 s. It is a canned animation: it
+    /// knows nothing about our content bounds, there is no API to cancel it,
+    /// and AppKit keeps delivering it to the view that was under the pointer
+    /// when momentum began. So deltas keep arriving long after the content is
+    /// pinned at an edge and the bounce has already finished.
+    ///
+    /// This was previously re-derived per event from `is_rubber_banding` — and
+    /// that is the bug, because both of its inputs are transient: the spring
+    /// CLEARS the flag when it lands, and the `node_velocities` retain then
+    /// evicts the node's whole entry. The guard therefore evaporated at exactly
+    /// the moment the bounce completed, and the next momentum delta re-seeded
+    /// the raw accumulator from the committed offset and stretched the node
+    /// straight back out for a WHOLE NEW BOUNCE. One flick played two or three
+    /// bounces ("it snaps back, then suddenly bounces again"); a device trace
+    /// shows the offset settling to 0.000 and jumping to -13.020 forty-five
+    /// milliseconds later.
+    ///
+    /// A latch is not derivable from live physics state — it is a fact about
+    /// the GESTURE — so it is stored. WebKit/Chromium's
+    /// `ScrollElasticityController` carries the same flag as
+    /// `ignore_momentum_scrolls_`, set when an edge is reached during momentum
+    /// and cleared only by the next finger-down, with the events consumed
+    /// rather than applied: "no visible scrolling but continued consumption of
+    /// momentum wheel events", to stop endless stretching.
+    ///
+    /// Dropped when the finger comes back down (a new gesture) or after
+    /// [`MOMENTUM_LATCH_STALE_TICKS`] with no momentum delta.
+    ///
+    /// ⚠ MUST be part of [`ScrollPhysicsState::is_active`]. The shell builds a
+    /// BRAND-NEW `ScrollPhysicsState` every time it starts the momentum timer
+    /// (`macos/events.rs:640`, and the same in the other four backends), so
+    /// whatever the timer terminates with is LOST. When the spring lands every
+    /// other map empties — while the tail is still running — so without this
+    /// the timer terminated right there and the next momentum delta restarted
+    /// it with an empty latch map, re-stretching the node: the very bug this
+    /// field exists to prevent, reintroduced through the timer's lifetime.
+    /// It cannot pin the timer, because the aging above bounds the latch to
+    /// [`MOMENTUM_LATCH_STALE_TICKS`] (~200 ms) after the last momentum delta.
+    /// Same reasoning as `trackpad_raw_positions`, which is in `is_active`
+    /// for exactly this reason.
+    pub momentum_latched: BTreeMap<(DomId, NodeId), MomentumLatch>,
+    /// When the previous physics tick ran, so this one can integrate over the
+    /// time that ACTUALLY elapsed.
+    ///
+    /// The simulation used to advance by a fixed `timer_interval_ms` — the
+    /// timer's CONFIGURED period — while the real gap between admitted ticks
+    /// jitters. `Timer::invoke` drops a fire that lands a hair under the
+    /// interval and then stamps `last_run = now` rather than
+    /// `last_run + interval`, so the phase never self-corrects and the next
+    /// step arrives ~2 intervals later; two independent 16 ms timers drive the
+    /// same pump; and 16 ms is neither 60 nor 120 Hz. Advancing 16 ms of
+    /// simulation over 16-32 ms of wall clock makes the apparent speed vary by
+    /// ±50 % frame to frame — the "blocky" scrolling.
+    ///
+    /// `None` on the first tick, which then falls back to the configured
+    /// interval (there is no previous timestamp to difference against).
+    pub last_tick: Option<azul_core::task::Instant>,
     /// Absolute offsets that `AnimateTo` / wheel-glide inputs are seeking,
     /// per node, together with the DEVICE that asked for the seek (device
     /// picks the spring duration: physical wheel clicks get the short
@@ -133,7 +224,9 @@ impl ScrollPhysicsState {
             pending_positions: BTreeMap::new(),
             pending_trackpad_positions: BTreeMap::new(),
             trackpad_raw_positions: BTreeMap::new(),
+            momentum_latched: BTreeMap::new(),
             animate_targets: BTreeMap::new(),
+            last_tick: None,
             scroll_physics,
         }
     }
@@ -155,6 +248,11 @@ impl ScrollPhysicsState {
             // against the 62.5 Hz tick used to terminate the timer on every
             // empty tick and restart it with a fresh state on the next event.
             || !self.trackpad_raw_positions.is_empty()
+            // An ignored momentum tail must keep the timer — and its latch —
+            // alive. The shell rebuilds this whole state on every timer start,
+            // so terminating here loses the latch and the tail re-stretches the
+            // node it just finished bouncing. Bounded by the latch aging.
+            || !self.momentum_latched.is_empty()
     }
 }
 
@@ -236,9 +334,33 @@ pub extern "C" fn scroll_physics_timer_callback(
         return TimerCallbackReturn::terminate_unchanged();
     };
 
+    // dt is the time that ACTUALLY passed, not the timer's configured period.
+    // See `ScrollPhysicsState::last_tick` for why those differ in practice.
+    // Clamped: a first tick, a suspended app or a debugger breakpoint must not
+    // teleport the simulation, and a zero/negative delta (a clock that did not
+    // move, or moved backwards) must not divide by zero downstream.
+    //
+    // Resolved BEFORE `sp` borrows the config, because it writes `last_tick`.
+    let configured_dt = physics.scroll_physics.timer_interval_ms.max(1) as f32 / 1000.0;
+    let dt = {
+        let elapsed = physics.last_tick.as_ref().map(|prev| {
+            // `Duration` here is azul's own (tick- or nanos-backed), so go
+            // through `as_nanos` rather than std's `as_secs_f32`.
+            #[allow(clippy::cast_precision_loss)] // a frame gap is far below f32's exact-integer range
+            let ns = timer_info.frame_start.duration_since(prev).as_nanos() as f32;
+            ns / 1_000_000_000.0
+        });
+        match elapsed {
+            Some(e) if e.is_finite() && e > 0.0 => e.clamp(0.001, 0.050),
+            // No previous tick, or a clock that did not advance: the configured
+            // period is the best estimate available.
+            _ => configured_dt,
+        }
+    };
+    physics.last_tick = Some(timer_info.frame_start.clone());
+
     // Extract physics config values
     let sp = &physics.scroll_physics;
-    let dt = sp.timer_interval_ms.max(1) as f32 / 1000.0;
     let friction_rate = friction_from_deceleration(sp.deceleration_rate);
     let velocity_threshold = sp.min_velocity_threshold;
     let wheel_multiplier = sp.wheel_multiplier;
@@ -273,9 +395,23 @@ pub extern "C" fn scroll_physics_timer_callback(
                     .entry(key)
                     .or_insert_with(NodeScrollPhysics::default);
                 np.is_rubber_banding = true;
+                // Same ownership rule as the `TrackpadEnd` arm below: the
+                // spring has the axis, so a tail arriving on it is ignored.
+                let latch = physics.momentum_latched.entry(key).or_default();
+                latch.idle = 0;
+                latch.x |= ox.abs() > 0.01;
+                latch.y |= oy.abs() > 0.01;
             }
         }
     }
+
+    // 0b. Age the momentum-ignore latches. The OS tail is dense right up to
+    // its last delta, so this many empty ticks means it is genuinely over and
+    // the next fling must not be swallowed by a leftover latch.
+    physics.momentum_latched.retain(|_, latch| {
+        latch.idle += 1;
+        latch.idle <= MOMENTUM_LATCH_STALE_TICKS
+    });
 
     // 1. Take at most MAX_SCROLL_EVENTS_PER_TICK recent inputs from the shared queue
     let inputs = physics.input_queue.take_recent(MAX_SCROLL_EVENTS_PER_TICK);
@@ -285,17 +421,48 @@ pub extern "C" fn scroll_physics_timer_callback(
         match input.source {
             ScrollInputSource::TrackpadContinuous | ScrollInputSource::TrackpadMomentum => {
                 let is_momentum = input.source == ScrollInputSource::TrackpadMomentum;
-                // Once the rubber-band spring owns the node, the OS momentum
-                // tail is dropped: it knows nothing about our edge, and a
-                // spring it kept killing was never seen (the view "wobbled
-                // back" along the momentum decay instead).
-                if is_momentum
-                    && physics
-                        .node_velocities
-                        .get(&key)
-                        .is_some_and(|v| v.is_rubber_banding)
-                {
-                    continue;
+                // Once the rubber-band spring owns an axis, the OS momentum tail
+                // for THAT axis is dropped: it knows nothing about our edge, and
+                // a spring it kept killing was never seen (the view "wobbled back"
+                // along the momentum decay instead).
+                //
+                // The decision comes from the stored per-axis latch, NOT from
+                // whether the node happens to be overshooting right now — see
+                // `momentum_latched`. The live-state version of this guard
+                // vanished the instant the spring landed, which let the rest of
+                // the tail start a second and third bounce.
+                //
+                // PER-AXIS. A macOS momentum NSEvent carries BOTH scrollingDeltaX
+                // and scrollingDeltaY as one input. Dropping the WHOLE event once
+                // EITHER axis latched the band froze the OTHER axis's fling — the
+                // "an accidental X overscroll bounce kills the Y scroll" the user
+                // reported. Mask only the latched axis; let the in-range axis keep
+                // flinging. The banding axis re-arms its spring from the offset in
+                // the integration loop regardless, so nothing is lost.
+                let mut delta = input.delta;
+                if is_momentum {
+                    if let Some(latch) = physics.momentum_latched.get_mut(&key) {
+                        // The tail is still running, so keep the latch alive.
+                        latch.idle = 0;
+                        if latch.x {
+                            delta.x = 0.0;
+                        }
+                        if latch.y {
+                            delta.y = 0.0;
+                        }
+                        if delta.x == 0.0 && delta.y == 0.0 {
+                            // Both axes belong to the spring. CONSUME the event
+                            // without applying it — dropping out here is what
+                            // stops the endless re-stretching.
+                            continue;
+                        }
+                    }
+                } else {
+                    // TrackpadContinuous: the finger is back down, so this is a
+                    // NEW gesture and the previous tail's latch is void. (WebKit
+                    // clears `ignore_momentum_scrolls_` at `PhaseBegan` for the
+                    // same reason.)
+                    physics.momentum_latched.remove(&key);
                 }
                 let info = timer_info.get_scroll_node_info(input.dom_id, input.node_id);
 
@@ -331,8 +498,8 @@ pub extern "C" fn scroll_physics_timer_callback(
                     })
                     .unwrap_or_default();
                 let new_raw = LogicalPosition {
-                    x: raw_base.x + input.delta.x,
-                    y: raw_base.y + input.delta.y,
+                    x: raw_base.x + delta.x,
+                    y: raw_base.y + delta.y,
                 };
 
                 // The first MOMENTUM delta that pushes past an edge hands the
@@ -350,11 +517,19 @@ pub extern "C" fn scroll_physics_timer_callback(
                                 .entry(key)
                                 .or_insert_with(NodeScrollPhysics::default);
                             np.velocity = LogicalPosition {
-                                x: if over_x.abs() > 0.01 { input.delta.x / dt } else { 0.0 },
-                                y: if over_y.abs() > 0.01 { input.delta.y / dt } else { 0.0 },
+                                x: if over_x.abs() > 0.01 { delta.x / dt } else { 0.0 },
+                                y: if over_y.abs() > 0.01 { delta.y / dt } else { 0.0 },
                             };
                             np.is_rubber_banding = true;
                             handed_to_spring = true;
+                            // LATCH the axis that just hit the edge. From here
+                            // the rest of this tail is consumed and discarded
+                            // for that axis, however long it runs and however
+                            // many times the spring lands in the meantime.
+                            let latch = physics.momentum_latched.entry(key).or_default();
+                            latch.idle = 0;
+                            latch.x |= over_x.abs() > 0.01;
+                            latch.y |= over_y.abs() > 0.01;
                         }
                     }
                 }
@@ -506,6 +681,17 @@ pub extern "C" fn scroll_physics_timer_callback(
                                 node_phys.velocity = LogicalPosition::zero();
                             }
                             node_phys.is_rubber_banding = true;
+                            // The spring owns the axis from this lift on, so the
+                            // tail that follows is ignored on it. Releasing a
+                            // stretched band snaps back — it must never stretch
+                            // FURTHER because the OS is still replaying the
+                            // finger's velocity. Same latch as the momentum
+                            // hand-off, different entry point: what sets it is
+                            // the spring taking ownership, not who handed over.
+                            let latch = physics.momentum_latched.entry(key).or_default();
+                            latch.idle = 0;
+                            latch.x |= overshoot_x.abs() > 0.01;
+                            latch.y |= overshoot_y.abs() > 0.01;
                         }
 
                         // Preserve the overshot position for the spring-back animation.
@@ -760,6 +946,13 @@ pub extern "C" fn scroll_physics_timer_callback(
         // Check if rubber-banding spring-back is almost complete
         let new_overshoot_x = calculate_overshoot(new_pos.x, 0.0, info.max_scroll_x);
         let new_overshoot_y = calculate_overshoot(new_pos.y, 0.0, info.max_scroll_y);
+
+        // NOTE: the (0.01, 0.5) px gap between this flag-clear and the
+        // `TrackpadEnd` arm was once suspected of letting a late End restart a
+        // landed bounce. A device trace refuted it — `band` was true on every
+        // tick of a three-bounce gesture and neither TrackpadEnd lined up with
+        // a restart. The cause was the momentum tail being re-admitted once the
+        // node's physics entry had been evicted; see `momentum_latched`.
         if new_overshoot_x.abs() < 0.5 && new_overshoot_y.abs() < 0.5 {
             node_physics.is_rubber_banding = false;
         }
@@ -811,6 +1004,8 @@ pub extern "C" fn scroll_physics_timer_callback(
     for ((dom_id, node_id), vel) in momentum_handoffs {
         let mut cur = node_id;
         for _ in 0..64 {
+            // STRICT ancestors: chaining must move OUTWARDS, and a node that
+            // handed its momentum off must never receive it back.
             let Some(parent) = timer_info.find_scroll_parent(dom_id, cur) else {
                 break;
             };
@@ -1178,7 +1373,7 @@ mod autotest_generated {
                 OptionLogicalPosition::None,
             );
             let timer_info =
-                TimerCallbackInfo::create(info, OptionDomNodeId::None, Instant::now(), 0, false);
+                TimerCallbackInfo::create(info, OptionDomNodeId::None, advance_clock(1), 0, false);
             scroll_physics_timer_callback(data.clone(), timer_info)
         }
 
@@ -1266,6 +1461,37 @@ mod autotest_generated {
     /// Registers node `idx` of the root DOM as a scrollable node with a
     /// `container_w x container_h` viewport over `content_w x content_h` content
     /// (so `max_scroll_x = content_w - container_w`, clamped at 0).
+    /// Nominal period of the physics pump, in ms — what
+    /// `ScrollPhysics::timer_interval_ms` configures.
+    const TICK_MS: u64 = 16;
+
+    /// Advance the harness clock by `ticks` pump periods and read it back.
+    ///
+    /// This drives the ENGINE'S OWN frozen test clock
+    /// (`azul_core::task::{freeze_test_clock, advance_test_clock_ms}`) — the
+    /// same one E2E scenarios advance with `tick_ms` — rather than a private
+    /// counter. One clock model, shared by the scenario runner and these unit
+    /// tests, and it is a WALL clock, which is what `Instant::now()` answers on
+    /// every desktop target. A private tick counter would have quantised time
+    /// to 1/60 s and so could never express the sub-interval case that
+    /// `Timer::invoke`'s gate turns on.
+    ///
+    /// Freezing matters as much as advancing: without it the real component of
+    /// `Instant::now()` keeps flowing, so elapsed time becomes (virtual) +
+    /// (however long this build under this load took), and a timing assertion
+    /// flips between runs on a loaded machine while passing in isolation.
+    ///
+    /// The physics integrates over the time it is actually handed, so a harness
+    /// that stamped a live `Instant::now()` per call would give it the
+    /// microseconds between two statements in a tight loop — dt would clamp to
+    /// its 1 ms floor and every spring would crawl. The old fixed
+    /// `timer_interval_ms` dt hid that this harness had no clock model at all.
+    fn advance_clock(ticks: u64) -> Instant {
+        azul_core::task::freeze_test_clock();
+        let _ = azul_core::task::advance_test_clock_ms(ticks.saturating_mul(TICK_MS));
+        Instant::now()
+    }
+
     fn register_node(
         window: &mut LayoutWindow,
         idx: usize,
@@ -2632,6 +2858,21 @@ mod autotest_generated {
         closed_loop_tick_full(layout_window, data).0
     }
 
+    /// [`closed_loop_tick`] with an explicit tick SPACING, for tests that model
+    /// a jittering timer rather than a well-behaved 60 Hz one.
+    fn closed_loop_tick_spaced(
+        layout_window: &mut LayoutWindow,
+        data: &RefAny,
+        ticks: u64,
+    ) -> Vec<(usize, LogicalPosition, bool)> {
+        // The default path advances one tick; ask for the remainder up front so
+        // this call sees a gap of `ticks`.
+        if ticks > 1 {
+            let _ = advance_clock(ticks - 1);
+        }
+        closed_loop_tick_full(layout_window, data).0
+    }
+
     /// [`closed_loop_tick`] plus the timer's own verdict (continue / terminate).
     fn closed_loop_tick_full(
         layout_window: &mut LayoutWindow,
@@ -2673,7 +2914,7 @@ mod autotest_generated {
                 OptionLogicalPosition::None,
             );
             let timer_info =
-                TimerCallbackInfo::create(info, OptionDomNodeId::None, Instant::now(), 0, false);
+                TimerCallbackInfo::create(info, OptionDomNodeId::None, advance_clock(1), 0, false);
             scroll_physics_timer_callback(data.clone(), timer_info).should_terminate
         };
 
@@ -3195,6 +3436,154 @@ mod autotest_generated {
         input_dev(1, (0.0, 0.0), ScrollInputSource::TrackpadEnd, ScrollInputDevice::Touchpad)
     }
 
+    /// REPORTED (macOS trackpad, 2026-08-25): "it's almost as if the overscroll
+    /// effect is applied twice — once the bounce works as expected, and then it
+    /// suddenly does the bounce again after it snapped to the correct
+    /// position."
+    ///
+    /// macOS synthesises the momentum tail from the finger velocity AT LIFT-OFF
+    /// and replays that decay curve for 1-2 s. It is a canned animation: it
+    /// knows nothing about our content bounds and there is no API to cancel it,
+    /// so deltas keep arriving long after the content is pinned at an edge and
+    /// the bounce has finished. Every engine has to swallow them itself —
+    /// WebKit/Chromium latch `ignore_momentum_scrolls_` "to stop endless
+    /// stretching".
+    ///
+    /// An `AZ_SCROLL_TRACE` of one real flick into the top edge caught it
+    /// exactly: the offset settled to 0.000 at t=548 ms, jumped back out to
+    /// -13.020 at t=593, settled again at t=993, jumped to -2.085 at t=1026 —
+    /// THREE bounces from one gesture, each one a leftover chunk of the tail.
+    /// The deltas below are that trace's own sequence.
+    #[test]
+    fn the_momentum_tail_cannot_restart_a_bounce_that_already_landed() {
+        // Verbatim from the device trace: macOS's real momentum decay curve.
+        const TAIL: [f32; 65] = [
+            106.0, 114.0, 114.0, 111.0, 107.0, 102.0, 99.0, 93.0, 89.0, 84.0, 79.0, 75.0, 70.0,
+            66.0, 61.0, 57.0, 53.0, 49.0, 45.0, 43.0, 39.0, 36.0, 33.0, 30.0, 28.0, 26.0, 24.0,
+            21.0, 19.0, 17.0, 16.0, 14.0, 13.0, 13.0, 11.0, 10.0, 9.0, 9.0, 8.0, 7.0, 7.0, 6.0,
+            6.0, 5.0, 5.0, 5.0, 4.0, 4.0, 4.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        ];
+
+        let (mut lw, data, queue) = window_at_the_bottom_edge(ScrollPhysics::macos());
+
+        // The fingers lift FIRST: everything below belongs to a gesture that is
+        // already over, which is the whole point.
+        queue.push(lift());
+        let _ = closed_loop_tick(&mut lw, &data);
+
+        let mut overshoots = Vec::new();
+        for delta in TAIL {
+            queue.push(momentum(delta));
+            let _ = closed_loop_tick(&mut lw, &data);
+            overshoots.push(offset_of(&lw, 1).y - 100.0);
+        }
+        // ...and let anything still in flight settle.
+        for _ in 0..40 {
+            let _ = closed_loop_tick(&mut lw, &data);
+            overshoots.push(offset_of(&lw, 1).y - 100.0);
+        }
+
+        // A "bounce" is a rising edge past 1 px after the spring had already
+        // come back under 0.5 px — the same number the spring itself treats as
+        // landed.
+        let mut bounces = 0;
+        let mut landed = true;
+        for o in &overshoots {
+            if landed && *o > 1.0 {
+                bounces += 1;
+                landed = false;
+            } else if !landed && *o < 0.5 {
+                landed = true;
+            }
+        }
+
+        let rounded: Vec<f32> = overshoots.iter().map(|o| (o * 100.0).round() / 100.0).collect();
+        assert_eq!(
+            bounces, 1,
+            "one flick must bounce exactly ONCE — the momentum tail restarted a \
+             landed bounce {} more time(s). overshoot per tick: {rounded:?}",
+            bounces - 1
+        );
+        assert!(
+            overshoots.last().is_some_and(|o| o.abs() < 0.01),
+            "must end parked exactly at the edge, ended at {:?}",
+            overshoots.last()
+        );
+    }
+
+    /// The physics timer must NOT terminate while a momentum-ignore latch is
+    /// held — and must terminate once it has aged out.
+    ///
+    /// The shell constructs a brand-new `ScrollPhysicsState` every time it
+    /// starts the momentum timer (`macos/events.rs:640`, same in the other
+    /// four backends), so anything the timer terminates with is lost. When the
+    /// spring lands, every OTHER map empties while the OS tail is still
+    /// running: the timer stopped right there, the next momentum delta
+    /// restarted it with an empty latch map, and the node was stretched
+    /// straight back out. The device trace showed it as `latch=true,true` on
+    /// one tick and `latch=NONE` two ticks later with nothing having cleared
+    /// it. The harness missed it because it drives the callback directly and
+    /// never terminates or rebuilds the state.
+    #[test]
+    fn a_held_momentum_latch_keeps_the_physics_timer_alive() {
+        let mut state =
+            ScrollPhysicsState::new(ScrollInputQueue::new(), ScrollPhysics::macos());
+        assert!(!state.is_active(), "an empty state is idle");
+
+        state.momentum_latched.insert(
+            key(1),
+            MomentumLatch { x: false, y: true, idle: 0 },
+        );
+        assert!(
+            state.is_active(),
+            "a held latch must keep the timer alive — the shell rebuilds this \
+             state on every timer start, so terminating loses the latch"
+        );
+
+        // Once it ages out the timer is free to stop again: the latch cannot
+        // pin the pump indefinitely.
+        state.momentum_latched.clear();
+        assert!(!state.is_active(), "an expired latch must not pin the timer");
+    }
+
+    /// The latch must not outlive the tail: a genuinely NEW fling, after the
+    /// old one is done, has to bounce like any other.
+    #[test]
+    fn a_new_fling_after_the_ignored_tail_bounces_normally() {
+        let (mut lw, data, queue) = window_at_the_bottom_edge(ScrollPhysics::macos());
+
+        queue.push(lift());
+        let _ = closed_loop_tick(&mut lw, &data);
+        for _ in 0..12 {
+            queue.push(momentum(40.0));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        // The tail stops and the bounce lands.
+        for _ in 0..60 {
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        assert!(
+            (offset_of(&lw, 1).y - 100.0).abs() < 0.01,
+            "the first fling must land at the edge, at {}",
+            offset_of(&lw, 1).y
+        );
+
+        // A second gesture: fingers down, flick, lift, tail.
+        queue.push(finger(30.0));
+        let _ = closed_loop_tick(&mut lw, &data);
+        queue.push(lift());
+        let _ = closed_loop_tick(&mut lw, &data);
+        queue.push(momentum(60.0));
+        let _ = closed_loop_tick(&mut lw, &data);
+
+        assert!(
+            offset_of(&lw, 1).y - 100.0 > 1.0,
+            "a NEW fling must still be able to stretch past the edge, at {}",
+            offset_of(&lw, 1).y
+        );
+    }
+
     #[test]
     fn a_held_finger_past_the_edge_stretches_monotonically_and_independently_of_batching() {
         let physics = ScrollPhysics::macos();
@@ -3284,6 +3673,211 @@ mod autotest_generated {
         }
         let end = *trace.last().unwrap();
         assert!((end - (100.0 + band(&physics, 90.06))).abs() < 0.05, "{end} (trace {trace:?})");
+    }
+
+    /// Regression: a rubber-band bounce on ONE axis must not freeze the OTHER
+    /// axis's fling.
+    ///
+    /// A macOS momentum NSEvent carries scrollingDeltaX AND scrollingDeltaY as a
+    /// single input. The physics used to DROP the whole event the instant either
+    /// axis latched the rubber band, so an accidental horizontal overscroll
+    /// during a vertical flick stopped the vertical scroll dead — the "once it
+    /// snaps to X it also kills the Y scrolling" the user reported. The masking
+    /// now silences only the overshooting axis and lets the in-range axis keep
+    /// flinging.
+    #[test]
+    fn a_rubber_band_on_one_axis_does_not_freeze_the_other_axis_fling() {
+        let physics = ScrollPhysics::macos();
+        let mut lw =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        // Both axes scrollable: a 100x100 viewport over 200x200 content, so
+        // max_scroll_x = max_scroll_y = 100.
+        register_node(&mut lw, 1, (100.0, 100.0), (200.0, 200.0));
+        let queue = lw.scroll_manager.get_input_queue();
+        let data = RefAny::new(ScrollPhysicsState::new(queue.clone(), physics));
+
+        // Park at the RIGHT edge in X (x = max_scroll_x) and mid-range in Y.
+        queue.push(input_dev(
+            1,
+            (100.0, 20.0),
+            ScrollInputSource::Programmatic,
+            ScrollInputDevice::Touchpad,
+        ));
+        let _ = closed_loop_tick(&mut lw, &data);
+        assert_eq!(offset_of(&lw, 1).x, 100.0, "seeded at the right edge");
+        assert_eq!(offset_of(&lw, 1).y, 20.0, "seeded mid-range in Y");
+
+        // Fling PAST the right edge in X (momentum) → X enters the rubber band.
+        queue.push(input_dev(
+            1,
+            (40.0, 0.0),
+            ScrollInputSource::TrackpadMomentum,
+            ScrollInputDevice::Touchpad,
+        ));
+        let _ = closed_loop_tick(&mut lw, &data);
+        let x_banded = offset_of(&lw, 1).x;
+        assert!(
+            x_banded > 100.5,
+            "X must be overscrolled past the edge (rubber-banding): {x_banded}"
+        );
+        let y_before = offset_of(&lw, 1).y;
+
+        // Diagonal momentum: X keeps pushing INTO the banding edge (masked), Y is
+        // a plain in-range fling. The Y component must advance every tick.
+        for _ in 0..3 {
+            queue.push(input_dev(
+                1,
+                (40.0, 15.0),
+                ScrollInputSource::TrackpadMomentum,
+                ScrollInputDevice::Touchpad,
+            ));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        let y_after = offset_of(&lw, 1).y;
+        assert!(
+            y_after > y_before + 1.0,
+            "the Y fling must keep advancing while X rubber-bands (the whole-event \
+             drop used to freeze it): {y_before} -> {y_after}"
+        );
+        // X stayed in its band — the Y deltas did not throw it off the edge.
+        // (Correct: momentum is still PUSHING into the edge every tick, so the
+        // band is being held stretched. The interesting case is what happens
+        // when it stops being pushed — below.)
+        let x_held = offset_of(&lw, 1).x;
+        assert!(x_held > 100.5, "X stays in its rubber band: {x_held}");
+
+        // ── The band must RELEASE once nothing pushes it ────────────────────
+        //
+        // Y keeps flinging, X gets a zero delta. Nothing is holding X out any
+        // more, so its spring must pull it back toward the edge (100.0).
+        //
+        // ⚠ THIS IS EXPECTED TO FAIL until the per-axis rewrite lands, and it
+        // is meant to. `pending_trackpad_positions.insert` runs for EVERY
+        // trackpad/momentum event (scroll_timer.rs ~392), that key lands in
+        // `moved_by_finger_this_tick` (~574) and the integration loop
+        // `continue`s (~578) — so the spring is frozen for the WHOLE macOS
+        // momentum tail, which runs 1-2 s after the fingers lift. The bounce
+        // then plays only after the tail ends, which is what the user sees as
+        // "the bounces are queued and play one after another".
+        //
+        // A red test that states the correct behaviour is worth more than a
+        // green one that pins the defect (USER ruling 2026-08-25). The old
+        // version of this test stopped at `x_held` and therefore certified the
+        // freeze as intended.
+        for _ in 0..6 {
+            queue.push(input_dev(
+                1,
+                (0.0, 15.0),
+                ScrollInputSource::TrackpadMomentum,
+                ScrollInputDevice::Touchpad,
+            ));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        let x_released = offset_of(&lw, 1).x;
+        assert!(
+            x_released < x_held - 0.5,
+            "X must spring back toward its edge once momentum stops pushing it \
+             (the band is frozen for the whole momentum tail): {x_held} -> {x_released}",
+        );
+    }
+
+    /// The same simulated TIME must produce the same motion, however the ticks
+    /// are spaced. This is the "blocky scrolling" guard.
+    ///
+    /// The physics used to advance by a fixed `timer_interval_ms` — the
+    /// timer's CONFIGURED period — regardless of how much wall clock had
+    /// actually passed. The real spacing is not the configured period:
+    /// `Timer::invoke` DROPS a fire that lands a hair under the interval and
+    /// then stamps `last_run = now` instead of `last_run + interval`, so the
+    /// phase never self-corrects and the following step arrives ~2 intervals
+    /// later; two independent 16 ms timers drive the same pump; and 16 ms is
+    /// neither 60 nor 120 Hz. Advancing 16 ms of simulation over 16-32 ms of
+    /// real time makes the apparent speed swing by ±50 % from frame to frame,
+    /// which is what "blocky" looks like.
+    ///
+    /// So: run one bounce at a steady 1 tick per step, and the same bounce at
+    /// 2 ticks per step over half as many steps. Both cover the same simulated
+    /// time and must land in the same place.
+    #[test]
+    fn the_same_elapsed_time_moves_the_same_distance_at_any_tick_spacing() {
+        fn bounce_after(steps: usize, ticks_per_step: u64) -> f32 {
+            let physics = ScrollPhysics::macos();
+            let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
+            for _ in 0..19 {
+                queue.push(finger(10.0));
+                let _ = closed_loop_tick(&mut lw, &data);
+            }
+            queue.push(lift());
+            for _ in 0..steps {
+                let _ = closed_loop_tick_spaced(&mut lw, &data, ticks_per_step);
+            }
+            offset_of(&lw, 1).y - 100.0
+        }
+
+        // 12 x 1 tick and 6 x 2 ticks are both 12 ticks of simulated time.
+        let steady = bounce_after(12, 1);
+        let jittered = bounce_after(6, 2);
+        assert!(
+            steady > 0.5,
+            "precondition: the bounce must still be in flight to compare: {steady}",
+        );
+        assert!(
+            (steady - jittered).abs() < 0.5,
+            "the same simulated time must travel the same distance whatever the \
+             tick spacing: steady={steady} vs jittered={jittered}",
+        );
+    }
+
+    /// A SECOND `TrackpadEnd` arriving during a live bounce must not restart it.
+    ///
+    /// macOS delivers 2-3 `TrackpadEnd`s for one flick — `phase Ended`,
+    /// `momentumPhase Ended` and, when a finger lands during momentum,
+    /// `momentumPhase Cancelled` all map to the same source
+    /// (`shell2/macos/events.rs`). The arm at the top of this file only
+    /// preserves an in-flight spring's velocity while `is_rubber_banding` is
+    /// still set; once the spring gets within 0.5 px the flag is CLEARED, and a
+    /// late End then re-arms the band FROM REST for another full
+    /// `bounce_back_duration_ms`. That is the user-visible "the bounces are
+    /// queued and play one after another".
+    ///
+    /// The assertion is deliberately about SETTLING, not about internals: after
+    /// a bounce has essentially finished, one more End must not put the offset
+    /// back out past the edge.
+    #[test]
+    fn a_late_trackpad_end_does_not_restart_a_finished_bounce() {
+        let physics = ScrollPhysics::macos();
+        let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
+
+        // Stretch past the edge, then release.
+        for _ in 0..19 {
+            queue.push(finger(10.0));
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        queue.push(lift());
+
+        // Let the bounce run to (near) rest.
+        for _ in 0..60 {
+            let _ = closed_loop_tick(&mut lw, &data);
+        }
+        let settled = offset_of(&lw, 1).y - 100.0;
+        assert!(
+            settled.abs() < 0.5,
+            "precondition: the first bounce should have landed: {settled}",
+        );
+
+        // The trailing End of the SAME gesture. Nothing has moved since, so
+        // there is nothing to bounce.
+        queue.push(lift());
+        let mut worst: f32 = 0.0;
+        for _ in 0..30 {
+            let _ = closed_loop_tick(&mut lw, &data);
+            worst = worst.max((offset_of(&lw, 1).y - 100.0).abs());
+        }
+        assert!(
+            worst < 0.5,
+            "a trailing TrackpadEnd re-armed the band and bounced again \
+             (max overshoot {worst} px after the gesture had already settled)",
+        );
     }
 
     #[test]

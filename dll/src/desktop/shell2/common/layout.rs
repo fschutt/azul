@@ -494,7 +494,11 @@ phases.mark("after_callback");
             .map(|n| &n.styled_node_state)
             .ne(states_before.iter());
 
-        if !window_size_changed_precheck && !states_changed {
+        // An identical DOM whose inline docking changed (a panel dropped on
+        // another zone, torn off, docked back) still has to re-graft: the
+        // retained layout reflects the OLD docking.
+        let docks_changed = layout_window.transient_docks_changed();
+        if !window_size_changed_precheck && !states_changed && !docks_changed {
             // Put the retained result back untouched.
             old_result.styled_dom = retained;
             layout_window
@@ -518,6 +522,15 @@ phases.mark("after_callback");
             azul_layout::probe::emit_phase_heap("end_precascade_unchanged");
             phases.mark("end_precascade_unchanged");
             phases.report();
+            // The DOM did not change, but the popup set may have: a callback's
+            // `set_transient_window_open` changes NOTHING in the tree (that is
+            // its point — no app flag), so this exit is exactly the one a
+            // swatch click lands on. The reconcile is an empty diff when
+            // nothing is open or forced.
+            reconcile_transient_windows(
+                layout_window,
+                current_window_state,
+            );
             return Ok(LayoutRegenerateResult::LayoutUnchanged);
         }
 
@@ -558,6 +571,17 @@ phases.mark("after_callback");
         );
         phases.mark("end_precascade_relayout");
         phases.report();
+        // The warm path returns BEFORE the tail of this function, so the
+        // popup reconcile must run here too — or a rebuild that happens to be
+        // structurally identical (every RefreshDom from a click handler that
+        // only flips a bool) silently skips it. That is exactly how the
+        // continuity test first failed: passes 3 and 4 took this exit, the
+        // manager was never told the popup was still open / now closed, and
+        // the diff the backend reads went stale.
+        reconcile_transient_windows(
+            layout_window,
+            current_window_state,
+        );
         return Ok(LayoutRegenerateResult::LayoutChanged);
     }
     let prev_dom_fingerprints = layout_window.last_dom_fingerprints.take();
@@ -1033,6 +1057,12 @@ phases.mark("after_runtime_states");
                 azul_layout::probe::emit_phase_heap("end_unchanged");
                 phases.mark("end_unchanged");
                 phases.report();
+                // Same reason as the pre-cascade exit above: the popup set can
+                // change while the tree does not.
+                reconcile_transient_windows(
+                    layout_window,
+                    current_window_state,
+                );
                 return Ok(LayoutRegenerateResult::LayoutUnchanged);
             }
 
@@ -1331,6 +1361,19 @@ phases.mark("end");
     if layout_window.focus_manager.has_deferred_focus_target() {
         layout_window.finalize_pending_focus_changes();
     }
+
+    // <transient-window>: now that the parent is laid out, find every node
+    // that says `open=true`, lay each one's subtree out as its own dom, and
+    // bring the set of open popups in line. The manager matches windows to
+    // their source node across rebuilds, so a popup that is still open after
+    // this pass is MOVED (if its anchor shifted) rather than closed and
+    // re-opened — the flicker class the screenshare fix chased out of image
+    // nodes, and far worse on a window. The backend reads the diff after
+    // this returns and creates/moves/destroys surfaces accordingly.
+    reconcile_transient_windows(
+        layout_window,
+        current_window_state,
+    );
 
     Ok(LayoutRegenerateResult::LayoutChanged)
 }
@@ -1793,4 +1836,90 @@ fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> azul_core::g
         origin: azul_core::geom::LogicalPosition::new(r.origin.x as f32, r.origin.y as f32),
         size: azul_core::geom::LogicalSize::new(r.size.width as f32, r.size.height as f32),
     }
+}
+
+
+/// Find the open `<transient-window>`s in the root dom, lay their content out,
+/// and reconcile the manager. Stores the resulting diff on the window so the
+/// backend can act on it after layout.
+///
+/// Split out of `regenerate_layout` because it needs `&mut layout_window`
+/// twice in ways the borrow checker will not allow inline: once to read the
+/// root layout (for anchor rects) and once to lay out each popup's content.
+pub(crate) fn reconcile_transient_windows(
+    layout_window: &mut LayoutWindow,
+    current_window_state: &FullWindowState,
+) {
+    use azul_core::dom::DomId;
+    use azul_layout::transient::collect_open_transient_windows;
+
+    // 1. What does the parent layout say is open, and where is each anchor?
+    let wanted = {
+        let Some(root) = layout_window.layout_results.get(&DomId::ROOT_ID) else {
+            return;
+        };
+        let styled = &root.styled_dom;
+        // Anchor rects come from the ROOT dom's layout. Borrow the result
+        // immutably for the whole collection, then drop it before laying out.
+        let forced: Vec<_> = layout_window.transient_windows.forced_open_nodes().to_vec();
+        // A window the user docked onto a drop zone anchors to the zone.
+        let overrides = layout_window.transient_windows.anchor_overrides();
+        // Anchors are VIEWPORT rects (scroll taken off): the popup must open
+        // where the anchor is on screen, not where the unscrolled layout has it.
+        let rects: Vec<_> = collect_open_transient_windows(styled, &forced, &overrides, |node| {
+            layout_window.get_node_rect_in_viewport(azul_core::dom::DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
+            })
+        });
+        rects
+    };
+
+    // 2. Reconcile, measuring each popup's content on demand (on scratch
+    //    caches — the popup window lays the content out itself).
+    let diff = {
+        // `reconcile` wants a closure that reads layout_window while the
+        // manager is borrowed mutably — split the borrow by taking the
+        // manager out, reconciling, and putting it back.
+        let mut manager = core::mem::take(&mut layout_window.transient_windows);
+        let diff = manager.reconcile(&wanted, |content_dom, placement| {
+            layout_window.layout_transient_content(
+                placement.node,
+                content_dom,
+                placement.size,
+                current_window_state,
+            )
+        });
+        layout_window.transient_windows = manager;
+        diff
+    };
+
+    // The app's `torn` attribute tore a window off / docked it: the node
+    // hears about it like it hears about a drag.
+    for (node, torn, bounds) in &diff.torn_changes {
+        let now = std::time::Instant::now().into();
+        layout_window.pending_lifecycle_events.push(azul_core::diff::create_tearoff_event(
+            *node,
+            DomId::ROOT_ID,
+            &now,
+            *torn,
+            *bounds,
+        ));
+    }
+    if !diff.opened.is_empty() || !diff.closed.is_empty() || !diff.moved.is_empty() {
+        log_debug!(
+            LogCategory::Layout,
+            "[transient] opened={} moved={} closed={}",
+            diff.opened.len(),
+            diff.moved.len(),
+            diff.closed.len()
+        );
+    }
+    // Accumulate, never assign: a layout call may run several passes before
+    // the backend takes the diff, and an exit that reaches no reconcile (the
+    // fingerprint-equal "layout unchanged" path) must not replay an older
+    // pass's opened/closed list either — the continuity test caught a popup
+    // about to be re-created that way. `merge` also cancels an open+close
+    // pair the backend never saw, so nothing flashes.
+    layout_window.pending_transient_diff.merge(diff);
 }

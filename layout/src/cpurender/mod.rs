@@ -7,9 +7,11 @@
 mod compositor;
 mod pixmap;
 mod raster;
+mod shape;
 mod svg;
 
 pub use compositor::*;
 pub use pixmap::*;
 pub use raster::*;
+pub use shape::*;
 pub use svg::*;

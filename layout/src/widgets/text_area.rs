@@ -39,7 +39,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    props::{basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize}, layout::{LayoutPosition, LayoutBoxSizing, LayoutFlexGrow, LayoutMinHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutOverflow, LayoutDisplay, LayoutTop, LayoutLeft}, property::{CssProperty, StyleWhiteSpaceValue}, style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleOpacity, StyleCursor, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleTextAlign, StyleWhiteSpace}},
+    props::{basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize}, layout::{LayoutPosition, LayoutBoxSizing, LayoutFlexGrow, LayoutHeight, LayoutMinHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutOverflow, LayoutDisplay, LayoutTop, LayoutLeft}, property::{CssProperty, StyleWhiteSpaceValue}, style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleOpacity, StyleCursor, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleTextAlign, StyleWhiteSpace}},
     impl_option_inner, AzString, U32Vec, OptionString,
 };
 
@@ -93,6 +93,19 @@ static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        MIN_HEIGHT_PX,
+    ))),
+    // A DEFINITE height, not just a floor. A `<textarea>` in a browser is sized
+    // by its `rows`, never by its content — and that is exactly what makes it
+    // scroll. With `height: auto` the flex path (Taffy, which has no equivalent
+    // of the block path's `skip_expansion` guard in solver3/cache.rs) grew this
+    // box to its max-content height inside an auto-height flex column, so the
+    // text NEVER overflowed: no overflow means no scroll node is registered
+    // (scroll_registration.rs bails on `!needs_vertical && !needs_horizontal`),
+    // and a wheel over the textarea therefore found no scrollable node under
+    // the pointer and chained straight to the page. `flex-grow: 1` above still
+    // lets it stretch inside a definite-height column.
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
         MIN_HEIGHT_PX,
     ))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
@@ -355,7 +368,11 @@ impl Default for TextAreaState {
         Self {
             text: Vec::new().into(),
             placeholder: None.into(),
-            max_len: 1000,
+            // Unlimited, like a browser <textarea> without `maxlength`. The
+            // old default was an arbitrary 1000 that nothing enforced; now
+            // that typing past `max_len` is vetoed (default_on_text_input),
+            // keeping it would have silently capped every existing area.
+            max_len: usize::MAX,
             cursor_pos: 0,
         }
     }
@@ -653,6 +670,24 @@ fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
 }
 
 /// Shows or hides the placeholder prompt.
+/// Drop the imperative placeholder override so the CASCADE decides again.
+///
+/// `set_placeholder_visible` writes a USER OVERRIDE, and an override is copied
+/// onto every rebuild by `migrate_user_overrides_from` and OUTRANKS the
+/// cascade — permanently. `dom()` already derives the placeholder's visibility
+/// from the widget's own text, so once the widget is about to be rebuilt the
+/// override is at best redundant and at worst a latch: a placeholder hidden on
+/// the first keystroke never comes back, even over an emptied field.
+///
+/// Identical to the TextInput's, and to the Accordion's before it. Caught here
+/// by `scripts/preflight_contracts.py::check_widget_override_latch` rather than
+/// by a third user report.
+fn clear_placeholder_override(info: &mut CallbackInfo, placeholder: DomNodeId) {
+    use azul_css::props::property::CssPropertyType;
+    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Opacity));
+    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Display));
+}
+
 fn set_placeholder_visible(info: &mut CallbackInfo, placeholder: DomNodeId, visible: bool) {
     let (display, opacity) = if visible {
         (LayoutDisplay::Block, StyleOpacity::const_new(100))
@@ -806,11 +841,51 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
                 },
             }
         };
+        // A rebuild re-derives the placeholder from the widget's own text, so
+        // the override written above must not outlive it.
+        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            clear_placeholder_override(&mut info, placeholder_node_id);
+        }
         return Some(result.update);
     }
 
     let caret = engine_caret(&info, container);
     adopt_engine_text(&mut text_area.inner, &info, container);
+
+    // maxlength: veto an insertion that would GROW the value past `max_len`
+    // (counted in characters, the stored unit). Replacement-aware: the engine
+    // deletes the live selection before inserting, so the prospective length
+    // is current − selected + inserted. An edit that shrinks or holds the
+    // length always passes, and a value pushed over the limit programmatically
+    // (`set_text` is deliberately NOT capped) can still be edited back down.
+    {
+        let current = text_area.inner.get_text();
+        let current_chars = current.chars().count();
+        let selected_chars = info
+            .get_node_selection_ranges(container)
+            .as_ref()
+            .first()
+            .map_or(0, |range| {
+                let from = range.start.cluster_id.start_byte_in_run as usize;
+                let to = range.end.cluster_id.start_byte_in_run as usize;
+                let (a, b) = (from.min(to), from.max(to));
+                if b <= current.len()
+                    && current.is_char_boundary(a)
+                    && current.is_char_boundary(b)
+                {
+                    current[a..b].chars().count()
+                } else {
+                    0
+                }
+            });
+        let prospective = current_chars
+            .saturating_sub(selected_chars)
+            .saturating_add(inserted_text.chars().count());
+        if prospective > text_area.inner.max_len && prospective > current_chars {
+            info.prevent_default();
+            return Some(Update::DoNothing);
+        }
+    }
 
     let result = {
         let text_area = &mut *text_area;
@@ -836,6 +911,12 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
         set_placeholder_visible(&mut info, placeholder_node_id, false);
 
         mirror_insertion(&mut text_area.inner, &inserted_text, caret);
+
+        // Inside the ACCEPTED branch on purpose: a rejected edit changed
+        // nothing observable and must stay a strict no-op.
+        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+            clear_placeholder_override(&mut info, placeholder_node_id);
+        }
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
@@ -1409,7 +1490,8 @@ mod autotest_generated {
         assert_eq!(state.get_text(), "");
         assert!(state.text.is_empty());
         assert_eq!(state.cursor_pos, 0);
-        assert_eq!(state.max_len, 1000);
+        // Unlimited by default, like a <textarea> without `maxlength`.
+        assert_eq!(state.max_len, usize::MAX);
         assert!(state.placeholder.is_none());
     }
 
@@ -1503,7 +1585,7 @@ mod autotest_generated {
 
         assert!(s.inner.text.is_empty());
         assert!(s.inner.placeholder.is_none());
-        assert_eq!(s.inner.max_len, 1000);
+        assert_eq!(s.inner.max_len, usize::MAX);
         assert_eq!(s.inner.cursor_pos, 0);
         assert!(s.on_text_input.is_none());
         assert!(s.on_virtual_key_down.is_none());
@@ -1584,9 +1666,10 @@ mod autotest_generated {
 
     #[test]
     fn set_text_ignores_max_len() {
-        // `max_len` is stored but never enforced anywhere in this widget.
-        // Pinning that here so a future limit check is a deliberate change and
-        // not a silent behaviour flip.
+        // INTENDED: `max_len` caps USER input (the text-input handler vetoes a
+        // growing keystroke) but a PROGRAMMATIC assignment is stored whole —
+        // the same split a browser makes: `maxlength` never truncates a value
+        // set from script.
         let mut area = TextArea::create();
         area.text_area_state.inner.max_len = 3;
         area.set_text(AzString::from("far past the limit"));
@@ -2478,17 +2561,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_does_not_enforce_max_len() {
-        // KNOWN GAP: `max_len` is never consulted by the edit path. Typing past
-        // it is accepted silently.
+    fn typing_past_max_len_is_vetoed() {
+        // maxlength: a keystroke that would GROW the value past `max_len` is
+        // vetoed — the widget keeps the old text and `PreventDefault` stops
+        // the engine from applying the recorded changeset. (Programmatic
+        // `set_text` stays uncapped; see `set_text_ignores_max_len`.)
         let data = RefAny::new(wrapper("ab"));
         poke(&data, |w| w.inner.max_len = 2);
 
-        let (out, _, _) = run(Env::typed("cdefgh"), &data, default_on_text_input_inner);
+        let (out, changes, _) = run(Env::typed("cdefgh"), &data, default_on_text_input_inner);
 
         assert_eq!(out, Some(Update::DoNothing));
-        assert_eq!(read(&data).get_text(), "abcdefgh");
-        assert_eq!(read(&data).max_len, 2, "the limit is stored, just not applied");
+        assert_eq!(read(&data).get_text(), "ab", "the over-limit keystroke was applied anyway");
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "the over-limit keystroke did not veto the engine changeset: {changes:?}",
+        );
     }
 
     #[test]

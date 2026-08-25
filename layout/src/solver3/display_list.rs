@@ -296,6 +296,43 @@ impl BorderBoxRect {
         })
     }
 
+    /// Convert border-box to padding-box by subtracting only the border.
+    ///
+    /// THE SCROLLPORT. CSS Overflow 3 §2: "scrolling occurs within the padding
+    /// box", and azul measures overflow content against the padding box too
+    /// (`compute_scrollbar_geometry`, `register_scroll_nodes`), so the clamp
+    /// range `max_scroll = content − scrollport` is only self-consistent if
+    /// every consumer takes ORIGIN AND SIZE off this box.
+    #[must_use] pub fn to_padding_box(
+        self,
+        border: &crate::solver3::geometry::EdgeSizes,
+    ) -> PaddingBoxRect {
+        PaddingBoxRect(LogicalRect {
+            origin: LogicalPosition {
+                x: self.0.origin.x + border.left,
+                y: self.0.origin.y + border.top,
+            },
+            size: LogicalSize {
+                width: self.0.size.width - border.left - border.right,
+                height: self.0.size.height - border.top - border.bottom,
+            },
+        })
+    }
+
+    /// Get the inner `LogicalRect`
+    #[must_use] pub const fn rect(&self) -> LogicalRect {
+        self.0
+    }
+}
+
+/// A rectangle in padding-box coordinates (excludes border, includes padding).
+///
+/// This is the CSS **scrollport**: the box a scroll container's content is
+/// clipped to and scrolls within.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaddingBoxRect(pub LogicalRect);
+
+impl PaddingBoxRect {
     /// Get the inner `LogicalRect`
     #[must_use] pub const fn rect(&self) -> LogicalRect {
         self.0
@@ -1898,8 +1935,10 @@ impl DisplayListBuilder {
     /// The published 0.2.0 azul-self-test-linux display list carried 24 of
     /// them, e.g.
     ///
-    ///     Border      { bounds: `WindowLogicalRect`(624x0 @ (-3.4028235e38, -3.4028235e38)) }
-    ///     `HitTestArea` { bounds: `WindowLogicalRect`(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    /// ```text
+    /// Border      { bounds: WindowLogicalRect(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    /// HitTestArea { bounds: WindowLogicalRect(624x0 @ (-3.4028235e38, -3.4028235e38)) }
+    /// ```
     ///
     /// A `Border` at -3.4e38 is merely invisible. A `HitTestArea` there is
     /// ACTIVELY WRONG: it is a live hit-test rectangle at a coordinate no

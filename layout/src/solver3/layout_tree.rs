@@ -6,7 +6,10 @@ use std::{
     sync::Arc,
 };
 
-use azul_core::diff::NodeDataFingerprint;
+use azul_core::{
+    diff::NodeDataFingerprint,
+    spaces::{ContentInset, Inclusivity},
+};
 
 use crate::text3::cache::UnifiedConstraints;
 
@@ -1329,6 +1332,30 @@ impl LayoutTreeMemoryReport {
     }
 }
 
+/// Iterator over a node's ancestor chain — see [`LayoutTree::ancestor_chain`].
+///
+/// Yields layout indices child-first (nearest ancestor first).
+#[derive(Debug)]
+pub struct AncestorChain<'a> {
+    nodes: &'a [LayoutNodeHot],
+    cursor: Option<usize>,
+    budget: usize,
+}
+
+impl Iterator for AncestorChain<'_> {
+    type Item = LayoutNodeId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.budget == 0 {
+            return None;
+        }
+        let idx = self.cursor?;
+        self.budget -= 1;
+        self.cursor = self.nodes.get(idx).and_then(|n| n.parent);
+        Some(LayoutNodeId::new(idx))
+    }
+}
+
 impl LayoutTree {
     /// Approximate heap bytes retained by this `LayoutTree`.
     #[must_use] pub fn memory_report(&self) -> LayoutTreeMemoryReport {
@@ -1474,6 +1501,66 @@ impl LayoutTree {
     #[inline]
     #[must_use] pub fn get(&self, index: LayoutNodeId) -> Option<&LayoutNodeHot> {
         self.nodes.get(index.index())
+    }
+
+    /// The left/top step from a node's BORDER box (what `calculated_positions`
+    /// and `used_size` describe) to its CONTENT box (what inline layout, and
+    /// therefore every caret/selection/hit-test coordinate, is measured in).
+    ///
+    /// THE single source of `padding.left + border.left` / `padding.top +
+    /// border.top` for the pointer pipeline. The display-list builder already
+    /// went through `BorderBoxRect::to_content_box` for painting; the two
+    /// hit-test producers each open-coded (or, on the `WebRender` side, simply
+    /// omitted) this term, which is exactly how they came to disagree.
+    ///
+    /// An unknown index yields [`ContentInset::ZERO`], matching the
+    /// "unpadded, unbordered" default rather than skewing the point.
+    #[inline]
+    #[must_use]
+    pub fn content_inset(&self, index: LayoutNodeId) -> ContentInset {
+        self.get(index).map_or(ContentInset::ZERO, |node| {
+            let bp = node.box_props.unpack();
+            ContentInset::new(
+                bp.padding.left + bp.border.left,
+                bp.padding.top + bp.border.top,
+            )
+        })
+    }
+
+    /// THE ancestor walk: `index` (only when `inclusivity` says so) followed by
+    /// every parent up to the root.
+    ///
+    /// Five separate hand-rolled versions of this loop used to exist, and each
+    /// encoded "does this include the node itself?" in its starting value —
+    /// `let mut cursor = Some(idx)` vs `let mut cur = node.parent`. That is
+    /// invisible at the call site, which is how `accumulated_scroll_for_node`
+    /// (self-inclusive) and [`node_rect_to_screen`] (ancestors-only) came to
+    /// look like the same helper under two names, and how the auto-scroll
+    /// timer ended up unable to target the caret's own scroll box. Taking
+    /// [`Inclusivity`] as an argument forces every call site to say which it
+    /// means.
+    ///
+    /// [`node_rect_to_screen`]: crate::headless::node_rect_to_screen
+    ///
+    /// The walk is bounded by `nodes.len()`: no acyclic path can be longer, so
+    /// a malformed (cyclic) `parent` chain terminates instead of spinning,
+    /// while a legitimately deep tree is never truncated.
+    #[inline]
+    pub fn ancestor_chain(
+        &self,
+        index: LayoutNodeId,
+        inclusivity: Inclusivity,
+    ) -> AncestorChain<'_> {
+        let start = if inclusivity.includes_self() {
+            Some(index.index())
+        } else {
+            self.nodes.get(index.index()).and_then(|n| n.parent)
+        };
+        AncestorChain {
+            nodes: &self.nodes,
+            cursor: start,
+            budget: self.nodes.len(),
+        }
     }
 
     /// Get mutable hot layout data for a node.
@@ -2046,7 +2133,7 @@ impl LayoutTreeBuilder {
             }
             // Process children as if they belong to the parent (or root if no parent)
             let effective_parent = parent_idx.unwrap_or(node_idx);
-            for child_dom_id in dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+            for child_dom_id in layout_children(styled_dom, dom_id) {
                 self.process_node(styled_dom, child_dom_id, Some(effective_parent), debug_messages)?;
             }
             return Ok(node_idx);
@@ -2081,7 +2168,7 @@ impl LayoutTreeBuilder {
             LayoutDisplay::TableColumnGroup => {
                 // CSS 2.2 §17.2.1: "If a child C of a 'table-column-group' parent is not
                 // a 'table-column' box, then it is treated as if it had 'display: none'."
-                for child_dom_id in dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+                for child_dom_id in layout_children(styled_dom, dom_id) {
                     let child_display = get_display_type(styled_dom, child_dom_id);
                     if child_display == LayoutDisplay::TableColumn {
                         self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
@@ -2100,8 +2187,8 @@ impl LayoutTreeBuilder {
                 // +spec:display-property:d1600a - display:none suppresses box generation; visibility:hidden boxes still affect layout
                 // ALSO filter out whitespace-only text nodes for Flex/Grid/etc containers
                 // to prevent them from becoming unwanted anonymous items.
-                let children: Vec<NodeId> = dom_id
-                    .az_children(&styled_dom.node_hierarchy.as_container())
+                let children: Vec<NodeId> = layout_children(styled_dom, dom_id)
+                    .into_iter()
                     // +spec:display-property:9f02c6 - display:none elements generate no boxes
                     .filter(|&child_id| {
                         // +spec:display-property:3b507e - display:none excludes subtree from box tree
@@ -2171,8 +2258,8 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         // Filter out display: none children - they don't participate in layout
-        let children: Vec<NodeId> = parent_dom_id
-            .az_children(&styled_dom.node_hierarchy.as_container())
+        let children: Vec<NodeId> = layout_children(styled_dom, parent_dom_id)
+            .into_iter()
             .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
             .collect();
 
@@ -2269,7 +2356,7 @@ impl LayoutTreeBuilder {
         let parent_display = get_display_type(styled_dom, parent_dom_id);
         let mut non_matching_children = Vec::new();
 
-        for child_id in parent_dom_id.az_children(&styled_dom.node_hierarchy.as_container()) {
+        for child_id in layout_children(styled_dom, parent_dom_id) {
             if should_skip_for_table_structure(styled_dom, child_id, parent_display) {
                 continue;
             }
@@ -3884,7 +3971,97 @@ const fn is_proper_table_child(display: LayoutDisplay) -> bool {
 // enum-return handling — not fixable in Rust. (Original kept.)
 #[must_use] pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     use crate::solver3::getters::get_display_property;
+
+    // A `<transient-window>` takes part in its PARENT's layout only while it
+    // is docked INLINE (`dock="inline"`, not torn off - see
+    // `transient::TransientDocks`). Otherwise it is nothing here: closed, it
+    // is nothing at all; open as a popup or torn off, its subtree is laid out
+    // as the root of its OWN window, and laying it out here as well would
+    // render the content twice. `display: none` is the one choke point every
+    // child-collection honours, which is why it is decided here and not in
+    // each of them.
+    if let Some(NodeType::TransientWindow(cfg)) = styled_dom
+        .node_data
+        .as_container()
+        .get(node_id)
+        .map(NodeData::get_node_type)
+    {
+        if !transient_node_is_inline(node_id, cfg) {
+            return LayoutDisplay::None;
+        }
+    }
+
     get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
+}
+
+// ---------------------------------------------------------------------------
+// Inline-docked transient windows: the per-pass dock set
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    /// The docking state of the layout pass running on this thread (set by
+    /// [`with_transient_docks`] for exactly the duration of a solver call).
+    /// `None` outside a pass: nodes are then judged by their config alone.
+    static TRANSIENT_DOCKS: core::cell::RefCell<Option<crate::transient::TransientDocks>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+/// Run `f` with `docks` as the current pass's docking state. Every solver
+/// entry (`LayoutWindow`'s `layout_document` call) wraps itself in this so
+/// the 25 `get_display_type` call sites and the five child-collection sites
+/// agree on which `<transient-window>` is inline and where it is grafted.
+/// Nests safely (the previous value is restored) and is per thread, so
+/// parallel headless layouts do not see each other's docks.
+pub fn with_transient_docks<R>(docks: crate::transient::TransientDocks, f: impl FnOnce() -> R) -> R {
+    let previous = TRANSIENT_DOCKS.with(|d| d.replace(Some(docks)));
+    struct Restore(Option<crate::transient::TransientDocks>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let prev = self.0.take();
+            TRANSIENT_DOCKS.with(|d| *d.borrow_mut() = prev);
+        }
+    }
+    let _restore = Restore(previous);
+    f()
+}
+
+/// Is the `<transient-window>` `node` laid out inline this pass?
+fn transient_node_is_inline(node: NodeId, cfg: &azul_core::transient::TransientWindowConfig) -> bool {
+    TRANSIENT_DOCKS.with(|d| match d.borrow().as_ref() {
+        Some(docks) => docks.is_inline(node, cfg),
+        None => {
+            cfg.dock == azul_core::transient::TransientDock::Inline && cfg.open && !cfg.torn
+        }
+    })
+}
+
+/// The children `parent` lays out, in order: its DOM children, minus any
+/// inline transient window that was dropped onto another zone, plus the
+/// inline transient windows dropped onto `parent` itself (appended last).
+/// THE child-collection helper: every site that used to iterate
+/// `az_children` directly goes through here, so a grafted panel is a child
+/// of its zone for block, flex, grid, table and `display: contents`
+/// processing alike.
+#[must_use]
+pub fn layout_children(styled_dom: &StyledDom, parent: NodeId) -> Vec<NodeId> {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    if hierarchy.get(parent).is_none() {
+        return Vec::new(); // an id past the arena: no children, no panic
+    }
+    TRANSIENT_DOCKS.with(|d| {
+        let borrow = d.borrow();
+        match borrow.as_ref() {
+            Some(docks) if !docks.inline.is_empty() => {
+                let mut out: Vec<NodeId> = parent
+                    .az_children(&hierarchy)
+                    .filter(|c| !docks.moved_away_from(*c, parent))
+                    .collect();
+                out.extend(docks.grafted_onto(parent, styled_dom));
+                out
+            }
+            _ => parent.az_children(&hierarchy).collect(),
+        }
+    })
 }
 
 // +spec:display-contents:95faa5 - blockification has no effect on none/contents (other => other)
@@ -7151,5 +7328,81 @@ mod autotest_generated {
             assert!(depth <= 202, "the parent/child links formed a cycle");
         }
         assert_eq!(depth, 201);
+    }
+
+    // ==================================================================
+    // ancestor_chain — THE ancestor walk, with explicit inclusivity
+    // ==================================================================
+
+    /// body > a > b, a straight chain, so the ancestor order is unambiguous.
+    fn chain_tree() -> LayoutTree {
+        let sd = styled(
+            Dom::create_body().with_child(div_class("a").with_child(div_class("b"))),
+            ".a, .b { display: block; }",
+        );
+        build_tree(&sd)
+    }
+
+    fn chain_from(tree: &LayoutTree, start: usize, incl: Inclusivity) -> Vec<usize> {
+        tree.ancestor_chain(LayoutNodeId::new(start), incl)
+            .map(LayoutNodeId::index)
+            .collect()
+    }
+
+    #[test]
+    fn ancestor_chain_inclusivity_decides_only_the_first_element() {
+        let tree = chain_tree();
+        // The deepest node is the last one the straight chain reaches.
+        let mut deepest = tree.root;
+        while let Some(&next) = tree.children(deepest).first() {
+            deepest = next;
+        }
+        let with_self = chain_from(&tree, deepest, Inclusivity::SelfAndAncestors);
+        let without = chain_from(&tree, deepest, Inclusivity::AncestorsOnly);
+        assert_eq!(with_self.first(), Some(&deepest));
+        assert_eq!(&with_self[1..], &without[..]);
+        assert_eq!(
+            with_self.last(),
+            Some(&tree.root),
+            "the walk must reach the root"
+        );
+        assert_eq!(with_self.len(), without.len() + 1);
+    }
+
+    #[test]
+    fn ancestor_chain_at_the_root_is_the_root_or_nothing() {
+        let tree = chain_tree();
+        assert_eq!(
+            chain_from(&tree, tree.root, Inclusivity::SelfAndAncestors),
+            vec![tree.root]
+        );
+        assert!(chain_from(&tree, tree.root, Inclusivity::AncestorsOnly).is_empty());
+    }
+
+    #[test]
+    fn ancestor_chain_on_an_out_of_range_index_yields_at_most_that_index() {
+        let tree = chain_tree();
+        assert!(chain_from(&tree, 9_999, Inclusivity::AncestorsOnly).is_empty());
+        // Self-inclusive still reports the requested index once (callers
+        // filter on `tree.get()`), then stops: no panic, no spin.
+        assert_eq!(
+            chain_from(&tree, 9_999, Inclusivity::SelfAndAncestors),
+            vec![9_999]
+        );
+    }
+
+    #[test]
+    fn ancestor_chain_terminates_on_a_cyclic_parent_link() {
+        let mut tree = chain_tree();
+        // Forge a cycle: root's parent points at its own child.
+        let child = tree.children(tree.root).first().copied().expect("body has a child");
+        tree.nodes[tree.root].parent = Some(child);
+        let walked = chain_from(&tree, child, Inclusivity::SelfAndAncestors);
+        assert!(
+            walked.len() <= tree.nodes.len(),
+            "the budget must stop a cyclic chain, walked {} of {} nodes",
+            walked.len(),
+            tree.nodes.len()
+        );
     }
 }
