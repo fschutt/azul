@@ -12,6 +12,7 @@
 //! to commit pending clipboard changes to the system clipboard.
 
 use azul_layout::managers::clipboard::ClipboardManager;
+use rich_clipboard::{ClipboardPayload, Flavor, Platform};
 
 use super::super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
@@ -54,15 +55,74 @@ pub fn get_clipboard_content() -> Option<String> {
 
 // --- Native wl_data_device clipboard (MWA-B3) ---
 
-/// Text we currently offer on the native Wayland selection. `Some` = we own
-/// the selection: `events::data_source_send` serves the pasting client from
-/// here, and `events::data_source_cancelled` clears it when another client
-/// takes the selection over.
-static NATIVE_COPY: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// What we currently offer on the native Wayland selection. `Some` = we own
+/// the selection: `events::data_source_send` serves the pasting client the
+/// representation it asked for, and `events::data_source_cancelled` clears it
+/// when another client takes the selection over.
+///
+/// A whole payload rather than one `String`, because Wayland is the only Linux
+/// transport here that can publish a real fan-out: `wl_data_source.offer` is
+/// called once per mime type and `send` names the one the peer picked. So a
+/// copy of styled text offers `text/rtf`, `text/html` *and* `text/plain` at
+/// once, and the peer chooses — which is exactly what makes a paste into
+/// LibreOffice keep its styling. (The X11 fallback below cannot do this: its
+/// selection owner serves one target. See `x11/clipboard.rs`.)
+static NATIVE_COPY: std::sync::Mutex<Option<ClipboardPayload>> = std::sync::Mutex::new(None);
+
+/// The bytes to serve for one requested mime type, while we own the selection.
+///
+/// Matched by resolved [`Flavor`], not by string equality: a peer that asks
+/// for `UTF8_STRING` or `text/plain` must be served the payload's
+/// `text/plain;charset=utf-8` bytes — they are one flavor under three
+/// spellings, and a strict match would answer an empty pipe.
+pub(super) fn native_copy_bytes(mime: &str) -> Option<Vec<u8>> {
+    let guard = NATIVE_COPY.lock().ok()?;
+    let payload = guard.as_ref()?;
+    let want = Flavor::from_mime(mime);
+    payload
+        .items()
+        .iter()
+        .find(|i| Flavor::from_mime(&i.native) == want)
+        .map(|i| i.bytes.clone())
+}
+
+/// Every mime type to advertise for the selection we are about to take.
+pub(super) fn native_copy_mimes() -> Vec<String> {
+    let Ok(guard) = NATIVE_COPY.lock() else {
+        return Vec::new();
+    };
+    let Some(payload) = guard.as_ref() else {
+        return Vec::new();
+    };
+    let mut mimes: Vec<String> = payload.items().iter().map(|i| i.native.clone()).collect();
+    // The pre-MIME spellings every older toolkit and terminal still asks for.
+    // Advertised only alongside real plain text, and served through the
+    // flavor match in `native_copy_bytes`.
+    if payload
+        .items()
+        .iter()
+        .any(|i| Flavor::from_mime(&i.native) == Flavor::PlainText)
+    {
+        for legacy in ["UTF8_STRING", "text/plain"] {
+            if !mimes.iter().any(|m| m == legacy) {
+                mimes.push(legacy.to_owned());
+            }
+        }
+    }
+    mimes
+}
 
 /// The text served to pasting clients while we own the selection.
+///
+/// The plain-text reading of [`NATIVE_COPY`], for the callers that only ever
+/// wanted a string.
 pub(super) fn native_copy_text() -> Option<String> {
-    NATIVE_COPY.lock().ok().and_then(|g| g.clone())
+    let guard = NATIVE_COPY.lock().ok()?;
+    let payload = guard.as_ref()?;
+    rich_clipboard::decode_payload(payload)
+        .ok()?
+        .plain_text()
+        .map(str::to_owned)
 }
 
 /// Ownership lost (source cancelled) — stop serving / short-circuiting reads.
@@ -92,16 +152,32 @@ fn with_wayland_window<R>(f: impl FnOnce(&mut super::WaylandWindow) -> R) -> Opt
 
 /// Write string to Wayland clipboard
 pub(crate) fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
+    let payload = rich_clipboard::encode(
+        &rich_clipboard::RichItem::Text(text.to_owned()),
+        Platform::Unix,
+    )
+    .map_err(|_| ClipboardError::WriteFailed)?;
+    write_payload(&payload).map_err(|_| ClipboardError::WriteFailed)
+}
+
+/// Publish every flavor of a payload to the Wayland selection.
+///
+/// The native path takes them all; the XWayland fallback can only carry plain
+/// text (see [`x11::clipboard`](super::super::x11::clipboard)), so a fall back
+/// is also a loss of fidelity — logged, because a copy that silently drops its
+/// styling is the kind of thing that gets reported as "paste is broken".
+pub(crate) fn write_payload(payload: &ClipboardPayload) -> Result<(), ClipboardError> {
     // MWA-B3: native wl_data_device first — works on pure Wayland sessions
-    // (no XWayland). Park the text, then take the seat selection; pasting
-    // clients pull it through data_source_send.
+    // (no XWayland). Park the payload, then take the seat selection; pasting
+    // clients pull the representation they want through data_source_send.
     if let Ok(mut g) = NATIVE_COPY.lock() {
-        *g = Some(text.to_owned());
+        *g = Some(payload.clone());
     }
     if with_wayland_window(|w| w.wayland_set_selection()) == Some(true) {
         log_debug!(
             LogCategory::Resources,
-            "[Wayland Clipboard] native wl_data_source selection taken"
+            "[Wayland Clipboard] native wl_data_source selection taken, offering {} flavor(s)",
+            payload.len()
         );
         return Ok(());
     }
@@ -111,8 +187,39 @@ pub(crate) fn write_to_clipboard(text: &str) -> Result<(), ClipboardError> {
     // than a second `x11_clipboard::Clipboard` of our own. Same mechanism,
     // minus the four synchronous X round trips this used to spend on the UI
     // thread — see `x11/clipboard.rs::write_to_clipboard`.
-    super::super::x11::clipboard::write_to_clipboard(text)
+    let text = rich_clipboard::decode_payload(payload)
+        .ok()
+        .and_then(|item| item.plain_text().map(str::to_owned))
+        .ok_or(ClipboardError::WriteFailed)?;
+    if payload.len() > 1 {
+        log_warn!(
+            LogCategory::Resources,
+            "[Wayland Clipboard] no compositor selection — falling back to XWayland, which \
+             carries plain text only. {} of {} flavor(s) will not be published.",
+            payload.len() - 1,
+            payload.len()
+        );
+    }
+    super::super::x11::clipboard::write_to_clipboard(&text)
         .map_err(|_| ClipboardError::WriteFailed)
+}
+
+/// Read every flavor the Wayland selection offers.
+///
+/// Answers from our own payload when we own the selection: a `receive()` on
+/// our OWN offer would deadlock the single-threaded event loop, because the
+/// `send` event that serves it cannot dispatch while we block on the pipe.
+pub(crate) fn read_payload() -> Option<ClipboardPayload> {
+    if let Ok(guard) = NATIVE_COPY.lock() {
+        if let Some(payload) = guard.as_ref() {
+            return Some(payload.clone());
+        }
+    }
+    if let Some(Some(payload)) = with_wayland_window(|w| w.read_wayland_selection_payload()) {
+        return Some(payload);
+    }
+    // XWayland fallback: single-flavor, on the X11 worker.
+    super::super::x11::clipboard::read_payload()
 }
 
 /// Read string from Wayland clipboard

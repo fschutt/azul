@@ -267,64 +267,15 @@ fn parse_node_type_from_str(s: &str) -> azul_core::dom::NodeType {
 const MAX_EVENT_RECURSION_DEPTH: usize = azul_layout::window::MAX_EVENT_RECURSION_DEPTH;
 
 // Platform-specific Clipboard Helpers
-
-/// Get clipboard text content (platform-specific)
-#[inline]
-fn get_system_clipboard() -> Option<String> {
-    #[cfg(target_os = "windows")]
-    {
-        crate::desktop::shell2::windows::clipboard::get_clipboard_content()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        crate::desktop::shell2::macos::clipboard::get_clipboard_content()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        crate::desktop::shell2::linux::x11::clipboard::get_clipboard_content()
-    }
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux",
-    )))]
-    {
-        None
-    }
-}
-
-/// Set clipboard text content (platform-specific)
-#[inline]
-fn set_system_clipboard(text: String) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        crate::desktop::shell2::windows::clipboard::write_to_clipboard(&text).is_ok()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        crate::desktop::shell2::macos::clipboard::write_to_clipboard(&text).is_ok()
-    }
-    #[cfg(target_os = "linux")]
-    {
-        // Route to the active session backend. This previously hardcoded the X11
-        // write, so copy never reached the clipboard under a Wayland session —
-        // and the Wayland write path was only reachable through the unwired
-        // `sync_clipboard`. Now both backends are wired here.
-        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            crate::desktop::shell2::linux::wayland::clipboard::write_to_clipboard(&text).is_ok()
-        } else {
-            crate::desktop::shell2::linux::x11::clipboard::write_to_clipboard(&text).is_ok()
-        }
-    }
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux",
-    )))]
-    {
-        false
-    }
-}
+//
+// The seam moved to `super::clipboard`: the OS clipboard now carries typed
+// multi-flavor payloads (`ClipboardPayload`) rather than bare strings, and
+// that module owns both the per-OS dispatch and the conversions to and from
+// azul's `ClipboardContent`.
+use super::clipboard::{
+    clipboard_content_to_payload, get_system_clipboard, payload_to_clipboard_content,
+    set_system_clipboard,
+};
 
 /// Timer callback for auto-scroll during drag selection.
 ///
@@ -4786,7 +4737,9 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
-                set_system_clipboard(content.plain_text.as_str().to_string());
+                if let Some(payload) = clipboard_content_to_payload(content) {
+                    set_system_clipboard(&payload);
+                }
                 ProcessEventResult::DoNothing
             }
 
@@ -4797,7 +4750,9 @@ pub trait PlatformWindow {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.clipboard_manager.set_copy_content(content.clone());
                 }
-                set_system_clipboard(content.plain_text.as_str().to_string());
+                if let Some(payload) = clipboard_content_to_payload(content) {
+                    set_system_clipboard(&payload);
+                }
                 ProcessEventResult::DoNothing
             }
 
@@ -5495,7 +5450,9 @@ pub trait PlatformWindow {
                         .get_editing_dom_id()
                         .unwrap_or(azul_core::dom::DomId { inner: 0 });
                     if let Some(clipboard_content) = layout_window.get_selected_content_for_clipboard(&dom_id) {
-                        set_system_clipboard(clipboard_content.plain_text.as_str().to_string());
+                        if let Some(payload) = clipboard_content_to_payload(&clipboard_content) {
+                            set_system_clipboard(&payload);
+                        }
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -5511,7 +5468,9 @@ pub trait PlatformWindow {
                         .get_editing_dom_id()
                         .unwrap_or(azul_core::dom::DomId { inner: 0 });
                     if let Some(clipboard_content) = layout_window.get_selected_content_for_clipboard(&dom_id) {
-                        if set_system_clipboard(clipboard_content.plain_text.as_str().to_string()) {
+                        let committed = clipboard_content_to_payload(&clipboard_content)
+                            .is_some_and(|payload| set_system_clipboard(&payload));
+                        if committed {
                             // Cross-block cut: the copy above already joined the
                             // multi-paragraph text; the delete is the atomic
                             // replace-merge changeset.
@@ -5535,7 +5494,11 @@ pub trait PlatformWindow {
 
             SystemChange::PasteFromClipboard => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    if let Some(clipboard_text) = get_system_clipboard() {
+                    let pasted = get_system_clipboard()
+                        .as_ref()
+                        .and_then(payload_to_clipboard_content);
+                    if let Some(clipboard_content) = pasted {
+                        let clipboard_text = clipboard_content.plain_text.as_str().to_string();
                         // Paste over a cross-block selection: one atomic
                         // replace-merge changeset with the pasted text at the
                         // join (caret resumes after it).
@@ -5551,14 +5514,11 @@ pub trait PlatformWindow {
                                 return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                             }
                         }
-                        layout_window.clipboard_manager.set_paste_content(ClipboardContent {
-                            plain_text: clipboard_text.as_str().into(),
-                            // TODO(superplan): styled_runs empty — the OS clipboard read
-                            // (`get_system_clipboard`) only returns plain text; populating
-                            // rich runs needs an HTML/RTF clipboard format reader (see
-                            // layout/src/managers/selection.rs docs).
-                            styled_runs: StyledTextRunVec::from_const_slice(&[]),
-                        });
+                        // `styled_runs` is populated whenever the OS payload
+                        // carried a rich flavor (RTF/HTML) the decode policy
+                        // could read; the text-editing pipeline below pastes
+                        // the plain text.
+                        layout_window.clipboard_manager.set_paste_content(clipboard_content);
                         // Smart paste: if N lines == N cursors, paste one line per cursor
                         let cursor_count = layout_window.text_edit_manager.multi_cursor
                             .as_ref().map(|mc| mc.len()).unwrap_or(0);
@@ -8410,12 +8370,12 @@ pub trait PlatformWindow {
                 .iter()
                 .any(|c| matches!(c, SystemChange::PasteFromClipboard));
             if has_paste {
-                if let Some(clipboard_text) = get_system_clipboard() {
+                let pasted = get_system_clipboard()
+                    .as_ref()
+                    .and_then(payload_to_clipboard_content);
+                if let Some(clipboard_content) = pasted {
                     if let Some(lw) = self.get_layout_window_mut() {
-                        lw.clipboard_manager.set_paste_content(ClipboardContent {
-                            plain_text: clipboard_text.as_str().into(),
-                            styled_runs: StyledTextRunVec::from_const_slice(&[]),
-                        });
+                        lw.clipboard_manager.set_paste_content(clipboard_content);
                     }
                 }
             }

@@ -174,6 +174,21 @@ tfd = { version = "0.1.0", default-features = false, optional = true }
 # uses GCController / InputDevice instead, so gilrs is desktop-only.
 gilrs = { package = "gilrs-azul", version = "0.11", optional = true }
 
+# Typed multi-flavor clipboard payloads: codecs (RTF/CF_HTML/uri-list/DIB/…)
+# and read/write policy. Deliberately OS-free — the transports live in
+# `shell2/<platform>/clipboard.rs` and exchange `ClipboardPayload` with it
+# through `shell2/common/clipboard.rs`. Feature set per the crate's
+# INTEGRATION.md §3: styled text both ways, file lists (incl. the GNOME/KDE
+# cut conventions), DIB images, and link/shortcut files. No `image` feature:
+# azul has its own PNG encoder for the pixels→PNG delegation if ever needed.
+rich-clipboard = { version = "0.1", features = ["rich-text", "file-list", "dib", "shortcut"], optional = true }
+# The vocabulary crate underneath it. Already in the graph via rich-clipboard
+# (so it costs nothing extra to compile); named directly because the transports
+# need two things the facade does not re-export: `WindowsFormat`, to map a
+# predefined CF_* number to the name `Flavor::from_windows_name` reads back,
+# and `Budget`, to bound a Wayland pipe read that declares no length.
+rclip-core = { version = "0.1", optional = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
 x11-clipboard = { version = "0.9.3", optional = true }
@@ -380,8 +395,11 @@ cgl = { version = "0.3.2", optional = true }
 dispatch2 = { version = "0.3.0", default-features = false, features = ["std", "objc2"], optional = true }
 objc2 = { version = "0.6.0", optional = true }
 objc = { version = "0.2", optional = true }
-objc-foundation = { version = "0.1", optional = true }
-objc_id = { version = "0.1", optional = true }
+# NOTE: `objc-foundation` / `objc_id` are deliberately NOT here. The clipboard
+# was the last macOS user of the objc 0.2 Foundation wrappers; it moved to
+# objc2-app-kit (design decision #2 — new backends are objc2-native), so on
+# macOS they are dead weight. They stay in the iOS section, which still has
+# real users (`shell2/ios/mod.rs`).
 block2 = { version = "0.6.0", optional = true }
 libloading = { version = "0.8.6", optional = true }
 accesskit_macos = { version = "0.26", optional = true }
@@ -397,6 +415,12 @@ objc2-foundation = { version = "0.3.0", default-features = true, optional = true
     "NSThread",
     "NSString",
     "NSError",
+    # NSData: the pasteboard's byte carrier. `-length` is also the read-side
+    # SizeHint::Exact — asked BEFORE the bytes are copied into a Vec.
+    "NSData",
+    # NSArray::iter() is gated on this: the clipboard walks -pasteboardItems
+    # and each item's -types.
+    "NSEnumerator",
 ] }
 objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, features = [
     "std",
@@ -413,6 +437,10 @@ objc2-app-kit = { version = "0.3.0", default-features = true, optional = true, f
     "NSOpenGLView",
     "NSDragging",
     "NSPasteboard",
+    # The payload-level clipboard transport walks -pasteboardItems (the
+    # pasteboard-level API only reaches the FIRST item offering a type, so a
+    # three-file copy would read back as one file).
+    "NSPasteboardItem",
     # The eyedropper: NSColorSampler is the system loupe (no screen-recording
     # permission); NSColor/NSColorSpace read the picked colour's sRGB parts.
     "NSColorSampler",
@@ -645,9 +673,11 @@ _internal_deps = [
     "strum",
     "spmc",
     "dep:png",
-    # Platform-specific clipboard
+    # Platform-specific clipboard transports + the shared payload/codec layer
     "x11-clipboard",
     "clipboard-win",
+    "dep:rich-clipboard",
+    "dep:rclip-core",
     # Windows needs libm
     "libm",
     # ICU backends: each platform picks the best one via cfg conditions.

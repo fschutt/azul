@@ -4054,15 +4054,36 @@ impl WaylandWindow {
                 return false;
             }
 
-            // offer(mime_type): opcode 0, "s" — advertise the common
-            // plain-text spellings so GTK/Qt/terminal clients all match.
+            // offer(mime_type): opcode 0, "s" — one call per flavor the
+            // parked payload carries, plus the pre-MIME plain-text spellings
+            // so GTK/Qt/terminal clients still match. This is what makes a
+            // Wayland copy a real fan-out: the peer picks which one it wants
+            // and `data_source_send` names it back to us.
             let offer: unsafe extern "C" fn(
                 *mut defines::wl_proxy,
                 u32,
                 *const std::os::raw::c_char,
             ) = std::mem::transmute(self.wayland.wl_proxy_marshal);
-            for mime in ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"] {
-                let c = std::ffi::CString::new(mime).unwrap();
+            let mimes = clipboard::native_copy_mimes();
+            if mimes.is_empty() {
+                // Nothing parked to serve. Taking the selection anyway would
+                // make every paste from this app return an empty pipe.
+                //
+                // BOTH halves of the teardown, like every destructor here: the
+                // request tells the server, `wl_proxy_destroy` frees the client
+                // id. Skipping the request leaks the server-side object.
+                let destroy: unsafe extern "C" fn(*mut defines::wl_proxy, u32) =
+                    std::mem::transmute(self.wayland.wl_proxy_marshal);
+                destroy(src, 1);
+                (self.wayland.wl_proxy_destroy)(src);
+                return false;
+            }
+            for mime in &mimes {
+                // A mime with an interior NUL cannot be marshalled; skipping
+                // it loses one flavor rather than the whole copy.
+                let Ok(c) = std::ffi::CString::new(mime.as_str()) else {
+                    continue;
+                };
                 offer(src, 0, c.as_ptr());
             }
 
@@ -4105,6 +4126,61 @@ impl WaylandWindow {
             return None;
         }
         Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// Read EVERY flavor the current clipboard offer advertises that azul has
+    /// a codec for.
+    ///
+    /// Driven by the offer's own advertised mime list (captured at
+    /// `wl_data_device.selection`), not by guesswork: `wl_data_offer.receive`
+    /// with a mime the source never offered is answered by a pipe the source
+    /// is under no obligation to close, so each blind guess costs the full
+    /// transfer deadline.
+    pub(super) fn read_wayland_selection_payload(
+        &mut self,
+    ) -> Option<rich_clipboard::ClipboardPayload> {
+        use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
+
+        if self.clipboard_offer.is_null() {
+            return None;
+        }
+        // Cloned because the receive borrows `self` mutably below.
+        let offered: Vec<String> = self.drag.clipboard_mimes().to_vec();
+        let offer = self.clipboard_offer;
+
+        let mut payload = ClipboardPayload::new(Platform::Unix);
+        // Borrows `offered`, so it must be declared after it (and is dropped
+        // before it). `Flavor` is only `'static` when it came from a literal.
+        let mut seen: Vec<Flavor<'_>> = Vec::new();
+        for mime in &offered {
+            let flavor = Flavor::from_mime(mime);
+            // A flavor nothing here decodes is not worth a pipe transfer, and
+            // two spellings of one flavor (`UTF8_STRING` next to
+            // `text/plain;charset=utf-8`) are one transfer, not two.
+            if matches!(flavor, Flavor::Other(_)) || seen.contains(&flavor) {
+                continue;
+            }
+            let bytes = unsafe { events::receive_offer_bytes(self, offer, mime) };
+            if bytes.is_empty() {
+                continue;
+            }
+            seen.push(flavor);
+            payload.push(ClipboardItem::new(mime.as_str(), bytes));
+        }
+
+        if payload.is_empty() {
+            // No advertised mime answered — either the list never arrived
+            // (an offer whose advertisements we missed) or every transfer
+            // failed. Fall back to the single-flavor read, which asks for
+            // plain text unconditionally.
+            let text = self.read_wayland_selection()?;
+            return rich_clipboard::encode(
+                &rich_clipboard::RichItem::Text(text),
+                Platform::Unix,
+            )
+            .ok();
+        }
+        Some(payload)
     }
 
     // --- Primary selection (zwp_primary_selection_v1) ---

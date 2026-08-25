@@ -3,16 +3,27 @@
 //! Contains `ClipboardContent` and `StyledTextRun`, used by clipboard and
 //! changeset modules.
 //!
-//! **Rich-text status:** `StyledTextRun`, `StyledTextRunVec` and the
-//! `ClipboardContent.styled_runs` field are FFI-exported (api.json), but the
-//! rich path is only half-wired: the live clipboard producers build
-//! `styled_runs` empty (`window.rs::get_selected_content_for_clipboard`,
-//! paste in `common/event.rs`) and the platform clipboard backends write only
-//! `plain_text`. Fully wiring it means (a) extracting per-run style from the
-//! styled DOM when copying and (b) adding an HTML/RTF format to each platform's
-//! clipboard write (and reading it back on paste). `to_html()` below is the
-//! retained consumer for that future format. Until then the FFI surface is
-//! kept (it is public API) but `styled_runs` stays empty.
+//! **Rich-text status:** the OS half is wired. A paste populates
+//! `styled_runs` whenever the source offered a styled flavor — the platform
+//! transports in `dll/src/desktop/shell2/*/clipboard.rs` hand every flavor
+//! the source published to `rich-clipboard`, whose decode policy prefers RTF,
+//! then HTML, then plain text, and `shell2/common/clipboard.rs` converts the
+//! result into this type. A copy fans back out the same way, so styled text
+//! reaches other applications as RTF *and* HTML *and* plain text at once
+//! (macOS, Windows and native Wayland; X11's selection owner can only serve
+//! one target, so it publishes plain text — see `x11/clipboard.rs`).
+//!
+//! What is still empty is the COPY-side extraction:
+//! `window.rs::get_selected_content_for_clipboard` builds `styled_runs` from
+//! the selection as an empty vec, because per-run style has to come out of the
+//! styled DOM and that walk does not exist yet. So azul currently *reads*
+//! styling and does not yet *produce* it — the transport underneath is ready
+//! for both.
+//!
+//! `to_html()` below predates all of this and is not on the clipboard path:
+//! `rich-clipboard`'s `RichText::to_html_fragment` is what actually gets
+//! published, because it also emits the matching RTF and the `CF_HTML`
+//! wrapper Windows needs. This stays as public FFI API.
 
 use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
 

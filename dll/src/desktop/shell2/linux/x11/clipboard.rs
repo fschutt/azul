@@ -2,16 +2,79 @@
 //!
 //! This module provides clipboard synchronization between azul-layout's ClipboardManager
 //! and the X11 system clipboard (both PRIMARY and CLIPBOARD selections).
+//!
+//! # Multi-flavor reads, and why they are probes rather than a `TARGETS` query
+//!
+//! ICCCM says to ask for `TARGETS` first and then convert each target in turn.
+//! That is not reachable through `x11-clipboard` 0.9.3: its `Clipboard::load`
+//! rejects any reply whose `type_` differs from the target it asked for
+//! (`Error::UnexpectedType`), and a `TARGETS` conversion answers with type
+//! `ATOM` by definition — so the enumeration always errors before it returns.
+//!
+//! [`load_payload`] therefore *probes*: it converts a fixed, rank-ordered list
+//! of the targets azul has a codec for, and keeps every one that answers. A
+//! target the owner does not offer answers with no property and costs one
+//! cheap round trip; a **dead owner costs the full timeout**, so the probe
+//! stops at the first target that times out rather than paying it eight times.
+//!
+//! What this loses is flavors nothing here knows about: a private format
+//! cannot be carried through as `RichItem::Unknown` when the only way to learn
+//! its name is the `TARGETS` list. Lifting that needs either an
+//! `x11-clipboard` that tolerates a differently-typed reply, or a direct
+//! `x11rb` connection of our own.
+//!
+//! # Writes are single-flavor, and cannot be otherwise here
+//!
+//! There is no multi-flavor write through this crate at all. Its owner state
+//! is a `HashMap<selection, (target, value)>` — **one** target per selection —
+//! and its `SelectionRequest` handler answers a `TARGETS` query with exactly
+//! that one target. So `store()` called twice does not add a second flavor, it
+//! replaces the first.
+//!
+//! A copy therefore publishes plain text and nothing else: it is the flavor
+//! every X client can paste, and offering RTF *instead* would break every
+//! plain-text target to style one. Styled text survives a copy on macOS (see
+//! `macos/clipboard.rs`), and on X11 it does not. Lifting this needs a
+//! selection owner that serves several targets, which is a rewrite of the
+//! owner loop rather than a call-site change.
+//!
+//! INCR is handled inside `Clipboard::load` and is mandatory in practice —
+//! anything past roughly 256 KB arrives that way, and a screenshot always
+//! will. Its `SizeHint::AtLeast` lower bound is *not* reachable either: the
+//! crate reads it only to `reserve` the buffer and never reports it, so the
+//! size guard here is a post-hoc length check rather than the pre-read
+//! rejection Windows and macOS get.
 
 use std::sync::mpsc::{self, Sender, SyncSender};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use azul_layout::managers::clipboard::ClipboardManager;
+use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
 use x11_clipboard::Clipboard;
 
+use super::super::super::common::clipboard::MAX_FLAVOR_BYTES;
 use super::super::super::common::debug_server::LogCategory;
 use crate::{log_error, log_warn};
+
+/// The selection targets a payload read probes for, richest first.
+///
+/// Ordered by `Flavor::read_rank` so the expensive round trips happen in the
+/// order the decode policy would prefer them anyway. Kept deliberately short:
+/// every entry is one X round trip, and each is a target azul has a codec for.
+///
+/// `text/plain;charset=utf-8` is last and is the one that must always be
+/// tried — it is what every X client offers and the floor every paste falls
+/// back to. `UTF8_STRING` is its pre-MIME spelling, still what older toolkits
+/// and terminals publish.
+const PROBE_TARGETS: &[&str] = &[
+    "text/uri-list",
+    "text/rtf",
+    "text/html",
+    "image/png",
+    "text/plain;charset=utf-8",
+    "UTF8_STRING",
+];
 
 /// How long the UI thread waits for a selection read before giving up.
 ///
@@ -174,6 +237,13 @@ enum ClipboardJob {
         kind: SelectionKind,
         reply: SyncSender<Option<String>>,
     },
+    /// Read EVERY target the selection offers that we have a codec for, and
+    /// answer on `reply`. Same worker and same deadline as `Load` — it is
+    /// several round trips rather than one, which is exactly why it must not
+    /// happen on the UI thread.
+    LoadPayload {
+        reply: SyncSender<Option<ClipboardPayload>>,
+    },
     /// Take ownership of PRIMARY with this text (fire and forget).
     ClaimPrimary(String),
     /// Take ownership of CLIPBOARD *and* PRIMARY with this text — the four
@@ -200,6 +270,9 @@ fn worker() -> Option<MutexGuard<'static, Sender<ClipboardJob>>> {
                         // discarded, not an error.
                         ClipboardJob::Load { kind, reply } => {
                             let _ = reply.try_send(load_selection(kind));
+                        }
+                        ClipboardJob::LoadPayload { reply } => {
+                            let _ = reply.try_send(load_selection_payload());
                         }
                         ClipboardJob::ClaimPrimary(text) => claim_primary(&text),
                         ClipboardJob::Store(text) => store_both_selections(&text),
@@ -292,6 +365,114 @@ fn load_selection(kind: SelectionKind) -> Option<String> {
     }
 
     None
+}
+
+/// Worker-thread side of a multi-flavor read. Blocking — never call this on
+/// the UI thread.
+///
+/// Probes [`PROBE_TARGETS`] in order (see the module docs for why this is not
+/// a `TARGETS` enumeration) and keeps every target that answers with bytes.
+///
+/// **Stops at the first target that errors.** An owner that is gone or wedged
+/// makes every probe pay the full [`SELECTION_LOAD_TIMEOUT`], and paying that
+/// six times over is how a paste turns into a multi-second stall on the
+/// clipboard worker (and, through the mutex it holds, on the next copy).
+fn load_selection_payload() -> Option<ClipboardPayload> {
+    let guard = clipboard()?;
+    let clipboard = guard.as_ref()?;
+
+    let mut payload = ClipboardPayload::new(Platform::Unix);
+    let mut seen: Vec<Flavor<'static>> = Vec::new();
+
+    for target in PROBE_TARGETS {
+        // BEFORE the transfer, not after: `UTF8_STRING` and
+        // `text/plain;charset=utf-8` are one flavor under two names, and
+        // fetching the second only to discard it costs a whole X round trip
+        // in the case that happens on almost every paste.
+        let flavor = Flavor::from_mime(target);
+        if seen.contains(&flavor) {
+            continue;
+        }
+        let Ok(atom) = clipboard.getter.get_atom(target) else {
+            continue;
+        };
+        let loaded = clipboard.load(
+            clipboard.getter.atoms.clipboard,
+            atom,
+            clipboard.getter.atoms.property,
+            SELECTION_LOAD_TIMEOUT,
+        );
+        let bytes = match loaded {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                // The owner did not answer. Every remaining probe would pay
+                // the same timeout, so stop and use whatever already came
+                // back — the ranked order means that is the best of them.
+                log_warn!(
+                    LogCategory::Resources,
+                    "[X11] selection owner stopped answering at target `{target}` — using the \
+                     {} flavor(s) already read",
+                    payload.len()
+                );
+                break;
+            }
+        };
+        if bytes.is_empty() {
+            // Target not offered. Cheap, and not an error.
+            continue;
+        }
+        if bytes.len() as u64 > MAX_FLAVOR_BYTES {
+            // Post-hoc, not pre-read: `Clipboard::load` never reports the
+            // INCR lower bound it saw, so there is nothing to reject on
+            // before the transfer. See the module docs.
+            log_warn!(
+                LogCategory::Resources,
+                "[X11] dropping selection target `{target}`: {} bytes exceeds the \
+                 {MAX_FLAVOR_BYTES}-byte cap",
+                bytes.len()
+            );
+            continue;
+        }
+
+        seen.push(flavor);
+        payload.push(ClipboardItem::new(*target, bytes));
+    }
+
+    (!payload.is_empty()).then_some(payload)
+}
+
+/// Read every flavor the CLIPBOARD selection offers.
+///
+/// Non-blocking by UI-thread standards, like [`get_clipboard_content`]: the
+/// probes run on the clipboard worker and this gives up after
+/// [`PASTE_UI_DEADLINE`].
+///
+/// Falls back to the text this process last copied when the selection answers
+/// with nothing, for the same reason [`get_clipboard_content`] does: a copy is
+/// parked in-process before the X handoff is even queued, so a Ctrl+C followed
+/// immediately by Ctrl+V must still paste.
+pub fn read_payload() -> Option<ClipboardPayload> {
+    let (reply, answer) = mpsc::sync_channel(1);
+    {
+        let sender = worker()?;
+        sender.send(ClipboardJob::LoadPayload { reply }).ok()?;
+    }
+    let from_selection = match answer.recv_timeout(PASTE_UI_DEADLINE) {
+        Ok(payload) => payload,
+        Err(_) => {
+            log_warn!(
+                LogCategory::Resources,
+                "[X11] selection owner did not answer within {PASTE_UI_DEADLINE:?} — pasting \
+                 nothing"
+            );
+            None
+        }
+    };
+    if let Some(payload) = from_selection {
+        return Some(payload);
+    }
+    let parked = LAST_WRITTEN.lock().ok().and_then(|g| g.clone())?;
+    rich_clipboard::encode(&rich_clipboard::RichItem::Text(parked), Platform::Unix).ok()
 }
 
 /// Hand a read to the worker and wait at most [`PASTE_UI_DEADLINE`] for it.

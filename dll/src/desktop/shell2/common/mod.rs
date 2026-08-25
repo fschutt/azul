@@ -21,6 +21,7 @@ pub mod gl_loader;
 // Unified cross-platform modules
 pub mod accessibility;
 pub mod capability_pump;
+pub mod clipboard;
 pub mod debug_server;
 #[cfg(feature = "e2e-test")]
 pub mod e2e_test;
