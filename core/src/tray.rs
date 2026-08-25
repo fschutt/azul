@@ -31,7 +31,7 @@
 //!   activates an item; some desktops use single left click, some double. Never
 //!   document a precise gesture for [`TrayEventType::Activate`].
 
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 
 use crate::{
     menu::{Menu, OptionMenu},
