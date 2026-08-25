@@ -3462,6 +3462,15 @@ pub trait PlatformWindow {
                     super::debug_server::LogCategory::Window,
                     "[transient] popup dismissing itself: {cause:?}"
                 );
+                // The dismissing input (the Escape press / the focus-loss
+                // transition) is CONSUMED by the popup — the documented "key
+                // eaten by an open popup" swallow. Without this,
+                // `request_window_close`'s baseline snapshot reads the very
+                // delta that caused the dismissal as an unconsumed input and
+                // the debug validator aborts (`transient.dismissed:
+                // keyboard_state`). The parent still hears the key through its
+                // OWN window state; only this closing popup's copy is spent.
+                self.discard_input_delta("transient.dismissed");
                 let _ = self.request_window_close("transient.dismissed");
                 self.request_regeneration_all_windows();
             }
