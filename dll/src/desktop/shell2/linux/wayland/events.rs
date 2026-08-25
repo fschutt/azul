@@ -69,6 +69,14 @@ pub struct TabletPenPending {
     pub tool_id: u64,
 }
 
+/// Pad state accumulated between `frame` events, mirroring `TabletPenPending`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TabletPadPending {
+    pub express_keys: u32,
+    pub touch_ring: f32,
+    pub touch_ring_active: bool,
+}
+
 impl PointerState {
     pub(super) fn new() -> Self {
         Self {
@@ -925,12 +933,199 @@ extern "C" fn tablet_seat_tool_added(
     window.track_listener(id);
 }
 extern "C" fn tablet_seat_pad_added(
-    _data: *mut c_void,
+    data: *mut c_void,
     _seat: *mut zwp_tablet_seat_v2,
-    _id: *mut zwp_tablet_pad_v2,
+    id: *mut zwp_tablet_pad_v2,
 ) {
-    // Pad proxy is created by libwayland (the descriptors parse its events); no listener.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    unsafe { (window.wayland.zwp_tablet_pad_v2_add_listener)(id, &ZWP_TABLET_PAD_LISTENER, data) };
+    window.track_listener(id);
 }
+
+// ===== zwp_tablet_pad_v2 — ExpressKeys, ring and strip =====
+//
+// The pad is a separate device from the pen and moves no cursor, so none of
+// this goes through the pointer path. Button state accumulates into a bitset
+// and the ring/strip into a single normalised position; both are pushed to the
+// gesture manager as one `WacomPadState`.
+//
+// Note the two different unit conventions sitting next to each other: the ring
+// reports wl_fixed DEGREES (so /256.0 then /360.0) while the strip reports a
+// plain integer 0..=65535.
+
+extern "C" fn pad_group(
+    data: *mut c_void,
+    _pad: *mut zwp_tablet_pad_v2,
+    id: *mut zwp_tablet_pad_group_v2,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    unsafe {
+        (window.wayland.zwp_tablet_pad_group_v2_add_listener)(id, &ZWP_TABLET_PAD_GROUP_LISTENER, data)
+    };
+    window.track_listener(id);
+}
+extern "C" fn pad_path(_d: *mut c_void, _p: *mut zwp_tablet_pad_v2, _path: *const c_char) {}
+extern "C" fn pad_buttons(_d: *mut c_void, _p: *mut zwp_tablet_pad_v2, _n: u32) {}
+extern "C" fn pad_done(_d: *mut c_void, _p: *mut zwp_tablet_pad_v2) {}
+extern "C" fn pad_button(
+    data: *mut c_void,
+    _p: *mut zwp_tablet_pad_v2,
+    _time: u32,
+    button: u32,
+    state: u32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // `WacomPadState::express_keys` is a u32 bitset, so buttons past 31 have
+    // nowhere to go. Real pads top out well below that; drop rather than wrap,
+    // which would report the wrong key as held.
+    if button < 32 {
+        let bit = 1u32 << button;
+        if state == 1 {
+            window.tablet_pad.express_keys |= bit;
+        } else {
+            window.tablet_pad.express_keys &= !bit;
+        }
+    }
+    window.handle_tablet_pad_frame();
+}
+extern "C" fn pad_enter(
+    _d: *mut c_void,
+    _p: *mut zwp_tablet_pad_v2,
+    _serial: u32,
+    _tablet: *mut zwp_tablet_v2,
+    _surface: *mut wl_surface,
+) {
+}
+extern "C" fn pad_leave(
+    data: *mut c_void,
+    _p: *mut zwp_tablet_pad_v2,
+    _serial: u32,
+    _surface: *mut wl_surface,
+) {
+    // Focus left the surface: the compositor stops sending button releases, so
+    // holding state here would latch a key down forever.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_pad = TabletPadPending::default();
+    window.handle_tablet_pad_frame();
+}
+extern "C" fn pad_removed(data: *mut c_void, _p: *mut zwp_tablet_pad_v2) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_pad = TabletPadPending::default();
+    window.handle_tablet_pad_frame();
+}
+static ZWP_TABLET_PAD_LISTENER: zwp_tablet_pad_v2_listener = zwp_tablet_pad_v2_listener {
+    group: pad_group,
+    path: pad_path,
+    buttons: pad_buttons,
+    done: pad_done,
+    button: pad_button,
+    enter: pad_enter,
+    leave: pad_leave,
+    removed: pad_removed,
+};
+
+extern "C" fn pad_group_buttons(
+    _d: *mut c_void,
+    _g: *mut zwp_tablet_pad_group_v2,
+    _b: *mut wl_array,
+) {
+}
+extern "C" fn pad_group_ring(
+    data: *mut c_void,
+    _g: *mut zwp_tablet_pad_group_v2,
+    id: *mut zwp_tablet_pad_ring_v2,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    unsafe {
+        (window.wayland.zwp_tablet_pad_ring_v2_add_listener)(id, &ZWP_TABLET_PAD_RING_LISTENER, data)
+    };
+    window.track_listener(id);
+}
+extern "C" fn pad_group_strip(
+    data: *mut c_void,
+    _g: *mut zwp_tablet_pad_group_v2,
+    id: *mut zwp_tablet_pad_strip_v2,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    unsafe {
+        (window.wayland.zwp_tablet_pad_strip_v2_add_listener)(
+            id,
+            &ZWP_TABLET_PAD_STRIP_LISTENER,
+            data,
+        )
+    };
+    window.track_listener(id);
+}
+extern "C" fn pad_group_modes(_d: *mut c_void, _g: *mut zwp_tablet_pad_group_v2, _m: u32) {}
+extern "C" fn pad_group_done(_d: *mut c_void, _g: *mut zwp_tablet_pad_group_v2) {}
+extern "C" fn pad_group_mode_switch(
+    _d: *mut c_void,
+    _g: *mut zwp_tablet_pad_group_v2,
+    _time: u32,
+    _serial: u32,
+    _mode: u32,
+) {
+}
+static ZWP_TABLET_PAD_GROUP_LISTENER: zwp_tablet_pad_group_v2_listener =
+    zwp_tablet_pad_group_v2_listener {
+        buttons: pad_group_buttons,
+        ring: pad_group_ring,
+        strip: pad_group_strip,
+        modes: pad_group_modes,
+        done: pad_group_done,
+        mode_switch: pad_group_mode_switch,
+    };
+
+extern "C" fn pad_ring_source(_d: *mut c_void, _r: *mut zwp_tablet_pad_ring_v2, _s: u32) {}
+extern "C" fn pad_ring_angle(data: *mut c_void, _r: *mut zwp_tablet_pad_ring_v2, degrees: i32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // wl_fixed (24.8) degrees -> 0.0..=1.0 around the ring.
+    let deg = degrees as f32 / 256.0;
+    window.tablet_pad.touch_ring = (deg / 360.0).clamp(0.0, 1.0);
+    window.tablet_pad.touch_ring_active = true;
+}
+extern "C" fn pad_ring_stop(data: *mut c_void, _r: *mut zwp_tablet_pad_ring_v2) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_pad.touch_ring_active = false;
+}
+extern "C" fn pad_ring_frame(data: *mut c_void, _r: *mut zwp_tablet_pad_ring_v2, _time: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_tablet_pad_frame();
+}
+static ZWP_TABLET_PAD_RING_LISTENER: zwp_tablet_pad_ring_v2_listener =
+    zwp_tablet_pad_ring_v2_listener {
+        source: pad_ring_source,
+        angle: pad_ring_angle,
+        stop: pad_ring_stop,
+        frame: pad_ring_frame,
+    };
+
+extern "C" fn pad_strip_source(_d: *mut c_void, _s: *mut zwp_tablet_pad_strip_v2, _src: u32) {}
+extern "C" fn pad_strip_position(
+    data: *mut c_void,
+    _s: *mut zwp_tablet_pad_strip_v2,
+    position: u32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // Plain integer 0..=65535 here, NOT wl_fixed like the ring above.
+    window.tablet_pad.touch_ring = (position as f32 / 65535.0).clamp(0.0, 1.0);
+    window.tablet_pad.touch_ring_active = true;
+}
+extern "C" fn pad_strip_stop(data: *mut c_void, _s: *mut zwp_tablet_pad_strip_v2) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_pad.touch_ring_active = false;
+}
+extern "C" fn pad_strip_frame(data: *mut c_void, _s: *mut zwp_tablet_pad_strip_v2, _time: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_tablet_pad_frame();
+}
+static ZWP_TABLET_PAD_STRIP_LISTENER: zwp_tablet_pad_strip_v2_listener =
+    zwp_tablet_pad_strip_v2_listener {
+        source: pad_strip_source,
+        position: pad_strip_position,
+        stop: pad_strip_stop,
+        frame: pad_strip_frame,
+    };
 static ZWP_TABLET_SEAT_LISTENER: zwp_tablet_seat_v2_listener = zwp_tablet_seat_v2_listener {
     tablet_added: tablet_seat_tablet_added,
     tool_added: tablet_seat_tool_added,

@@ -223,6 +223,26 @@ pub struct Wayland {
         *const zwp_tablet_tool_v2_listener,
         *mut c_void,
     ) -> i32,
+    pub zwp_tablet_pad_v2_add_listener: unsafe extern "C" fn(
+        *mut zwp_tablet_pad_v2,
+        *const zwp_tablet_pad_v2_listener,
+        *mut c_void,
+    ) -> i32,
+    pub zwp_tablet_pad_group_v2_add_listener: unsafe extern "C" fn(
+        *mut zwp_tablet_pad_group_v2,
+        *const zwp_tablet_pad_group_v2_listener,
+        *mut c_void,
+    ) -> i32,
+    pub zwp_tablet_pad_ring_v2_add_listener: unsafe extern "C" fn(
+        *mut zwp_tablet_pad_ring_v2,
+        *const zwp_tablet_pad_ring_v2_listener,
+        *mut c_void,
+    ) -> i32,
+    pub zwp_tablet_pad_strip_v2_add_listener: unsafe extern "C" fn(
+        *mut zwp_tablet_pad_strip_v2,
+        *const zwp_tablet_pad_strip_v2_listener,
+        *mut c_void,
+    ) -> i32,
 
     pub wl_shm_create_pool: unsafe extern "C" fn(*mut wl_shm, i32, i32) -> *mut wl_shm_pool,
     pub wl_shm_pool_create_buffer:
@@ -502,6 +522,21 @@ impl Wayland {
             },
             zwp_tablet_v2_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             zwp_tablet_tool_v2_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            // The pad listeners are the same wl_proxy_add_listener under the
+            // hood; the distinct fn types exist only so the listener struct
+            // passed at each call site is checked.
+            zwp_tablet_pad_v2_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_tablet_pad_group_v2_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_tablet_pad_ring_v2_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_tablet_pad_strip_v2_add_listener: unsafe {
                 std::mem::transmute(wl_proxy_add_listener_ptr)
             },
 

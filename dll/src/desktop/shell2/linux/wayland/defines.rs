@@ -1293,6 +1293,100 @@ pub struct zwp_tablet_seat_v2_listener {
         extern "C" fn(data: *mut c_void, seat: *mut zwp_tablet_seat_v2, id: *mut zwp_tablet_pad_v2),
 }
 
+/// Listener for `zwp_tablet_pad_v2` — the tablet's own button block.
+///
+/// The pad is a SEPARATE device from the pen: ExpressKeys, a touch ring and/or
+/// a touch strip, none of which move the cursor. `button.state` is 0 released /
+/// 1 pressed, and `button` is a 0-based index into the pad's own numbering, not
+/// a `BTN_*` code.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct zwp_tablet_pad_v2_listener {
+    pub group: extern "C" fn(
+        data: *mut c_void,
+        pad: *mut zwp_tablet_pad_v2,
+        id: *mut zwp_tablet_pad_group_v2,
+    ),
+    pub path: extern "C" fn(data: *mut c_void, pad: *mut zwp_tablet_pad_v2, path: *const c_char),
+    pub buttons: extern "C" fn(data: *mut c_void, pad: *mut zwp_tablet_pad_v2, buttons: u32),
+    pub done: extern "C" fn(data: *mut c_void, pad: *mut zwp_tablet_pad_v2),
+    pub button: extern "C" fn(
+        data: *mut c_void,
+        pad: *mut zwp_tablet_pad_v2,
+        time: u32,
+        button: u32,
+        state: u32,
+    ),
+    pub enter: extern "C" fn(
+        data: *mut c_void,
+        pad: *mut zwp_tablet_pad_v2,
+        serial: u32,
+        tablet: *mut zwp_tablet_v2,
+        surface: *mut wl_surface,
+    ),
+    pub leave: extern "C" fn(
+        data: *mut c_void,
+        pad: *mut zwp_tablet_pad_v2,
+        serial: u32,
+        surface: *mut wl_surface,
+    ),
+    pub removed: extern "C" fn(data: *mut c_void, pad: *mut zwp_tablet_pad_v2),
+}
+
+/// Listener for `zwp_tablet_pad_group_v2`. A pad has one group per independent
+/// mode; the ring/strip new_ids arrive here, not on the pad itself.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct zwp_tablet_pad_group_v2_listener {
+    pub buttons: extern "C" fn(
+        data: *mut c_void,
+        group: *mut zwp_tablet_pad_group_v2,
+        buttons: *mut wl_array,
+    ),
+    pub ring: extern "C" fn(
+        data: *mut c_void,
+        group: *mut zwp_tablet_pad_group_v2,
+        id: *mut zwp_tablet_pad_ring_v2,
+    ),
+    pub strip: extern "C" fn(
+        data: *mut c_void,
+        group: *mut zwp_tablet_pad_group_v2,
+        id: *mut zwp_tablet_pad_strip_v2,
+    ),
+    pub modes: extern "C" fn(data: *mut c_void, group: *mut zwp_tablet_pad_group_v2, modes: u32),
+    pub done: extern "C" fn(data: *mut c_void, group: *mut zwp_tablet_pad_group_v2),
+    pub mode_switch: extern "C" fn(
+        data: *mut c_void,
+        group: *mut zwp_tablet_pad_group_v2,
+        time: u32,
+        serial: u32,
+        mode: u32,
+    ),
+}
+
+/// Listener for `zwp_tablet_pad_ring_v2`. `angle` is wl_fixed DEGREES (0..360),
+/// so it needs both the /256.0 fixed-point conversion and a /360.0 normalise.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct zwp_tablet_pad_ring_v2_listener {
+    pub source: extern "C" fn(data: *mut c_void, ring: *mut zwp_tablet_pad_ring_v2, source: u32),
+    pub angle: extern "C" fn(data: *mut c_void, ring: *mut zwp_tablet_pad_ring_v2, degrees: i32),
+    pub stop: extern "C" fn(data: *mut c_void, ring: *mut zwp_tablet_pad_ring_v2),
+    pub frame: extern "C" fn(data: *mut c_void, ring: *mut zwp_tablet_pad_ring_v2, time: u32),
+}
+
+/// Listener for `zwp_tablet_pad_strip_v2`. `position` is an integer 0..65535,
+/// NOT wl_fixed — a different convention from the ring next to it.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct zwp_tablet_pad_strip_v2_listener {
+    pub source: extern "C" fn(data: *mut c_void, strip: *mut zwp_tablet_pad_strip_v2, source: u32),
+    pub position:
+        extern "C" fn(data: *mut c_void, strip: *mut zwp_tablet_pad_strip_v2, position: u32),
+    pub stop: extern "C" fn(data: *mut c_void, strip: *mut zwp_tablet_pad_strip_v2),
+    pub frame: extern "C" fn(data: *mut c_void, strip: *mut zwp_tablet_pad_strip_v2, time: u32),
+}
+
 /// Listener for `zwp_tablet_v2` (physical tablet descriptive events).
 #[repr(C)]
 #[derive(Copy, Clone)]

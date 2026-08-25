@@ -471,6 +471,7 @@ pub struct WaylandWindow {
     data_device_initialized: bool,
     drag: events::WaylandDragState,
     tablet_pen: events::TabletPenPending,
+    tablet_pad: events::TabletPadPending,
     // False until the first poll rebinds all proxy listeners to the stable boxed `self`.
     listeners_rebound: bool,
     /// EVERY proxy whose listener dereferences its user-data as `*mut WaylandWindow`,
@@ -1724,6 +1725,7 @@ impl WaylandWindow {
             data_device_initialized: false,
             drag: events::WaylandDragState::default(),
             tablet_pen: events::TabletPenPending::default(),
+            tablet_pad: events::TabletPadPending::default(),
             frame_callback_pending: false,
             frame_callback_armed_at: None,
             needs_redraw: super::super::common::event::LatchedRequest::default(),
@@ -3282,6 +3284,29 @@ impl WaylandWindow {
         // the cancel's own touch_state delta was erased by the next handler's
         // snapshot, so a compositor-stolen gesture left the app mid-drag (and the
         // repaint that routing the result brings never happened either).
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+    }
+
+    /// Feed the accumulated tablet PAD state (ExpressKeys + ring/strip).
+    ///
+    /// The pad is not a pointer: it never moves the cursor and has no surface
+    /// coordinates, so it does not go through the pointer path at all. It is
+    /// published straight into the gesture manager, where
+    /// `CallbackInfo::get_wacom_pad` reads it — that accessor existed and
+    /// returned `None` on every platform until this producer.
+    pub fn handle_tablet_pad_frame(&mut self) {
+        let pad = self.tablet_pad;
+        self.snapshot_window_state_baseline("wayland.handle_tablet_pad_frame");
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.gesture_drag_manager
+                .update_pad_state(azul_layout::managers::gesture::WacomPadState {
+                    express_keys: pad.express_keys,
+                    touch_ring: pad.touch_ring,
+                    touch_ring_active: pad.touch_ring_active,
+                    device_id: 0,
+                });
+        }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
     }

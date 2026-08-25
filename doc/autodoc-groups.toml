@@ -420,7 +420,6 @@ tracked_files = [
   "layout/src/widgets/text_input.rs",
 ]
 design_docs = [
-  "ideas/text/TEXT_SELECTION_ARCHITECTURE.md",
   "SCROLL_CURSOR_TEXT_INPUT_ARCHITECTURE.md",
 ]
 notes = "Foundational text-editing layer between events and widgets. text-input covers the dual-path (Full DOM vs Incremental Display List) contenteditable architecture. text-selection covers the W3C Selection model — range-based, multi-node — that ranges over arbitrary DOM, not just inside a text-input widget. These are prerequisite for understanding the widgets/inputs page later in the tree."
