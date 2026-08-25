@@ -148,6 +148,15 @@ def walk_vendor(vendor_dir: Path) -> list[VendoredCrate]:
             f"error: vendor directory not found: {vendor_dir}\n"
             f"       run: cargo vendor --locked --versioned-dirs {vendor_dir}"
         )
+    # Resolve ONCE, here, so every crate path downstream is absolute.
+    # `_follow_includes` resolves the files it discovers, so with a relative
+    # --vendor the two halves disagree and `p.relative_to(crate.path)` raises
+    # `'/abs/vendor/x/build.rs' is not in the subpath of 'vendor/x'`. Local runs
+    # passed an absolute path and never hit it; CI passes `--vendor vendor` and
+    # died on the first crate. Resolving here fixes the digest, the capability
+    # scan and the checksum verifier at once, and does not change any digest:
+    # those hash paths RELATIVE to the crate root, which is unaffected.
+    vendor_dir = vendor_dir.resolve()
     out = []
     for entry in sorted(vendor_dir.iterdir()):
         if not entry.is_dir() or entry.name.startswith("."):

@@ -108,6 +108,15 @@ jobs:
         run: |
           set -o pipefail
           if ! cargo vet --locked 2>&1 | tee vet.txt; then
+            # Distinguish "the store is broken" from "a dependency is
+            # unaudited". Reporting the first as the second sent the last
+            # failure looking for a bad crate when the real cause was
+            # supply-chain/imports.lock never having been committed (.gitignore
+            # has a blanket *.lock rule, and `git add` skipped it silently).
+            if grep -qiE "couldn't acquire the store|no such file or directory" vet.txt; then
+              echo "::error::cargo-vet could not read supply-chain/. Is the whole store committed? (imports.lock is matched by the blanket *.lock rule in .gitignore and needs the negation that keeps it tracked.)"
+              exit 1
+            fi
             {
               echo '## 🔎 cargo-vet'; echo ''
               echo '```'; tail -80 vet.txt; echo '```'; echo ''
