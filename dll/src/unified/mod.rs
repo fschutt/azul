@@ -19,3 +19,4 @@ pub mod pdf;
 pub mod sqlite;
 pub mod video_codec;
 pub mod webtransport;
+pub mod zip;

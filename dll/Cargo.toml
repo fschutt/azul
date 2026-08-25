@@ -597,6 +597,7 @@ build-dll = [
     "map-tiles",
     "db-sqlite",
     "pdf",
+    "zip",
     # Real MP4/H.264 demux + Vulkan Video decode (video_codec/*). Pulls `mp4` +
     # (linux/windows) `gpu-video`, so libazul.so gives the C video player real
     # frames instead of the stub. No-op decoder on platforms without a backend.
@@ -912,7 +913,9 @@ icons = ["azul-layout", "azul-layout/icons", "dep:brotli-decompressor"]
 # HTTP client support for downloading resources
 http = ["azul-layout", "azul-layout/http"]
 
-# ZIP file manipulation support
+# ZIP archives. The `Zip` handle (extra/zip) is always compiled so it
+# codegen-exposes unconditionally; this pulls the compressor behind it.
+# Without it, entries still accumulate but `to_bytes`/`to_file` are empty.
 zip = ["azul-layout", "azul-layout/zip"]
 
 # JSON parsing and manipulation

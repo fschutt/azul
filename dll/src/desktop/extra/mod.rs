@@ -30,6 +30,10 @@ pub mod map;
 /// with no feature-gating); the `printpdf` engine behind it is opt-in via the
 /// `pdf` feature. Without it, `Pdf::from_dom` / `write_json` return empty.
 pub mod pdf;
+/// ZIP archives. The `Zip` handle is always present (so it codegen-exposes
+/// with no feature-gating); the compressor behind it is opt-in via the `zip`
+/// feature. Without it, entries still accumulate but `to_bytes` is empty.
+pub mod zip;
 /// Audio playback (P7). The `AudioSink` handle is always present (codegen-
 /// exposed, no feature gating); the real rodio / AVAudio output behind it is
 /// on-device (the stub counts frames). The playback counterpart to

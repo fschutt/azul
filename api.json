@@ -48067,7 +48067,7 @@
                             },
                             "set_selected": {
                                 "doc": [
-                                    "Selects the choice at `index` — what the trigger DISPLAYS.",
+                                    "Selects the choice at `index` - what the trigger DISPLAYS.",
                                     "",
                                     "A drop-down is rebuilt from the host's state on every layout, so the",
                                     "host must write the index its `on_choice_change` callback was handed",
@@ -114383,6 +114383,288 @@
                                 "MenuItem": {}
                             }
                         ],
+                        "repr": "C"
+                    }
+                }
+            },
+            "zip": {
+                "classes": {
+                    "Zip": {
+                        "external": "azul_dll::unified::zip::Zip",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "An empty archive."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::desktop::extra::zip::Zip::new()"
+                            },
+                            "from_bytes": {
+                                "doc": [
+                                    "Parse ZIP `bytes`.",
+                                    "",
+                                    "A malformed archive (or a build without the `zip` feature) yields a",
+                                    "valid but EMPTY handle rather than a null one, so callers that forget",
+                                    "to check get nothing instead of a crash. Path traversal (`..`) is",
+                                    "rejected by the underlying reader."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::zip::Zip::from_bytes(bytes)"
+                            },
+                            "from_file": {
+                                "doc": [
+                                    "Read and parse a `.zip` off disk. Empty handle if it cannot be read."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_dll::desktop::extra::zip::Zip::from_file(path)"
+                            }
+                        },
+                        "functions": {
+                            "is_valid": {
+                                "doc": [
+                                    "`true` if this handle owns an archive. False only for a handle whose",
+                                    "memory could not be allocated, or one already deleted."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_valid()"
+                            },
+                            "add_file": {
+                                "doc": [
+                                    "Append a file entry. A repeated path is kept as-is: ZIP permits",
+                                    "duplicates, and silently dropping one would lose data the caller",
+                                    "believes it stored."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "path": "String"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "fn_body": "object.add_file(path, data)"
+                            },
+                            "add_directory": {
+                                "doc": [
+                                    "Append a directory entry (no data). Only needed for readers that",
+                                    "expect explicit directory records - file paths may contain `/` freely."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_directory(path)"
+                            },
+                            "remove": {
+                                "doc": [
+                                    "Drop every entry with this exact path."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "object.remove(path)"
+                            },
+                            "contains": {
+                                "doc": [
+                                    "`true` if an entry with this exact path exists."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.contains(path)"
+                            },
+                            "file_count": {
+                                "doc": [
+                                    "Number of entries, files and directories alike."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.file_count()"
+                            },
+                            "file_path": {
+                                "doc": [
+                                    "Path of entry `index`; empty string when out of range."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.file_path(index).into()"
+                            },
+                            "file_data": {
+                                "doc": [
+                                    "Contents of entry `index`; empty when out of range or a directory."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.file_data(index)"
+                            },
+                            "file_is_directory": {
+                                "doc": [
+                                    "`true` if entry `index` is a directory record."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.file_is_directory(index)"
+                            },
+                            "get_file": {
+                                "doc": [
+                                    "Contents of the entry at `path`; empty if absent.",
+                                    "",
+                                    "Ambiguous with a real zero-byte entry - use `contains` when the",
+                                    "difference matters."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.get_file(path)"
+                            },
+                            "to_bytes": {
+                                "doc": [
+                                    "Compress to ZIP bytes with deflate level 6.",
+                                    "",
+                                    "Empty on failure or without the `zip` feature - test the result rather",
+                                    "than assuming it worked."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.to_bytes()"
+                            },
+                            "to_bytes_with_level": {
+                                "doc": [
+                                    "Compress to ZIP bytes. `level` 0 stores uncompressed (fastest, right",
+                                    "for already-compressed payloads); 1-9 deflate at that level."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "level": "u8"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.to_bytes_with_level(level)"
+                            },
+                            "to_file": {
+                                "doc": [
+                                    "Write the archive to `path`. `true` on success."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.to_file(path)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
