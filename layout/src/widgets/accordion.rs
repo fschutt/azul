@@ -288,8 +288,28 @@ static ACCORDION_BODY_STYLE_OPEN: &[CssPropertyWithConditions] = &[
 ];
 
 /// Body style when the section is CLOSED: not laid out at all.
+///
+/// This MUST declare everything the open style declares except `display`.
+/// The runtime toggle (`on_accordion_header_click`) writes ONLY `display`, so
+/// any property that exists solely in the open table is missing from a body
+/// that reached the open state by CLICK rather than by being built open. That
+/// is exactly what happened: the padding lived only in the open table, so a
+/// clicked-open section rendered its text flush against the container's
+/// rounded border while a born-open section was correctly inset by 12 px.
 static ACCORDION_BODY_STYLE_CLOSED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::None)),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        12,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(12),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
+        12,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(12),
+    )),
 ];
 
 impl Accordion {
@@ -470,12 +490,30 @@ extern "C" fn on_accordion_header_click(mut data: RefAny, mut info: CallbackInfo
         (now_open, result)
     };
 
-    let display = if now_open {
-        LayoutDisplay::Block
+    // WHO OWNS THE VISUAL STATE decides what we write here.
+    //
+    // `set_css_property` does not just restyle this frame: it records a USER
+    // OVERRIDE that `migrate_user_overrides_from` copies onto the matched node
+    // of every later rebuild, and an override outranks the freshly cascaded
+    // inline style. So if the host rebuilds the accordion from its own flag,
+    // an override left behind here wins forever — the section that was clicked
+    // open could never close again, and vice versa. That latch, not the toggle
+    // itself, is what made the accordion "not properly expand/collapse".
+    //
+    // - Host rebuilds (`RefreshDom*`): it owns the flag. CLEAR the override
+    //   (`initial` removes it) and let the rebuilt DOM's own style decide.
+    // - Host does nothing: the widget owns the flag, so write the override —
+    //   that is what makes a self-contained accordion work with no host state.
+    if matches!(result, Update::RefreshDom | Update::RefreshDomAllWindows) {
+        info.set_css_property(body, CssProperty::initial(CssPropertyType::Display));
     } else {
-        LayoutDisplay::None
-    };
-    info.set_css_property(body, CssProperty::const_display(display));
+        let display = if now_open {
+            LayoutDisplay::Block
+        } else {
+            LayoutDisplay::None
+        };
+        info.set_css_property(body, CssProperty::const_display(display));
+    }
 
     // The header's ANNOUNCED state must follow the rendered one. This toggle
     // changes a css property and returns Update::DoNothing — no rebuild — so
@@ -1155,10 +1193,32 @@ mod autotest_generated {
 
         // the user's return value wins over the internal DoNothing
         assert_eq!(update, Update::RefreshDom);
-        // ...and the body is still restyled, even though the user callback ran
+        // The host asked for a rebuild, so it owns the open flag: the widget
+        // must CLEAR its `display` override instead of writing one. A written
+        // override survives the rebuild (`migrate_user_overrides_from`) and
+        // outranks the freshly cascaded style, which latched the section open
+        // (or shut) forever — the "accordion doesn't properly expand/collapse"
+        // bug. `initial` is what removes an override (`restyle_user_property`).
+        let writes: Vec<_> = changes
+            .iter()
+            .filter_map(|c| match c {
+                CallbackChange::ChangeNodeCssProperties { node_id, properties, .. } => Some((
+                    node_id.index(),
+                    properties.as_ref().iter().map(|p| p.get_type()).collect::<Vec<_>>(),
+                )),
+                _ => None,
+            })
+            .collect();
         assert_eq!(
+            writes,
+            alloc::vec![(2usize, alloc::vec![CssPropertyType::Display])],
+            "a rebuild-requesting toggle must still address the body's display",
+        );
+        assert!(
+            display_writes(&changes).is_empty(),
+            "…but as `initial` (override cleared), never as a concrete value that \
+             would outrank the rebuilt DOM: {:?}",
             display_writes(&changes),
-            alloc::vec![(2usize, LayoutDisplay::Block)]
         );
         assert_eq!(
             log.downcast_ref::<ToggleLog>().unwrap().calls.as_slice(),
