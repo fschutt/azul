@@ -10826,6 +10826,25 @@ pub fn position_one_line<T: ParsedFontTrait>(
         }
 
         // 1. Collect all items that fit into the current segment.
+        //
+        // The LAST segment must absorb whatever is left. This loop distributes
+        // a line the breaker already decided across the line's float/shape
+        // segments — it is not a second line-breaking pass, and it has no way
+        // to hand leftovers anywhere: items not taken by the last segment are
+        // simply never positioned, and `overflow_items` is never populated, so
+        // they vanish silently.
+        //
+        // That is not theoretical. A `text-align: center` fit-content box is
+        // measured, then laid out again AT its own measurement — and the
+        // centred measure loses one f32 ULP, because `UnifiedLayout::bounds()`
+        // computes `max_x - min_x` where both are large and near-equal (a
+        // left-aligned line has `min_x == 0` and is exact). The re-layout then
+        // folds the same clusters and reaches `47.568005 > 47.568` on the last
+        // one, so a ~4e-6 px shortfall discarded a whole 6.9 px glyph: the
+        // Stepper rendered "Shippin", "Paymen", "Don". Same class as the
+        // nowrap/pre case above, and the same answer — paint-time clipping
+        // handles visual overflow; the positioner must not drop content.
+        let is_last_segment = segment_idx + 1 >= line_constraints.segments.len();
         let mut segment_items = Vec::new();
         let mut current_segment_width = 0.0;
         while item_cursor < line_items.len() {
@@ -10834,6 +10853,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             // Put at least one item in the segment to avoid getting stuck.
             // For nowrap/pre the overflow must stay on the line (see above).
             if !no_wrap
+                && !is_last_segment
                 && current_segment_width + item_measure > segment.width
                 && !segment_items.is_empty()
             {
