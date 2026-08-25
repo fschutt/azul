@@ -213,7 +213,45 @@ Must keep passing: `:2957` (one ScrollTo per node per tick), `:3228`, `:3272`,
 
 ---
 
-# 3. `overscroll-behavior` is not a CSS property at all
+# 3. `overscroll-behavior` — WIRED 2026-08-25 (commit 34a8f25c4)
+
+Done. See that commit; the two traps worth remembering are that the shorthand
+is a `CombinedCssPropertyType` (not a longhand), and that `auto`/`none` are
+TYPED values that must be added to the `has_typed_auto` / `has_typed_none`
+allowlists in `parse_css_property` or they resolve to "no value".
+
+## ⚠ UPDATE to §2: the two queueing hypotheses did NOT reproduce
+
+Two tests were written to state the CORRECT behaviour, and BOTH PASS on the
+current code:
+
+- `a_rubber_band_on_one_axis_does_not_freeze_the_other_axis_fling` — extended
+  with the missing assertion: once momentum stops pushing X, X must spring back
+  toward its edge. It does.
+- `a_late_trackpad_end_does_not_restart_a_finished_bounce` — a trailing
+  `TrackpadEnd` after a settled bounce must not bounce again. It does not.
+
+So neither "the spring is frozen for the whole momentum tail" nor "each
+TrackpadEnd re-arms a from-rest bounce" reproduces in the harness. Note the
+investigation that proposed them ran NO builds — it was source-reading only.
+
+That leaves two possibilities, and they need separating before any rewrite:
+1. The harness diverges from the real macOS event stream. `closed_loop_tick`
+   drives the physics callback directly and does NOT model `Timer::invoke`'s
+   readiness gate (`layout/src/timer.rs:206`), which on a real device DROPS a
+   fire that lands a hair under the interval and then stamps `last_run = now`.
+   A harness that models that gate is the first thing to build.
+2. The real cause is elsewhere — e.g. in the ingress classification
+   (`macos/events.rs:526-556`) rather than the physics.
+
+The dt finding stands on its own and is verifiable by reading:
+`let dt = sp.timer_interval_ms.max(1) as f32 / 1000.0;` (`scroll_timer.rs:241`)
+is a FIXED 16 ms, the wall clock is never consulted even though
+`TimerCallbackInfo::frame_start` carries it, and the real spacing jitters. That
+is a genuine defect and the most likely cause of "blocky", independent of the
+queueing question.
+
+# 3b. (original) `overscroll-behavior` is not a CSS property at all
 
 The `OverscrollBehavior` enum exists (`css/src/props/style/scrollbar.rs:47`) and
 the physics fully consume it (`scroll_timer.rs:764`, `:778`, `:870`, `:978`) —
