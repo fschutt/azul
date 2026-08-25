@@ -238,8 +238,13 @@ jobs:
   # executing, which is what makes a before-the-build gate possible at all.
   #
   # Rationale, threat model and per-gate detail: scripts/supply-chain/README.md
-  # Cost, measured (855 crates, warm registry): vendor 40s + three scans ~106s.
-  # The preflight wall moves from 2.1 to ~5 min and everything inherits it.
+  #
+  # COST, measured on the runner (run 32889628218, 855 crates): the whole job is
+  # 1 min 38 s including checkout and toolchain — vendoring is network-bound and
+  # CI's network beats a laptop's, so it comes in under the 2.5 min a local
+  # measurement predicted. The preflight wall goes 2.1 -> ~3.7 min and everything
+  # downstream inherits that. content_state_lint started 4 s after this job
+  # finished, which is the gate doing its job: nothing compiled before it.
   #
   # cargo-vet, the publish-age cooldown and cargo-audit live in
   # .github/workflows/supply-chain.yml — they gate nothing here, and this file is
