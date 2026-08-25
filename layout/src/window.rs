@@ -14476,6 +14476,65 @@ impl LayoutWindow {
         content_local.scrolled_by(own)
     }
 
+    /// A node's STATIC content-box origin, or `None` if it was never laid out
+    /// (the `POSITION_UNSET` sentinel — inline text nodes keep it, which is
+    /// why they can never be hit).
+    #[must_use]
+    fn content_box_origin_of(
+        layout_result: &DomLayoutResult,
+        layout_idx: LayoutNodeId,
+    ) -> Option<LogicalPosition> {
+        let border = solver3::pos_get(&layout_result.calculated_positions, layout_idx.index())?;
+        let inset = layout_result.layout_tree.content_inset(layout_idx);
+        Some(LogicalPosition::new(border.x + inset.left, border.y + inset.top))
+    }
+
+    /// [`Self::ifc_local_point_from`] when the node that was HIT is not the IFC
+    /// ROOT whose inline layout is about to be indexed — an inline box
+    /// (`<span>`, `<b>`) inside the paragraph, say.
+    ///
+    /// `point_relative_to_item` is relative to the HIT node's content box, so
+    /// feeding it straight to the IFC root's layout silently mixed two nodes'
+    /// coordinate systems and put the caret wherever the inline box happened
+    /// to start. Rebasing is a pure translation through static layout space,
+    /// which is exactly what the space vocabulary is for:
+    ///
+    /// `hit-content → hit-border → static → root-border → root-content`
+    ///
+    /// `None` when either node has no assigned position, so the caller skips
+    /// the candidate instead of resolving a caret from sentinel geometry.
+    #[must_use]
+    fn ifc_local_point_rebased(
+        layout_result: &DomLayoutResult,
+        scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+        hit_local: ContentBoxLocal,
+        hit_layout_idx: LayoutNodeId,
+        ifc_root_layout_idx: LayoutNodeId,
+        ifc_root_node_id: NodeId,
+    ) -> Option<ScrolledContentPoint> {
+        if hit_layout_idx == ifc_root_layout_idx {
+            return Some(Self::ifc_local_point_from(
+                hit_local,
+                scroll_offsets,
+                ifc_root_node_id,
+            ));
+        }
+        let tree = &layout_result.layout_tree;
+        let hit_border = solver3::pos_get(&layout_result.calculated_positions, hit_layout_idx.index())?;
+        let root_border =
+            solver3::pos_get(&layout_result.calculated_positions, ifc_root_layout_idx.index())?;
+        let rebased = hit_local
+            .to_border_box_local(tree.content_inset(hit_layout_idx))
+            .to_static_layout(hit_border)
+            .to_border_box_local(root_border)
+            .to_content_box_local(tree.content_inset(ifc_root_layout_idx));
+        Some(Self::ifc_local_point_from(
+            rebased,
+            scroll_offsets,
+            ifc_root_node_id,
+        ))
+    }
+
     /// [`Self::ifc_local_point_from`] for callers that can borrow `self`.
     #[must_use]
     pub fn ifc_local_point(
@@ -14638,16 +14697,21 @@ impl LayoutWindow {
                         continue;
                     };
 
-                    // Get the IFC layout and IFC root NodeId
-                    // Selection must be stored on the IFC root, not on text nodes
-                    let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = warm_node.inline_layout_result {
-                        // This node IS an IFC root - use its own NodeId
-                        (cached, *node_id)
-                    } else if let Some(ref membership) = warm_node.ifc_membership {
+                    // Get the IFC layout, its root NodeId AND its layout index.
+                    // Selection must be stored on the IFC root, not on text
+                    // nodes — and the index is needed because the hit node and
+                    // the IFC root are different boxes whenever an inline box
+                    // (`<span>`, `<b>`) is what the pointer landed on.
+                    let (cached_layout, ifc_root_node_id, ifc_root_layout_idx) =
+                        if let Some(ref cached) = warm_node.inline_layout_result {
+                            // This node IS an IFC root - use its own NodeId
+                            (cached, *node_id, layout_node_idx)
+                        } else if let Some(ref membership) = warm_node.ifc_membership {
                         // This node participates in an IFC - get layout and NodeId from IFC root
-                        match tree.warm(LayoutNodeId::new(membership.ifc_root_layout_index)) {
-                            Some(ifc_root_warm) => match (ifc_root_warm.inline_layout_result.as_ref(), tree.get(LayoutNodeId::new(membership.ifc_root_layout_index)).and_then(|n| n.dom_node_id)) {
-                                (Some(cached), Some(root_dom_id)) => (cached, root_dom_id),
+                        let root_idx = membership.ifc_root_layout_index;
+                        match tree.warm(LayoutNodeId::new(root_idx)) {
+                            Some(ifc_root_warm) => match (ifc_root_warm.inline_layout_result.as_ref(), tree.get(LayoutNodeId::new(root_idx)).and_then(|n| n.dom_node_id)) {
+                                (Some(cached), Some(root_dom_id)) => (cached, root_dom_id, root_idx),
                                 _ => continue,
                             },
                             None => continue,
@@ -14668,12 +14732,21 @@ impl LayoutWindow {
 
                     // THE canonical conversion — see `ifc_local_point`. It is
                     // the only place a hit-test result becomes a point the
-                    // inline layout can be indexed with.
-                    let local_pos = Self::ifc_local_point_from(
-                        hit_item.point_relative_to_item,
+                    // inline layout can be indexed with. `_rebased` because
+                    // `point_relative_to_item` belongs to the node that was
+                    // HIT, which is the IFC root only when the pointer landed
+                    // on the paragraph itself rather than on an inline box
+                    // inside it.
+                    let Some(local_pos) = Self::ifc_local_point_rebased(
+                        layout_result,
                         &scroll_offsets,
+                        hit_item.point_relative_to_item,
+                        LayoutNodeId::new(layout_node_idx),
+                        LayoutNodeId::new(ifc_root_layout_idx),
                         ifc_root_node_id,
-                    );
+                    ) else {
+                        continue;
+                    };
 
                     // Hit-test the cursor in this text layout
                     if let Some(cursor) = layout.hittest_point(local_pos) {
@@ -18635,6 +18708,64 @@ mod autotest_generated {
         // value <p> never showed this.
         let zero = EdgeSizes::default();
         assert_eq!(bb.to_padding_box(&zero).rect(), bb.rect());
+    }
+
+    /// A hit on an INLINE BOX inside a paragraph (`<span>`, `<b>`) reports a
+    /// point relative to THAT box's content origin, but the layout about to be
+    /// indexed belongs to the IFC ROOT. Feeding one to the other mixes two
+    /// nodes' coordinate systems; the rebase is a pure translation through
+    /// static layout space.
+    #[test]
+    fn a_hit_on_an_inline_box_is_rebased_onto_the_ifc_roots_content_box() {
+        let mut win = laid_out(fixture_dom(), 200.0, 150.0);
+        // Give the fixture two boxes with real positions: body (the "IFC
+        // root") at (10, 20) and its first div (the "inline box") at (60, 20).
+        {
+            let lr = win.layout_results.get_mut(&DomId::ROOT_ID).unwrap();
+            lr.calculated_positions[0] = pos(10.0, 20.0);
+            lr.calculated_positions[1] = pos(60.0, 20.0);
+        }
+        let lr = &win.layout_results[&DomId::ROOT_ID];
+        let offsets: BTreeMap<NodeId, ScrollPosition> = BTreeMap::new();
+
+        // The pointer is 4px into the inline box, i.e. 54px into the root.
+        let hit_local = ContentBoxLocal::new(pos(4.0, 1.0));
+        let rebased = LayoutWindow::ifc_local_point_rebased(
+            lr,
+            &offsets,
+            hit_local,
+            LayoutNodeId::new(1),
+            LayoutNodeId::new(0),
+            NodeId::new(0),
+        )
+        .expect("both nodes are positioned");
+        assert_eq!(rebased.get(), pos(54.0, 1.0));
+
+        // Hitting the IFC root itself is the identity (and the transform-exact
+        // path: the hit-test producer already inverted any reference frames).
+        let same = LayoutWindow::ifc_local_point_rebased(
+            lr,
+            &offsets,
+            hit_local,
+            LayoutNodeId::new(0),
+            LayoutNodeId::new(0),
+            NodeId::new(0),
+        )
+        .unwrap();
+        assert_eq!(same.get(), pos(4.0, 1.0));
+
+        // A node that was never laid out (the POSITION_UNSET sentinel, which
+        // is what every inline TEXT node keeps) yields None, so the caller
+        // skips the candidate instead of resolving a caret from f32::MIN.
+        assert!(LayoutWindow::ifc_local_point_rebased(
+            lr,
+            &offsets,
+            hit_local,
+            LayoutNodeId::new(9_999),
+            LayoutNodeId::new(0),
+            NodeId::new(0),
+        )
+        .is_none());
     }
 
     #[test]
