@@ -235,9 +235,20 @@ pub struct ScrollPhysicsState {
     /// momentum wheel events", to stop endless stretching.
     ///
     /// Dropped when the finger comes back down (a new gesture) or after
-    /// [`MOMENTUM_LATCH_STALE_TICKS`] with no momentum delta. Deliberately NOT
-    /// part of [`ScrollPhysicsState::is_active`]: a tail we are ignoring must
-    /// not pin the timer alive.
+    /// [`MOMENTUM_LATCH_STALE_TICKS`] with no momentum delta.
+    ///
+    /// ⚠ MUST be part of [`ScrollPhysicsState::is_active`]. The shell builds a
+    /// BRAND-NEW `ScrollPhysicsState` every time it starts the momentum timer
+    /// (`macos/events.rs:640`, and the same in the other four backends), so
+    /// whatever the timer terminates with is LOST. When the spring lands every
+    /// other map empties — while the tail is still running — so without this
+    /// the timer terminated right there and the next momentum delta restarted
+    /// it with an empty latch map, re-stretching the node: the very bug this
+    /// field exists to prevent, reintroduced through the timer's lifetime.
+    /// It cannot pin the timer, because the aging above bounds the latch to
+    /// [`MOMENTUM_LATCH_STALE_TICKS`] (~200 ms) after the last momentum delta.
+    /// Same reasoning as `trackpad_raw_positions`, which is in `is_active`
+    /// for exactly this reason.
     pub momentum_latched: BTreeMap<(DomId, NodeId), MomentumLatch>,
     /// When the previous physics tick ran, so this one can integrate over the
     /// time that ACTUALLY elapsed.
@@ -312,6 +323,11 @@ impl ScrollPhysicsState {
             // against the 62.5 Hz tick used to terminate the timer on every
             // empty tick and restart it with a fresh state on the next event.
             || !self.trackpad_raw_positions.is_empty()
+            // An ignored momentum tail must keep the timer — and its latch —
+            // alive. The shell rebuilds this whole state on every timer start,
+            // so terminating here loses the latch and the tail re-stretches the
+            // node it just finished bouncing. Bounded by the latch aging.
+            || !self.momentum_latched.is_empty()
     }
 }
 
@@ -3585,6 +3601,41 @@ mod autotest_generated {
             "must end parked exactly at the edge, ended at {:?}",
             overshoots.last()
         );
+    }
+
+    /// The physics timer must NOT terminate while a momentum-ignore latch is
+    /// held — and must terminate once it has aged out.
+    ///
+    /// The shell constructs a brand-new `ScrollPhysicsState` every time it
+    /// starts the momentum timer (`macos/events.rs:640`, same in the other
+    /// four backends), so anything the timer terminates with is lost. When the
+    /// spring lands, every OTHER map empties while the OS tail is still
+    /// running: the timer stopped right there, the next momentum delta
+    /// restarted it with an empty latch map, and the node was stretched
+    /// straight back out. The device trace showed it as `latch=true,true` on
+    /// one tick and `latch=NONE` two ticks later with nothing having cleared
+    /// it. The harness missed it because it drives the callback directly and
+    /// never terminates or rebuilds the state.
+    #[test]
+    fn a_held_momentum_latch_keeps_the_physics_timer_alive() {
+        let mut state =
+            ScrollPhysicsState::new(ScrollInputQueue::new(), ScrollPhysics::macos());
+        assert!(!state.is_active(), "an empty state is idle");
+
+        state.momentum_latched.insert(
+            key(1),
+            MomentumLatch { x: false, y: true, idle: 0 },
+        );
+        assert!(
+            state.is_active(),
+            "a held latch must keep the timer alive — the shell rebuilds this \
+             state on every timer start, so terminating loses the latch"
+        );
+
+        // Once it ages out the timer is free to stop again: the latch cannot
+        // pin the pump indefinitely.
+        state.momentum_latched.clear();
+        assert!(!state.is_active(), "an expired latch must not pin the timer");
     }
 
     /// The latch must not outlive the tail: a genuinely NEW fling, after the
