@@ -8830,40 +8830,33 @@ jobs:
           cargo publish --dry-run -p azul-css --allow-dirty
           echo "::endgroup::"
 
+      # TRUSTED PUBLISHING. GitHub mints an OIDC token proving this workflow's
+      # identity; crates-io-auth-action exchanges it for a crates.io token valid
+      # ~30 minutes, and its post-step revokes that token when the job ends.
+      # `id-token: write` is already granted at the top of this file.
+      #
+      # This is not cosmetic. The step below runs `cargo publish`, which does a
+      # VERIFICATION BUILD — it compiles the crates and their dependencies, so
+      # every build script in the tree executes with whatever is in this step's
+      # environment. That used to be a permanent crates.io publish credential,
+      # the single most valuable secret this repository holds. It is now a
+      # short-lived, claim-scoped token that is worthless an hour later.
+      #
+      # continue-on-error so the fallback below still works before the Trusted
+      # Publisher is configured on crates.io. Once it is, delete the
+      # CARGO_REGISTRY_TOKEN secret — the fallback then resolves to empty and
+      # publish-crates.sh skips with a notice rather than failing.
+      - name: Authenticate to crates.io (Trusted Publishing)
+        id: crates_auth
+        continue-on-error: true
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: Publish to crates.io
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
-            echo "::notice::CARGO_REGISTRY_TOKEN not set — packaged the crates (dry-run) but skipping publish."
-            exit 0
-          fi
-          # Publish in dependency order. Sleep between crates so the index has
-          # time to expose each new version to the next crate's resolver.
-          #
-          # IDEMPOTENT on re-runs: a version that is already on crates.io is
-          # skipped instead of failing with "already uploaded". Publishing is
-          # irreversible, so a re-run of this job after ANY partial outcome —
-          # a cancelled run that got one crate out, a manual publish done to
-          # unblock a release (0.0.14 was published that way on 2026-08-17) —
-          # must converge on "everything published" rather than go red on
-          # the crates that already made it. AUR behaves the same way.
-          for crate in azul-css azul-core azul-layout; do
-            version=$(cargo metadata --format-version 1 --no-deps \
-              | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(p['version'] for p in d['packages'] if p['name']=='$crate'))")
-            status=$(curl -s -o /dev/null -w "%{http_code}" \
-              "https://crates.io/api/v1/crates/$crate/$version" \
-              -H "User-Agent: azul-ci (github.com/fschutt/azul)")
-            if [ "$status" = "200" ]; then
-              echo "::notice::$crate $version is already on crates.io — skipping (idempotent re-run)."
-              continue
-            fi
-            echo "::group::cargo publish -p $crate ($version)"
-            cargo publish -p "$crate" --token "$CARGO_REGISTRY_TOKEN"
-            echo "::endgroup::"
-            sleep 20
-          done
+          # Short-circuits: when Trusted Publishing succeeds the secret is never
+          # substituted into the environment at all.
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-crates.sh
 
   # ---------------------------------------------------------------------------
   # 2. PyPI — native pyo3 extension (the `dll` crate with python-extension).
