@@ -8219,6 +8219,43 @@ pub trait PlatformWindow {
         // Managers have already been updated with current state (hit test, clicks, etc.)
         // Now we query them to detect multi-frame event patterns.
 
+        // Latch the anchor of a text-selection drag on the PRESS, and only when
+        // that press landed on an editable. See
+        // `LayoutWindow::text_selection_drag_anchor` for what the previous
+        // "current cursor position whenever left_down && editing" produced:
+        // dragging the window by its custom titlebar became a selection drag
+        // (armed drag-autoscroll, scrolled the UI to the top), and anchor ==
+        // current made every selection range empty.
+        {
+            let (left_down, pos) = {
+                let st = self.get_current_window_state();
+                (st.mouse_state.left_down, st.mouse_state.cursor_position.get_position())
+            };
+            let press_on_editable = hit_test_for_dispatch.as_ref().is_some_and(|ht| {
+                self.get_layout_window().is_some_and(|lw| {
+                    ht.hovered_nodes.iter().any(|(dom_id, hit)| {
+                        lw.layout_results.get(dom_id).is_some_and(|lr| {
+                            hit.regular_hit_test_nodes.keys().any(|nid| {
+                                azul_layout::solver3::getters::is_node_contenteditable_inherited(
+                                    &lr.styled_dom,
+                                    *nid,
+                                )
+                            })
+                        })
+                    })
+                })
+            });
+            if let Some(lw) = self.get_layout_window_mut() {
+                if left_down && !lw.prev_left_down {
+                    // Press edge: this is the only moment an anchor is born.
+                    lw.text_selection_drag_anchor = if press_on_editable { pos } else { None };
+                } else if !left_down {
+                    lw.text_selection_drag_anchor = None;
+                }
+                lw.prev_left_down = left_down;
+            }
+        }
+
         let current_window_state = self.get_current_window_state();
 
         // Filter events via the configurable input interpreter callback.
@@ -8234,15 +8271,9 @@ pub trait PlatformWindow {
                 state: InputInterpreterState {
                     focused_node: layout_window.focus_manager.get_focused_node().copied(),
                     click_count: 1,
-                    // Provide drag start position when left mouse is down and editing is active.
-                    // This enables TextSelectionDrag events during mouse drag.
-                    drag_start_position: if current_window_state.mouse_state.left_down
-                        && layout_window.text_edit_manager.has_active_editing()
-                    {
-                        current_window_state.mouse_state.cursor_position.get_position()
-                    } else {
-                        None
-                    },
+                    // Where the press that began this drag landed — latched
+                    // above, and only when it was on an editable.
+                    drag_start_position: layout_window.text_selection_drag_anchor,
                     has_selection: layout_window.text_edit_manager.multi_cursor.as_ref()
                         .map(|mc| mc.selections.iter().any(|s| matches!(&s.selection, azul_core::selection::Selection::Range(_))))
                         .unwrap_or(false),

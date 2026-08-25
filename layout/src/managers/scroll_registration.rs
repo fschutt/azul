@@ -10,14 +10,49 @@
 //! It lives here now and all three call it.
 
 use azul_core::{
-    dom::{DomId, NodeId},
+    dom::{DomId, DomNodeId, NodeId},
     task::Instant,
 };
 
 use crate::{solver3::layout_tree::LayoutNodeId, window::LayoutWindow};
 
+/// Extra scrollable width given to the box that hosts the active caret.
+///
+/// THE CARET IS CONTENT, and `overflow_content_size` does not know that: it
+/// measures the TEXT. At the end of the value the caret stands ON the text's
+/// right edge, so its own width lies past it — and in a horizontally scrolled
+/// field that edge is exactly `max_scroll_x`, which the reveal cannot scroll
+/// beyond by definition. The blinking caret was therefore clipped away
+/// precisely when the field started to overflow, which is the one moment it
+/// matters. Trailing padding cannot fix this either: azul measures content
+/// against the PADDING box, so padding shrinks the scroll range rather than
+/// extending it.
+///
+/// Sized as the default caret width (1px) plus the 5px the caret reveal
+/// (`calculate_instant_scroll_delta`) asks for, so the margin the reveal wants
+/// is actually reachable instead of being clamped away at the end of the line.
+pub const CARET_SCROLL_GUTTER_PX: f32 = 6.0;
+
 pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
+    // Which node owns the active caret. Snapshotted BEFORE the loop below takes
+    // `layout_results` mutably.
+    let caret_node: Option<DomNodeId> = layout_window
+        .text_edit_manager
+        .multi_cursor
+        .as_ref()
+        .map(|mc| mc.node_id);
+
     for (dom_id, layout_result) in &mut layout_window.layout_results {
+        // ONLY the node the caret sits on — which in a TextInput is the value
+        // <p>, i.e. both the IFC root and the horizontal scroll box.
+        //
+        // This deliberately does NOT walk the ancestor chain. Widening every
+        // ancestor by the gutter makes the BODY 6px wider than the viewport, so
+        // the whole page turns horizontally scrollable the moment a text field
+        // takes focus — which is a far worse bug than the one being fixed.
+        let caret_host: Option<NodeId> = caret_node
+            .filter(|c| c.dom == *dom_id)
+            .and_then(|c| c.node.into_crate_internal());
         // What the VirtualView callbacks published for this DOM, read the way
         // `display_list::paint_scrollbars` reads it — same producer, same
         // `children_rect.size`, so the two cannot disagree about the extent.
@@ -151,7 +186,15 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 _ => azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             };
 
-            let content_size = layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
+            let mut content_size =
+                layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
+            // See [`CARET_SCROLL_GUTTER_PX`]: the caret is content the text
+            // extent does not account for, so without this the reveal has
+            // nowhere to scroll to and the caret is clipped at the end of an
+            // overflowing line.
+            if caret_host == Some(dom_node_id) {
+                content_size.width += CARET_SCROLL_GUTTER_PX;
+            }
 
             // Use the layout-computed scrollbar width, not the
             // hardcoded default. On macOS with overlay scrollbars,

@@ -794,6 +794,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         gesture_drag_manager: _,
         focus_manager: _,
         text_edit_manager: _,
+        last_revealed_caret_rect: _,
+        text_selection_drag_anchor: _,
+        prev_left_down: _,
         file_drop_manager: _,
         clipboard_manager: _,
         hover_manager: _,
@@ -1166,6 +1169,35 @@ pub struct LayoutWindow {
     pub focus_manager: crate::managers::focus_cursor::FocusManager,
     /// Unified text editing manager (cursor + selection + dirty flag)
     pub text_edit_manager: crate::managers::text_edit::TextEditManager,
+    /// Caret rect the automatic reveal last acted on, in STATIC layout space.
+    ///
+    /// `scroll_focused_cursor_into_view` runs after EVERY successful layout,
+    /// and a layout happens whenever the user scrolls, hovers or resizes, or an
+    /// animation ticks. Revealing unconditionally meant that scrolling a page
+    /// containing a focused text field yanked the view straight back to the
+    /// caret — the user could not scroll away from their own cursor. The reveal
+    /// belongs to an EDIT or a caret MOVE, not to the frame.
+    ///
+    /// The caret's STATIC rect is exactly that signal: scrolling does not move
+    /// it (the reveal works in static coordinates and compares against a
+    /// scrolled `visible_area`), while typing, clicking and reflow do.
+    pub last_revealed_caret_rect: Option<LogicalRect>,
+    /// Anchor of an in-flight text-selection drag: where the PRESS that began
+    /// it landed, latched — and only set when that press was on an editable.
+    ///
+    /// The shell used to synthesise this as "the CURRENT cursor position,
+    /// whenever the left button is down and an editing session exists". Both
+    /// halves were wrong. It armed a selection drag for ANY left-drag anywhere,
+    /// so dragging the window by its custom titlebar became a selection drag,
+    /// which armed drag-autoscroll and scrolled the main UI to the top. And
+    /// reporting the CURRENT position as the drag START makes anchor == current
+    /// on every pass, so the range is always empty — the selection never
+    /// appeared, while the autoscroll derived from that degenerate pair still
+    /// ran and scrolled the field.
+    pub text_selection_drag_anchor: Option<LogicalPosition>,
+    /// `left_down` as of the previous input pass, so the press EDGE can be
+    /// detected where the shell does not hand over the previous window state.
+    pub prev_left_down: bool,
     /// File drop manager for cursor state and file drag-drop
     pub file_drop_manager: crate::managers::file_drop::FileDropManager,
     /// Clipboard manager for system clipboard integration
@@ -1680,6 +1712,9 @@ impl LayoutWindow {
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
             focus_manager: crate::managers::focus_cursor::FocusManager::new(),
             text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
+            last_revealed_caret_rect: None,
+            text_selection_drag_anchor: None,
+            prev_left_down: false,
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
             hover_manager: crate::managers::hover::HoverManager::new(),
@@ -1963,9 +1998,39 @@ impl LayoutWindow {
             self.update_a11y_tree();
         }
 
-        // After layout, automatically scroll cursor into view if there's a focused text input
+        // PUBLISH BEFORE CONSUME. The reveal below clamps against
+        // `ScrollManager`'s `content_rect`, and `find_scrollable_ancestor`
+        // refuses a node that has no registered scroll state at all — but until
+        // now registration happened in the DLL, AFTER this function returned.
+        // So on the frame that typed a character the reveal was clamped against
+        // the PRE-keystroke content width (the view trailed by exactly one
+        // character), and the keystroke that FIRST overflowed a box found no
+        // scroll state and bailed outright. Registration is idempotent and
+        // cheap; the shell's own call after we return is now a no-op rather
+        // than the only one.
         if result.is_ok() {
-            self.scroll_focused_cursor_into_view();
+            let now = (system_callbacks.get_system_time_fn.cb)();
+            crate::managers::scroll_registration::register_scroll_nodes(self, &now);
+        }
+
+        // After layout, automatically scroll cursor into view if there's a focused text input.
+        //
+        // This runs AFTER the display list for this pass was built, so the
+        // offset it writes would otherwise only be visible on the NEXT frame:
+        // the view trailed the caret by exactly one keystroke ("the scroll is
+        // one character lagging"). When it actually scrolls, rebuild the list
+        // so this frame shows where the caret really is.
+        if result.is_ok() {
+            // The caret may live in a NESTED dom (a VirtualView) — regenerating
+            // the root's list would refresh the wrong picture.
+            let caret_dom = self
+                .text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .map_or(DomId::ROOT_ID, |mc| mc.node_id.dom);
+            if self.scroll_focused_cursor_into_view() {
+                self.regenerate_display_list_for_dom(caret_dom);
+            }
         }
 
         // Every layout pass ends here — full rebuild, pre-cascade relayout,
@@ -10341,9 +10406,32 @@ impl LayoutWindow {
     ///
     /// Delegates to `scroll_selection_into_view` with cursor mode.
     /// Called internally from `layout_and_generate_display_list()`.
-    fn scroll_focused_cursor_into_view(&mut self) {
+    fn scroll_focused_cursor_into_view(&mut self) -> bool {
+        // ONLY when the caret actually moved — see `last_revealed_caret_rect`.
+        // This is called after EVERY successful layout, so without the gate the
+        // user cannot scroll away from a focused text field: every frame drags
+        // the view back to the cursor.
+        let current = self.get_focused_cursor_rect();
+        if current.is_none() || current == self.last_revealed_caret_rect {
+            return false;
+        }
+        // Do NOT latch a reveal that cannot structurally run. `find_scrollable_
+        // ancestor` requires a REGISTERED scroll state, and a box that has only
+        // just started overflowing acquires one at the end of this frame. The
+        // gate recording such an attempt as satisfied is how that keystroke's
+        // reveal was lost for good.
+        let anchor = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| mc.node_id)
+            .or(self.focus_manager.focused_node);
+        if anchor.and_then(|a| self.find_scrollable_ancestor(a)).is_none() {
+            return false;
+        }
+        self.last_revealed_caret_rect = current;
         // Redirect to unified scroll system
-        self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
+        self.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant)
     }
 }
 
@@ -13253,6 +13341,91 @@ impl LayoutWindow {
             }
         }
 
+        // Propagate the new extent up to the box that actually SCROLLS it.
+        //
+        // `overflow_content_size` was just written on the IFC ROOT, but the IFC
+        // root is not always the scroll box. In a TextInput it is — the value
+        // <p> carries `overflow-x: auto` itself — which is why that widget
+        // appeared to work. A TextArea puts `overflow-y: auto` on the CONTAINER
+        // and leaves the value <p> with no overflow at all, so the grown extent
+        // landed on a node nobody scrolls: `register_scroll_nodes` asked the
+        // CONTAINER for its content size, got whatever the last full layout
+        // wrote, and never raised `needs_vertical`. The TextArea did nothing on
+        // overflow no matter how much was typed.
+        //
+        // Growing (never shrinking) the ancestor keeps this consistent with
+        // `apply_content_scroll_necessity`, which also only ever raises.
+        {
+            let mut chain: Vec<(NodeId, LogicalSize)> = Vec::new();
+            if let Some(layout_result) = self.layout_results.get(&dom_id) {
+                if let Some(&ifc_idx) = layout_result
+                    .layout_tree
+                    .dom_to_layout
+                    .get(&node_id)
+                    .and_then(|c| c.first())
+                {
+                    let extent = layout_result
+                        .layout_tree
+                        .warm(ifc_idx)
+                        .and_then(|w| w.overflow_content_size)
+                        .unwrap_or_default();
+                    let mut idx = ifc_idx;
+                    for _ in 0..SCROLL_ANCESTOR_WALK_LIMIT {
+                        let Some(node) = layout_result.layout_tree.get(idx) else { break };
+                        let Some(parent) = node.parent else { break };
+                        idx = crate::solver3::layout_tree::LayoutNodeId::new(parent);
+                        let Some(pnode) = layout_result.layout_tree.get(idx) else { break };
+                        let Some(pdom) = pnode.dom_node_id else { continue };
+                        let st = layout_result
+                            .styled_dom
+                            .styled_nodes
+                            .as_container()
+                            .get(pdom)
+                            .map(|n| n.styled_node_state)
+                            .unwrap_or_default();
+                        let scrolls = crate::solver3::getters::get_overflow_x(
+                            &layout_result.styled_dom, pdom, &st,
+                        )
+                        .is_scroll()
+                            || crate::solver3::getters::get_overflow_y(
+                                &layout_result.styled_dom, pdom, &st,
+                            )
+                            .is_scroll();
+                        if scrolls {
+                            chain.push((pdom, extent));
+                            break;
+                        }
+                    }
+                }
+            }
+            for (target, extent) in chain {
+                if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+                    if let Some(&t_idx) = layout_result
+                        .layout_tree
+                        .dom_to_layout
+                        .get(&target)
+                        .and_then(|c| c.first())
+                    {
+                        if let Some(warm) = layout_result.layout_tree.warm_mut(t_idx) {
+                            let prev = warm.overflow_content_size.unwrap_or_default();
+                            warm.overflow_content_size = Some(LogicalSize {
+                                width: prev.width.max(extent.width),
+                                height: prev.height.max(extent.height),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // NOTE: whether this box needs SCROLLBARS may have changed with the
+        // content, and nothing on this fast path revisits it — `scrollbar_info`
+        // is decided by Phase 3 of a full layout. Raising the flag HERE was
+        // tried and reverted: the scrollbar then shrinks the content area using
+        // geometry from a layout that never reserved room for it, and the
+        // TextArea rendered blank. Making a box become scrollable needs a real
+        // reflow, not a flag flip. See `register_scroll_nodes`, which re-derives
+        // necessity correctly but only on the next full layout.
         // CRITICAL: Regenerate the display list after updating the inline layout.
         // Without this, the old display list (with old text glyphs) is sent to WebRender,
         // so the screen still shows the old text even though the layout tree is updated.
@@ -14235,6 +14408,8 @@ impl LayoutWindow {
                 let Some(layout_result) = self.layout_results.get(dom_id) else {
                     continue;
                 };
+                // This DOM's scroll offsets — see the use site below.
+                let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(*dom_id);
                 // Use layout tree from layout_result, not layout_cache
                 let tree = &layout_result.layout_tree;
 
@@ -14306,7 +14481,30 @@ impl LayoutWindow {
 
                     // Use point_relative_to_item - this is the local position within the hit node
                     // provided by WebRender's hit test
-                    let local_pos = hit_item.point_relative_to_item;
+                    //
+                    // ...plus the box's OWN scroll. `point_relative_to_item` is
+                    // viewport-relative on both hit-test paths: WebRender
+                    // subtracts the hit rect, which for a scroll container is
+                    // pushed BEFORE the scroll frame, and the CPU tester adds
+                    // back only ANCESTOR scroll (`headless.rs`, "ancestor scroll
+                    // offsets added back"). A box's own scroll is neither. But
+                    // `hittest_cursor` works in the IFC root's UNSCROLLED
+                    // content space, so once the value scrolled every click
+                    // resolved a caret `scroll_x` px to the LEFT of the pointer:
+                    // in an overflowing TextInput the visible text could not be
+                    // selected and the caret could not be placed at all. The
+                    // drag path already adds this term
+                    // (`accumulated_scroll_for_node` is self-inclusive), so
+                    // click and drag disagreed by exactly the scroll offset.
+                    let local_pos = {
+                        let mut p = hit_item.point_relative_to_item;
+                        // `children_rect.origin` IS the scroll offset.
+                        if let Some(st) = scroll_offsets.get(&ifc_root_node_id) {
+                            p.x += st.children_rect.origin.x;
+                            p.y += st.children_rect.origin.y;
+                        }
+                        p
+                    };
 
                     // Hit-test the cursor in this text layout
                     if let Some(cursor) = layout.hittest_cursor(local_pos) {
@@ -14623,10 +14821,23 @@ impl LayoutWindow {
                 .get(LayoutNodeId::new(layout_idx))
                 .and_then(|n| n.used_size)
                 .unwrap_or_default();
-            local_pos.x >= 0.0
-                && local_pos.y >= 0.0
-                && local_pos.x <= size.width
-                && local_pos.y <= size.height
+            // Test containment in the SAME space as the rect. `local_pos` has
+            // the scroll offset added so it can index the inline layout — that
+            // is CONTENT space — while `used_size` is the box on SCREEN, i.e.
+            // VIEWPORT space. Comparing the two meant that as soon as a field
+            // had scrolled by more than its own width, every drag point tested
+            // "outside the anchor block", so every drag took the cross-block
+            // path and no selection was ever painted in an overflowing
+            // TextInput. The pointer's position relative to the box on screen
+            // is the scroll-free difference.
+            let viewport_local = LogicalPosition {
+                x: current_position.x - node_pos.x,
+                y: current_position.y - node_pos.y,
+            };
+            viewport_local.x >= 0.0
+                && viewport_local.y >= 0.0
+                && viewport_local.x <= size.width
+                && viewport_local.y <= size.height
         };
         if !anchor_rect_contains {
             let global_hit = self.hittest_text_position_global(dom_id, current_position);
@@ -15383,6 +15594,12 @@ impl LayoutWindow {
             hover_manager,
             virtual_view_manager,
             transient_windows,
+            // Geometry from the PREVIOUS arena. It only gates the reveal, so
+            // dropping it costs one redundant reveal after a reconcile; keeping
+            // it would compare against a rect that no longer means anything.
+            last_revealed_caret_rect: _,
+            text_selection_drag_anchor: _,
+            prev_left_down: _,
             laid_out_dock_generation: _,
             inline_tear,
             gpu_state_manager,
