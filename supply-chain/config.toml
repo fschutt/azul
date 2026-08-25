@@ -1925,6 +1925,66 @@ criteria = "safe-to-deploy"
 version = "1.12.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.rclip-bookmark]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-cf-html]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-codepage]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-core]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-desktop-entry]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-dib]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-dropfiles]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-file-desc]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-html]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-idlist]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-rtf]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-shell-link]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-uri-list]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-url-file]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rclip-webloc]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.redox_syscall]]
 version = "0.5.18"
 criteria = "safe-to-deploy"
@@ -1955,6 +2015,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rgb]]
 version = "0.8.53"
+criteria = "safe-to-deploy"
+
+[[exemptions.rich-clipboard]]
+version = "0.1.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.ring]]
