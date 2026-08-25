@@ -194,10 +194,15 @@ jobs:
   #     at all rather than existing in order to skip (~60 billed macOS minutes
   #     per feature-branch push). See the note on that job.
   #
-  # DELIBERATELY NOT GATED (cheap, and useful as independent early signal):
-  # icu_parity (1.0 min), supply_chain (2.8), publish_safety (1.6), docs_pdf
-  # (0.3). Gating them would save single-digit machine-minutes and cost them
-  # their head start. dep_tree used to be in this list and still is not gated on
+  # DELIBERATELY NOT GATED ON THE QUALITY TIER (cheap, and useful as an
+  # independent early signal): icu_parity (1.0 min), supply_chain (2.8),
+  # publish_safety (1.6), docs_pdf (0.3). Gating them on clippy/test_lib would
+  # save single-digit machine-minutes and cost them their head start.
+  #
+  # They ARE gated on supply_chain_preflight (2026-08-25), because three of
+  # the four compile the dependency tree and therefore run its build scripts.
+  # That is a different question from "is the code good": it is "is this code
+  # allowed to run at all", and nothing gets a head start on it. dep_tree used to be in this list and still is not gated on
   # a quality tier — it just has a data dependency on the bindings now.
   #
   # THE CRITICAL PATH, before and after. Measured, run 32358047254:
@@ -223,11 +228,48 @@ jobs:
   # macOS leg or relaxing the cheap-OS-first serialisation, both of which are
   # deliberate trade-offs documented on those jobs, not accidents.
 
+  # TIER 0 — SUPPLY CHAIN PREFLIGHT. Nothing in this file compiles before it.
+  #
+  # build.rs and proc macros execute during `cargo build` with the runner's full
+  # authority, whether or not the crate's own code is ever called — the mechanism
+  # behind every significant crates.io compromise to date. A check that runs after
+  # the build has already lost, and `cargo check` runs build scripts too, so this
+  # precedes even clippy and check_crates. `cargo vendor` downloads without
+  # executing, which is what makes a before-the-build gate possible at all.
+  #
+  # Rationale, threat model and per-gate detail: scripts/supply-chain/README.md
+  #
+  # COST, measured on the runner (run 32889628218, 855 crates): the whole job is
+  # 1 min 38 s including checkout and toolchain — vendoring is network-bound and
+  # CI's network beats a laptop's, so it comes in under the 2.5 min a local
+  # measurement predicted. The preflight wall goes 2.1 -> ~3.7 min and everything
+  # downstream inherits that. content_state_lint started 4 s after this job
+  # finished, which is the gate doing its job: nothing compiled before it.
+  #
+  # cargo-vet, the publish-age cooldown and cargo-audit live in
+  # .github/workflows/supply-chain.yml — they gate nothing here, and this file is
+  # 9 KB from GitHub's 512,000-byte workflow limit (see the note at `jobs:`).
+  supply_chain_preflight:
+    name: Supply chain preflight (build-time code + env)
+    # DELIBERATELY NO `needs:`. See the header above — this gates the gates.
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - uses: ./.github/actions/supply-chain-preflight
+
   content_state_lint:
     # The cheap preflight lane: checkout + grep + python, no compilation, and a
     # gate for most of the run. It is the right home for CLASS checks — the ones
     # that cost a full hour of CI, or a whole release, to discover otherwise.
     # (The job KEY stays content_state_lint because ~34 `needs:` entries name it.)
+    # Tier 0: the supply-chain preflight gates even this. `cargo check`
+    # runs dependency build scripts, so a lint that compiles anything is
+    # downstream of "is that code allowed to run". See supply_chain_preflight.
+    needs: [supply_chain_preflight]
     name: Architecture + release contracts (preflight)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
@@ -322,6 +364,10 @@ jobs:
           echo "shell2 backends keep blocking waits off the UI thread"
 
   documentation_paths:
+    # Tier 0: the supply-chain preflight gates even this. `cargo check`
+    # runs dependency build scripts, so a lint that compiles anything is
+    # downstream of "is that code allowed to run". See supply_chain_preflight.
+    needs: [supply_chain_preflight]
     name: Documentation paths (docproof)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
@@ -750,6 +796,10 @@ jobs:
   # feature check that used to share the "Check crates" step moved to dll_tests,
   # which has the bindings.
   check_crates:
+    # Tier 0: the supply-chain preflight gates even this. `cargo check`
+    # runs dependency build scripts, so a lint that compiles anything is
+    # downstream of "is that code allowed to run". See supply_chain_preflight.
+    needs: [supply_chain_preflight]
     name: Check crates (engine)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
@@ -2281,6 +2331,11 @@ jobs:
   # verifiable off-Windows, so that leg only compiles the backend + test; flip
   # its `run:` to true to execute on a real Windows host once values are pinned.
   icu_parity:
+    # Tier 0 (2026-08-25): this job compiles the dependency tree, so it is
+    # downstream of the supply-chain preflight like everything else that
+    # does. It keeps its head start over the rest of the pipeline — it
+    # still does not wait on the quality tier.
+    needs: [supply_chain_preflight]
     name: ICU Parity (${{ matrix.backend.feature }})
     # THE ONE azul-layout TEST THAT LEGITIMATELY RUNS OFF-LINUX, and the reason
     # it was not folded into test_lib's ubuntu-only rule on 2026-08-20. The three
@@ -5566,11 +5621,24 @@ jobs:
     # release on them.
     continue-on-error: true
     runs-on: macos-14
-    # Hoist the signing secrets to job env so the optional cert-import step can
-    # gate on `env.` (the `secrets.` context is not allowed in a step `if:`).
+    # Hoist a PRESENCE FLAG, never the material. The optional cert-import step
+    # needs to gate on something visible to a step `if:`, and the `secrets.`
+    # context is not allowed there — but the thing it needs is "is a cert
+    # configured", which is a boolean, not a certificate.
+    #
+    # This used to hoist APPLE_CERT_P12 and APPLE_CERT_PASSWORD themselves. Job
+    # env is the environment of EVERY step, and this job's build step runs
+    # scripts/build-ios.sh ten times, each of which runs `cargo build` — so the
+    # base64 signing certificate and its password sat in the environment of
+    # every build script and proc macro in a 700-crate dependency tree, for the
+    # whole build. Reading an environment variable is the single most common
+    # payload in a compromised crate (mysten-metrics 9.0.3 did exactly this),
+    # and a code-signing identity is close to the most valuable thing to take
+    # from a mobile CI job. The secrets are now scoped to the one step that
+    # imports them into the keychain, which is where they were always needed
+    # and nowhere else.
     env:
-      APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
-      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+      HAVE_APPLE_CERT: ${{ secrets.APPLE_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -5599,7 +5667,11 @@ jobs:
       # the Simulator .app never needs signing. (No Mac? the guide documents
       # rcodesign for signing off-host.)
       - name: Import Apple signing cert (optional)
-        if: ${{ env.APPLE_CERT_P12 != '' }}
+        if: ${{ env.HAVE_APPLE_CERT == 'true' }}
+        # The ONLY step in this job that sees the signing material.
+        env:
+          APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
         run: |
           KCHAIN="$RUNNER_TEMP/azul.keychain-db"
           security create-keychain -p actions "$KCHAIN"
@@ -7981,6 +8053,7 @@ jobs:
           toolchain: 1.88.0
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked || cargo install cargo-deny
+
       - name: cargo-deny + summary
         shell: bash
         run: |
@@ -8138,6 +8211,10 @@ jobs:
           retention-days: 30
 
   clippy:
+    # Tier 0: the supply-chain preflight gates even this. `cargo check`
+    # runs dependency build scripts, so a lint that compiles anything is
+    # downstream of "is that code allowed to run". See supply_chain_preflight.
+    needs: [supply_chain_preflight]
     name: Clippy
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
@@ -8511,6 +8588,11 @@ jobs:
   # fail the pipeline. The @media print CSS (docgen/guide.rs) gives light code
   # blocks in the PDF while the web keeps the dark theme.
   docs_pdf:
+    # Tier 0 (2026-08-25): this job compiles the dependency tree, so it is
+    # downstream of the supply-chain preflight like everything else that
+    # does. It keeps its head start over the rest of the pipeline — it
+    # still does not wait on the quality tier.
+    needs: [supply_chain_preflight]
     name: Docs PDF (artifact)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
@@ -8592,6 +8674,11 @@ jobs:
   # downgraded every failure to a warning.
   # ---------------------------------------------------------------------------
   publish_safety:
+    # Tier 0 (2026-08-25): this job compiles the dependency tree, so it is
+    # downstream of the supply-chain preflight like everything else that
+    # does. It keeps its head start over the rest of the pipeline — it
+    # still does not wait on the quality tier.
+    needs: [supply_chain_preflight]
     name: Publish safety (no [patch] on published deps)
     runs-on: ubuntu-22.04
     steps:

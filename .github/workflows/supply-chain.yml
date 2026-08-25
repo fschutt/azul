@@ -1,0 +1,186 @@
+# Supply-chain checks that gate nothing inside rust.yml.
+#
+# WHY A SEPARATE FILE. `.github/workflows/rust.yml` is ~5 KB below GitHub's
+# 512,000-byte workflow-file limit. Above that limit GitHub does not start runs
+# and does not report an error: no run, no `startup_failure`, no annotation —
+# CI simply stops existing, and the PR sits with "no checks reported". Adding
+# these jobs inline pushed rust.yml to 516,759 bytes and did exactly that.
+#
+# Only `supply_chain_preflight` has to live in rust.yml, because seven jobs
+# there `needs:` it and `needs:` cannot cross workflow files. Everything else
+# belongs here, and its steps are a composite action for the same reason.
+
+name: Supply chain
+
+on:
+  push:
+    branches: ['**']
+    tags: ['[0-9]+.[0-9]+.[0-9]+*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      (github.event.pull_request.head.repo.full_name == github.repository
+        && github.event.pull_request.head.ref) || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: "1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # The guard that would have caught the outage that created this file.
+  #
+  # A workflow file over 512,000 bytes is silently inert. This check CANNOT live
+  # in rust.yml — an oversized workflow does not run, so a size check inside it
+  # can never fire. It lives here, in a file small enough that it always runs.
+  workflow_size_guard:
+    name: Workflow files must stay under GitHub's size limit
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check every workflow file against the 512,000-byte limit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, sys
+          LIMIT = 512_000          # GitHub: "500 KB or smaller to trigger a run"
+          WARN  = int(LIMIT * 0.95)
+          bad, warn = [], []
+          for p in sorted(pathlib.Path(".github/workflows").glob("*.y*ml")):
+              n = p.stat().st_size
+              (bad if n > LIMIT else warn if n > WARN else []).append((p, n))
+              print(f"{n:>9,}  {'OVER' if n > LIMIT else 'near' if n > WARN else 'ok':>4}  {p}")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          for p, n in warn:
+              print(f"::warning file={p}::{p} is {n:,} bytes — within 5% of the "
+                    f"{LIMIT:,}-byte limit. Over it, GitHub silently stops running "
+                    f"this workflow: no run, no startup_failure, no annotation. "
+                    f"Split shared logic into a composite action or reusable workflow.")
+          for p, n in bad:
+              print(f"::error file={p}::{p} is {n:,} bytes, over GitHub's {LIMIT:,}-byte "
+                    f"workflow limit. Runs for it are silently not started.")
+          sys.exit(1 if bad else 0)
+          PY
+
+  # ---------------------------------------------------------------------------
+  # Version-level supply chain: cargo-vet and the publish-age cooldown.
+  #
+  # These answer what `dependency-justifications.toml` structurally cannot. That
+  # file is keyed by crate NAME, so a crate already justified stays justified
+  # when a compromised maintainer account publishes a new version of it — which
+  # is what happened to arrayref, internment and append-only-vec on 2026-08-20,
+  # all three already in thousands of trees.
+  #
+  # cargo-vet pins per VERSION: a bump lands unaudited and fails until someone
+  # reviews the delta or exempts it deliberately. The cooldown refuses versions
+  # younger than 14 days, turning that attack's 86-107 minute exposure window
+  # into a non-event. It is RFC 3923 min-publish-age, implemented locally
+  # because the client half had not shipped when arrayref happened.
+  supply_chain_versions:
+    name: cargo-vet + publish-age cooldown
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The cooldown diffs Cargo.lock against the base ref, so it needs
+          # history. Without this the diff is empty and every version looks
+          # unchanged — a gate that passes by knowing nothing.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install cargo-vet
+        run: cargo install cargo-vet --locked || cargo install cargo-vet
+
+      # --locked: the audit set and imports.lock as committed. Without it vet
+      # refreshes imports from the network, so a failing run could be turned
+      # green by an upstream publishing an audit — not a decision to delegate.
+      - name: cargo vet
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! cargo vet --locked 2>&1 | tee vet.txt; then
+            # Distinguish "the store is broken" from "a dependency is
+            # unaudited". Reporting the first as the second sent the last
+            # failure looking for a bad crate when the real cause was
+            # supply-chain/imports.lock never having been committed (.gitignore
+            # has a blanket *.lock rule, and `git add` skipped it silently).
+            if grep -qiE "couldn't acquire the store|no such file or directory" vet.txt; then
+              echo "::error::cargo-vet could not read supply-chain/. Is the whole store committed? (imports.lock is matched by the blanket *.lock rule in .gitignore and needs the negation that keeps it tracked.)"
+              exit 1
+            fi
+            {
+              echo '## 🔎 cargo-vet'; echo ''
+              echo '```'; tail -80 vet.txt; echo '```'; echo ''
+              echo 'A new or bumped dependency is neither audited nor exempted:'
+              echo ''
+              echo '```'
+              echo 'cargo vet diff <crate> <old-version> <new-version>'
+              echo 'cargo vet certify <crate> <old-version> <new-version>'
+              echo '# or, if accepting it without review:'
+              echo 'cargo vet add-exemption <crate> <version>'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::cargo-vet: an unaudited dependency version entered the tree."
+            exit 1
+          fi
+          { echo '## 🔎 cargo-vet'; echo ''; echo '```'; tail -20 vet.txt; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      # Only CHANGED versions are age-checked: crates.io's API is rate limited,
+      # and the lockfile diff is where a poisoned release enters anyway.
+      - name: Publish-age cooldown (changed dependencies only)
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          fi
+          echo "comparing Cargo.lock against $BASE"
+          python3 scripts/supply-chain/lockfile_guard.py \
+            --check cooldown --min-age-days 14 \
+            --changed-only --base-ref "$BASE" --no-cache
+
+  # ---------------------------------------------------------------------------
+  # cargo-audit reads the SAME RustSec database as `cargo deny check advisories`
+  # (which gates in rust.yml), so this is a second opinion, not a second source.
+  # It earns its place by fetching a fresh advisory-db on every run and by
+  # surfacing the unmaintained/unsound advisories that deny.toml's `ignore` list
+  # deliberately silences. Non-blocking: two gates on one database means one of
+  # them is noise.
+  advisories:
+    name: cargo-audit (second opinion)
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked || cargo install cargo-audit
+      - name: cargo audit
+        shell: bash
+        run: |
+          mkdir -p stats
+          cargo audit --color never 2>&1 | tee stats/cargo-audit.txt || true
+          {
+            echo '## 🛡️ cargo-audit (RustSec)'; echo ''
+            echo '<details><summary>full report</summary>'; echo ''
+            echo '```'; tail -120 stats/cargo-audit.txt; echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stats-cargo-audit
+          path: stats/cargo-audit.txt
+          if-no-files-found: warn
+          retention-days: 30

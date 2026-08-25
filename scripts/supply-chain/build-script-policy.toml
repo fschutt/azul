@@ -1,0 +1,1150 @@
+# build-script-policy.toml — which dependencies may execute code at BUILD time.
+#
+# GENERATED SKELETON, HUMAN-OWNED CONTENT. `scan_build_scripts.py --update`
+# refreshes `reviewed` digests and adds skeletons for new crates; it never
+# invents a `reason` and never flips an `allow`. A crate whose reason is still
+# the TODO placeholder has not been reviewed by anybody.
+#
+# Fields:
+#   allow    — may this crate run code at build time at all
+#   risk     — behaviour level a human ACKNOWLEDGED: low | medium | high
+#   reason   — one line: why does this crate need to run code at build time
+#   reviewed — ["<version>:<sha256-of-build-time-files>"] — the exact bytes read
+#
+# Re-pinning after a version bump is DELIBERATELY manual: the digest changing
+# is the signal that somebody has to read the diff. `--update` writes the new
+# digest so the mechanics are cheap, but the review is the point.
+
+[crate."aegis"]  # build-script
+allow = true
+risk = "low"
+reason = "compiles bundled libaegis C with cc; on wasm32 links a prebuilt static lib shipped in the crate"
+reviewed = ["0.9.15:dc8628ecad50deff381612634ab72829846cff83cfe7aef47aa0712b0034b44b"]
+
+[crate."alsa-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "pkg-config probe for system libasound to emit link flags; bindings are pre-generated, no cc"
+reviewed = ["0.3.1:e1d3e61fa491d8be98b61259e33363d73e9fa81b0e3cfd18bc5c15b4f3e7d3e1"]
+
+[crate."android-activity"]  # build-script
+allow = true
+risk = "low"
+reason = "compiles the GameActivity C/C++ glue with cc when the game-activity feature is enabled"
+reviewed = ["0.6.1:dc18f6384bb392dcb9f6c76ed4754ebf0dc7aec0241996b5245eb2d6bfca0763"]
+
+[crate."android_system_properties"]  # build-dependency
+allow = true
+risk = "medium"
+reason = "no build-time code; dlopen(libc, RTLD_NOLOAD) is Android-only and not compiled on build hosts"
+reviewed = ["0.1.5:ccedb15b31dba594c73d004b9229e7e9f48ac7922a48ff2d2ecc268b4ed6fef3"]
+
+[crate."anyhow"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version and trial-compiles src/nightly.rs in OUT_DIR to detect unstable Error APIs"
+reviewed = ["1.0.103:f9c1c73d31cfb9e0cde53cbd412e382191a6f789cf609a9f1226ced0ce466903"]
+
+[crate."ash"]  # build-script
+allow = true
+risk = "low"
+reason = "emits the vulkan link directive and a VULKAN_SDK link-search path under the linked feature"
+reviewed = ["0.38.0+1.3.281:d91b89e509757381ff8dba3559f2361d29807c61f79f77775f5f65f195ab5054"]
+
+[crate."async-io"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version via autocfg to emit one cfg for std::pipe availability"
+reviewed = ["2.6.0:c3ebe3052baee2119db95a87368526d4e0cf1470a40b7b068181e6d954e527dc"]
+
+[crate."async-recursion"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro rewriting async fns to box the recursive future"
+reviewed = ["1.1.1:de0745e78869c1c39d5a4c2c3208f3ebe32c41d09ffa38fe3538227580c6b46c"]
+
+[crate."async-trait"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro desugaring async fn in traits to boxed futures"
+reviewed = ["0.1.89:5080f691ea79356df5fcb954f5972504698c61de9128ec15e4e261c34b674803"]
+
+[crate."atomic-polyfill"]  # build-script
+allow = true
+risk = "low"
+reason = "reads TARGET and emits polyfill_* cfgs; no deps, no fs, no process"
+reviewed = ["1.0.3:36aee49e066fe78c35a0284b0b780a77f0aba90c009301a984a40de82994474b"]
+
+[crate."bincode_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derives Encode/Decode/BorrowDecode for bincode via virtue; pure token transformation"
+reviewed = ["2.0.1:2862c5d69969aef564501b3685207ef6164f997cb08d11c538b1e11fceb9ec50"]
+
+[crate."bindgen"]  # build-script
+allow = true
+risk = "low"
+reason = "records the host TARGET triple in OUT_DIR and declares libclang env rerun triggers"
+reviewed = ["0.65.1:b043a44dbfb69a2342e419b39c38ce164f7b602f67562bbb9e38a924dfbd6485", "0.72.1:5775fc2cca7725ba0929839d1d097a14f89c891f7288e418f16b555972003d32"]
+
+[crate."built"]  # build-dependency
+allow = true
+risk = "high"
+reason = "generates OUT_DIR/built.rs from cargo metadata, rustc -V, and the ENCLOSING git repo's HEAD/branch/dirty"
+reviewed = ["0.7.7:a155acc3e3ecb1466782540593577082d0c912415582eb30b30cca3c93700e94"]
+
+[crate."bumpalo"]  # build-dependency
+allow = true
+risk = "medium"
+reason = "arena allocator library; no build-time code of its own, linked into wasm-bindgen's proc macro"
+reviewed = ["3.20.3:c9dfe51f2e5dc99772e5eba8a933070b0ae6f011fc14a85e3789fd2856296486"]
+
+[crate."bytemuck_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro deriving Pod/Zeroable/NoUninit with compile-time layout checks"
+reviewed = ["1.11.0:9273c1acd9f61470729c7d19c92f30ad95e2b814d61009932bc480acf16642bc"]
+
+[crate."camino"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc --version/channel to cfg-gate std Path APIs by stabilisation version"
+reviewed = ["1.2.4:19ff4656f02373eac69b34dee9e0f24a7e4a53992e98d7b78740c158c1aea01c"]
+
+[crate."clang-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "finds libclang: globs system lib dirs, runs llvm-config/xcode-select, emits link flags"
+reviewed = ["1.8.1:b7af1fdd468aa9f699b921124de95feef374ea309c7fbfd3bc221d2e0c96e390"]
+
+[crate."clap_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derive macro building clap Command from types + doc comments; reads CARGO_PKG_* only"
+reviewed = ["4.6.1:34440937571121e88cac80f71a2e3be5b7a4e910c793c3609c79f021741dd346"]
+
+[crate."comrak"]  # build-script
+allow = true
+risk = "low"
+reason = "sorts the HTML entity table from the entities crate into an OUT_DIR binary-search table"
+reviewed = ["0.48.0:524448bc2fe7e02f416983e7339f3a279672d60d86ab470ec67830abea3ce203"]
+
+[crate."cookie"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc channel via version_check to gate nightly doc_cfg; emits one cfg"
+reviewed = ["0.18.1:d4176ce04b0194104075b50384a9d19c3142b0bf00a9f0bb641137c3ebe3729e"]
+
+[crate."core-foundation-sys"]  # build-dependency/build-script
+allow = true
+risk = "low"
+reason = "emits the CoreFoundation framework link directive on Apple targets (0.8 has no build script)"
+reviewed = ["0.7.0:ad20851b8b681ed764e4e09ee67e0742c34de3f006332ec4acf63bb4141d2ac8", "0.8.7:8732decad0b926a3374481c781b6242dd4a1a80bced424ef3a93ff8c2311a6f7"]
+
+[crate."coreaudio-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "runs xcrun for the Apple SDK path and bindgen over framework headers into OUT_DIR"
+reviewed = ["0.2.18:5ca4c100cdfbb00e272b8af0b9c8aeae39628599d1639e16375357814b39e663"]
+
+[crate."cpal"]  # build-script
+allow = true
+risk = "low"
+reason = "sets the asio cfg when CPAL_ASIO_DIR is present; no file or process access"
+reviewed = ["0.15.3:3baa3b904cf524fe6f2c148449f2b77db1fdc367f6c9e8beef120d7b60f84e8d"]
+
+[crate."crc32fast"]  # build-script
+allow = true
+risk = "low"
+reason = "runs rustc --version to enable stable ARM CRC32 intrinsics cfg on 1.80+"
+reviewed = ["1.5.0:547564906abafc17e705df59aa16e9a7ad2b21b895c9d6071e0620d6ce1a16b2"]
+
+[crate."crossbeam-deque"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs reads CARGO_CFG_SANITIZE and emits one rustc-cfg"
+reviewed = ["0.8.7:412521f2bced5099782c95f4a42c1d8b3229b8dae4977021901a8d38cb2d4df1"]
+
+[crate."crossbeam-epoch"]  # build-script
+allow = true
+risk = "low"
+reason = "reads CARGO_CFG_SANITIZE to emit one cfg, since cfg(sanitize) is unstable"
+reviewed = ["0.9.20:412521f2bced5099782c95f4a42c1d8b3229b8dae4977021901a8d38cb2d4df1"]
+
+[crate."crossbeam-utils"]  # build-script
+allow = true
+risk = "low"
+reason = "build script classifying TARGET against a checked-in no-atomics list; emits cfg only"
+reviewed = ["0.8.22:2cb723dc144a4d4108838aad931101cac73dc24394835f8cc483ffb65a369390"]
+
+[crate."crunchy"]  # build-script
+allow = true
+risk = "low"
+reason = "text-generates the unroll! macro arms (one per loop count up to the feature limit) into OUT_DIR/lib.rs"
+reviewed = ["0.2.4:1ad5bca1dfd4d750d0870d44947e0a3ab3f9a6fab102d9f851b967f02bcd4e29"]
+
+[crate."ctor"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro emitting .init_array/__mod_init_func/.CRT$XCU glue for pre-main constructors"
+reviewed = ["0.2.9:083faed807b7a040b974fdbb966ef805db199e77d387ff9e0e72880ac62fa93a"]
+
+[crate."curve25519-dalek"]  # build-script
+allow = true
+risk = "low"
+reason = "selects 32/64-bit limbs + serial/simd backend from CARGO_CFG_*; probes rustc version"
+reviewed = ["4.1.3:c9b37d3dd0d36957eec457733ef5190b7bf18d43bd9c5ee83bcbdacf3a2cdb5d"]
+
+[crate."curve25519-dalek-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "attribute macro that adds #[target_feature] and unsafe-wraps fn bodies for SIMD"
+reviewed = ["0.1.1:0e322f57df58ff7c52152cff41986c34da28d76e571b9a8e6a0e6ca53424a784"]
+
+[crate."darling_macro"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro forwarding derive input to darling_core; pure syn/quote expansion"
+reviewed = ["0.23.0:5f76b2f053a8d1d12afccc5e0618eee499af848295ad935aaadf1ce27442a55a"]
+
+[crate."derivative"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derive macro for Clone/Debug/Default/Hash/Eq/Ord with per-field options; pure syn/quote codegen"
+reviewed = ["2.2.0:614a5969250e364456e6135d9a8196e4f89cecaf2cff2631d3616121c9dec45a"]
+
+[crate."derive_arbitrary"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro deriving Arbitrary for fuzzing"
+reviewed = ["1.4.2:c234445616a7cf85eeb782fd943e14858a24290f270697bbb0e6390bf5c223f7"]
+
+[crate."derive_more-impl"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derive macro backend expanding Display/From/Deref/arithmetic impls via syn+quote"
+reviewed = ["2.1.1:534b243d12940aa7cc9f4a2690bd1ad290cdb397671afd791d747f6a25155422"]
+
+[crate."displaydoc"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derive macro building Display impls from doc comments; syn/quote only"
+reviewed = ["0.2.6:a2ffd15bff28132217cbd4103d5c9ab54a44fcd4750067a36f9d21be757b9372"]
+
+[crate."document-features"]  # proc-macro
+allow = true
+risk = "low"
+reason = "reads the consuming crate's own Cargo.toml to turn feature comments into rustdoc; read-only"
+reviewed = ["0.2.12:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]
+
+[crate."enumflags2_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro expanding #[bitflags] into flag trait impls; pure syn/quote"
+reviewed = ["0.7.12:ec37ab107099b8cba6072b1e5772b475bbccd8e30573243f48819b1b57a5094d"]
+
+[crate."erased-serde"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version to cfg out the #[diagnostic] namespace on pre-1.78 compilers"
+reviewed = ["0.4.10:292c3342e28cabc995bd2690497d66d24e2232ed5ce440ff41315f67f8d2e59e"]
+
+[crate."error-chain"]  # build-script
+allow = true
+risk = "low"
+reason = "version_check probe of rustc to emit has_error_source cfgs; reads PROFILE for a test cfg"
+reviewed = ["0.12.4:6edc7c45432027ae663cad5b5f56a2752304c66a06b7599fcbbe1fa7498e0612"]
+
+[crate."ext-php-rs"]  # build-script
+allow = true
+risk = "low"
+reason = "runs php/php-config to find Zend headers, compiles wrapper.c, bindgens; downloads PHP devel pack on Windows"
+reviewed = ["0.15.15:023c2ec3129a33c687d686287cf3c628c5270fb52c5fb36168cd94dda41259b6"]
+
+[crate."ext-php-rs-bindgen"]  # build-script
+allow = true
+risk = "low"
+reason = "writes the host target triple to OUT_DIR and declares libclang/bindgen rerun-if-env-changed"
+reviewed = ["0.72.1-extphprs.2:5775fc2cca7725ba0929839d1d097a14f89c891f7288e418f16b555972003d32"]
+
+[crate."ext-php-rs-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro expanding #[php_class]/#[php_function] into PHP extension glue"
+reviewed = ["0.11.14:d3963faf480a138a81e67af71997d959f1daf28ffe41171cbbb237321c12ddf9"]
+
+[crate."find-msvc-tools"]  # build-dependency
+allow = true
+risk = "high"
+reason = "locates MSVC/SDK via vcvars env, HKLM (read-only), VS COM/vswhere; runs cl.exe to probe arch"
+reviewed = ["0.1.9:bc57728deb8fa5e085b2dbb27c58563fa1a900d76e6b20e034036b92bc62d9d5"]
+
+[crate."foreign-types-macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "expands foreign_type! into FFI wrapper types; syn/quote only"
+reviewed = ["0.2.3:bd94ca33dc4c24a92622b263fe2a664b30299019cc21be3f6b8e282deee7e065"]
+
+[crate."fst"]  # build-script
+allow = true
+risk = "low"
+reason = "generates CRC32 (and an unused snappy tag) lookup tables as Rust source into OUT_DIR"
+reviewed = ["0.4.7:66382bcdb53f0e10d213774b421a4cd15cb22d0e06891fd306752118466e4f47"]
+
+[crate."futures-macro"]  # proc-macro
+allow = true
+risk = "low"
+reason = "expands futures' join!/select!/stream_select! and #[test]; pure syn/quote rewriting"
+reviewed = ["0.3.33:60e34402b1ca4f5b2cd79319209c246179acdcc7fb512e7109e88c9cbb105b0d"]
+
+[crate."generic-array"]  # build-script
+allow = true
+risk = "low"
+reason = "0.14 probes rustc >= 1.41 via version_check for cfg(relaxed_coherence); 0.12/0.13 have no build code"
+reviewed = ["0.14.7:420bf749af19079a86c6261d5133f305fd4b935a8ce6188e0de2050df20c9087"]
+
+[crate."getrandom"]  # build-dependency/build-script
+allow = true
+risk = "medium"
+reason = "detects cfg(sanitize=memory) and pre-1.78 rustc to pick the legacy Windows RNG backend"
+reviewed = ["0.2.17:c512e046c289f7974ab75d17226b9d0e9a73aabe5bab0795ce802c8c8c9489ed", "0.3.4:e36395cd6efe5a932a346dd888f8cb9b0b384974729c5936cc5b946583f9b88f", "0.4.3:7f34d75edfac24afb8207c85830c3cd7df93ce6270a6f3a591ca522670cc0922"]
+
+[crate."gilrs-azul"]  # build-script
+allow = true
+risk = "low"
+reason = "filters the bundled SDL gamecontrollerdb.txt down to the target platform's mappings into OUT_DIR"
+reviewed = ["0.11.2:6c79f8dd2ccb1ef103c69c5062dc4636085377866faee811f4cdc76242a8f105"]
+
+[crate."git2"]  # build-dependency
+allow = true
+risk = "high"
+reason = "libgit2 bindings; built calls Repository::discover/head to stamp git rev into generated source"
+reviewed = ["0.20.4:ac6a98217207b38eee901fc64c89c3fc4dad0d8f923acbca49319e1d9073c724"]
+
+[crate."gpu-video-azul"]  # build-script
+allow = true
+risk = "low"
+reason = "sets the vulkan cfg alias; optional naga WGSL->SPIR-V shader compile into OUT_DIR"
+reviewed = ["0.4.0:1ff5b3a30ec5b19273d7bbcbb4fe378a6c17aeeeca58e7fb7686063700e73bab"]
+
+[crate."heapless"]  # build-script
+allow = true
+risk = "low"
+reason = "compiles a rustc probe in OUT_DIR to detect Arm LL/SC (clrex) support and emit cfgs"
+reviewed = ["0.6.1:19fc89748e383c1a9aee699db89aad63de4fb50552fe017a3f9e4d2ce7e1426a", "0.7.17:ccec70fcead425a4254f5132d4bc66edfd51986ea2f9aba3706e1e9d96ca12bc", "0.8.0:d55ee39c13f36dcab7c7aec8ad44944cf1e1b97de0f539c64356cf78a8cd05d7"]
+
+[crate."httparse"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version and CARGO_CFG_TARGET_FEATURE to emit SIMD/NEON cfg flags; writes nothing"
+reviewed = ["1.10.1:4fff40cac8de2e90a516e9647aa914cacd01ede6a354e6fb1637700e96b283d3"]
+
+[crate."hyphenation"]  # build-script
+allow = true
+risk = "low"
+reason = "bakes the shipped TeX hyphenation patterns/dictionaries into OUT_DIR; no network, no subprocesses"
+reviewed = ["0.8.4:8c7f467d4bdc8df9c29e6ddcc4cdba8b8cd1eb3eb82f0f2250a7936956933792"]
+
+[crate."iana-time-zone"]  # build-dependency
+allow = true
+risk = "medium"
+reason = "plain library reachable from build scripts via chrono; reads host tz files when called"
+reviewed = ["0.1.65:1f98c4b241771263b3854695f15df0f803109c03d99f1c99f3f598abf224432b"]
+
+[crate."iana-time-zone-haiku"]  # build-script
+allow = true
+risk = "low"
+reason = "cc-compiles a 67-line C++ shim for Haiku BTimeZone; stub returning 0 elsewhere"
+reviewed = ["0.1.2:3e778f990373f395bb1e452c4f703070c923a4ce32e59c00898ed17422fd82dc"]
+
+[crate."icu_calendar_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets cfg(icu4x_custom_data) when ICU4X_DATA_DIR is set so lib.rs includes external instead of bundled data"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_casemap_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets the icu4x_custom_data cfg when ICU4X_DATA_DIR points at a replacement data tree"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_collator_data"]  # build-script
+allow = true
+risk = "low"
+reason = "turns ICU4X_DATA_DIR presence into the icu4x_custom_data cfg; no file or process I/O"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_collections"]  # build-dependency
+allow = true
+risk = "medium"
+reason = "codepoint-trie/inversion-list containers baked into data by ICU4X build scripts; no IO"
+reviewed = ["2.2.0:dd2ef680ea0fef354ef057ff8949156415ea7e3585dfd30cd32183e0752c0b0f"]
+
+[crate."icu_datetime_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets the icu4x_custom_data cfg when ICU4X_DATA_DIR points at a custom baked-data directory"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_decimal_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets cfg(icu4x_custom_data) when ICU4X_DATA_DIR points at a custom baked data dir"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_experimental_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets icu4x_custom_data cfg when ICU4X_DATA_DIR overrides the bundled CLDR data"
+reviewed = ["0.5.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_list_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets icu4x_custom_data cfg from ICU4X_DATA_DIR, which redirects the include! of the data module"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_locale_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets cfg(icu4x_custom_data) when ICU4X_DATA_DIR is set so lib.rs includes external instead of bundled data"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_normalizer_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets the icu4x_custom_data cfg when ICU4X_DATA_DIR points at a replacement data tree"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_plurals_data"]  # build-script
+allow = true
+risk = "low"
+reason = "turns ICU4X_DATA_DIR presence into the icu4x_custom_data cfg; no file or process I/O"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_properties_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets the icu4x_custom_data cfg when ICU4X_DATA_DIR points at a custom baked-data directory"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_segmenter_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets cfg(icu4x_custom_data) when ICU4X_DATA_DIR points at a custom baked data dir"
+reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_time_data"]  # build-script
+allow = true
+risk = "low"
+reason = "sets icu4x_custom_data cfg when ICU4X_DATA_DIR overrides the bundled tz data"
+reviewed = ["2.2.1:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."indoc"]  # proc-macro
+allow = true
+risk = "low"
+reason = "unindents multi-line string literals at macro expansion; no build script (build = false)"
+reviewed = ["2.0.7:43bacfdb470d5cc4921a2b86ca3967aae8773c7b61ff064a27bdd111cfe4f0eb"]
+
+[crate."inotify-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "emits libinotify link flags on NetBSD/OpenBSD, locating libdir via pkg-config"
+reviewed = ["0.1.8:741c8cca420c2f1cd6fb299ef28e948f68bcd2fa6e5afe27d98ddd82e529f455"]
+
+[crate."io-uring"]  # build-script
+allow = true
+risk = "low"
+reason = "optionally runs bindgen over linux/io_uring.h; by default only emits rustc-check-cfg lines"
+reviewed = ["0.7.13:afa1c9a2a184b1dde37eed5bbeda03003b6ef0d3388ca487d1bd7258380cd315"]
+
+[crate."jetscii"]  # build-script
+allow = true
+risk = "low"
+reason = "generates 1..16-arity macro arms into OUT_DIR and emits an SSE4.2 availability cfg"
+reviewed = ["0.5.3:b694c18e68c9393734dcf636f6cf16886dbb940260b1e8d2abda8468ad43caa9"]
+
+[crate."jni"]  # build-script
+allow = true
+risk = "low"
+reason = "emits a target-OS cfg selecting the TLS vs FLS thread-attach guard"
+reviewed = ["0.22.4:016600fae53cbb1ec79fe844b6829c213c02ea8c9f7b5d41c480e49a2f62dd53"]
+
+[crate."jni-macros"]  # build-script+proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro generating JNI glue; build.rs probes rustc >= 1.82 to gate unsafe-attribute syntax"
+reviewed = ["0.22.4:b290149fe6988cb16b26b4f1685f64e4a26220b014188862c31656e191c84021"]
+
+[crate."jni-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "emits libjvm link-search/link-lib directives from JAVA_HOME for its own test builds"
+reviewed = ["0.3.1:301010e7920913efc952154c2c6537132cb1246e284ec5d2d22ab76b097217f1"]
+
+[crate."jni-sys-macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "attribute macro turning a versioned JNI fn-pointer struct into the ABI union"
+reviewed = ["0.4.1:e5dd270de4af378d22fa6105956dde1ad559e0b32869075949e341c855485c28"]
+
+[crate."libc"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc/emcc/freebsd versions and target env to emit platform cfg flags"
+reviewed = ["0.2.186:805e8c8943da7785796ae72bb4667754e1ecd2639c72294ea7553e206cf26819"]
+
+[crate."libgit2-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "probes system libgit2 via pkg-config, else compiles the vendored libgit2 C sources with cc"
+reviewed = ["0.18.5+1.9.4:5e164a25854a808ce3bafe01be6a78d4e4f5d2a88c1d1906f10953eb55118796"]
+
+[crate."libloading"]  # build-dependency
+allow = true
+risk = "medium"
+reason = "dlopen/LoadLibraryExW wrapper; clang-sys uses it in build scripts to load libclang"
+reviewed = ["0.8.9:e9f6d9ee89d25a0d101fbde4238c5fa504d56afa12e3c8d3cff610aa5568cbe8"]
+
+[crate."libm"]  # build-script
+allow = true
+risk = "high"
+reason = "derives feature/opt-level/f16-f128 cfgs from target env; enumerates env var names for CARGO_FEATURE_*"
+reviewed = ["0.2.16:f8327dc3fc4214e010062a921bda0e8cd97e92d67d6fdaaa430ac4dc257f4741"]
+
+[crate."libmimalloc-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "compiles the crate-vendored mimalloc C amalgamation with cc and emits platform link libs"
+reviewed = ["0.1.49:b55de46737251b9b31e56a54b8159e4332a17d3ffc808434ed8a8b9beb41cd87"]
+
+[crate."libz-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "locates system zlib via pkg-config/vcpkg or compiles the crate-vendored zlib/zlib-ng C into OUT_DIR"
+reviewed = ["1.1.29:aaba25f49994cc6eab5baa90b1546c67633306f60d8e8fdbcee25096ceb4fe92"]
+
+[crate."linux-raw-sys"]  # build-dependency
+allow = true
+risk = "high"
+reason = "no build code; bindgen-generated Linux type/constant declarations only"
+reviewed = ["0.12.1:79731c69c98f6e91a2c42375ee123e6f250bb33e7ab7025d6967904a57991efd", "0.4.15:e28b695a8d8508667bf0c407d0cf9fa31dcce9cd3a02e8285dc2fe9aeb78f5f8"]
+
+[crate."memoffset"]  # build-script
+allow = true
+risk = "low"
+reason = "autocfg probes rustc version (1.20-1.77) to pick the offset_of impl; emits cfgs only"
+reviewed = ["0.9.1:2a25f9e674e665b7fd27b6c2877f7d9b543a354d3133c6694d00860fac7bc078"]
+
+[crate."miette-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derives miette's Diagnostic impl (code/severity/help/url/labels) from attributes via syn"
+reviewed = ["7.6.0:1d69f9f17b34d331698a074c041abe2064229430df3bc18f25a3c06cba0e4c37"]
+
+[crate."mozjpeg-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "builds bundled libjpeg-turbo C and assembles x86 SIMD .asm via NASM found on PATH, into OUT_DIR"
+reviewed = ["2.2.3:bce116251588265d8db2e9a0198a30cca945492b06ee8e25784dba801f7f3d93"]
+
+[crate."mvt-reader"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs compiles vector_tile.proto via prost-build, only under the protoc features (off here)"
+reviewed = ["2.4.0:111196b0bdb7935ce33c996f1d0bf4701783c98e145676d5421b8133c9d21159"]
+
+[crate."native-tls"]  # build-script
+allow = true
+risk = "low"
+reason = "reads DEP_OPENSSL_* version to cfg-gate min/max protocol-version API; no build-time I/O"
+reviewed = ["0.2.18:1c93fddc1130f66ce60f4cf17fd7a7b785c58512bcf89a60896ed76499b8a3b3"]
+
+[crate."nix"]  # build-script
+allow = true
+risk = "low"
+reason = "build script declaring cfg aliases (bsd, apple_targets, ...) via cfg_aliases; emits cfg only"
+reviewed = ["0.31.3:9f9debe95cce58beef3537972c14fdef017522dc3a1f4d38cc905c0340f68e7a"]
+
+[crate."nokhwa-bindings-macos"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs emits framework link flags (AVFoundation/CoreMedia/CoreVideo) on Apple targets"
+reviewed = ["0.2.4:59e3864f6a684a0adc2bd7bdaa16d4b3650aca8ebefdb8894434644d9e0bc585"]
+
+[crate."num-bigint-dig"]  # build-script
+allow = true
+risk = "low"
+reason = "3-line build.rs unconditionally emitting cfg has_i128; no deps, no IO"
+reviewed = ["0.8.6:d616ca59ee325bb56bb19cd9b1925ed8032827182c7d4adcc7bdaf5cb05ebf9a"]
+
+[crate."num-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derives num-traits impls (FromPrimitive/ToPrimitive/Num/Float) via syn/quote"
+reviewed = ["0.4.2:a54509b2c5ab0b960906f647e9e03408501a86a74051956170588426c3114d81"]
+
+[crate."num-traits"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs uses autocfg to probe f64::total_cmp and emit cfg(has_total_cmp)"
+reviewed = ["0.2.19:339783bc220bd9836bf28c7100b15c81b9c6bd7ab3310bc1fa95b7ca1950d5fe"]
+
+[crate."num_enum_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derives integer<->enum conversions; proc-macro-crate reads Cargo.toml for the crate alias"
+reviewed = ["0.7.6:250b5c7186b275dad4a9927ef8d54abee581d4694cc48c236008becfd6fa0d0d"]
+
+[crate."objc-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "selects the ObjC runtime, emits link/DEP_ cc args, cc-compiles a 21-line @catch shim"
+reviewed = ["0.3.5:aa557d74e54a9f09121e285dda419db5cd819b6a73fac3d12f0039b738e14f4e"]
+
+[crate."objc2"]  # build-script
+allow = true
+risk = "low"
+reason = "0.6 build.rs emits target_abi_macabi/target_simulator cfgs because MSRV lacks cfg(target_abi); 0.5 has none"
+reviewed = ["0.6.4:46be90f0f35eb1ed8c457d2020e0157169facd5e4d3e52820a7cada5e3cb1000"]
+
+[crate."objc_exception"]  # build-script
+allow = true
+risk = "low"
+reason = "cc compiles the in-crate 21-line extern/exception.m ObjC @throw/@catch shim"
+reviewed = ["0.1.2:c2ed8fbac5714364f63f00c8b3015fca5d00eef10afa4ca5d830a30111cd11d8"]
+
+[crate."object"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version to emit cfg(core_error) for the pre-1.81 MSRV shim"
+reviewed = ["0.37.3:be83a61f70adf9a2d2d935d053f511460dbe5087c5b5746415fb82e1cdfb5136"]
+
+[crate."oboe-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "cc-builds vendored Oboe C++; optional fetch-prebuilt feature downloads a tarball over HTTPS"
+reviewed = ["0.6.1:80ee00e425cd5cbcfc822170d2c87dd24daa215b1a814961ca8cc736a98350ac"]
+
+[crate."openssl"]  # build-script
+allow = true
+risk = "low"
+reason = "translates openssl-sys DEP_OPENSSL_* metadata into version cfgs; no fs, net or subprocess"
+reviewed = ["0.10.81:557cf702326255f1688e0c7edf3a8e13d0abe45fd9c9cb0d46e494864ef922c6"]
+
+[crate."openssl-macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro appending an openssl.org doc link to a function signature; pure quote, no fetch"
+reviewed = ["0.1.1:35d7f5de82095381eb49e9a2e459a58d8829671ab29b68cde7bed79a8321eef3"]
+
+[crate."openssl-sys"]  # build-script
+allow = true
+risk = "high"
+reason = "probes system OpenSSL via pkg-config/vcpkg/brew and cc header expansion to emit version cfgs + link flags"
+reviewed = ["0.9.117:d5fc4f8a9deef3c1e23b925a0b4d71b11419f89b63e4b7a95ec34145558f94c0"]
+
+[crate."ouroboros_macro"]  # proc-macro
+allow = true
+risk = "low"
+reason = "expands #[self_referencing] into the builder, accessors and Drop for a self-referential struct"
+reviewed = ["0.18.5:46e051bf2bbff4369d1f5be582eac74526bc572ef37cb6f39d3e66022904acfb"]
+
+[crate."parking_lot_core"]  # build-script
+allow = true
+risk = "low"
+reason = "build script emitting cfg(tsan_enabled) from CARGO_CFG_SANITIZE"
+reviewed = ["0.9.12:2d64bd445513370ab0721f2aa3b82badc45b06fda14f4aa25c2aa20d69a59cda"]
+
+[crate."paste"]  # build-script+proc-macro
+allow = true
+risk = "low"
+reason = "probes rustc --version to emit the no_literal_fromstr cfg used by its proc macro"
+reviewed = ["1.0.15:363c68f73f1d17fb48370ef1c21b1f93f5fc1d7e87a01cadb78b02cb33fb55a2"]
+
+[crate."pathfinder_simd"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc channel via rustc_version to gate nightly-only SIMD intrinsics"
+reviewed = ["0.5.6:bf85f91f87a5d6efff7aebcc92e052a85508093dc882b0507ef058a291484989"]
+
+[crate."phf_macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "computes a perfect hash over literal keys at expansion; emits a static phf::Map, no IO"
+reviewed = ["0.13.1:8d8c1484b2d859638f756fc48b036194686066893468853e9f46280efc5e67a2"]
+
+[crate."portable-atomic"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc/LLVM version and RUSTFLAGS target-feature to emit atomic backend cfgs; no file writes"
+reviewed = ["1.14.0:ed82f8ca5775e35fff4885ffbe4d4ddd9887518f6d7e3c5564bc67f77589c671"]
+
+[crate."prettyplease"]  # build-script
+allow = true
+risk = "low"
+reason = "emits check-cfg lines and exports its version as links metadata; no file or process I/O"
+reviewed = ["0.2.37:860bcda83de3b2b1bdefed962fa2438a5ed94a89b658448edd5b7dc19a3d3018"]
+
+[crate."proc-macro2"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version and trial-compiles in-crate probe files to pick proc_macro cfgs"
+reviewed = ["1.0.106:5396bb864a858291c92945de720160a2b22e5c6039707f0f16caea4055e5a3c8"]
+
+[crate."proc-macro2-diagnostics"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc channel via version_check to cfg-gate the nightly Diagnostic API"
+reviewed = ["0.10.1:8e96e3d2fc4d607a28e3958e0c1bc43a6dc2c468d595289f784b6931d82bbabc"]
+
+[crate."prost-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro deriving Message/Enumeration/Oneof encode-decode bodies; pure syn/quote"
+reviewed = ["0.13.5:f7a38aedc1617799f2a6485e7e4bba97f9e1d111d752fb5c6e52e3a1f78af3ac"]
+
+[crate."pulldown-cmark"]  # build-script
+allow = true
+risk = "low"
+reason = "no-op unless the off-by-default gen-tests feature regenerates the CommonMark spec test suite"
+reviewed = ["0.9.6:ebed3a7d88e5f89548f541a51b4354f0caf3fc8665d2615e71d74e656a596432"]
+
+[crate."pyo3"]  # build-script
+allow = true
+risk = "low"
+reason = "runs a Python interpreter (PYO3_PYTHON/VIRTUAL_ENV/CONDA_PREFIX/PATH) to probe ABI and emit link cfgs"
+reviewed = ["0.27.2:dee465b672f4ddf2f75eb55d9310db46ffe4ee6b7a7a14422ab54bb8526b6f1f"]
+
+[crate."pyo3-build-config"]  # build-script
+allow = true
+risk = "low"
+reason = "spawns the host Python interpreter to introspect ABI/lib config, writes it to OUT_DIR"
+reviewed = ["0.27.2:b0a9b02ad688f5ff15793ffd16314a282e7155e6c352f217d51d4529faa3e9ed"]
+
+[crate."pyo3-ffi"]  # build-script
+allow = true
+risk = "low"
+reason = "runs the target Python interpreter to read its sysconfig, then emits libpython link + version cfgs"
+reviewed = ["0.27.2:1d3000cc8a6a4cfff56ac046977c00fa5948b624450f4fb7581e0fdec79861bb"]
+
+[crate."pyo3-macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro expanding #[pyclass]/#[pymethods]; backend reads the PyO3 config inside rustc"
+reviewed = ["0.27.2:c3544bbb636ce3444ebab862fcb76349111cb97c546b244c21addb11abb451ea"]
+
+[crate."pyo3-macros-backend"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs prints check-cfg + rustc-version feature cfgs; src expands #[pyclass]/#[pymethods]"
+reviewed = ["0.27.2:d37d275e8d0e49f0c1dc5810a116decf1b613a1199f6a304b9d2ee379af5c424"]
+
+[crate."quote"]  # build-script
+allow = true
+risk = "low"
+reason = "runs rustc --version to gate the #[diagnostic] namespace cfg"
+reviewed = ["1.0.46:3f0c039e1283f2dc09cd59efc748c7f5c8666dc8b1db8e3a02c221fa2d983ccd"]
+
+[crate."rayon-core"]  # build-script
+allow = true
+risk = "low"
+reason = "empty build.rs required so links=\"rayon-core\" can enforce a single version"
+reviewed = ["1.13.0:fc12a8025da2e5dc5fe159b3de08fbbecbd3d275987beb04e7e164932d8ec38b"]
+
+[crate."ring"]  # build-script
+allow = true
+risk = "low"
+reason = "compiles in-crate C and per-arch assembly with cc, generates symbol-prefix headers into OUT_DIR"
+reviewed = ["0.17.14:937a3690c0454a0746e74e2d4373ea0118c25d146114e92939e26923f888cb15"]
+
+[crate."rustix"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc for feature/asm support and maps target cfgs to backend selection cfgs"
+reviewed = ["0.38.44:1de00dd64f9463fbb7fe65f3fb5a3436fd911573abb779cd948a2c05b0782b36", "1.1.4:5d1c498232b38e5311f3274a77814cab9080a42489383df9d87324e795d4b205"]
+
+[crate."rustls"]  # build-script
+allow = true
+risk = "low"
+reason = "one-line build script cfg-gating the nightly read_buf feature; sans-I/O library, no build-time I/O"
+reviewed = ["0.23.42:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
+
+[crate."rustversion"]  # build-script+proc-macro
+allow = true
+risk = "low"
+reason = "runs $RUSTC --version and writes OUT_DIR/version.expr for its version-gating proc macros"
+reviewed = ["1.0.23:e0676d433d40bf221d0906e05e169a15ee9d1c4b2bd4d4493582a820bf93521d"]
+
+[crate."schannel"]  # build-dependency
+allow = true
+risk = "high"
+reason = "no build-time code; #![cfg(windows)] TLS lib - the CI env reads live only in cfg(test) fixtures"
+reviewed = ["0.1.29:ada8ac6b72bbe367f25aa003d94d1cfcc9a37a9eb24ea2c6d7dfeabe395e79c7"]
+
+[crate."scroll_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derives Pread/Pwrite/SizeWith/IOread/IOwrite endian-aware binary (de)serialisation impls"
+reviewed = ["0.13.1:e7c74f3991c77a8633038a36c3385dd79efc1504cbf07039d8d813e24fcb735f"]
+
+[crate."serde"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version for cfgs and writes a version-suffixed __private module into OUT_DIR"
+reviewed = ["1.0.228:1e9bd8c600c35acad25f25efcc67da81f9359efcad0c05ea5861d385663f9857"]
+
+[crate."serde_core"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version for cfgs and writes a version-suffixed private.rs into OUT_DIR"
+reviewed = ["1.0.228:832a69942dd42410d5e0cfb7776d76c57cac090409093c9539ca27eb682917e2"]
+
+[crate."serde_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro deriving Serialize/Deserialize; pure source, no precompiled binary in this version"
+reviewed = ["1.0.228:ecbc1eff129d431cb54b9b120d0bd7cbf675283ea4236f5c7c4a4cf543585aec"]
+
+[crate."serde_json"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs selects 32/64-bit limb width cfg for the float parser from target arch"
+reviewed = ["1.0.150:299064d15d127affcd8d2452afe1fa77462ed8183207b6b6fbe4c390be305066"]
+
+[crate."serde_repr"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derive emitting Serde impls over an enum's repr discriminant; syn/quote only"
+reviewed = ["0.1.20:0437fd79314aba11b7dcd5df1d08cd0376a791a94bda92f2103b8011590c5911"]
+
+[crate."slotmap"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version/channel via version_check to emit the nightly cfg and an MSRV warning"
+reviewed = ["1.1.1:7810b69d0e06900ecb54547d5d5e1d6214044f5d89a5ddf5e364483a9482c71d"]
+
+[crate."strum_macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro deriving enum<->string traits; reads STRUM_DEBUG only to print its own expansion"
+reviewed = ["0.26.4:c00303f46d3b09b74880ec4ca4154d4e2de2c1d5a21ce220b303c73a902804b6"]
+
+[crate."syn"]  # build-dependency/build-script
+allow = true
+risk = "low"
+reason = "runs rustc --version to emit back-compat cfgs for older compilers"
+reviewed = ["1.0.109:b46c8b60b3087ce87dcf923fd0f282690b868740eb20e5a11663581bdc1ea550", "2.0.119:9b3c41ebfc9c758a8bc04e96fc927980d0aaa5940722189a62201ab7ea9ebb9e"]
+
+[crate."target-lexicon"]  # build-script
+allow = true
+risk = "low"
+reason = "writes OUT_DIR/host.rs from TARGET and probes rustc --version for a feature cfg"
+reviewed = ["0.13.5:2a332ba3bc3b2753cc66270eac89cecc343f9b1406c88b0efe5f7a01a86be52c"]
+
+[crate."tempfile"]  # build-dependency
+allow = true
+risk = "high"
+reason = "temp file/dir library used by build scripts for scratch space; O_TMPFILE/mkstemp, 0o600 default"
+reviewed = ["3.27.0:ad3ec9e7f8a8b9394e240443e886e621185d31e2b1a7535ad39333ca0564a485"]
+
+[crate."thiserror"]  # build-script
+allow = true
+risk = "low"
+reason = "trial-compiles build/probe.rs for error_generic_member_access and writes private.rs into OUT_DIR"
+reviewed = ["1.0.69:b98e56a3134b92e0e7142ff26899b12a8fbe2bb1569a8bc5922eed6caccaaf7b", "2.0.18:dbbaf177d59359ff78df7a52bf3247aa374411e8ed52b79d0855b7a4f9dbc0bd"]
+
+[crate."thiserror-impl"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro deriving std::error::Error impls from #[error(...)] attributes"
+reviewed = ["1.0.69:12f0d2137a3f01246dcf5f2e59d0a00446e086abc55aa966d274e2ee3880060d", "2.0.18:ec21b5c601b17cccff906b16669f44c82159d4a981aeb076164bb589be250464"]
+
+[crate."tikv-jemalloc-sys"]  # build-script
+allow = true
+risk = "high"
+reason = "runs the bundled jemalloc autoconf configure via sh + make to build the static C allocator into OUT_DIR"
+reviewed = ["0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7:7e0c4b37ac2adb1928030c6d3c48d294bdc856c4cb537fba29daf5c575f4c584"]
+
+[crate."time-macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macros parsing date/time/format-description literals at compile time"
+reviewed = ["0.2.31:b58c39e6942c86f879592a2002f964eaef2769a9dbb8a84cbb9e9d1449b69de9"]
+
+[crate."tracing-attributes"]  # proc-macro
+allow = true
+risk = "low"
+reason = "#[instrument] rewrites fn bodies to open tracing spans; syn/quote only"
+reviewed = ["0.1.31:9db0393d52624760ac8a29f35e261a949c3da0cb6e8c7431357696ca18e6cbc0"]
+
+[crate."turso_core"]  # build-script
+allow = true
+risk = "low"
+reason = "generates build metadata (cargo env, rustc -V, git HEAD, timestamp) into OUT_DIR/built.rs via built"
+reviewed = ["0.1.5:78f6c37081317e59a9d22155d116f5e61aed7e393b4f0461f071c301b755aaef"]
+
+[crate."turso_ext"]  # build-script
+allow = true
+risk = "low"
+reason = "emits the advapi32 link directive on Windows; library is FFI type declarations only"
+reviewed = ["0.1.5:0a977dc7bcc03afb2f373a668ae6397712e72b729c7243e3d6784c7862ff18d0"]
+
+[crate."turso_macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro deriving turso extension/vtab/vfs FFI glue; pure syn/quote"
+reviewed = ["0.1.5:dd06e784ac9e89ae37c97fcafe26c261b337632d2bb80b93c2a029b6c6620f20"]
+
+[crate."turso_sqlite3_parser"]  # build-script
+allow = true
+risk = "low"
+reason = "compiles vendored lemon.c to a host binary in OUT_DIR and runs it to generate the SQL parser"
+reviewed = ["0.1.5:9e58c4b55031cb292e103eb1c0de2372e6b1b42cfbb5a7f03f5675b661d831e6"]
+
+[crate."typeid"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc --version to gate the const TypeId path on Rust >= 1.61"
+reviewed = ["1.0.3:b2ca2e0a8b4a94883d372b9e3d69c01b0b0a7dac1569f4e7bde1cb415c0257c8"]
+
+[crate."uncased"]  # build-script
+allow = true
+risk = "low"
+reason = "version_check probe of rustc to emit nightly and const_fn_transmute cfgs"
+reviewed = ["0.9.10:4682c0d5fe27e84e1d2d4119eb7201720f5073ae31e775be868ad10d489b738b"]
+
+[crate."unicode-canonical-combining-class"]  # build-script
+allow = true
+risk = "low"
+reason = "expands the compiled-in UCD range table into a block lookup in OUT_DIR"
+reviewed = ["1.0.0:cb52fec2ac56a47ef57844a23c2e88f3f901db6dc35deb3ed06d676780466e83"]
+
+[crate."unicode-general-category"]  # build-script
+allow = true
+risk = "low"
+reason = "compresses the in-crate UCD category table into a block lookup written to OUT_DIR"
+reviewed = ["1.1.0:7ad1643db8b98edfe24bf67faa6cfa1cd840e433fd34aa3bd4b4916ff10cf891"]
+
+[crate."unicode-joining-type"]  # build-script
+allow = true
+risk = "low"
+reason = "compresses the Unicode joining-type/group tables into generated lookup arrays in OUT_DIR"
+reviewed = ["1.0.0:6e732a24edeeb60397374d9e6cb5afcb36f91ccab5bf4cbed09eb701ca75dd94"]
+
+[crate."ureq"]  # build-dependency
+allow = true
+risk = "high"
+reason = "HTTP/TLS client; ext-php-rs build-deps it on Windows to download the PHP devel pack"
+reviewed = ["3.3.0:1f2ad4f12997ad572acc22abe4d440557c67c619578f755e4e35de7dc3239dd7"]
+
+[crate."url"]  # build-dependency
+allow = true
+risk = "high"
+reason = "no build code; WHATWG URL parser. socket_addrs() is opt-in DNS, never called internally"
+reviewed = ["2.5.8:0eb80aad344a2a41324533f0da4d8d054f16a8a911b9e978f966aca87f3d7fb4"]
+
+[crate."v4l2-sys-mit"]  # build-script
+allow = true
+risk = "low"
+reason = "bindgen+libclang generate videodev2.h FFI into OUT_DIR; trusts host headers and clang env"
+reviewed = ["0.3.0:f68f323de4f9bb40c2cb10f62652131e8ff38bdddbc27a2c46db507436d3975d"]
+
+[crate."vk-mem"]  # build-script
+allow = true
+risk = "low"
+reason = "compiles the in-crate vendored VMA C++ header via cc; sources ship in the crate, nothing fetched"
+reviewed = ["0.4.0:b935a7fdb955400de27647f727cc0b191091ad428415c79750d565e479bf8bed"]
+
+[crate."wasm-bindgen"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs probes rustc version + CARGO_CFG_TARGET_* to emit cfgs and one emscripten link arg"
+reviewed = ["0.2.126:ba6f6a198a62faca1676036674d8c374c8dd4bcbc12b6f4e0d380c4d5a37052d"]
+
+[crate."wasm-bindgen-macro"]  # proc-macro
+allow = true
+risk = "low"
+reason = "encodes the Rust<->JS binding descriptor into a custom section; reads JS files named by the user"
+reviewed = ["0.2.126:2c7039ca9acbe77d9f91adc80af0d062c77d23a3535b525edbc792a2686953e0"]
+
+[crate."wasm-bindgen-shared"]  # build-script
+allow = true
+risk = "low"
+reason = "hashes src/lib.rs for a schema version and records git rev-parse HEAD as WBG_VERSION"
+reviewed = ["0.2.126:9c15199b20ae3c1f9ec80dbe9e33cd879b1c83c43577c3804d7297141a4fd2a9"]
+
+[crate."webpki-root-certs"]  # build-dependency
+allow = true
+risk = "medium"
+reason = "no build-time code; a generated const of 121 Mozilla root certificates as DER bytes"
+reviewed = ["1.0.9:91634c47dfb208195ef065b721d8d10437087cecc49eff1bd4a635e2abac14d4"]
+
+[crate."winapi"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs resolves the header feature graph and emits feature cfgs + rustc-link-lib for Windows targets"
+reviewed = ["0.3.9:e7c41ef0cb0d21f0769924ac9d5508617353eeb4785f0683a939f0438e1a89ba"]
+
+[crate."winapi-i686-pc-windows-gnu"]  # build-script
+allow = true
+risk = "low"
+reason = "emits link-search for its 1387 bundled MinGW import libs on i686-windows-gnu"
+reviewed = ["0.4.0:649ed8d3e7cb4200380e683309d6775a27d52bea65f4356df8c2f4c1e4910563"]
+
+[crate."winapi-x86_64-pc-windows-gnu"]  # build-script
+allow = true
+risk = "low"
+reason = "adds its bundled MinGW import-lib dir to the link search path; ships 53MB of .a"
+reviewed = ["0.4.0:fa3742e0b1f07afe82fa6c9317f62d5a5969ef97bac27c1dbb7d9cc344eac8f1"]
+
+[crate."windows-implement"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro generating COM vtable/IUnknown impls; the rustfmt spawn is cfg(test) only"
+reviewed = ["0.60.2:24e77dbdebc3b9a04d21bc93d6ddbc34c993e64790ffa2b2288fe3fb67f71c6c"]
+
+[crate."windows-interface"]  # proc-macro
+allow = true
+risk = "low"
+reason = "expands #[interface(GUID)] into the COM vtable, IUnknown impl and method wrappers"
+reviewed = ["0.59.3:b6132b5fad5db85a14925344201bc1487ceb80ae67558fd12092fd5c5c7746f6"]
+
+[crate."windows-sys"]  # build-dependency
+allow = true
+risk = "high"
+reason = "no build-time code; extern fn/struct/const declarations only, no call sites"
+reviewed = ["0.45.0:19fe52ab7ed3b640e070cd7cd494c5a34563ec598d544797902510dd1de78791", "0.52.0:5609e644746dea161a49250ff7db316b069e3cd755323337b8ae08e32efdf146", "0.59.0:abefe9f04b42d1dc9982f4f2983b5b4b6e3a66f8fe3d8f2a704e5ab1377db218", "0.61.2:a15dc306533053e9069513f761f532a8d21e2c35c0b04e08368904a087587239"]
+
+[crate."windows_aarch64_gnullvm"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs adds the crate's bundled Windows import library (link thunks only) to the search path"
+reviewed = ["0.42.2:5d8c544b694ccd2d005f03f8affa91885bba42c06031ea6822d2adf8449803e8", "0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."windows_aarch64_msvc"]  # build-script
+allow = true
+risk = "low"
+reason = "emits link-search for the bundled windows.lib import library on aarch64-msvc"
+reviewed = ["0.42.2:1b4ac78c12f8eea56fbbc37fd4ec900972b30568b0a5eb207d01d70f9bb71e1f", "0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."windows_i686_gnu"]  # build-script
+allow = true
+risk = "low"
+reason = "adds its bundled Windows import-lib dir to the link search path (0.52 does so unconditionally)"
+reviewed = ["0.42.2:80a139fff6b02eea682401de17a62af620e721a2740baf5a2575b5802985edf8", "0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."windows_i686_gnullvm"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs emits a link-search path for the shipped Windows import library (verified import-only .a)"
+reviewed = ["0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."windows_i686_msvc"]  # build-script
+allow = true
+risk = "low"
+reason = "adds the shipped Windows import lib to the linker search path for i686-msvc"
+reviewed = ["0.42.2:34d5889b819715eb0d55306e77d3394440ee47eed4bc89d2b75b50120b1fee9e", "0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."windows_x86_64_gnu"]  # build-script
+allow = true
+risk = "low"
+reason = "build script adding lib/ to the link search path for the shipped import archive"
+reviewed = ["0.42.2:96e355c8f6819b697a52be83263fc940b2906e7a4bec3e4b2b05939642e7b18f", "0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."windows_x86_64_gnullvm"]  # build-script
+allow = true
+risk = "low"
+reason = "build.rs adds the crate's bundled Windows import library (link thunks only) to the search path"
+reviewed = ["0.42.2:4d1418115fb5ff002aeb381f7938dbab30e8ec4a389f164853af4df63614bacd", "0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."windows_x86_64_msvc"]  # build-script
+allow = true
+risk = "low"
+reason = "emits link-search for the bundled windows.lib import library on x86_64-msvc"
+reviewed = ["0.42.2:648a2c85ad55de6c6478ce22ec7fd492bfd5760c4e61928b2f66937dab94f889", "0.52.6:ede6125cf9720739f7dcfecef56faa11245ba61787c472cf7057efa8ca85b32c"]
+
+[crate."wit-bindgen"]  # build-script
+allow = true
+risk = "low"
+reason = "copies the bundled cabi_realloc wasm static archive into OUT_DIR and emits link flags (wasm targets only)"
+reviewed = ["0.57.1:441b6d71c1a175273667ed15926b4e381dcf6a7f8034017647d1afa7c19f6557"]
+
+[crate."yoke-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derives ICU4X's Yokeable impl by lifetime-folding the type with syn; pure token rewriting"
+reviewed = ["0.8.2:c6441bd36a14d4aba58d7aa45c1deafcb9bce56e50a9a0a5f717e4e766b442d9"]
+
+[crate."zbus-lockstep-macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc-macro reading D-Bus XML from disk at expansion to emit a signature-validation test"
+reviewed = ["0.5.2:631c5f86d23722e61dab43b0c7732d9931935a5f142ea784fc0eb309f712a815"]
+
+[crate."zbus_macros"]  # proc-macro
+allow = true
+risk = "low"
+reason = "generates D-Bus proxy/interface/error code from annotated traits; no bus access at expansion"
+reviewed = ["5.18.0:db733d28091a2dba932e5eb4974cf2fed7ad0fcc915a7ae779051bb42749649a"]
+
+[crate."zerocopy"]  # build-script
+allow = true
+risk = "low"
+reason = "reads own Cargo.toml MSRV table and rustc --version to emit version-gate cfgs"
+reviewed = ["0.8.54:a7990e58562a334ca5b8f49ccc269e03eaf95c8c133a02033342921d3f6e707b"]
+
+[crate."zerocopy-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro deriving FromBytes/IntoBytes etc. with layout soundness checks"
+reviewed = ["0.8.54:fd8bc0d459099ee607f9f44bcdc5895343e49da0143dd2735ad5529a844658b9"]
+
+[crate."zerofrom-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derive macro generating zero-copy ZeroFrom impls with lifetime substitution"
+reviewed = ["0.1.7:c1c3bf62be293a5c18cfbd18277b0b1fe07f496d26252da4a608cf11ebfd5fd4"]
+
+[crate."zeroize_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derive emitting per-field zeroize() + Drop impls; syn/quote only, no IO"
+reviewed = ["1.5.0:76c60c8bcb178e3075869fcfbb8aac0299490e47148e0336157cfcf28422b3af"]
+
+[crate."zerovec-derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "derives ICU4X ULE/VarULE zero-copy layout impls and companion packed types via syn"
+reviewed = ["0.11.3:cd2f5ab0cdd621f1a37f2b9ad6656532ccd36edce2833686eb1c8b8a409e44d6"]
+
+[crate."zip"]  # build-dependency/build-script
+allow = true
+risk = "high"
+reason = "build.rs only warns on the deflate-miniz feature; extraction is zip-slip guarded (used by ext-php-rs on Windows)"
+reviewed = ["2.4.2:8af6cb53df7b829c83dee16d0d63dd604e0303529e4ea00eb935d2788beabb8f", "6.0.0:62c2e567fee69d11eee10ffef513f910b2c5fd84944ee906ca6ca579cb016acc", "8.6.0:701aa86c6f603494759a69f6df7a5c9e03987d61665addf9b926282387b8a3b8"]
+
+[crate."zmij"]  # build-script
+allow = true
+risk = "low"
+reason = "probes rustc version and OPT_LEVEL to emit select_unpredictable / size-profile cfg flags"
+reviewed = ["1.0.23:3609ee996f9b3c6e7f39fdb2a8d534b77bf806bf6379353b847cc8452a7ee505"]
+
+[crate."zstd-safe"]  # build-script
+allow = true
+risk = "low"
+reason = "reads CARGO_CFG_TARGET_ARCH/OS to force the std feature on wasm32 and hermit"
+reviewed = ["7.2.4:6abc9c177d23c3895fe14e4d9bdbd9c43c84faa52eac5185353e2795d3d79331"]
+
+[crate."zstd-sys"]  # build-script
+allow = true
+risk = "low"
+reason = "compiles the vendored zstd C/asm sources with cc; optional pkg-config probe and bindgen"
+reviewed = ["2.0.16+zstd.1.5.7:fab53176ea922925d985673b86c0b4717da96636ef355122faa95dd1c43e16d9"]
+
+[crate."zvariant_derive"]  # proc-macro
+allow = true
+risk = "low"
+reason = "proc macro deriving D-Bus Type/Value; resolves the zvariant crate name via proc-macro-crate"
+reviewed = ["5.13.1:7d478055e02a133bf9d843d0324d0ca06489e846845f56919584f4195b1b06c1"]

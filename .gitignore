@@ -46,6 +46,12 @@ LICENSE-WINDOWS.txt
 LICENSE-LINUX.txt
 LICENSE-MAC.txt
 *.lock
+
+# ...except cargo-vet's import lock. The blanket *.lock rule above silently
+# excluded it, `git add supply-chain/` skipped it without a word, and CI failed
+# with "Couldn't acquire the store" — which reads like an audit problem and is
+# not. It pins the exact imported audit revisions and MUST be committed.
+!supply-chain/imports.lock
 # Track the root workspace lockfile: reproducible CI builds + a stable
 # Swatinem/rust-cache key. Nested/vendored locks stay ignored via *.lock above;
 # the excluded experiment keeps its own ignore rule lower in this file.
@@ -208,3 +214,6 @@ examples/node/package-lock.json
 /azul.pdb
 examples/c/*.pdb
 examples/c/*.ilk
+
+# lockfile_guard.py publish-date cache (regenerable, per-machine)
+.supply-chain-cache.json
