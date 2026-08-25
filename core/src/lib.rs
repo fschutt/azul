@@ -370,6 +370,10 @@ pub mod selection;
 ///
 /// Stateful manager lives in `azul_layout::managers::sensors`.
 pub mod sensors;
+/// Pointer coordinate spaces as distinct, zero-cost newtypes (window space,
+/// static layout space, border-box-local, content-box-local, scrolled content)
+/// plus the explicit ancestor-walk [`spaces::Inclusivity`].
+pub mod spaces;
 /// CSS cascade: selector matching, specificity, and property inheritance.
 pub mod style;
 /// `StyledDom` — the result of applying CSS to a DOM tree (the CSSOM).
