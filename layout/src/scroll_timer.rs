@@ -1336,30 +1336,35 @@ mod autotest_generated {
     /// Registers node `idx` of the root DOM as a scrollable node with a
     /// `container_w x container_h` viewport over `content_w x content_h` content
     /// (so `max_scroll_x = content_w - container_w`, clamped at 0).
-    /// A VIRTUAL clock for the harness, in engine ticks.
+    /// Nominal period of the physics pump, in ms — what
+    /// `ScrollPhysics::timer_interval_ms` configures.
+    const TICK_MS: u64 = 16;
+
+    /// Advance the harness clock by `ticks` pump periods and read it back.
     ///
-    /// The physics now integrates over the time that ACTUALLY elapsed, so a
-    /// harness that stamped `Instant::now()` on every call would hand it the
+    /// This drives the ENGINE'S OWN frozen test clock
+    /// (`azul_core::task::{freeze_test_clock, advance_test_clock_ms}`) — the
+    /// same one E2E scenarios advance with `tick_ms` — rather than a private
+    /// counter. One clock model, shared by the scenario runner and these unit
+    /// tests, and it is a WALL clock, which is what `Instant::now()` answers on
+    /// every desktop target. A private tick counter would have quantised time
+    /// to 1/60 s and so could never express the sub-interval case that
+    /// `Timer::invoke`'s gate turns on.
+    ///
+    /// Freezing matters as much as advancing: without it the real component of
+    /// `Instant::now()` keeps flowing, so elapsed time becomes (virtual) +
+    /// (however long this build under this load took), and a timing assertion
+    /// flips between runs on a loaded machine while passing in isolation.
+    ///
+    /// The physics integrates over the time it is actually handed, so a harness
+    /// that stamped a live `Instant::now()` per call would give it the
     /// microseconds between two statements in a tight loop — dt would clamp to
     /// its 1 ms floor and every spring would crawl. The old fixed
-    /// `timer_interval_ms` dt hid that the harness had no clock model at all.
-    ///
-    /// One tick is 1/60 s on azul's own canonical scale (`Duration::Tick` ->
-    /// `as_nanos` divides by `TICKS_PER_SECOND`), so the default advance of one
-    /// tick per call reproduces a well-behaved 60 Hz timer. A test that wants
-    /// to model JITTER (the dropped-fire gate in `Timer::invoke` turning a
-    /// 16 ms period into a 32 ms gap) advances it by more.
-    ///
-    /// Thread-local, so tests running in parallel cannot see each other's time.
+    /// `timer_interval_ms` dt hid that this harness had no clock model at all.
     fn advance_clock(ticks: u64) -> Instant {
-        thread_local! {
-            static VIRTUAL_TICKS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-        }
-        VIRTUAL_TICKS.with(|c| {
-            let next = c.get().saturating_add(ticks);
-            c.set(next);
-            Instant::Tick(azul_core::task::SystemTick::new(next))
-        })
+        azul_core::task::freeze_test_clock();
+        let _ = azul_core::task::advance_test_clock_ms(ticks.saturating_mul(TICK_MS));
+        Instant::now()
     }
 
     fn register_node(
