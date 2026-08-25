@@ -355,7 +355,11 @@ impl Default for TextAreaState {
         Self {
             text: Vec::new().into(),
             placeholder: None.into(),
-            max_len: 1000,
+            // Unlimited, like a browser <textarea> without `maxlength`. The
+            // old default was an arbitrary 1000 that nothing enforced; now
+            // that typing past `max_len` is vetoed (default_on_text_input),
+            // keeping it would have silently capped every existing area.
+            max_len: usize::MAX,
             cursor_pos: 0,
         }
     }
@@ -811,6 +815,41 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
 
     let caret = engine_caret(&info, container);
     adopt_engine_text(&mut text_area.inner, &info, container);
+
+    // maxlength: veto an insertion that would GROW the value past `max_len`
+    // (counted in characters, the stored unit). Replacement-aware: the engine
+    // deletes the live selection before inserting, so the prospective length
+    // is current − selected + inserted. An edit that shrinks or holds the
+    // length always passes, and a value pushed over the limit programmatically
+    // (`set_text` is deliberately NOT capped) can still be edited back down.
+    {
+        let current = text_area.inner.get_text();
+        let current_chars = current.chars().count();
+        let selected_chars = info
+            .get_node_selection_ranges(container)
+            .as_ref()
+            .first()
+            .map_or(0, |range| {
+                let from = range.start.cluster_id.start_byte_in_run as usize;
+                let to = range.end.cluster_id.start_byte_in_run as usize;
+                let (a, b) = (from.min(to), from.max(to));
+                if b <= current.len()
+                    && current.is_char_boundary(a)
+                    && current.is_char_boundary(b)
+                {
+                    current[a..b].chars().count()
+                } else {
+                    0
+                }
+            });
+        let prospective = current_chars
+            .saturating_sub(selected_chars)
+            .saturating_add(inserted_text.chars().count());
+        if prospective > text_area.inner.max_len && prospective > current_chars {
+            info.prevent_default();
+            return Some(Update::DoNothing);
+        }
+    }
 
     let result = {
         let text_area = &mut *text_area;
@@ -1409,7 +1448,8 @@ mod autotest_generated {
         assert_eq!(state.get_text(), "");
         assert!(state.text.is_empty());
         assert_eq!(state.cursor_pos, 0);
-        assert_eq!(state.max_len, 1000);
+        // Unlimited by default, like a <textarea> without `maxlength`.
+        assert_eq!(state.max_len, usize::MAX);
         assert!(state.placeholder.is_none());
     }
 
@@ -1503,7 +1543,7 @@ mod autotest_generated {
 
         assert!(s.inner.text.is_empty());
         assert!(s.inner.placeholder.is_none());
-        assert_eq!(s.inner.max_len, 1000);
+        assert_eq!(s.inner.max_len, usize::MAX);
         assert_eq!(s.inner.cursor_pos, 0);
         assert!(s.on_text_input.is_none());
         assert!(s.on_virtual_key_down.is_none());
@@ -1584,9 +1624,10 @@ mod autotest_generated {
 
     #[test]
     fn set_text_ignores_max_len() {
-        // `max_len` is stored but never enforced anywhere in this widget.
-        // Pinning that here so a future limit check is a deliberate change and
-        // not a silent behaviour flip.
+        // INTENDED: `max_len` caps USER input (the text-input handler vetoes a
+        // growing keystroke) but a PROGRAMMATIC assignment is stored whole —
+        // the same split a browser makes: `maxlength` never truncates a value
+        // set from script.
         let mut area = TextArea::create();
         area.text_area_state.inner.max_len = 3;
         area.set_text(AzString::from("far past the limit"));
@@ -2478,17 +2519,24 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_does_not_enforce_max_len() {
-        // KNOWN GAP: `max_len` is never consulted by the edit path. Typing past
-        // it is accepted silently.
+    fn typing_past_max_len_is_vetoed() {
+        // maxlength: a keystroke that would GROW the value past `max_len` is
+        // vetoed — the widget keeps the old text and `PreventDefault` stops
+        // the engine from applying the recorded changeset. (Programmatic
+        // `set_text` stays uncapped; see `set_text_ignores_max_len`.)
         let data = RefAny::new(wrapper("ab"));
         poke(&data, |w| w.inner.max_len = 2);
 
-        let (out, _, _) = run(Env::typed("cdefgh"), &data, default_on_text_input_inner);
+        let (out, changes, _) = run(Env::typed("cdefgh"), &data, default_on_text_input_inner);
 
         assert_eq!(out, Some(Update::DoNothing));
-        assert_eq!(read(&data).get_text(), "abcdefgh");
-        assert_eq!(read(&data).max_len, 2, "the limit is stored, just not applied");
+        assert_eq!(read(&data).get_text(), "ab", "the over-limit keystroke was applied anyway");
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "the over-limit keystroke did not veto the engine changeset: {changes:?}",
+        );
     }
 
     #[test]

@@ -786,7 +786,11 @@ impl Default for TextInputState {
         Self {
             text: Vec::new().into(),
             placeholder: None.into(),
-            max_len: 50,
+            // Unlimited, like a browser <input> without `maxlength`. The old
+            // default was an arbitrary 50 that nothing enforced; now that
+            // typing past `max_len` is vetoed (default_on_text_input), keeping
+            // 50 would have silently capped every existing field.
+            max_len: usize::MAX,
             selection: None.into(),
             cursor_pos: 0,
         }
@@ -1319,6 +1323,41 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     let caret = engine_caret(&info, container);
     adopt_engine_text(&mut text_input.inner, &info, container);
+
+    // maxlength: veto an insertion that would GROW the value past `max_len`
+    // (counted in characters, the stored unit). Replacement-aware: the engine
+    // deletes the live selection before inserting, so the prospective length
+    // is current − selected + inserted. An edit that shrinks or holds the
+    // length always passes — a select-all-and-type at the limit must not be
+    // blocked, and a value pushed over the limit programmatically
+    // (`set_text` is deliberately NOT capped, like a browser's programmatic
+    // assignment) can still be edited back down.
+    {
+        let current = text_input.inner.get_text();
+        let current_chars = current.chars().count();
+        let selected_chars = match engine_selection(&info, container, current.len()) {
+            Some(TextInputSelection::All) => current_chars,
+            Some(TextInputSelection::FromTo(r)) => {
+                let (a, b) = (r.dir_from.min(r.dir_to), r.dir_from.max(r.dir_to));
+                if b <= current.len()
+                    && current.is_char_boundary(a)
+                    && current.is_char_boundary(b)
+                {
+                    current[a..b].chars().count()
+                } else {
+                    0
+                }
+            }
+            None => 0,
+        };
+        let prospective = current_chars
+            .saturating_sub(selected_chars)
+            .saturating_add(inserted_text.chars().count());
+        if prospective > text_input.inner.max_len && prospective > current_chars {
+            info.prevent_default();
+            return Some(Update::DoNothing);
+        }
+    }
 
     let result = {
         // rustc doesn't understand the borrowing lifetime here
@@ -2089,15 +2128,20 @@ mod autotest_generated {
 
     #[test]
     fn set_text_does_not_enforce_max_len() {
-        // KNOWN GAP: `max_len` defaults to 50 and is never read anywhere in this
-        // module — not by `set_text`, not by the text-input handler. A 200-char
-        // assignment is stored whole. Pinned so that adding enforcement later shows
-        // up as a deliberate change rather than a silent one.
+        // INTENDED: `max_len` caps USER input (the text-input handler vetoes a
+        // growing keystroke), but a PROGRAMMATIC assignment is stored whole —
+        // the same split a browser makes: `maxlength` never truncates a value
+        // set from script. The default is unlimited (`usize::MAX`), like an
+        // <input> without `maxlength`.
         let long: String = "x".repeat(200);
-        let input = TextInput::create().with_text(long.clone().into());
-        assert_eq!(input.text_input_state.inner.max_len, 50);
+        let mut input = TextInput::create().with_text(long.clone().into());
+        assert_eq!(input.text_input_state.inner.max_len, usize::MAX);
         assert_eq!(input.text_input_state.inner.text.len(), 200);
         assert_eq!(input.text_input_state.inner.get_text(), long);
+        // Even a field WITH a limit accepts a longer programmatic value.
+        input.text_input_state.inner.max_len = 50;
+        input.set_text("y".repeat(80).into());
+        assert_eq!(input.text_input_state.inner.text.len(), 80);
     }
 
     #[test]
@@ -2427,7 +2471,8 @@ mod autotest_generated {
         assert!(input.text_input_state.inner.placeholder.is_none());
         assert!(input.text_input_state.inner.selection.is_none());
         assert_eq!(input.text_input_state.inner.cursor_pos, 0);
-        assert_eq!(input.text_input_state.inner.max_len, 50);
+        // Unlimited by default, like an <input> without `maxlength`.
+        assert_eq!(input.text_input_state.inner.max_len, usize::MAX);
         assert!(input.text_input_state.on_text_input.as_ref().is_none());
         assert!(input.text_input_state.on_virtual_key_down.as_ref().is_none());
         assert!(input.text_input_state.on_focus_lost.as_ref().is_none());
@@ -3117,17 +3162,42 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_ignores_max_len() {
-        // KNOWN GAP (same root cause as `set_text_does_not_enforce_max_len`): typing
-        // past `max_len` is accepted, one changeset at a time.
+    fn text_input_default_max_len_is_unlimited() {
+        // The default is unlimited, like an <input> without `maxlength`: an
+        // 80-char insertion into a fresh field is accepted whole.
         let (styled_dom, state) = rendered(TextInput::create());
         let filler: String = "x".repeat(80);
         let (_, _, _) = run(Env::new(styled_dom).insert(&filler), |info| {
             default_on_text_input(state.clone(), info)
         });
         let after = state_of(&state);
-        assert_eq!(after.max_len, 50);
+        assert_eq!(after.max_len, usize::MAX);
         assert_eq!(after.text.len(), 80);
+    }
+
+    #[test]
+    fn typing_past_max_len_is_vetoed() {
+        // maxlength: a keystroke that would GROW the value past `max_len` is
+        // vetoed — the widget state keeps the old text and `PreventDefault`
+        // stops the engine from applying the recorded changeset. (Programmatic
+        // `set_text` stays uncapped; see `set_text_does_not_enforce_max_len`.)
+        let mut input = TextInput::create().with_text("abc".into());
+        input.text_input_state.inner.max_len = 3;
+        let (styled_dom, state) = rendered(input);
+        let (_, changes, _) = run(Env::new(styled_dom).insert("d"), |info| {
+            default_on_text_input(state.clone(), info)
+        });
+        assert_eq!(
+            state_of(&state).get_text(),
+            "abc",
+            "the over-limit keystroke was applied anyway",
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::PreventDefault)),
+            "the over-limit keystroke did not veto the engine changeset: {changes:?}",
+        );
     }
 
     // ==================================================================
