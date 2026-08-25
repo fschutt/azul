@@ -128,11 +128,22 @@ fn main() {
             ),
         ]));
 
-    let mut app = App::create(data, AppConfig::create());
+    // A DOM registered as an icon. The colour lives HERE, with the icon, not as
+    // a tint parameter threaded through every call site - which is the whole
+    // reason icons resolve on the Dom before the cascade.
+    let mut config = AppConfig::create();
+    config.icon_provider.register_dom_icon(
+        String::from("demo"),
+        String::from("red-heart"),
+        Dom::create_icon(String::from("favorite"))
+            .with_css("color: #d7263d;"),
+    );
+
+    let mut app = App::create(data, config);
     app.set_tray(tray);
     // The Dock tile, from the same registry + pipeline as the tray icon. macOS
     // documents this as temporary: it is process-local and resets next launch.
-    app.set_app_icon(String::from("favorite"));
+    app.set_app_icon(String::from("red-heart"));
 
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Azul - tray demo".into();

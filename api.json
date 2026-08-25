@@ -5697,6 +5697,36 @@
                                 ],
                                 "fn_body": "azul_layout::icon::register_font_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), font, icon_char.as_str())"
                             },
+                            "register_dom_icon": {
+                                "doc": [
+                                    "Register an arbitrary `Dom` as an icon, in a pack.",
+                                    "",
+                                    "The general case: an icon is just a DOM, and image / font icons are",
+                                    "special cases of it. Whatever you register is spliced in wherever",
+                                    "that icon name is used - an `<icon>` node, a tray icon, an app icon -",
+                                    "and it keeps its own styling, because the DOM carries both inline",
+                                    "properties and its own stylesheets.",
+                                    "",
+                                    "That is how an icon gets a colour without any call site passing a",
+                                    "tint: the icon says what it looks like, the call site says how big."
+                                ],
+                                "priority": 85.0,
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pack_name": "String"
+                                    },
+                                    {
+                                        "icon_name": "String"
+                                    },
+                                    {
+                                        "dom": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::icon::register_dom_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), dom)"
+                            },
                             "debug_lookup": {
                                 "doc": [
                                     "Debug lookup: returns detailed info about an icon's RefAny contents.",

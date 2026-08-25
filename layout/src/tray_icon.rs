@@ -14,7 +14,7 @@
 //! returns tomorrow.
 //!
 //! So instead this does what an `<icon>` node does: build a one-node icon DOM,
-//! run the SAME `resolve_icons_in_styled_dom` pass, and render the resulting
+//! run the SAME `resolve_icons_in_dom` pass, and render the resulting
 //! `StyledDom` with the CPU renderer. Every icon kind is handled because none
 //! of them is special-cased — and anything a future resolver can express as a
 //! DOM (an SVG, an emoji, a styled `<div>`) becomes a usable tray icon for
@@ -27,7 +27,7 @@ use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     dom::Dom,
-    icon::{resolve_icons_in_styled_dom, SharedIconProvider},
+    icon::{resolve_icons_in_dom, SharedIconProvider},
     styled_dom::StyledDom,
 };
 use azul_css::{
@@ -115,13 +115,20 @@ pub fn render_icon_to_rgba(
     let dom = Dom::create_icon(String::from(spec))
         .with_css_props(CssPropertyWithConditionsVec::from_vec(props));
 
+    // Icons resolve on the Dom, BEFORE the cascade, so the replacement is
+    // spliced in whole and cascaded exactly once with everything else. Doing it
+    // the other way round - cascade, then splice into the flat StyledDom arena -
+    // is what used to flatten every icon to a single node and leave the property
+    // cache describing the pre-resolution node.
+    let mut dom = dom;
+    resolve_icons_in_dom(&mut dom, provider, system_style);
+
     // `create_from_dom`, NOT `create(&mut dom, Css::empty())`: the former also
     // runs `fixup_children_estimated` + `scope_inline_css` and collects the
     // tree's inline CSS, which is what the engine's own layout path
     // (`regenerate_layout`) uses. Building the StyledDom the other way produces
     // a subtly different property cache and the icon does not resolve the same.
-    let mut styled = StyledDom::create_from_dom(dom);
-    resolve_icons_in_styled_dom(&mut styled, provider, system_style);
+    let styled = StyledDom::create_from_dom(dom);
 
     // The caller's FontManager, NOT a fresh one.
     //
@@ -220,7 +227,7 @@ mod tests {
 
     /// REGRESSION (tray icons rendered as `.notdef` tofu boxes).
     ///
-    /// `resolve_icons_in_styled_dom` rewrites a font icon's inline style to
+    /// `resolve_icons_in_dom` rewrites a font icon's inline style to
     /// carry `font-family: StyleFontFamily::Ref(face)` — the only place that
     /// face is ever named. But the compact CSS cache is precomputed at cascade
     /// time, so before the fix it still described the pre-resolution `<icon>`
@@ -261,13 +268,13 @@ mod tests {
         );
         let provider = SharedIconProvider::from_handle(handle);
 
-        let dom = Dom::create_icon(String::from("gear"));
-        let mut styled = StyledDom::create_from_dom(dom);
-        azul_core::icon::resolve_icons_in_styled_dom(
-            &mut styled,
+        let mut dom = Dom::create_icon(String::from("gear"));
+        azul_core::icon::resolve_icons_in_dom(
+            &mut dom,
             &provider,
             &SystemStyle::default(),
         );
+        let styled = StyledDom::create_from_dom(dom);
 
         let collected = crate::solver3::getters::collect_font_stacks_from_styled_dom(
             &styled,

@@ -76,6 +76,29 @@ pub struct FontIconData {
     pub icon_char: String,
 }
 
+/// An icon that IS a `Dom` - the general case, of which image and font icons
+/// are special cases.
+///
+/// Register any DOM as an icon and refer to it by name everywhere an icon spec
+/// is taken (`<icon>my-logo</icon>`, a tray icon, an app icon). Because the DOM
+/// carries its own inline styles AND its own stylesheets (`Dom::css`), the icon
+/// decides what it looks like - colour included - instead of every call site
+/// having to thread a tint parameter down to the renderer.
+///
+/// The whole subtree is spliced in before the cascade, so a DOM icon can be any
+/// number of nodes with any styling, not just a single glyph.
+#[derive(Debug, Clone)]
+pub struct DomIconData {
+    pub dom: Dom,
+}
+
+impl DomIconData {
+    #[must_use]
+    pub const fn new(dom: Dom) -> Self {
+        Self { dom }
+    }
+}
+
 // ============================================================================
 // Default Icon Resolver
 // ============================================================================
@@ -92,28 +115,55 @@ pub struct FontIconData {
 /// filtered based on `SystemStyle` preferences.
 #[must_use] pub extern "C" fn default_icon_resolver(
     icon_data: OptionRefAny,
-    original_icon_dom: &StyledDom,
+    original_icon_node: &NodeData,
     system_style: &SystemStyle,
-) -> StyledDom {
-    // No icon found → empty div
+) -> Dom {
+    // No icon found -> empty div
     let Some(mut data) = icon_data.into_option() else {
-        let mut dom = Dom::create_div();
-        return StyledDom::create(&mut dom, Css::empty());
+        return Dom::create_div();
     };
-    
+
+    // A registered Dom: the icon IS a DOM, spliced in whole. This is what lets
+    // an icon carry its own styling - colour above all - instead of every call
+    // site having to pass a tint down. Checked FIRST because it is the most
+    // specific: a caller who registered a whole DOM meant that DOM.
+    if let Some(dom_icon) = data.downcast_ref::<DomIconData>() {
+        return create_dom_icon_from_original(&dom_icon, original_icon_node);
+    }
+
     // Try ImageIconData
     if let Some(img) = data.downcast_ref::<ImageIconData>() {
-        return create_image_icon_from_original(&img, original_icon_dom, system_style);
+        return create_image_icon_from_original(&img, original_icon_node, system_style);
     }
-    
+
     // Try FontIconData
     if let Some(font_icon) = data.downcast_ref::<FontIconData>() {
-        return create_font_icon_from_original(&font_icon, original_icon_dom, system_style);
+        return create_font_icon_from_original(&font_icon, original_icon_node, system_style);
     }
-    
-    // Unknown data type → empty div
-    let mut dom = Dom::create_div();
-    StyledDom::create(&mut dom, Css::empty())
+
+    // Unknown data type -> empty div
+    Dom::create_div()
+}
+
+/// An icon that IS a `Dom`: whatever the caller registered, spliced in whole.
+///
+/// The call site's styles are applied FIRST and the registered DOM's own styles
+/// second, so the icon wins on anything it specifies (colour, background,
+/// borders) while still inheriting what it does not (the size the tray or the
+/// surrounding text asked for). That ordering is the point: an icon knows what
+/// it should look like, a call site knows how big it should be.
+fn create_dom_icon_from_original(icon: &DomIconData, original: &NodeData) -> Dom {
+    let mut dom = icon.dom.clone();
+
+    let mut props = copy_appropriate_styles_vec(original);
+    if props.is_empty() {
+        return dom;
+    }
+    // The registered DOM's own declarations go last so they override.
+    props.extend(copy_appropriate_styles_vec(&dom.root));
+    dom.root
+        .set_css_props(CssPropertyWithConditionsVec::from_vec(props));
+    dom
 }
 
 // Icon DOM Creation (from original)
@@ -125,13 +175,14 @@ pub struct FontIconData {
 /// - Tint color overlay if `tint_color` is set
 fn create_image_icon_from_original(
     img: &ImageIconData,
-    original: &StyledDom,
+    original: &NodeData,
     system_style: &SystemStyle,
-) -> StyledDom {
+) -> Dom {
     let mut dom = Dom::create_image(img.image.clone());
     
     // Copy appropriate styles from original
-    if let Some(original_node) = original.node_data.as_ref().first() {
+    {
+        let original_node = original;
         let mut props_vec = copy_appropriate_styles_vec(original_node);
         
         // Add default dimensions if not specified in original styles
@@ -158,20 +209,9 @@ fn create_image_icon_from_original(
         if let Some(a11y) = original_node.get_accessibility_info() {
             dom = dom.with_accessibility_info(a11y.clone());
         }
-    } else {
-        // No original node, use default dimensions
-        let mut props_vec = vec![
-            CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(img.width))),
-            CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(img.height))),
-        ];
-        
-        // Apply SystemStyle-aware filters even without original node
-        apply_icon_style_filters(&mut props_vec, system_style);
-        
-        dom.root.set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
     }
     
-    StyledDom::create(&mut dom, Css::empty())
+    dom
 }
 
 /// Create a `StyledDom` for a font-based icon, copying styles from original.
@@ -181,9 +221,9 @@ fn create_image_icon_from_original(
 /// - Tint color if `tint_color` is set
 fn create_font_icon_from_original(
     font_icon: &FontIconData,
-    original: &StyledDom,
+    original: &NodeData,
     system_style: &SystemStyle,
-) -> StyledDom {
+) -> Dom {
     // A SPAN, not a bare text node and not a <p>.
     //
     // The glyph carries css (font-family, colour, tint) and frequently sits as
@@ -202,7 +242,8 @@ fn create_font_icon_from_original(
         ]))
     );
     
-    if let Some(original_node) = original.node_data.as_ref().first() {
+    {
+        let original_node = original;
         let mut props_vec = copy_appropriate_styles_vec(original_node);
         props_vec.push(font_prop);
         
@@ -215,17 +256,9 @@ fn create_font_icon_from_original(
         if let Some(a11y) = original_node.get_accessibility_info() {
             dom = dom.with_accessibility_info(a11y.clone());
         }
-    } else {
-        // No original node, just set the font
-        let mut props_vec = vec![font_prop];
-        
-        // Apply SystemStyle-aware color modifications
-        apply_font_icon_color(&mut props_vec, system_style);
-        
-        dom.root.set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
     }
     
-    StyledDom::create(&mut dom, Css::empty())
+    dom
 }
 
 /// Copy styles from original node
@@ -364,6 +397,22 @@ pub fn register_icons_from_zip(_provider: &mut IconProviderHandle, _pack_name: &
 }
 
 /// Register a font icon in a pack
+/// Register an arbitrary `Dom` as an icon.
+///
+/// The general case: an icon is just a DOM, and image / font icons are special
+/// cases of it. Whatever you register is spliced in wherever that icon name is
+/// used - an `<icon>` node, a tray icon, an app icon - and it keeps its own
+/// styling, because the DOM carries both inline properties and its own
+/// stylesheets (`Dom::css`).
+///
+/// That is what makes colour work without a tint parameter: an icon that should
+/// be red says so itself, once, instead of every call site having to thread a
+/// colour down to the renderer. Sizing still comes from the call site, since the
+/// caller is the one who knows how big the icon has to be.
+pub fn register_dom_icon(provider: &mut IconProviderHandle, pack_name: &str, icon_name: &str, dom: Dom) {
+    provider.register_icon(pack_name, icon_name, RefAny::new(DomIconData::new(dom)));
+}
+
 pub fn register_font_icon(provider: &mut IconProviderHandle, pack_name: &str, icon_name: &str, font: FontRef, icon_char: &str) {
     let data = FontIconData { 
         font, 
@@ -550,12 +599,12 @@ mod tests {
     #[test]
     fn test_default_resolver_no_data() {
         let style = SystemStyle::default();
-        let original = StyledDom::default();
-        
+        let original = Dom::create_div().root;
+
         let result = default_icon_resolver(OptionRefAny::None, &original, &style);
         
         // Without data, should return empty div StyledDom
-        assert_eq!(result.node_data.as_ref().len(), 1);
+        assert_eq!(result.children.as_ref().len(), 0);
     }
     
     #[test]
@@ -643,30 +692,27 @@ mod autotest_generated {
         s
     }
 
-    /// A "normal" original icon DOM: a single div carrying `props` as inline style.
-    fn original_with(props: Vec<CssPropertyWithConditions>) -> StyledDom {
+    /// A "normal" original icon node: a single div carrying `props` as inline style.
+    fn original_with(props: Vec<CssPropertyWithConditions>) -> NodeData {
         let mut dom = Dom::create_div();
         dom.root
             .set_css_props(CssPropertyWithConditionsVec::from_vec(props));
-        StyledDom::create(&mut dom, Css::empty())
+        dom.root
     }
 
-    /// A degenerate `StyledDom` with **zero** nodes — drives the `else` branch of
-    /// `create_{image,font}_icon_from_original`, which `StyledDom::default()` never
-    /// reaches (it always has a body node).
-    fn original_without_nodes() -> StyledDom {
-        StyledDom {
-            node_data: Vec::new().into(),
-            ..StyledDom::default()
-        }
+    /// An original icon node with NO inline styles. The resolver takes a
+    /// `NodeData` now, so "no node at all" is no longer representable - and no
+    /// longer needs to be: the old `else` branch it drove existed only because
+    /// a `StyledDom` could be empty.
+    fn original_without_nodes() -> NodeData {
+        Dom::create_div().root
     }
 
     /// Every inline property on every node of the result, in document order.
     /// (Collected across all nodes rather than `node_data[0]` so the assertions
     /// survive any future anonymous-node insertion in `StyledDom::create`.)
-    fn all_props(dom: &StyledDom) -> Vec<CssPropertyWithConditions> {
-        dom.node_data
-            .as_ref()
+    fn all_props(dom: &Dom) -> Vec<CssPropertyWithConditions> {
+        all_nodes(dom)
             .iter()
             .flat_map(|nd| {
                 nd.get_style()
@@ -680,14 +726,14 @@ mod autotest_generated {
             .collect()
     }
 
-    fn width_px(dom: &StyledDom) -> Option<f32> {
+    fn width_px(dom: &Dom) -> Option<f32> {
         all_props(dom).into_iter().find_map(|p| match p.property {
             CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(px))) => Some(px.number.get()),
             _ => None,
         })
     }
 
-    fn height_px(dom: &StyledDom) -> Option<f32> {
+    fn height_px(dom: &Dom) -> Option<f32> {
         all_props(dom).into_iter().find_map(|p| match p.property {
             CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::Px(px))) => {
                 Some(px.number.get())
@@ -696,26 +742,35 @@ mod autotest_generated {
         })
     }
 
-    fn count_widths(dom: &StyledDom) -> usize {
+    fn count_widths(dom: &Dom) -> usize {
         all_props(dom)
             .iter()
             .filter(|p| matches!(p.property, CssProperty::Width(_)))
             .count()
     }
 
-    fn text_of(dom: &StyledDom) -> Option<String> {
-        dom.node_data
-            .as_ref()
-            .iter()
-            .find_map(|nd| match nd.get_node_type() {
-                NodeType::Text(t) => Some(t.as_str().to_string()),
-                _ => None,
-            })
+    /// Every node of a `Dom` tree, in document order.
+    fn all_nodes(dom: &Dom) -> Vec<NodeData> {
+        let mut out = Vec::new();
+        fn walk(d: &Dom, out: &mut Vec<NodeData>) {
+            out.push(d.root.clone());
+            for c in d.children.as_ref() {
+                walk(c, out);
+            }
+        }
+        walk(dom, &mut out);
+        out
     }
 
-    fn has_image_node(dom: &StyledDom) -> bool {
-        dom.node_data
-            .as_ref()
+    fn text_of(dom: &Dom) -> Option<String> {
+        all_nodes(dom).iter().find_map(|nd| match nd.get_node_type() {
+            NodeType::Text(t) => Some(t.as_str().to_string()),
+            _ => None,
+        })
+    }
+
+    fn has_image_node(dom: &Dom) -> bool {
+        all_nodes(dom)
             .iter()
             .any(|nd| matches!(nd.get_node_type(), NodeType::Image(_)))
     }
@@ -739,7 +794,7 @@ mod autotest_generated {
         })
     }
 
-    fn resolve(data: RefAny, original: &StyledDom, style: &SystemStyle) -> StyledDom {
+    fn resolve(data: RefAny, original: &NodeData, style: &SystemStyle) -> Dom {
         default_icon_resolver(OptionRefAny::Some(data), original, style)
     }
 
@@ -751,12 +806,12 @@ mod autotest_generated {
     fn resolver_none_yields_single_unstyled_div() {
         let out = default_icon_resolver(
             OptionRefAny::None,
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
-        assert_eq!(out.node_data.as_ref().len(), 1);
+        assert_eq!(all_nodes(&out).len(), 1);
         assert!(matches!(
-            out.node_data.as_ref()[0].get_node_type(),
+            out.root.get_node_type(),
             NodeType::Div
         ));
         // The "not found" placeholder must carry no styling at all — in particular
@@ -772,11 +827,11 @@ mod autotest_generated {
             _payload: [u64; 4],
         }
         let data = RefAny::new(NotAnIconAtAll { _payload: [7; 4] });
-        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
 
-        assert_eq!(out.node_data.as_ref().len(), 1);
+        assert_eq!(all_nodes(&out).len(), 1);
         assert!(matches!(
-            out.node_data.as_ref()[0].get_node_type(),
+            out.root.get_node_type(),
             NodeType::Div
         ));
         assert!(!has_image_node(&out));
@@ -787,7 +842,7 @@ mod autotest_generated {
     fn resolver_image_icon_yields_image_node_with_default_dimensions() {
         let out = resolve(
             RefAny::new(image_icon(32.0, 24.0)),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
         assert!(has_image_node(&out));
@@ -802,18 +857,18 @@ mod autotest_generated {
             font: font.clone(),
             icon_char: "\u{e88a}".to_string(),
         });
-        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
 
         // TWO nodes: the <span> and its text leaf. It was one when the glyph
         // was a BARE text node — which is what made its css inert and left it
         // competing as a flex item with no box ("text node ... is one of 2
         // items in a InlineFlex container"). The span is the box; the glyph
         // still reads through it.
-        assert_eq!(out.node_data.as_ref().len(), 2);
+        assert_eq!(all_nodes(&out).len(), 2);
         assert_eq!(text_of(&out).as_deref(), Some("\u{e88a}"));
         assert!(
             matches!(
-                out.node_data.as_ref()[0].get_node_type(),
+                out.root.get_node_type(),
                 azul_core::dom::NodeType::Span
             ),
             "the icon must be wrapped in a span — inline, and boxed"
@@ -869,7 +924,7 @@ mod autotest_generated {
         // so a NaN-sized icon degrades to a 0x0 box rather than poisoning layout.
         let out = resolve(
             RefAny::new(image_icon(f32::NAN, f32::NAN)),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
         let (w, h) = (
@@ -885,7 +940,7 @@ mod autotest_generated {
     fn image_icon_infinite_dimensions_saturate_to_finite_values() {
         let out = resolve(
             RefAny::new(image_icon(f32::INFINITY, f32::NEG_INFINITY)),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
         let w = width_px(&out).expect("width emitted");
@@ -901,7 +956,7 @@ mod autotest_generated {
         // it forwards them verbatim into `width` / `height`.
         let out = resolve(
             RefAny::new(image_icon(-32.0, -1.5)),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
         assert_eq!(width_px(&out), Some(-32.0));
@@ -920,7 +975,7 @@ mod autotest_generated {
             null_img(usize::MAX, usize::MAX),
         );
         let data = provider.lookup("big").expect("icon registered");
-        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
 
         let w = width_px(&out).expect("width emitted");
         assert!(w.is_finite() && w > 0.0, "usize::MAX size must saturate finitely, got {w}");
@@ -930,7 +985,7 @@ mod autotest_generated {
     fn image_icon_zero_size_is_preserved() {
         let out = resolve(
             RefAny::new(image_icon(0.0, 0.0)),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
         assert_eq!(width_px(&out), Some(0.0));
@@ -997,8 +1052,9 @@ mod autotest_generated {
 
     #[test]
     fn accessibility_info_is_copied_onto_the_resolved_icon() {
-        let mut dom = Dom::create_div().with_accessibility_info(SmallAriaInfo::label("Save").to_full_info());
-        let original = StyledDom::create(&mut dom, Css::empty());
+        let original = Dom::create_div()
+            .with_accessibility_info(SmallAriaInfo::label("Save").to_full_info())
+            .root;
 
         let out = resolve(
             RefAny::new(image_icon(8.0, 8.0)),
@@ -1006,9 +1062,8 @@ mod autotest_generated {
             &SystemStyle::default(),
         );
 
-        let a11y = out
-            .node_data
-            .as_ref()
+        let nodes = all_nodes(&out);
+        let a11y = nodes
             .iter()
             .find_map(NodeData::get_accessibility_info)
             .expect("a11y info must survive icon resolution");
@@ -1110,7 +1165,7 @@ mod autotest_generated {
     fn image_icon_grayscale_reaches_the_resolved_dom() {
         let out = resolve(
             RefAny::new(image_icon(10.0, 10.0)),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &grayscale_style(),
         );
         let filters = filters_of(&all_props(&out));
@@ -1167,7 +1222,7 @@ mod autotest_generated {
         // would double-apply on top of the (inherited) text color.
         let out = resolve(
             RefAny::new(font_icon("\u{e88a}")),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &grayscale_style(),
         );
         assert!(filters_of(&all_props(&out)).is_empty());
@@ -1181,7 +1236,7 @@ mod autotest_generated {
     fn font_icon_empty_char_yields_empty_text_node() {
         let out = resolve(
             RefAny::new(font_icon("")),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
         assert_eq!(text_of(&out).as_deref(), Some(""));
@@ -1201,7 +1256,7 @@ mod autotest_generated {
         ] {
             let out = resolve(
                 RefAny::new(font_icon(s)),
-                &StyledDom::default(),
+                &Dom::create_div().root,
                 &SystemStyle::default(),
             );
             assert_eq!(text_of(&out).as_deref(), Some(s), "icon_char {s:?} was altered");
@@ -1213,7 +1268,7 @@ mod autotest_generated {
         let huge = "\u{e88a}".repeat(65_536);
         let out = resolve(
             RefAny::new(font_icon(&huge)),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
         assert_eq!(text_of(&out).map(|s| s.chars().count()), Some(65_536));
@@ -1238,7 +1293,7 @@ mod autotest_generated {
         assert!(provider.has_icon("hOmE"));
 
         let data = provider.lookup("HOME").expect("case-insensitive lookup");
-        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert_eq!(width_px(&out), Some(64.0));
         assert_eq!(height_px(&out), Some(32.0));
     }
@@ -1251,7 +1306,7 @@ mod autotest_generated {
         assert_eq!(provider.list_packs(), vec![String::new()]);
         assert!(provider.has_icon(""));
         let data = provider.lookup("").expect("empty-named icon is still addressable");
-        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert_eq!(text_of(&out).as_deref(), Some(""));
     }
 
@@ -1280,7 +1335,7 @@ mod autotest_generated {
         register_image_icon(&mut provider, "aaa", "dup", null_img(2, 2));
 
         let data = provider.lookup("dup").expect("icon registered");
-        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert_eq!(
             width_px(&out),
             Some(2.0),
@@ -1296,7 +1351,7 @@ mod autotest_generated {
 
         assert_eq!(provider.list_icons_in_pack("p").len(), 1);
         let data = provider.lookup("icon").expect("icon registered");
-        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert_eq!(width_px(&out), Some(5.0));
 
         provider.unregister_icon("p", "IcOn");
@@ -1313,10 +1368,10 @@ mod autotest_generated {
 
         let out = default_icon_resolver(
             OptionRefAny::from(provider.lookup("nope")),
-            &StyledDom::default(),
+            &Dom::create_div().root,
             &SystemStyle::default(),
         );
-        assert_eq!(out.node_data.as_ref().len(), 1);
+        assert_eq!(all_nodes(&out).len(), 1);
         assert!(all_props(&out).is_empty());
     }
 
@@ -1386,7 +1441,7 @@ mod autotest_generated {
         assert!(provider.has_icon("HOME"));
 
         let data = provider.lookup("home").expect("material 'home' icon");
-        let out = resolve(data, &StyledDom::default(), &SystemStyle::default());
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert!(text_of(&out).is_some(), "a material icon must resolve to a text node");
     }
 }
