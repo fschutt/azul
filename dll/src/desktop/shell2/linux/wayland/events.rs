@@ -12,6 +12,7 @@ use azul_core::{
 
 use super::{defines, defines::*, WaylandWindow};
 
+use super::super::super::common::clipboard::MAX_FLAVOR_BYTES;
 use super::super::super::common::debug_server::LogCategory;
 use super::super::super::common::event::PlatformWindow;
 use super::super::common::compose::{ComposeAction, ComposeSequencer};
@@ -1065,6 +1066,24 @@ pub struct WaylandDragState {
     pub pending_offer: *mut wl_data_offer,
     /// Whether [`Self::pending_offer`] advertised `text/uri-list`.
     pub pending_has_uri_list: bool,
+    /// EVERY mime type [`Self::pending_offer`] advertised, in the order the
+    /// source listed them.
+    ///
+    /// A clipboard read has to know this: `wl_data_offer.receive` with a mime
+    /// the source never offered is answered by a pipe that only closes when
+    /// the source feels like it, so probing blind costs the full transfer
+    /// deadline per guess. With the list, a payload read asks for exactly the
+    /// flavors that are actually there.
+    pub pending_mimes: Vec<String>,
+    /// The advertised mime list of the offer that turned out to be the
+    /// CLIPBOARD selection, promoted from [`Self::pending_mimes`].
+    ///
+    /// Separate from `pending_mimes` for the same reason `has_uri_list` is
+    /// separate from `pending_has_uri_list`: offers arrive for every clipboard
+    /// change in every other application, so the list has to be captured when
+    /// `selection` names the offer, not whenever the last advertisement
+    /// happened to land.
+    pub clipboard_mimes: Vec<String>,
 }
 
 impl WaylandDragState {
@@ -1078,14 +1097,46 @@ impl WaylandDragState {
     pub(super) fn begin_offer(&mut self, id: *mut wl_data_offer) {
         self.pending_offer = id;
         self.pending_has_uri_list = false;
+        self.pending_mimes.clear();
+    }
+
+    /// `wl_data_device.selection`: THIS offer is the clipboard. Promote its
+    /// advertised mime list, the same way `begin_drag` promotes
+    /// `pending_has_uri_list`.
+    ///
+    /// A null offer means the selection was cleared — nothing is on offer, so
+    /// the list empties rather than going stale.
+    pub(super) fn begin_selection(&mut self, id: *mut wl_data_offer) {
+        self.clipboard_mimes = if !id.is_null() && id == self.pending_offer {
+            self.pending_mimes.clone()
+        } else {
+            Vec::new()
+        };
+    }
+
+    /// The mime types the current clipboard offer advertised.
+    pub(super) fn clipboard_mimes(&self) -> &[String] {
+        &self.clipboard_mimes
     }
 
     /// `wl_data_offer.offer`: one advertised mime type of `offer`. An offer's
     /// mime list arrives BEFORE the `enter`/`selection` that reveals what the
     /// offer is for, so it is accumulated against the offer itself.
     pub(super) fn note_offered_mime(&mut self, offer: *mut wl_data_offer, mime: &str) {
-        if mime == URI_LIST_MIME && offer == self.pending_offer {
+        if offer != self.pending_offer {
+            return;
+        }
+        if mime == URI_LIST_MIME {
             self.pending_has_uri_list = true;
+        }
+        // Bounded: a source is free to advertise as many types as it likes,
+        // and this list is held for as long as the offer is. A real clipboard
+        // offers a handful — Safari's eleven is the most anything sane does.
+        const MAX_ADVERTISED_MIMES: usize = 64;
+        if self.pending_mimes.len() < MAX_ADVERTISED_MIMES
+            && !self.pending_mimes.iter().any(|m| m == mime)
+        {
+            self.pending_mimes.push(mime.to_owned());
         }
     }
 
@@ -1528,6 +1579,16 @@ fn await_transfer(
 /// poll deadline, matching the XWayland fallback's `CLIPBOARD_READ_TIMEOUT`. A
 /// timeout returns whatever arrived rather than never returning.
 ///
+/// The deadline is not the only bound that is needed. **Wayland is the one
+/// platform where the payload size is unknowable in advance** — the protocol
+/// hands over a pipe and never states a length, so there is no `GlobalSize` to
+/// ask and no `INCR` lower bound to read. A peer that streams fast enough can
+/// therefore push hundreds of megabytes into this `Vec` inside the timeout,
+/// and counting the bytes as they arrive is the only defence there is. Past
+/// [`MAX_FLAVOR_BYTES`] the transfer is abandoned and what arrived is
+/// discarded: a truncated flavor is worse than no flavor, because the decode
+/// would succeed on the prefix and paste half a document.
+///
 /// # Safety
 /// `read_fd` must be an owned, open fd; this function closes it.
 pub(super) unsafe fn drain_offer_pipe(
@@ -1544,6 +1605,19 @@ pub(super) unsafe fn drain_offer_pipe(
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     'transfer: loop {
+        if buf.len() as u64 > MAX_FLAVOR_BYTES {
+            log_warn!(
+                LogCategory::Platform,
+                "[Wayland] '{}' transfer exceeded the {}-byte cap — abandoning it. The protocol \
+                 declares no length, so counting is the only bound there is.",
+                mime_type,
+                MAX_FLAVOR_BYTES
+            );
+            libc::close(read_fd);
+            // Discarded, not truncated: half a document that decodes cleanly
+            // is worse than nothing.
+            return Vec::new();
+        }
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.is_zero() {
             log_warn!(
@@ -1661,6 +1735,10 @@ extern "C" fn data_device_selection(
         unsafe { destroy_data_offer(window, old) };
     }
     window.clipboard_offer = id;
+    // Promote THIS offer's advertised mime list, so a payload read knows which
+    // flavors are actually on offer rather than probing blind (each blind
+    // guess costs the full transfer deadline).
+    window.drag.begin_selection(id);
 }
 
 // --- Primary selection (zwp_primary_selection_v1) ---
@@ -1861,12 +1939,24 @@ extern "C" fn data_source_target(
 extern "C" fn data_source_send(
     _data: *mut c_void,
     _source: *mut wl_data_source,
-    _mime: *const c_char,
+    mime: *const c_char,
     fd: i32,
 ) {
-    // Every offered mime is a plain-UTF-8 spelling, so serve the same bytes.
-    let text = super::clipboard::native_copy_text().unwrap_or_default();
-    write_all_then_close(fd, text.as_bytes());
+    // Serve the representation the peer ASKED for. The offered mimes are no
+    // longer all spellings of one plain-text blob: a styled copy offers RTF,
+    // HTML and plain text at once, and answering all three with the same
+    // bytes would paste RTF source into a plain-text field.
+    //
+    // The fd must be closed on every path, including the ones that serve
+    // nothing — an fd left open leaves the pasting client blocked until its
+    // own deadline.
+    let requested = if mime.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(mime).to_str().unwrap_or_default().to_owned() }
+    };
+    let bytes = super::clipboard::native_copy_bytes(&requested).unwrap_or_default();
+    write_all_then_close(fd, &bytes);
 }
 
 /// Serve a selection: write every byte to the compositor's fd, then close it.

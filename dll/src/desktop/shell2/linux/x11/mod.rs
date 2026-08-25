@@ -1865,14 +1865,6 @@ impl X11Window {
         }
     }
 
-    /// Synchronize the clipboard state with the system clipboard.
-    pub fn sync_clipboard(
-        &mut self,
-        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
-    ) {
-        clipboard::sync_clipboard(clipboard_manager);
-    }
-
     /// Destroy the X11 window, free the ARGB colormap, and close the display.
     pub fn close(&mut self) {
         // WebRender's Renderer must be deinit()'d, not dropped — texture

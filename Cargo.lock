@@ -761,6 +761,8 @@ dependencies = [
  "proj4rs",
  "pyo3",
  "pyo3-log",
+ "rclip-core",
+ "rich-clipboard",
  "rust-fontconfig",
  "security-framework",
  "serde",
@@ -6266,6 +6268,142 @@ dependencies = [
 ]
 
 [[package]]
+name = "rclip-bookmark"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b356d78920b8a50a1892a573b98ebb457dd5fffbf25f8c1fd5606ff72a1142cc"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-cf-html"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1be7560a270d3ae4d66a28f914018c85516f0aad3c2cb0723ed901d030ee1441"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-codepage"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03b479f8baadf78efd25b8a252cf6e6926f53f26f25578bb0e4316e9a481abff"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6414ce752a0d18ee3d000b6c76fccbc30e90b93c2a8c1e7fdd855ab9b7ea0af6"
+
+[[package]]
+name = "rclip-desktop-entry"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd06bb5efa195f7525d4ec66c4f5976e2d8bc5a1da697e79ebab081ee2518e4c"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-dib"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af7b601de4d21df401a8aa825e069b1c4ecd90eb77bc320c5b7be34fd6286c57"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-dropfiles"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f586b1cc6794b609889355c8b37f7777886cad52aacecde899da87ae512249f"
+dependencies = [
+ "rclip-codepage",
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-file-desc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3aad312e65126cd891691fd521a9bb35be06a16ecff3556dba7d95d9782010db"
+dependencies = [
+ "rclip-codepage",
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-html"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "051ea1f3493e656024585f1d2591e095c8c9a64185336153cc4a4fadcb4888de"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-idlist"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9ea46804880588b0c68a55553a252118783d0232940a9e72717f050d772dec9"
+dependencies = [
+ "rclip-codepage",
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-rtf"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e64929d6244eea54b6ae4276d5724ae8833c269b8156dd63d48b4f13d39a78ed"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-shell-link"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "718e7efddef2cd8cf492d9f05a8a3525cd7ecfc22d68d7ceec7730f25a5537a3"
+dependencies = [
+ "rclip-core",
+ "rclip-idlist",
+]
+
+[[package]]
+name = "rclip-uri-list"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61c7cd9c1d2e78137fbde75629456cde6e8a154267a55a70e3f67d89a2710f7b"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-url-file"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a381b28ace45ac49e1e45b765a612aee85803d3c0e1ade37ccaceedabf547c1f"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
+name = "rclip-webloc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd2c7cda46786a3fd741c3a51906a19a262f3773b59f91b1b0ad3cc04ec0d59b"
+dependencies = [
+ "rclip-core",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6341,6 +6479,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "rich-clipboard"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4e68a9fba67f6a1b09686fb34d5e0e7776c5bddfc4a95ed064f5b72012529eb"
+dependencies = [
+ "rclip-bookmark",
+ "rclip-cf-html",
+ "rclip-core",
+ "rclip-desktop-entry",
+ "rclip-dib",
+ "rclip-dropfiles",
+ "rclip-file-desc",
+ "rclip-html",
+ "rclip-idlist",
+ "rclip-rtf",
+ "rclip-shell-link",
+ "rclip-uri-list",
+ "rclip-url-file",
+ "rclip-webloc",
 ]
 
 [[package]]

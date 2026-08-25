@@ -99,15 +99,6 @@ impl LinuxWindow {
         }
     }
 
-    pub fn sync_clipboard(
-        &mut self,
-        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
-    ) {
-        match self {
-            LinuxWindow::X11(w) => w.sync_clipboard(clipboard_manager),
-            LinuxWindow::Wayland(w) => w.sync_clipboard(clipboard_manager),
-        }
-    }
 }
 
 impl LinuxWindow {
