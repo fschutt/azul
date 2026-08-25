@@ -1717,7 +1717,7 @@ impl RemillTranspiler {
         //
         // Earlier 1 GiB / 3 GiB experiments were workarounds for
         // the pre-synth lift baking 200+ MiB runtime addresses as
-        // constants — see `M9_REVIEW_AND_OPTION_A.md`. The synth
+        // constants. The synth
         // scheme makes those addresses predictably small so
         // memory can shrink back to the order-of-magnitude that
         // actually reflects the image sizes involved.

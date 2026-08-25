@@ -761,7 +761,7 @@ fn query_modifier_masks(xlib: &Xlib, display: *mut Display) -> ModifierMasks {
 /// unavailable (the shell then falls back to core pointer events). Selects
 /// Button/Motion/Touch for all master devices, maps each device's pressure/tilt
 /// valuator numbers via their label atoms and records its scroll axes.
-/// ABI per scripts/WACOM_TOUCH_API_RESEARCH.md.
+/// ABI per scripts/ideas/platform/WACOM_TOUCH_API_RESEARCH.md.
 fn init_xinput2(
     xlib: &Rc<Xlib>,
     display: *mut Display,
@@ -968,7 +968,7 @@ fn smooth_scroll_pixels(
 
 /// Decode an XI2 valuator value by valuator number. The `values` array is
 /// packed (only set-mask valuators present, ascending), so the slot is the
-/// count of set mask bits below `number`. See scripts/WACOM_TOUCH_API_RESEARCH.md.
+/// count of set mask bits below `number`..
 unsafe fn decode_valuator(ev: &defines::XIDeviceEvent, number: i32) -> Option<f64> {
     if number < 0 {
         return None;

@@ -1,6 +1,5 @@
-//! §3.2 DENSE TEXT MODEL — the compact-record types of
-//! `scripts/SHAPED_TEXT_REFACTOR_PLAN.md`, introduced ALONGSIDE the
-//! current `PositionedItem`/`ShapedCluster` model (campaign step 1).
+//! DENSE TEXT MODEL — compact-record text types, introduced ALONGSIDE the
+//! current `PositionedItem`/`ShapedCluster` model rather than replacing it.
 //!
 //! Nothing consumes these yet: this module stakes the types, their size
 //! pins live in `tests/struct_sizes.rs`, and [`DenseText::from_unified`]

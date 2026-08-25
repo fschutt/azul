@@ -9,9 +9,8 @@
 //! guide). Both compile together with the same ~1 MB toolchain into a single
 //! dependency-free native executable.
 //!
-//! See `scripts/RED_FFI_FINDINGS.md` for the full, cited FFI capability audit
-//! (verdict: FEASIBLE via Red/System; ALPHA / unverified because no Red
-//! toolchain is installed to compile-check the output).
+//! FFI is feasible via Red/System, but this generator is ALPHA and
+//! unverified: no Red toolchain is installed to compile-check its output.
 //!
 //! # Output structure
 //!
@@ -62,7 +61,6 @@
 //! `v2/mod.rs`. The orchestrator would add `pub mod lang_red;` plus a
 //! `pub fn generate_red(api_data) -> Result<String>` helper mirroring
 //! `generate_fortran`, then write the result to `target/codegen/v2/azul.reds`.
-//! See `scripts/WIRING_red.md` for the exact edits.
 
 use anyhow::Result;
 
@@ -221,7 +219,7 @@ fn emit_struct_alias(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
 fn emit_union_opaque(b: &mut CodeBuilder, e: &EnumDef) {
     // TODO2: exact byte size of tagged unions (AzOption*/AzResult*/unions)
     // requires the shared `layout` pass the Fortran/Pascal bindings use.
-    // Until that is wired (see WIRING_red.md), emit a pointer-width opaque
+    // Until that is wired, emit a pointer-width opaque
     // stand-in and flag it. This is correct for pointer-sized unions and
     // UNDER-sized for larger payloads — the counter demo only round-trips
     // AzUpdate (a unit enum) so it is unaffected.

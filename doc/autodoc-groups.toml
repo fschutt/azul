@@ -239,8 +239,7 @@ agent_strategy = "split"
 tracked_files = ["css/src/lib.rs", "css/src/parser.rs", "css/src/system.rs", "core/src/icon.rs", "layout/src/icon.rs"]
 tracked_globs = ["css/src/props/basic/*.rs", "css/src/props/style/*.rs", "css/src/system_native_*.rs"]
 design_docs = [
-  "SYSTEMSTYLE.md",
-  "ICON_SYSTEM_ANALYSIS.md",
+  "ideas/platform/SYSTEMSTYLE.md",
 ]
 notes = "Landing introduces selectors, the cascade, and how to attach a Css to a Dom. /properties is a cheatsheet of the most-used properties grouped by category. /themes covers system-style discovery (light/dark, native colors). /text-and-fonts covers font-family, weight, alignment, and the system: keywords. /icon-packs covers registering image and font icons via IconProviderHandle."
 
@@ -355,8 +354,6 @@ tracked_globs = [
   "css/src/props/basic/image.rs",
 ]
 design_docs = [
-  "IMAGE_PIPELINE_ANALYSIS.md",
-  "ICON_SYSTEM_ANALYSIS.md",
 ]
 notes = "Images: raster (resource handle, decoding), svg (paths, drawing), canvas-gl (custom GPU drawing via GlTexture). Design docs cover the unified DOM/CSS/inline/icon pipeline and the pack→icon resolution model."
 
@@ -397,8 +394,7 @@ tracked_files = [
 ]
 tracked_globs = ["dll/src/desktop/shell2/*/event*.rs"]
 design_docs = [
-  "EVENT_ARCHITECTURE_ANALYSIS.md",
-  "click_event_analysis.md",
+  "ideas/events/EVENT_ARCHITECTURE_ANALYSIS.md",
 ]
 notes = "Events from mouse/keyboard/focus/default-actions. Design docs cover the W3C-compliant state-diffing event model and the click-event filter mismatch story."
 
@@ -424,8 +420,7 @@ tracked_files = [
   "layout/src/widgets/text_input.rs",
 ]
 design_docs = [
-  "TEXT_INPUT_ARCHITECTURE_V4.md",
-  "TEXT_SELECTION_ARCHITECTURE.md",
+  "ideas/text/TEXT_SELECTION_ARCHITECTURE.md",
   "SCROLL_CURSOR_TEXT_INPUT_ARCHITECTURE.md",
 ]
 notes = "Foundational text-editing layer between events and widgets. text-input covers the dual-path (Full DOM vs Incremental Display List) contenteditable architecture. text-selection covers the W3C Selection model — range-based, multi-node — that ranges over arbitrary DOM, not just inside a text-input widget. These are prerequisite for understanding the widgets/inputs page later in the tree."
@@ -461,8 +456,8 @@ tracked_files = [
   "layout/src/hit_test.rs",
 ]
 design_docs = [
-  "SCROLL_ARCHITECTURE.md",
-  "DRAG_DROP_REPORT.md",
+  "ideas/layout-css/SCROLL_ARCHITECTURE.md",
+  "ideas/events/DRAG_DROP_REPORT.md",
 ]
 notes = "Frame-driven Timer + animation runtime + scroll-and-drag user-side. Design docs cover scroll-clip vs content size (viewport-free design, virtualized IFrame scrolling) and the three-part drag architecture (visual feedback, drop-zone filtering, CSS pseudo-classes)."
 
@@ -561,7 +556,6 @@ tracked_files = [
 ]
 design_docs = [
   "DEBUG_API.md",
-  "INTERACTION_MATRIX.md",
 ]
 notes = "Three tooling pages: AZ_DEBUG flags + debug overlay, memory profiling (heap/RefAny live counts, leak hunting), e2e testing harness (drive a built app via screenshots / web target with curl). DEBUG_API.md covers the HTTP/JSON remote-control surface; INTERACTION_MATRIX.md is the 8-cell headless × debug × e2e capability matrix."
 

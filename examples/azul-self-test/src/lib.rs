@@ -1,6 +1,6 @@
 //! azul-self-test — unattended platform-API smoke test.
 //!
-//! See `scripts/PLATFORM_DEBUG_PLAN.md` (Phase 3). The binary runs a fixed probe
+//! The binary runs a fixed probe
 //! sequence over the *public* `azul::` API, prints human-readable progress to
 //! stdout, mirrors a structured trace to a log file (and, because it installs a
 //! `log` logger, captures azul's own `plog_*!` platform-layer traces too — that

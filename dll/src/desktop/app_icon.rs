@@ -6,8 +6,7 @@
 //!
 //! # What "app icon" means per platform, and what it does NOT mean
 //!
-//! Full detail in `scripts/APP_AND_WINDOW_ICON_RESEARCH_2026_08_24.md`. The
-//! parts that shape this API:
+//! The parts that shape this API:
 //!
 //! * **The Windows EXE icon cannot be changed at runtime.** `BeginUpdateResource`
 //!   documents that the target "cannot be currently executing", and rewriting

@@ -3088,7 +3088,7 @@ pub trait PlatformWindow {
     /// Without it the engine relayouts at the new size while the platform
     /// surface keeps the old one, and the compositor is handed undersized
     /// content for an oversized window: blank where the buffer does not reach.
-    /// That was a real bug (§30 of scripts/RSS_MAP_2026_08_07.md) and it only
+    /// That was a real bug, and it only
     /// showed up on the programmatic path, because the mouse path never comes
     /// through here.
     ///

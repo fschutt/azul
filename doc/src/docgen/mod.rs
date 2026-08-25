@@ -159,7 +159,7 @@ const FRONTPAGE_LANGUAGES: &[&str] = &[
     "python", "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
     // Promoted 2026-07-04: hello-world counter e2e green on the matrix
     // (scripts/e2e_language_matrix.sh), install steps verified truthful,
-    // guide pages present. See scripts/BINDINGS_REVIEW_2026_07_04.md.
+    // guide pages present..
     "zig", "go", "pascal", "scala", "fortran", "haskell",
     // Promoted 2026-07-06: counter e2e green on the merged dll (perl/lisp
     // host-invoker; php via the ext-php-rs native extension). Truthful

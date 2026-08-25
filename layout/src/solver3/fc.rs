@@ -132,8 +132,8 @@ impl OverflowBehavior {
     }
 }
 
-/// K30b: the fragmentainer the current layout call is filling (design:
-/// `scripts/BREAK_TOKENS_DESIGN.md` §4.3). `None` = continuous media — every
+/// The fragmentainer the current layout call is filling.
+/// `None` = continuous media — every
 /// existing path passes `None` and behaves bit-for-bit as before.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FragmentainerSpace<'a> {

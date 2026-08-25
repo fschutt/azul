@@ -556,7 +556,7 @@ impl Wayland {
 // real exported wl_proxy_marshal* with the correct opcode + interface (the old
 // fields dropped both -> the backend was dead at startup). A global ctx holds
 // the marshaller + interface pointers (valid for the app-lifetime Wayland Rc,
-// which owns _lib_client). See scripts/WACOM_TOUCH_API_RESEARCH.md.
+// which owns _lib_client)..
 struct WlMarshalCtx {
     marshal: *const c_void,
     /// `wl_proxy_destroy`. Required by every `*_destroy_impl` below: a destroy

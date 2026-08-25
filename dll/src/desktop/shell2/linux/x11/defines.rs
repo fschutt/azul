@@ -688,7 +688,7 @@ pub type XEventsQueued = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 pub const QueuedAlready: c_int = 0;
 pub type XNextEvent = unsafe extern "C" fn(*mut Display, *mut XEvent) -> c_int;
 
-// ===== XInput2 (XI2) — touch + pen/tablet. ABI per scripts/WACOM_TOUCH_API_RESEARCH.md =====
+// ===== XInput2 (XI2) — touch + pen/tablet. ABI per scripts/ideas/platform/WACOM_TOUCH_API_RESEARCH.md =====
 pub const GenericEvent: c_int = 35;
 pub const XI_ButtonPress: c_int = 4;
 pub const XI_ButtonRelease: c_int = 5;

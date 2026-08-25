@@ -2002,8 +2002,8 @@ mod autotest_generated {
 // ---------------------------------------------------------------------------
 // RSS CENSUS — the mapping-level breakdown, in-process.
 //
-// This reproduces what scripts/RSS_MAP_2026_08_07.md established by reading
-// /proc/<pid>/smaps by hand: where the process's resident memory actually is,
+// This reproduces in-process what reading /proc/<pid>/smaps by hand shows:
+// where the process's resident memory actually is,
 // as opposed to what the engine's own object walk can see. The two answer
 // different questions and the gap between them IS the finding — the engine
 // walks its caches and reaches ~33% of RSS; the rest is framebuffers, fonts,
@@ -2250,8 +2250,8 @@ impl AllocatorStats {
 /// released anything, `Some(false)` if it had nothing to release, `None` if
 /// `malloc_trim` is unavailable (musl, macOS, older glibc).
 ///
-/// WHY THIS EXISTS. §26 of `scripts/RSS_MAP_2026_08_07.md` established that a
-/// window resize costs ~+62 MB of transient PEAK and only ~+2.6 MB of
+/// WHY THIS EXISTS. A window resize was measured at ~+62 MB of transient
+/// PEAK and only ~+2.6 MB of
 /// RETAINED memory — the RSS that stays behind is glibc's arena holding pages
 /// it no longer needs, not objects anyone owns. Nothing that reduces retained
 /// bytes can move it; returning the pages is the only lever that acts on it

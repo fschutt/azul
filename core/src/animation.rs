@@ -1,9 +1,6 @@
 //! DOM-morph animation: interpolation core, FLIP geometry, and the keyed
 //! animation store.
 //!
-//! This is the home `scripts/ANIMATION_SHADER_DESIGN.md` calls for and that
-//! `scripts/ARCHITECTURE.md` has referenced for a while without it existing.
-//!
 //! # The model
 //!
 //! Animation here is **not** a new scheduler. It compiles down to keyed timer

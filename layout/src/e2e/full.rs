@@ -6270,8 +6270,8 @@ fn eval_assert_resource_counts(
 
 // ==================== Manager / composition / damage-soundness assertions ====
 
-// The four assertions `scripts/E2E_PLAN.md` designed (§(c), §(g1), §(g2), §(g3))
-// and that nothing implemented until now. They read manager state off
+// Four assertions over manager, composition and damage soundness. They read
+// manager state off
 // `LayoutWindow` through `CallbackInfo::get_layout_window()` — the same seam
 // every other assertion in this file uses — plus, for `assert_composition`, a
 // per-step sample recorded by the step loop in `resume_e2e_continuation`.

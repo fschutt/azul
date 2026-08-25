@@ -31,7 +31,7 @@
 //! full single-node cascade whose output is then thrown away by the host's
 //! own cascade recompute. ~66 ribbon icons × 373 regenerations ≈ 24 600
 //! throwaway cascades per drag, all yielding bit-identical results
-//! (scripts/RSS_MAP_2026_08_07.md §36c).
+//!.
 //!
 //! The cache stores the resolver's output DECONSTRUCTED into exactly the
 //! fields the replacement consumes (node type, inline style, accessibility,

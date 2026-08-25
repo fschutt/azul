@@ -1,9 +1,8 @@
 //! Hydration payload: single postcard envelope containing everything
 //! the wasm client needs to reconstruct the App at bootstrap.
 //!
-//! Per `scripts/M8_7_HYDRATION_PLAN_2026_05_16.md` addendum 2 (user
-//! direction): server serializes the entire `HeadlessApp` via
-//! postcard, embeds the bytes as base64 in
+//! The server serializes the entire `HeadlessApp` via postcard and
+//! embeds the bytes as base64 in
 //! `<script id="az-state" type="application/octet-stream">`, the
 //! wasm `AzStartup_init` postcard-deserializes to reconstruct.
 //!

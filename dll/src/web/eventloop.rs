@@ -1,12 +1,10 @@
 //! Eventloop / HeadlessWindow-simulator surface.
 //!
-//! Defines the `AzStartup_*` C-ABI functions that get lifted via the
-//! M5-M7 remill pipeline into `azul-mini.wasm` at server startup.
-//! The lifted module is what JS calls to drive the browser-side
-//! event loop. See `scripts/M8_ARCHITECTURE_2026_05_19.md` and the
-//! M8.4b reset captured in `memory/m8_4_lift_runtime_gap_2026_05_16.md`.
+//! Defines the `AzStartup_*` C-ABI functions that the remill pipeline
+//! lifts into `azul-mini.wasm` at server startup. The lifted module is
+//! what JS calls to drive the browser-side event loop.
 //!
-//! # Model (M8.4b reset, per user correction 2026-05-16)
+//! # Model
 //!
 //! `AzStartup_init` creates the global App in WASM (RefAny +
 //! current StyledDom + layout-callback fn-ptr). Native equivalent:
@@ -2070,8 +2068,8 @@ pub unsafe extern "C" fn AzStartup_getPositionedRectsPtr(state: u32) -> u32 {
 //   payload_len: u32 LE
 //   payload: [u8; payload_len]
 //
-// Per-kind payload layout matches the spec at
-// scripts/M9_WASM_DOM_HANDOFF.md § "TLV schema".
+// The per-kind payload layout is the `PATCH_KIND_*` table below; each
+// constant's own comment gives the fields that follow its header.
 
 const TLV_HEADER_BYTES: u32 = 1 + 4 + 4;
 pub const PATCH_KIND_SET_TEXT:         u8 = 1;

@@ -378,8 +378,7 @@ const CE_CSS: &str = r#"
 /// This is the number the interactive budget is actually spent against,
 /// and it is NOT what `frame_perf.rs` measures: that harness rebuilds the
 /// DOM every frame (parse + cascade + full solver3), which is
-/// `Update::RefreshDom` — the path a text edit must never take. See
-/// `scripts/TEXT_INPUT_ARCHITECTURE_V4.md`.
+/// `Update::RefreshDom` — the path a text edit must never take.
 ///
 /// Here the edit goes through `record_text_input` + `apply_text_changeset`,
 /// which reuse the existing layout tree and the cached inline layout: no

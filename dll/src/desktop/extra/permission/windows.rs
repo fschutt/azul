@@ -19,8 +19,8 @@
 //!
 //! The WinRT `AppCapability.CheckAccessAsync` path (needed for PACKAGED
 //! apps whose per-app grants live outside the global store) requires
-//! hand-rolled combase activation + IAsyncOperation completion vtables —
-//! recorded as a FOLLOW-UP in scripts/MANAGER_FIX_PROGRESS.md.
+//! hand-rolled combase activation + IAsyncOperation completion vtables,
+//! which are not implemented here.
 //!
 //! Mapping: "Allow" → Granted{Full}; "Deny" → Denied; HKLM "Deny" →
 //! Restricted; missing/other → NotDetermined.

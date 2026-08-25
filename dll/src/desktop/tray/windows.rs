@@ -1,9 +1,7 @@
 //! Windows system tray — `Shell_NotifyIconW`. **NOT IMPLEMENTED YET.**
 //!
 //! This stub exists so the branch cross-compiles while the backend is written;
-//! it reports the tray as unavailable rather than pretending to work. See
-//! `scripts/MULTIMONITOR_AND_TRAY_RESEARCH_2026_08_24.md` §2.2 and
-//! `scripts/APP_AND_WINDOW_ICON_RESEARCH_2026_08_24.md` §2 for the full recipe.
+//! it reports the tray as unavailable rather than pretending to work.
 //!
 //! # What this needs, in order
 //!

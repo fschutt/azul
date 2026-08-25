@@ -4832,7 +4832,7 @@ impl LayoutWindow {
                     eprintln!("[MEM] the object walk reaches {:.1}% of RSS ({} of {} KiB).",
                         100.0 * walked_kib as f64 / m.total_kib as f64, walked_kib, m.total_kib);
                     eprintln!("[MEM] The remainder is NOT missing — it is the categories above that");
-                    eprintln!("[MEM] the engine does not own. See scripts/RSS_MAP_2026_08_07.md.");
+                    eprintln!("[MEM] the engine does not own..");
                 }
                 // ALLOCATOR. The census above says where RSS is; it cannot say
                 // how much of `[heap]` is live data versus memory the program
@@ -5169,9 +5169,9 @@ impl LayoutWindow {
         // RETURN THE PAGES A RELAYOUT BORROWED.
         //
         // A relayout allocates a large transient working set and frees it
-        // again; glibc keeps the arena expanded afterwards. §26 of
-        // scripts/RSS_MAP_2026_08_07.md measured a resize at +62 MB of PEAK
-        // against +2.6 MB of RETAINED, so the RSS left behind is arena, not
+        // again; glibc keeps the arena expanded afterwards. A resize was
+        // measured at +62 MB of PEAK against +2.6 MB of RETAINED, so the
+        // RSS left behind is arena, not
         // objects — and nothing that shrinks retained data can move it.
         //
         // OPT-IN, and deliberately so. `malloc_trim` walks the free lists and

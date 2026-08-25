@@ -10,8 +10,6 @@
 //! `WindowCreateOptions` left in `pending_window_creates` — which this test
 //! then turns into a SECOND headless window, exactly as `run.rs` would.
 //!
-//! This is the stop-point for steps 2–4 of
-//! `scripts/TRANSIENT_WINDOW_PLAN_2026_08_22.md`.
 
 use std::{
     cell::RefCell,

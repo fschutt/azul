@@ -1062,7 +1062,7 @@ fn the_rss_cross_check_sees_what_malloc_accounting_cannot() {
     // So on macOS both instruments fail, and this suite runs on macOS ONLY.
     // The real fix is to give the heap instrument macOS-correct semantics
     // instead of comparing zone capacity against RSS; until then this must not
-    // decide whether a release ships. See scripts/SITE_AND_EXAMPLES_PLAN_2026_08_20.md.
+    // decide whether a release ships..
     if m.rss_first_steady_per_iter < floor {
         eprintln!(
             "::warning::[leak_regression] RSS CANNOT CALIBRATE on this machine: a \

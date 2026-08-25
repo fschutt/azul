@@ -1,5 +1,6 @@
 //! Permission manager — the cross-platform piece of the "permission-as-DOM"
-//! architecture (`SUPER_PLAN_2.md` §1.5 and `scripts/research/08_permission_dom_nodes.md`).
+//! architecture: a capability is requested by putting an invisible probe node
+//! in the DOM, and revoked by removing it.
 //!
 //! Stores per-capability state + a refcount keyed on bearing DOM nodes. Three
 //! callers drive it:

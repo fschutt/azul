@@ -1,7 +1,6 @@
 //! Break tokens — the value-type "resume here" state for true fragmentation.
 //!
-//! Design: `scripts/BREAK_TOKENS_DESIGN.md` (K30a). The layout contract is
-//! LayoutNG-shaped and PURE:
+//! The layout contract is LayoutNG-shaped and PURE:
 //!
 //! ```text
 //! (node, constraint_space { remaining_extent }, break_token?) -> (fragment, break_token?)

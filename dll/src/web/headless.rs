@@ -4,8 +4,7 @@
 //! bits needed for client-side dispatch (the lifted layout-cb's
 //! symbol name + hash for URL composition).
 //!
-//! Per `scripts/M8_7_HYDRATION_PLAN_2026_05_16.md`, this is the
-//! source-of-truth that gets serialized to JSON + embedded in the
+//! This is the source of truth that is serialized and embedded in the
 //! HTML head for the wasm client to deserialize at bootstrap.
 
 use std::sync::Arc;

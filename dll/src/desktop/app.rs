@@ -218,7 +218,7 @@ impl App {
     ///   (`BeginUpdateResource` requires the target not be executing, and
     ///   rewriting resources invalidates Authenticode).
     ///
-    /// See `scripts/APP_AND_WINDOW_ICON_RESEARCH_2026_08_24.md`.
+    ///.
     pub fn set_app_icon(&mut self, spec: azul_css::AzString) {
         self.ptr.app_icon = Some(spec);
     }

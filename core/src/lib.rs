@@ -274,7 +274,7 @@ pub mod host_invoker;
 /// DOM-morph animation.
 ///
 /// Interpolation core (springs + easing), FLIP geometry, and the keyed
-/// store of in-flight animations. See `scripts/ANIMATION_SHADER_DESIGN.md`.
+/// store of in-flight animations..
 pub mod animation;
 pub mod a11y;
 /// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved

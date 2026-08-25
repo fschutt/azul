@@ -25,8 +25,7 @@
 //! transient window owns a SURFACE but renders a subtree of the PARENT's DOM:
 //! one tree, one event loop, one dismiss implementation.
 //!
-//! See `scripts/TRANSIENT_WINDOW_PLAN_2026_08_22.md` for the full design,
-//! including tear-off and window shapes, which build on this.
+//! Tear-off and window shapes build on this.
 
 use alloc::vec::Vec;
 

@@ -610,7 +610,6 @@ fn emit_instance_method(
     // LuaJIT has no runtime lock, so a Lua fn invoked from a libazul
     // worker thread corrupts the VM. Applies to instance methods like
     // MapWidget:dom_with_fetch / VideoWidget:dom_with_decoder.
-    // scripts/BINDING_STRATEGY_PER_LANGUAGE.md:264.
     let takes_thread_callback = func.args.iter().any(|a| {
         a.callback_info
             .as_ref()
@@ -1090,9 +1089,8 @@ fn emit_static_method(
 
     // ThreadCallback guard: LuaJIT is a single-threaded VM with no
     // runtime lock — libazul would invoke a Lua ThreadCallback on a
-    // worker thread and corrupt the VM. Per
-    // scripts/BINDING_STRATEGY_PER_LANGUAGE.md:264, ThreadCallback
-    // host-code is NOT supported from Lua; only the writeback pattern
+    // worker thread and corrupt the VM. ThreadCallback host-code is
+    // NOT supported from Lua; only the writeback pattern
     // is (the WriteBackCallback runs on the main thread). Emit a
     // hard error instead of a VM-corrupting registration.
     let takes_thread_callback = func.args.iter().any(|a| {

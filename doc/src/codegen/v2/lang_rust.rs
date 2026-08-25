@@ -3624,12 +3624,13 @@ impl RustGenerator {
                 | FunctionKind::MethodMut
         );
 
-        // M2.5 pair-pattern detection: every function with a
-        // callback-wrapper arg (per `HOST_INVOKER_KINDS`) emits two
-        // C-ABI variants — raw `_setOnX(fn_ptr)` and
-        // `_setOnXWithCtx(fn_ptr, refany)`. See
-        // `scripts/WEB_BACKEND_PLAN_2026_05_18.md` M2.5 for the design
-        // and `managed_host_invoker::is_callback_wrapper`.
+        // Pair-pattern detection: every function with a callback-wrapper
+        // arg (per `HOST_INVOKER_KINDS`) emits two C-ABI variants — the raw
+        // `_setOnX(fn_ptr)` and `_setOnXWithCtx(fn_ptr, refany)`. The pair
+        // exists because a host VM cannot hand out a bare fn pointer that
+        // closes over its own state: the `WithCtx` form carries the state as
+        // a `RefAny` the invoker passes back. See
+        // `managed_host_invoker::is_callback_wrapper`.
         let emit_pair = should_substitute_callbacks && Self::has_callback_wrapper_arg(func);
 
         let return_str = func

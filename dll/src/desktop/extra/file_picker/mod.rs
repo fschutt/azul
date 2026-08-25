@@ -2,8 +2,7 @@
 //!
 //! Desktop builds keep using the existing `tfd`-backed synchronous API in
 //! `layout/src/desktop/dialogs.rs::FileDialog`. Mobile builds need the
-//! async pattern described in `scripts/research/04_system_integration.md`
-//! §1.7 Option B — the OS picker is sheet-modal on iOS / intent-result on
+//! async pattern below — the OS picker is sheet-modal on iOS / intent-result on
 //! Android, and blocking the UI thread waiting for a delegate callback
 //! deadlocks the entire app.
 //!

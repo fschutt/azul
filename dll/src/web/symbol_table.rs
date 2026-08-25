@@ -23,7 +23,7 @@
 //! Mach-O / ELF metadata. Every lift consumer reads from it rather
 //! than rederiving.
 //!
-//! # Contract (per `scripts/M8.8_NEW_SESSION_PROMPT.md`)
+//! # Contract
 //!
 //! - `lookup(addr) -> Option<&SymbolEntry>`: returns the entry FOR
 //!   THE GIVEN ADDRESS without chasing PLT stubs. The entry's `kind`
@@ -638,9 +638,11 @@ impl SymbolTable {
             tlv_regions,
         };
 
-        // M9-review: assign per-image synthetic bases so lifted code
-        // uses wasm-friendly addresses for `adrp+ldr` page targets.
-        // See `M9_REVIEW_AND_OPTION_A.md` for the rationale.
+        // Assign per-image synthetic bases so lifted code uses
+        // wasm-friendly addresses for `adrp+ldr` page targets. A real
+        // image base is 200+ MiB, and the lift bakes those in as
+        // constants — which would force a wasm memory sized to match
+        // the address rather than to the actual image.
         table.assign_synthetic_addresses();
 
         Ok(table)
@@ -1264,8 +1266,8 @@ fn is_system_image(path: &std::path::Path) -> bool {
 // in the .pdb next to the image (or at the absolute path embedded in
 // the PE debug directory). Names are LOAD-BEARING for the classifier:
 // an unnamed internal fn falls to the default classification and the
-// whole A1 "Leaf-stub garbage" class comes back (see
-// scripts/WEB_LIFT_BUG_COMPENDIUM.md). So a missing PDB degrades to
+// whole A1 "Leaf-stub garbage" class comes back. So a missing PDB
+// degrades to
 // exports-only ingestion with a LOUD warning.
 //
 // Import calls on Windows go through the IAT: either a direct

@@ -6915,7 +6915,7 @@ mod tests {
 /// Build an `HICON` from straight-alpha RGBA8, or `None` if GDI refuses.
 ///
 /// Three traps, each of which silently produces a wrong icon rather than an
-/// error (see `scripts/APP_AND_WINDOW_ICON_RESEARCH_2026_08_24.md`):
+/// error:
 ///
 /// 1. **`CreateIconIndirect` wants STRAIGHT alpha**, unlike `AlphaBlend` /
 ///    `UpdateLayeredWindow` which want premultiplied. Feeding it premultiplied

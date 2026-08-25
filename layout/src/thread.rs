@@ -438,8 +438,8 @@ impl core::hash::Hash for ThreadCallback {
 //     (single-threaded interpreter) — fall back to writeback-only
 //     pattern (Rust extern "C" cb on worker, host fn on main via
 //     WriteBackCallback).
-// See `scripts/BINDING_STRATEGY_PER_LANGUAGE.md` for the lock-acquire
-// table per VM.
+// Each VM has its own lock-acquire call: PyGILState_Ensure,
+// rb_thread_call_with_gvl, AttachCurrentThread, and so on.
 azul_core::impl_managed_callback! {
     wrapper:        ThreadCallback,
     info_ty:        ThreadSender,

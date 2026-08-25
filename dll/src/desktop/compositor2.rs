@@ -75,7 +75,7 @@ fn scale_bounds_to_layout_rect(bounds: &azul_core::geom::LogicalRect, dpi: f32) 
 /// This combines DPI scaling **and** scroll-frame offset subtraction so that
 /// callers cannot accidentally forget one of the two conversion steps.
 ///
-/// See `scripts/SCROLL_COORDINATE_ARCHITECTURE.md` for design rationale.
+///.
 #[inline]
 fn resolve_rect(
     bounds: &azul_layout::solver3::display_list::WindowLogicalRect,

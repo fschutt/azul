@@ -1240,7 +1240,7 @@ pub fn get_text_input_manager_v3_interface() -> &'static wl_interface {
 // libwayland does NOT export the tablet interfaces, so we build them at runtime
 // (Box::leak, like the text-input builders). All v2. Only new_id ('n') EVENT
 // types are non-NULL (libwayland creates the proxy); 'o'/primitive -> NULL.
-// Data per scripts/WACOM_TOUCH_API_RESEARCH.md. See WACOM research for opcodes.
+// Data per scripts/ideas/platform/WACOM_TOUCH_API_RESEARCH.md. See WACOM research for opcodes.
 #[repr(C)]
 pub struct zwp_tablet_manager_v2 {
     _private: [u8; 0],

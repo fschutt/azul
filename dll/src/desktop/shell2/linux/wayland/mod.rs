@@ -32,7 +32,7 @@ use crate::impl_platform_window_getters;
 // the client mid-run. `poll_event`'s dead-connection detector was present and
 // correct, and printed nothing at all, because its `log_warn!` had been compiled
 // out. The run produced `Error sending request: Broken pipe` from libwayland and
-// no azul diagnosis whatsoever. See scripts/RSS_MAP_2026_08_07.md §34/§36.
+// no azul diagnosis whatsoever..
 //
 // So the OS-level trace uses `eprintln!` and a RUNTIME switch. A diagnostic that
 // a build flag can silently delete is not a diagnostic.

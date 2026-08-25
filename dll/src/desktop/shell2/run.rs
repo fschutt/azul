@@ -280,8 +280,7 @@ fn setup_e2e_runner(test_file: &str) {
             // a panic in the event loop) — and it returns IMMEDIATELY. Folding
             // it into `Err(_)` printed "E2E test timeout (600 s)" the instant
             // the compositor disconnected us, which reads as "the harness hung
-            // for ten minutes" when nothing waited at all. That false message
-            // is on record as a finding in scripts/RSS_MAP_2026_08_07.md §34.
+            // for ten minutes" when nothing waited at all.
             let response = match rx.recv_timeout(std::time::Duration::from_secs(600)) {
                 Ok(r) => r,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {

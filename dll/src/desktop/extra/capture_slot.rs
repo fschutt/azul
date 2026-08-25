@@ -4,7 +4,7 @@
 //! frames.
 //!
 //! THE CLASS this exists for — "six full-resolution passes per frame"
-//! (scripts/BUGS_2026_08_22_azmeet_capture_cpu.md): each backend's callback
+//!: each backend's callback
 //! used to `vec![0u8; w * h * 4]` on EVERY frame (8 MB of freshly zeroed
 //! pages at 1080p, freed again when the next frame replaced it), swizzle it
 //! with a scalar bounds-checked per-pixel loop, and the worker's `read()`

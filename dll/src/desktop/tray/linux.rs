@@ -5,8 +5,8 @@
 //! It reports the tray as unavailable rather than pretending to work — which,
 //! on this platform, is also frequently the TRUE answer (see below).
 //!
-//! Full recipe: `scripts/MULTIMONITOR_AND_TRAY_RESEARCH_2026_08_24.md` §2.2
-//! (Linux section) and §2.1 for what in `linux/dbus/` is reusable.
+//! The DBus plumbing in `linux/dbus/` is reusable for the StatusNotifierItem
+//! implementation this needs.
 //!
 //! # The thing to know before starting
 //!
