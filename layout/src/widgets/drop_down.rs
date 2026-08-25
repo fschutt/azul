@@ -271,7 +271,7 @@ impl DropDown {
         }
     }
 
-    /// Selects the choice at `index` — what the trigger DISPLAYS.
+    /// Selects the choice at `index` - what the trigger DISPLAYS.
     ///
     /// A drop-down is rebuilt from the host's state on every layout, so the
     /// host must write the index its `on_choice_change` callback was handed
