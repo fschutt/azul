@@ -30,6 +30,8 @@ use azul::dom::{
     TextAreaOnFocusLostCallback, TimePickerOnChangeCallback, ToastOnDismissCallback,
 };
 
+// `WindowDecorations` lives in `azul::css`, not `azul::window`.
+use azul::css::WindowDecorations;
 use azul::menu::{Menu, MenuItem, StringMenuItem};
 use azul::misc::{TransientDock, TransientTearoff};
 use azul::window::TransientWindowConfig;
@@ -67,6 +69,17 @@ struct Showcase {
     /// The tab the dragged tab is currently over (the insertion point). Drives
     /// the drop indicator. `usize::MAX` = none.
     drag_over: usize,
+    /// The DatePicker's selected date. A widget is rebuilt from THIS on every
+    /// layout, so a picker whose date is not stored here resets to its literal
+    /// on the next `RefreshDom` — which is why the pickers looked "dead".
+    date: DatePickerState,
+    /// The TimePicker's selected time (same reason).
+    time: TimePickerState,
+    /// The ComboBox's current text (same reason).
+    combo_text: azul::str::String,
+    /// Which accordion sections are expanded (same reason — a section whose
+    /// flag is not stored here snaps back to its literal on the next rebuild).
+    accordion_open: Vec<bool>,
 }
 
 const CHOICES: &[&str] = &["Red", "Green", "Blue"];
@@ -531,6 +544,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             labelled(
                 "DropDown",
                 DropDown::create(strs(CHOICES))
+                    // The widget is rebuilt from this state every layout, so the
+                    // index the callback stored has to come back in — without
+                    // this the trigger always showed CHOICES[0].
+                    .with_selected(s.selected_choice)
                     .with_on_choice_change(data.clone(), on_dropdown)
                     .dom(),
             ),
@@ -713,12 +730,12 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     AccordionSection {
                         title: "What is Azul?".into(),
                         content: Dom::create_div_with_text("A cross-platform Rust GUI framework."),
-                        is_open: true,
+                        is_open: s.accordion_open.first().copied().unwrap_or(true),
                     },
                     AccordionSection {
                         title: "How do widgets work?".into(),
                         content: Dom::create_div_with_text("Each widget builds a styled Dom."),
-                        is_open: false,
+                        is_open: s.accordion_open.get(1).copied().unwrap_or(false),
                     },
                 ])
                 .with_on_toggle(
@@ -772,7 +789,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         vec![
             labelled(
                 "DatePicker",
-                DatePicker::create(2026, 6, 23)
+                DatePicker::create(s.date.year, s.date.month, s.date.day)
                     .with_on_change(
                         data.clone(),
                         DatePickerOnChangeCallback { cb: on_datepicker, callable: OptionRefAny::None },
@@ -781,8 +798,9 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             ),
             labelled(
                 "TimePicker (24h)",
-                TimePicker::create(14, 30)
-                    .with_24h(true)
+                TimePicker::create(s.time.hour, s.time.minute)
+                    .with_24h(s.time.is_24h)
+                    .with_pm(s.time.is_pm)
                     .with_on_change(
                         data.clone(),
                         TimePickerOnChangeCallback { cb: on_timepicker, callable: OptionRefAny::None },
@@ -800,15 +818,60 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     )
     .with_css("font-size: 13px; color: #667085; margin-bottom: 20px;");
 
+    // ── Custom (fake) titlebar ──────────────────────────────────────────
+    //
+    // The window is created with `WindowDecorations::NoTitle`, so macOS keeps
+    // the traffic lights but hides the title text and extends the content to
+    // the very top edge. This strip is the replacement title bar, drawn from
+    // the DOM like any other widget.
+    //
+    // `-azul-app-region: drag` is what makes it behave like a real title bar:
+    // the framework turns a DragStart on such a node into a native interactive
+    // move (macOS `performWindowDragWithEvent:`) and a double-click into
+    // maximize/restore — no callbacks involved. Interactive children opt out
+    // with `-azul-app-region: no-drag`, which stops the ancestor walk.
+    //
+    // `padding-left` reserves the traffic-light strip (close/min/max sit at the
+    // window's top-left on macOS); without it the buttons would sit on top of
+    // the title text.
+    let titlebar = Dom::create_div()
+        .with_css(
+            "height: 38px; flex-grow: 0; flex-shrink: 0; display: flex; \
+             flex-direction: row; align-items: center; padding-left: 82px; \
+             padding-right: 12px; background-color: #ffffff; \
+             border-bottom: 1px solid #e4e7ec; cursor: grab; \
+             user-select: none; -azul-app-region: drag;",
+        )
+        .with_child(
+            Dom::create_div_with_text("Azul Widget Showcase").with_css(
+                "font-size: 13px; font-weight: bold; color: #101828; flex-grow: 1;",
+            ),
+        )
+        // A control inside the bar must NOT drag the window.
+        .with_child(
+            Dom::create_div_with_text("custom titlebar")
+                .with_css("font-size: 11px; color: #98a2b3; -azul-app-region: no-drag;"),
+        );
+
     // ── Scrollable column ───────────────────────────────────────────────
+    //
+    // The body is a flex COLUMN so the title bar takes its 38px and the scroll
+    // area takes the rest. The column used to be `height: 100%`, which — with a
+    // bar above it — would push its bottom off-screen; `flex-grow: 1` plus
+    // `min-height: 0` (so a flex item may shrink below its content size and
+    // actually scroll) is the correct pair.
     Dom::create_body()
         .with_menu_bar(menu_bar(&data))
-        .with_css("font-family: sans-serif; background-color: #f2f4f7;")
+        .with_css(
+            "font-family: sans-serif; background-color: #f2f4f7; \
+             display: flex; flex-direction: column; height: 100%;",
+        )
+        .with_child(titlebar)
         .with_child(
             Dom::create_div()
                 .with_css(
                     "display: flex; flex-direction: column; overflow-y: auto; \
-                     height: 100%; padding: 24px;",
+                     flex-grow: 1; min-height: 0; padding: 24px;",
                 )
                 .with_child(heading)
                 .with_child(subtitle)
@@ -916,7 +979,10 @@ extern "C" fn on_radio(mut data: RefAny, _: CallbackInfo, state: RadioGroupState
 extern "C" fn on_textarea_focus_lost(mut data: RefAny, _: CallbackInfo, _: TextAreaState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_combobox(mut data: RefAny, _: CallbackInfo, _: ComboBoxState) -> Update {
+extern "C" fn on_combobox(mut data: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.combo_text = state.text;
+    }
     bump(&mut data)
 }
 extern "C" fn on_chip_remove(mut data: RefAny, _: CallbackInfo, _: ChipState) -> Update {
@@ -931,7 +997,12 @@ extern "C" fn on_toast_dismiss(mut data: RefAny, _: CallbackInfo, _: ToastState)
 extern "C" fn on_modal_close(mut data: RefAny, _: CallbackInfo, _: ModalState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_accordion(mut data: RefAny, _: CallbackInfo, _: usize) -> Update {
+extern "C" fn on_accordion(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        if let Some(flag) = s.accordion_open.get_mut(index) {
+            *flag = !*flag;
+        }
+    }
     bump(&mut data)
 }
 extern "C" fn on_breadcrumb(mut data: RefAny, _: CallbackInfo, _: BreadcrumbState) -> Update {
@@ -955,10 +1026,16 @@ extern "C" fn on_popover(mut data: RefAny, _: CallbackInfo, _: PopoverState) -> 
 extern "C" fn on_splitpane(mut data: RefAny, _: CallbackInfo, _: SplitPaneState) -> Update {
     bump(&mut data)
 }
-extern "C" fn on_datepicker(mut data: RefAny, _: CallbackInfo, _: DatePickerState) -> Update {
+extern "C" fn on_datepicker(mut data: RefAny, _: CallbackInfo, state: DatePickerState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.date = state;
+    }
     bump(&mut data)
 }
-extern "C" fn on_timepicker(mut data: RefAny, _: CallbackInfo, _: TimePickerState) -> Update {
+extern "C" fn on_timepicker(mut data: RefAny, _: CallbackInfo, state: TimePickerState) -> Update {
+    if let Some(mut s) = data.downcast_mut::<Showcase>() {
+        s.time = state;
+    }
     bump(&mut data)
 }
 
@@ -985,10 +1062,21 @@ pub fn start() {
         active_tab: 0,
         drag_tab: usize::MAX,
         drag_over: usize::MAX,
+        date: DatePickerState { year: 2026, month: 6, day: 23 },
+        time: TimePickerState { hour: 14, minute: 30, is_pm: false, is_24h: true },
+        combo_text: "".into(),
+        accordion_open: vec![true, false],
     });
     let config = AppConfig::create();
     let app = App::create(data, config);
-    let window = WindowCreateOptions::create(layout);
+    let mut window = WindowCreateOptions::create(layout);
+    window.window_state.title = "Azul Widget Showcase".into();
+    // NoTitle: hide the OS title text and extend the content to the top edge,
+    // but KEEP the traffic lights — the demo draws its own title bar (see
+    // `titlebar` in the layout fn). Set at CREATION, never toggled at runtime:
+    // switching decorations on a live macOS window drops the Resizable mask,
+    // which also costs the window its ability to become key.
+    window.window_state.flags.decorations = WindowDecorations::NoTitle;
     app.run(window);
 }
 
