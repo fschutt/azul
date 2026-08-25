@@ -39,7 +39,7 @@ use azul_core::{
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
-    props::{basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize}, layout::{LayoutPosition, LayoutBoxSizing, LayoutFlexGrow, LayoutMinHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutOverflow, LayoutDisplay, LayoutTop, LayoutLeft}, property::{CssProperty, StyleWhiteSpaceValue}, style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleOpacity, StyleCursor, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleTextAlign, StyleWhiteSpace}},
+    props::{basic::{ColorU, StyleFontFamily, StyleFontFamilyVec, StyleFontSize}, layout::{LayoutPosition, LayoutBoxSizing, LayoutFlexGrow, LayoutHeight, LayoutMinHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutOverflow, LayoutDisplay, LayoutTop, LayoutLeft}, property::{CssProperty, StyleWhiteSpaceValue}, style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleOpacity, StyleCursor, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleTextAlign, StyleWhiteSpace}},
     impl_option_inner, AzString, U32Vec, OptionString,
 };
 
@@ -93,6 +93,19 @@ static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        MIN_HEIGHT_PX,
+    ))),
+    // A DEFINITE height, not just a floor. A `<textarea>` in a browser is sized
+    // by its `rows`, never by its content — and that is exactly what makes it
+    // scroll. With `height: auto` the flex path (Taffy, which has no equivalent
+    // of the block path's `skip_expansion` guard in solver3/cache.rs) grew this
+    // box to its max-content height inside an auto-height flex column, so the
+    // text NEVER overflowed: no overflow means no scroll node is registered
+    // (scroll_registration.rs bails on `!needs_vertical && !needs_horizontal`),
+    // and a wheel over the textarea therefore found no scrollable node under
+    // the pointer and chained straight to the page. `flex-grow: 1` above still
+    // lets it stretch inside a definite-height column.
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
         MIN_HEIGHT_PX,
     ))),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
