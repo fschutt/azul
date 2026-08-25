@@ -556,12 +556,68 @@ fn an_assistive_technology_focus_reveals_a_bottom_clipped_caret() {
         now(),
     );
 
+    // The canonical path either queues an AnimateTo glide (a navigation JUMP)
+    // or writes the offset directly (a small FOLLOW, which is this case: the
+    // caret hangs past the bottom by roughly its own height, far less than the
+    // half-container that separates a follow from a jump). Both are the
+    // canonical path; the wrong outcome is neither.
+    let moved = lw
+        .scroll_manager
+        .get_scroll_state(DomId::ROOT_ID, NodeId::new(CLIP))
+        .is_some_and(|s| (s.current_offset.y - (caret.origin.y - 96.0)).abs() > 0.5);
     assert!(
-        lw.scroll_manager.scroll_input_queue.has_pending(),
+        lw.scroll_manager.scroll_input_queue.has_pending() || moved,
         "an assistive-technology focus must reveal the caret exactly the way a \
          keyboard one does: through the canonical session-anchored path, which \
-         pads by 5px, measures the caret's whole box and GLIDES through the \
-         physics queue"
+         pads by 5px and measures the caret's WHOLE box rather than testing its \
+         top-left corner"
+    );
+}
+
+/// A reveal that only has to FOLLOW the caret must land it immediately.
+///
+/// `calculate_instant_scroll_delta` is a minimal reveal — it moves the view
+/// just far enough to clear the 5px padding — so following a caret asks for a
+/// few pixels at a time. Gliding that puts the bounce spring between the caret
+/// and the view: every keystroke pushes the caret out of sight and the field
+/// then animates it back in, which is what "typing past the right edge makes
+/// the text slide around under the cursor" looked like on a real device.
+#[test]
+fn a_small_caret_reveal_follows_immediately_instead_of_gliding() {
+    const CLIP: usize = 1;
+    const EDITOR: usize = 2;
+
+    let mut lw = clipped_editor();
+    let at_end = last_cluster_cursor(&lw, EDITOR);
+    lw.text_edit_manager
+        .initialize_editing(at_end, DomId::ROOT_ID, NodeId::new(EDITOR), 0);
+    let caret = lw
+        .get_focused_cursor_rect()
+        .expect("the caret resolves before the reveal");
+
+    // Clipped by about its own height — a follow, not a jump.
+    let seeded = caret.origin.y - 96.0;
+    seed_scroll(&mut lw, DomId::ROOT_ID, CLIP, 100.0, caret.origin.y + 400.0, seeded);
+
+    assert!(
+        lw.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant),
+        "premise: the caret really is clipped, so the reveal has work to do"
+    );
+
+    assert!(
+        !lw.scroll_manager.scroll_input_queue.has_pending(),
+        "a few-pixel follow must NOT be handed to the AnimateTo spring — that is \
+         the 400ms lag between the caret and the view"
+    );
+    let landed = lw
+        .scroll_manager
+        .get_scroll_state(DomId::ROOT_ID, NodeId::new(CLIP))
+        .expect("the clip has scroll state");
+    assert!(
+        (landed.current_offset.y - seeded).abs() > 0.5,
+        "the follow must move the view NOW, not next frame: {} -> {}",
+        seeded,
+        landed.current_offset.y
     );
 }
 

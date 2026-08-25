@@ -7635,6 +7635,12 @@ impl LayoutWindow {
             );
         }
         let ce_key = self.contenteditable_session_key(pending.dom_id, pending.text_node_id);
+        // Crossing into a different focusable makes the caret JUMP, not glide.
+        let scope = self.find_focusable_ancestor(DomNodeId {
+            dom: pending.dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(pending.text_node_id)),
+        });
+        self.text_edit_manager.enter_focus_scope(scope);
         self.text_edit_manager
             .initialize_editing(cursor, pending.dom_id, pending.text_node_id, ce_key);
         true
@@ -10076,6 +10082,52 @@ impl LayoutWindow {
         None
     }
 
+    /// The nearest FOCUSABLE ancestor of `node_id` (itself included) — the
+    /// caret's "focus scope".
+    ///
+    /// A text field is a focusable container wrapping a contenteditable child,
+    /// so the caret's own node is never the thing that identifies the field.
+    /// Two paragraphs inside ONE editor share a scope; two text inputs do not.
+    /// That is the distinction the caret tween needs: moving within a scope is
+    /// a move worth gliding, and crossing scopes is a jump.
+    ///
+    /// `None` when nothing in the chain is focusable (a plain, non-interactive
+    /// block of text), which compares equal to itself — such carets glide among
+    /// themselves, as they should.
+    pub fn find_focusable_ancestor(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        use azul_core::events::Focusable;
+
+        let layout_result = self.layout_results.get(&node_id.dom)?;
+        let layout_tree = &layout_result.layout_tree;
+        let node_data = layout_result.styled_dom.node_data.as_container();
+
+        let mut current_layout_idx = *layout_tree
+            .dom_to_layout
+            .get(&node_id.node.into_crate_internal()?)?
+            .first()?;
+
+        for _ in 0..SCROLL_ANCESTOR_WALK_LIMIT {
+            if let Some(dom_node_id) =
+                layout_tree.get(current_layout_idx).and_then(|n| n.dom_node_id)
+            {
+                if node_data
+                    .get(dom_node_id)
+                    .is_some_and(azul_core::dom::NodeData::is_focusable)
+                {
+                    return Some(DomNodeId {
+                        dom: node_id.dom,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(dom_node_id)),
+                    });
+                }
+            }
+
+            let parent_idx = layout_tree.get(current_layout_idx)?.parent?;
+            current_layout_idx = LayoutNodeId::new(parent_idx);
+        }
+
+        None
+    }
+
     /// Scroll selection or cursor into view with distance-based acceleration.
     ///
     /// **Unified Scroll System**: This method handles both cursor (0-size selection)
@@ -10234,7 +10286,23 @@ impl LayoutWindow {
             // (e2e determinism: SystemAnimations::disabled() keeps the
             // classic instant jump). Drag-autoscroll keeps the immediate
             // per-frame path (its own accelerated loop).
-            let glide = matches!(scroll_mode, ScrollMode::Instant)
+            //
+            // ...but ONLY for a genuine JUMP. `calculate_instant_scroll_delta`
+            // is a MINIMAL reveal — it moves the view just far enough to clear
+            // the 5 px padding — so following a caret while typing asks for a
+            // few pixels per keystroke. Gliding that put a 400 ms spring
+            // between the caret and the view: every character pushed the caret
+            // out of sight and the field then bounced it back in, so typing
+            // past the right edge looked like the text was sliding around
+            // under the cursor. The caret must TRACK while it is being
+            // followed, and glide only when the reveal is a real navigation
+            // jump (find result, page change) — which is what Ledger #8 is
+            // about. Half the container is the divider: a keystroke never
+            // moves the view that far, and a jump essentially always does.
+            let jump = scroll_delta.x.abs() > container_rect.size.width * 0.5
+                || scroll_delta.y.abs() > container_rect.size.height * 0.5;
+            let glide = jump
+                && matches!(scroll_mode, ScrollMode::Instant)
                 && self.effective_system_animations().caret_scroll_glide;
             if glide {
                 use crate::managers::scroll_state::{
@@ -11912,6 +11980,13 @@ impl LayoutWindow {
                                         affinity: CursorAffinity::Trailing,
                                     });
                                 let ce_key = self.contenteditable_session_key(dom_id, node_id);
+                                // Crossing into a different focusable makes the
+                                // caret JUMP, not glide.
+                                let scope = self.find_focusable_ancestor(DomNodeId {
+                                    dom: dom_id,
+                                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                                });
+                                self.text_edit_manager.enter_focus_scope(scope);
                                 self.text_edit_manager
                                     .initialize_editing(cursor, dom_id, node_id, ce_key);
 
@@ -14436,6 +14511,14 @@ impl LayoutWindow {
 
         // Initialize editing at the clicked position via unified API.
         let ce_key = self.contenteditable_session_key(dom_id, ifc_root_node_id);
+        // Crossing into a different focusable makes the caret JUMP, not glide:
+        // clicking from one text input into another must not animate the caret
+        // out of the first field and across into the second.
+        let scope = self.find_focusable_ancestor(DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id)),
+        });
+        self.text_edit_manager.enter_focus_scope(scope);
         self.text_edit_manager.initialize_editing(
             final_range.start, dom_id, ifc_root_node_id, ce_key,
         );
