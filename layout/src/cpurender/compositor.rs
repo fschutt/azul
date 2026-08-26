@@ -136,6 +136,100 @@ pub struct Layer {
     pub composite_dirty: bool,
 }
 
+/// Widest or tallest a compositor layer may be, in device pixels.
+///
+/// Nothing a real layout produces comes close — this exists purely so that a
+/// nonsense extent cannot become an allocation. Chosen to match the usual
+/// maximum GPU texture dimension, so the CPU path refuses the same sizes the
+/// GPU path could never hold either.
+const MAX_LAYER_DIM: u32 = 16_384;
+
+/// The device-pixel size of a layer's backing pixmap, or `(0, 0)` when the
+/// layout handed us a size nothing could be drawn at.
+///
+/// # Why this is not just `as u32`
+///
+/// `f32 as u32` SATURATES in Rust. An infinite (or merely absurd) extent
+/// silently becomes `u32::MAX`, and the caller then asks `AzulPixmap::new` for
+/// `u32::MAX * height * 4` bytes — a ~900 GB `vec![255u8; _]` that macOS
+/// overcommits, touches, and is then killed over. The failure looks nothing
+/// like its cause: no panic, no allocation error, just a `SIGKILL` seconds
+/// later with the memory sitting in swap.
+///
+/// # Why it is loud
+///
+/// A non-finite layer size is ALWAYS a layout bug — there is no legitimate way
+/// to ask for an infinitely wide box. Clamping quietly would leave that bug in
+/// place and merely stop it from killing the process, so this panics in debug
+/// builds and warns once in release, naming the node so the layout that
+/// produced it can be found. The clamp is the seatbelt, not the fix.
+/// The DOM node a display-list item came from, for diagnostics only.
+fn node_of(display_list: &DisplayList, index: usize) -> Option<azul_core::dom::NodeId> {
+    display_list.node_mapping.get(index).and_then(|n| *n)
+}
+
+fn layer_pixel_size(
+    size: LogicalSize,
+    dpi_factor: f32,
+    node: Option<azul_core::dom::NodeId>,
+) -> (u32, u32) {
+    let dw = size.width * dpi_factor;
+    let dh = size.height * dpi_factor;
+
+    if !dw.is_finite() || !dh.is_finite() {
+        report_impossible_layer_size(size, dpi_factor, node, "not finite");
+        return (0, 0);
+    }
+    let over = dw.ceil() > MAX_LAYER_DIM as f32 || dh.ceil() > MAX_LAYER_DIM as f32;
+    if over {
+        report_impossible_layer_size(size, dpi_factor, node, "past MAX_LAYER_DIM");
+    }
+    let px = |v: f32| -> u32 {
+        if v <= 0.0 {
+            0
+        } else {
+            (v.ceil() as u32).min(MAX_LAYER_DIM)
+        }
+    };
+    (px(dw), px(dh))
+}
+
+/// Say — once — that a layer was asked for at a size that cannot be real.
+///
+/// `debug_assert` rather than a hard panic so a release build still renders
+/// (minus the offending layer) instead of dying on a bug the user cannot fix,
+/// while every test and debug run stops exactly where the bad size was born.
+fn report_impossible_layer_size(
+    size: LogicalSize,
+    dpi_factor: f32,
+    node: Option<azul_core::dom::NodeId>,
+    why: &str,
+) {
+    #[cfg(feature = "std")]
+    {
+        static ANNOUNCE: std::sync::Once = std::sync::Once::new();
+        ANNOUNCE.call_once(|| {
+            eprintln!(
+                "[azul][compositor] layer for node {node:?} requested at \
+                 {}x{} logical (dpi {dpi_factor}) — {why}. This is a LAYOUT bug: \
+                 no box has an infinite used size. The layer is being skipped or \
+                 clamped so the process survives; the wrong size is still wrong.",
+                size.width, size.height,
+            );
+        });
+    }
+    // Not under `cfg(test)`: this module's own tests feed the guard infinities
+    // on purpose to prove it holds, and they must assert on the RESULT rather
+    // than die inside the thing they are testing.
+    #[cfg(not(test))]
+    debug_assert!(
+        false,
+        "compositor: layer for node {node:?} at {}x{} logical (dpi {dpi_factor}) is {why}",
+        size.width,
+        size.height,
+    );
+}
+
 /// The `w × h` device-pixel window of `parent` whose top-left sits at
 /// (`ox`, `oy`) in the parent's pixel space, as RGBA bytes; pixels outside
 /// the parent are transparent black.
@@ -300,8 +394,7 @@ impl CompositorState {
                     ..
                 } => {
                     let bounds = *clip_bounds.inner();
-                    let pw = (bounds.size.width * dpi_factor).ceil() as u32;
-                    let ph = (bounds.size.height * dpi_factor).ceil() as u32;
+                    let (pw, ph) = layer_pixel_size(bounds.size, dpi_factor, node_of(display_list, i));
                     if pw > 0 && ph > 0 {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, bounds, pw, ph);
@@ -334,8 +427,7 @@ impl CompositorState {
                         .and_then(|k| live_opacities.get(&k.id).copied())
                         .unwrap_or(*opacity);
                     let b = *bounds.inner();
-                    let pw = (b.size.width * dpi_factor).ceil() as u32;
-                    let ph = (b.size.height * dpi_factor).ceil() as u32;
+                    let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
                     let promote = effective < 1.0 && pw > 0 && ph > 0;
                     opacity_promoted.push(promote);
                     if promote {
@@ -367,8 +459,7 @@ impl CompositorState {
                     let has_blur = filters.iter().any(|f| matches!(f, StyleFilter::Blur(_)));
                     if has_blur {
                         let b = *bounds.inner();
-                        let pw = (b.size.width * dpi_factor).ceil() as u32;
-                        let ph = (b.size.height * dpi_factor).ceil() as u32;
+                        let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
                         if pw > 0 && ph > 0 {
                             let new_id = self.alloc_layer_id();
                             let mut layer = Layer::new(new_id, b, pw, ph);
@@ -423,8 +514,8 @@ impl CompositorState {
                     ref_frame_promoted.push(!is_identity);
                     if !is_identity {
                         let b = *bounds.inner();
-                        let pw = (b.size.width * dpi_factor).ceil().max(1.0) as u32;
-                        let ph = (b.size.height * dpi_factor).ceil().max(1.0) as u32;
+                        let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
+                        let (pw, ph) = (pw.max(1), ph.max(1));
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
                         layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
@@ -470,8 +561,7 @@ impl CompositorState {
                 // blitting the content (see `composite_layer_recursive`).
                 DisplayListItem::PushBackdropFilter { bounds, filters } => {
                     let b = *bounds.inner();
-                    let pw = (b.size.width * dpi_factor).ceil() as u32;
-                    let ph = (b.size.height * dpi_factor).ceil() as u32;
+                    let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
                     if pw > 0 && ph > 0 && !filters.is_empty() {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
@@ -2921,6 +3011,54 @@ pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
 // ============================================================================
 // scroll_shift_region — unit tests (#14 single-axis, #16 diagonal pan)
 // ============================================================================
+
+#[cfg(test)]
+mod layer_size_is_never_an_allocation_bomb {
+    use super::*;
+
+    use azul_core::geom::LogicalSize;
+
+    fn sz(w: f32, h: f32) -> LogicalSize {
+        LogicalSize::new(w, h)
+    }
+
+    #[test]
+    fn an_infinite_size_is_not_a_size() {
+        // `as u32` saturates, so this used to be u32::MAX — and the caller then
+        // asked for u32::MAX * height * 4 bytes.
+        assert_eq!(layer_pixel_size(sz(f32::INFINITY, 27.0), 2.0, None), (0, 0));
+        assert_eq!(layer_pixel_size(sz(100.0, f32::INFINITY), 2.0, None), (0, 0));
+        assert_eq!(layer_pixel_size(sz(f32::NAN, 27.0), 2.0, None), (0, 0));
+        assert_eq!(layer_pixel_size(sz(100.0, 27.0), f32::NAN, None), (0, 0));
+    }
+
+    #[test]
+    fn a_finite_but_absurd_size_is_clamped_rather_than_saturated() {
+        // Finite overflow is the same bomb with an extra step: 1e30 * 2 still
+        // saturates the cast.
+        assert_eq!(
+            layer_pixel_size(sz(1e30, 27.0), 2.0, None),
+            (MAX_LAYER_DIM, 54),
+        );
+    }
+
+    #[test]
+    fn a_non_positive_extent_is_zero_not_a_wrapped_huge_number() {
+        // `-5.0 as u32` is 0 today, but only because the cast saturates at the
+        // bottom too — state it, so a future refactor cannot turn it negative.
+        assert_eq!(layer_pixel_size(sz(-5.0, 27.0), 2.0, None), (0, 54));
+        assert_eq!(layer_pixel_size(sz(0.0, 0.0), 2.0, None), (0, 0));
+    }
+
+    #[test]
+    fn ordinary_sizes_are_unchanged_by_the_guard() {
+        // The guard must be invisible to every layout that was already fine,
+        // rounding up exactly as the old cast did.
+        assert_eq!(layer_pixel_size(sz(1000.0, 730.0), 2.0, None), (2000, 1460));
+        assert_eq!(layer_pixel_size(sz(27.5, 13.5), 2.0, None), (55, 27));
+        assert_eq!(layer_pixel_size(sz(1.0, 1.0), 1.0, None), (1, 1));
+    }
+}
 
 #[cfg(test)]
 mod translate_hint_contract {
