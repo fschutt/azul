@@ -471,10 +471,19 @@ fn compute_node_chains(
 
 /// A resolved `VirtualView` child-DOM placement.
 ///
-/// The composite rect in window space plus the host-side chain (scroll
-/// frames AND reference frames) active at the `VirtualView` item.
+/// TWO rectangles, and they are not the same one:
+///
+/// * `rect` — where the child dom's 0-relative boxes LAND, i.e.
+///   `bounds.origin + content_offset`. Scrolling moves this.
+/// * `clips` — the VIEWPORTS the child is visible through: every enclosing
+///   `VirtualView`'s own `bounds`, each paired with the host-side chain
+///   active where that viewport lives. Scrolling does NOT move these.
+///
+/// Plus the host-side chain (scroll frames AND reference frames) active at
+/// the innermost `VirtualView` item.
 struct Placement {
     rect: LogicalRect,
+    clips: Vec<(LogicalRect, Vec<HitChainLink>)>,
     chain: Vec<HitChainLink>,
 }
 
@@ -506,10 +515,10 @@ fn resolve_virtual_view_placements(
         // bounded depth; each pass resolves one nesting level
         let mut changed = false;
         for (host_dom, lr) in layout_results {
-            let (host_offset, host_chain) = if host_dom.inner == 0 {
-                (LogicalPosition::zero(), Vec::new())
+            let (host_offset, host_clips, host_chain) = if host_dom.inner == 0 {
+                (LogicalPosition::zero(), Vec::new(), Vec::new())
             } else if let Some(p) = placements.get(host_dom) {
-                (p.rect.origin, p.chain.clone())
+                (p.rect.origin, p.clips.clone(), p.chain.clone())
             } else {
                 continue;
             };
@@ -592,14 +601,36 @@ fn resolve_virtual_view_placements(
                             },
                             size: b.size,
                         };
+                        // …and the VIEWPORT it shows through, which is the
+                        // host box itself. `content_offset` moves the CONTENT
+                        // through the viewport; it does not move the viewport.
+                        // Clipping to `absolute` instead made the visible
+                        // window travel with the scroll: on a document scrolled
+                        // one page down, `content_offset.y` is a whole page
+                        // NEGATIVE, so the clip sat a page ABOVE the canvas and
+                        // rejected every node of the child dom. Clicks in the
+                        // page then hit nothing at all — no caret, no
+                        // selection, no typing — while the renderer (which
+                        // clips to `bounds`, see cpurender/raster.rs) went on
+                        // drawing the text the user was aiming at.
+                        let viewport = LogicalRect {
+                            origin: LogicalPosition {
+                                x: b.origin.x + host_offset.x,
+                                y: b.origin.y + host_offset.y,
+                            },
+                            size: b.size,
+                        };
+                        let mut clips = host_clips.clone();
+                        clips.push((viewport, stack.clone()));
                         let differs = placements.get(child_dom_id).is_none_or(|p| {
-                            p.rect != absolute || p.chain != stack
+                            p.rect != absolute || p.clips != clips || p.chain != stack
                         });
                         if differs {
                             placements.insert(
                                 *child_dom_id,
                                 Placement {
                                     rect: absolute,
+                                    clips,
                                     chain: stack.clone(),
                                 },
                             );
@@ -705,13 +736,20 @@ impl CpuHitTester {
             let nodes = &layout_result.layout_tree.nodes;
             let styled_dom = &layout_result.styled_dom;
 
-            // Child DOM: shift into window space + clip to the composite rect.
-            let (offset, dom_clip, base_chain_vec) = placements.get(dom_id).map_or_else(
-                || (LogicalPosition::zero(), None, Vec::new()),
-                |p| (p.rect.origin, Some(p.rect), p.chain.clone()),
+            // Child DOM: shift into window space by the placement origin, and
+            // clip to the host VIEWPORTS — a different rect, see `Placement`.
+            let (offset, dom_clip_rects, base_chain_vec) = placements.get(dom_id).map_or_else(
+                || (LogicalPosition::zero(), Vec::new(), Vec::new()),
+                |p| (p.rect.origin, p.clips.clone(), p.chain.clone()),
             );
             let base_chain = intern_chain(&mut self.chains, &mut chain_lookup, base_chain_vec);
-            let dom_clip_entry = dom_clip.map(|r| (r, base_chain));
+            let dom_clips: Vec<(LogicalRect, u32)> = dom_clip_rects
+                .into_iter()
+                .map(|(rect, chain)| {
+                    let interned = intern_chain(&mut self.chains, &mut chain_lookup, chain);
+                    (rect, interned)
+                })
+                .collect();
 
             let scroll_ids = &layout_result.scroll_ids;
             let transform_nodes = gpu
@@ -804,7 +842,7 @@ impl CpuHitTester {
                     positions,
                     idx,
                     offset,
-                    dom_clip_entry,
+                    &dom_clips,
                     &chain_of,
                 );
 
@@ -1125,11 +1163,11 @@ pub fn compute_scroll_child_rect(
     )
 }
 
-/// Compute the hit-test clip boxes for a layout node: the host `VirtualView`
-/// composite bounds (`dom_clip_entry`) plus every clipping ancestor's border
-/// box (any `overflow` other than `visible`), each tagged with the chain of
-/// the clip OWNER's strict scroll ancestors so the query can shift each box
-/// into its own scrolled space.
+/// Compute the hit-test clip boxes for a layout node: the enclosing
+/// `VirtualView` VIEWPORTS (`dom_clips`, outermost host first) plus every
+/// clipping ancestor's border box (any `overflow` other than `visible`), each
+/// tagged with the chain of the clip OWNER's strict scroll ancestors so the
+/// query can shift each box into its own scrolled space.
 ///
 /// Clipping is tracked per-axis because `overflow-x` / `overflow-y` are
 /// independent — an axis the ancestor does not clip is widened to
@@ -1145,7 +1183,7 @@ fn compute_node_clips(
     positions: &PositionVec,
     node_index: usize,
     offset: LogicalPosition,
-    dom_clip_entry: Option<(LogicalRect, u32)>,
+    dom_clips: &[(LogicalRect, u32)],
     chain_of: &[u32],
 ) -> Vec<(LogicalRect, u32)> {
     // A non-finite edge must degrade to "unclipped on that side", never be
@@ -1166,8 +1204,8 @@ fn compute_node_clips(
     }
 
     let mut clips = Vec::new();
-    if let Some((dc, chain)) = dom_clip_entry {
-        clips.push((sanitize_clip_rect(dc), chain));
+    for (dc, chain) in dom_clips {
+        clips.push((sanitize_clip_rect(*dc), *chain));
     }
 
     // Walk ancestors. A node's own overflow clips its descendants, not itself, so
@@ -1242,7 +1280,7 @@ fn compute_node_clip(
         positions,
         node_index,
         offset,
-        dom_clip.map(|r| (r, 0)),
+        &dom_clip.map(|r| (r, 0)).into_iter().collect::<Vec<_>>(),
         &chain_of,
     );
     if clips.is_empty() {
@@ -1398,6 +1436,22 @@ mod autotest_generated {
             bounds: WindowLogicalRect::new(bounds.origin, bounds.size),
             clip_rect: WindowLogicalRect::new(bounds.origin, bounds.size),
             content_offset: Default::default(),
+        }
+    }
+
+    /// A `VirtualView` whose materialized window is offset from the viewport —
+    /// what a scrolled virtual document produces
+    /// (`materialized_origin - scroll_offset`).
+    fn virtual_view_scrolled(
+        child: usize,
+        bounds: LogicalRect,
+        content_offset: LogicalPosition,
+    ) -> DisplayListItem {
+        DisplayListItem::VirtualView {
+            child_dom_id: dom(child),
+            bounds: WindowLogicalRect::new(bounds.origin, bounds.size),
+            clip_rect: WindowLogicalRect::new(bounds.origin, bounds.size),
+            content_offset,
         }
     }
 
@@ -1825,6 +1879,59 @@ mod autotest_generated {
         assert!(
             tester.hit_test(p(180.0, 180.0)).is_empty(),
             "inside the child's 200x200 rect but outside the 50x50 composite clip"
+        );
+    }
+
+    #[test]
+    fn a_scrolled_virtual_views_clip_stays_on_the_viewport_it_does_not_travel_with_the_content() {
+        // Host dom 0 shows child dom 1 through a 50x50 VIEWPORT at (100,100).
+        // The child is scrolled: `content_offset` is (0,-80), so the renderer
+        // draws the child's local (0,0) at (100,20) — 80px of it above the
+        // viewport, the rest visible from y=100 down (cpurender/raster.rs
+        // pushes `-vv_origin - content_offset` and clips to `bounds`).
+        //
+        // The hit test used the SHIFTED rect as the clip too, which moves the
+        // window the user is looking through. Both directions are wrong and
+        // both are asserted here.
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                Vec::new(),
+                Vec::new(),
+                vec![virtual_view_scrolled(
+                    1,
+                    r(100.0, 100.0, 50.0, 50.0),
+                    p(0.0, -80.0),
+                )],
+            ),
+        );
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((200.0, 200.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        assert_eq!(
+            tester.hit_test(p(120.0, 120.0)),
+            vec![(dom(1), NodeId::new(1))],
+            "a point inside BOTH the viewport and the drawn child must hit it — \
+             clipping to `bounds.origin + content_offset` moved the viewport \
+             80px up and rejected it, which is a page canvas that goes dead as \
+             soon as you scroll"
+        );
+        assert!(
+            tester.hit_test(p(120.0, 60.0)).is_empty(),
+            "the part of the child scrolled ABOVE the viewport is not visible, \
+             so it must not take the click either"
         );
     }
 
