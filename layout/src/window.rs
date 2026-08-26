@@ -14606,6 +14606,45 @@ impl LayoutWindow {
         ))
     }
 
+    /// The one caret position an EMPTY editable line owns.
+    ///
+    /// `layout_ifc` keeps a strut line box for an IFC root with no inline
+    /// content when it is (inside) a `contenteditable` host, precisely so a
+    /// caret can stand there. But `UnifiedLayout::hittest_cursor` answers
+    /// `None` for a layout with no clusters — there is no glyph to measure
+    /// against — so a click on that line found nothing, and
+    /// `process_mouse_click_for_selection` fell through to its "the press hit
+    /// no selectable text" branch. A brand-new document is made of exactly one
+    /// such line, so it could not be clicked into at all.
+    ///
+    /// There is no ambiguity to resolve on an empty line: the caret goes at
+    /// offset 0, leading. Returns `None` for anything that HAS clusters (the
+    /// real hit test answers those) and for non-editable empty IFCs (an empty
+    /// `<div>` is not something you put a caret in).
+    fn empty_editing_host_caret(
+        styled_dom: &StyledDom,
+        ifc_root_node_id: NodeId,
+        layout: &UnifiedLayout,
+    ) -> Option<TextCursor> {
+        if layout
+            .items
+            .iter()
+            .any(|item| matches!(item.item, ShapedItem::Cluster(_)))
+        {
+            return None;
+        }
+        if !solver3::getters::is_node_contenteditable_inherited(styled_dom, ifc_root_node_id) {
+            return None;
+        }
+        Some(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        })
+    }
+
     /// Process mouse click for text selection.
     ///
     /// This method handles:
@@ -14750,7 +14789,14 @@ impl LayoutWindow {
                     };
 
                     // Hit-test the cursor in this text layout
-                    if let Some(cursor) = layout.hittest_point(local_pos) {
+                    let hit_cursor = layout.hittest_point(local_pos).or_else(|| {
+                        Self::empty_editing_host_caret(
+                            &layout_result.styled_dom,
+                            ifc_root_node_id,
+                            layout.as_ref(),
+                        )
+                    });
+                    if let Some(cursor) = hit_cursor {
                         // Store selection with IFC root NodeId, not the hit text node
                         found_selection = Some((*dom_id, ifc_root_node_id, SelectionRange {
                             start: cursor,
@@ -14837,7 +14883,14 @@ impl LayoutWindow {
                     let layout = Self::materialized_inline_layout(cached_layout);
 
                     // Hit-test the cursor in this text layout
-                    if let Some(cursor) = layout.hittest_point(local_pos) {
+                    let hit_cursor = layout.hittest_point(local_pos).or_else(|| {
+                        Self::empty_editing_host_caret(
+                            &layout_result.styled_dom,
+                            node_id,
+                            layout.as_ref(),
+                        )
+                    });
+                    if let Some(cursor) = hit_cursor {
                         found_selection = Some((*dom_id, node_id, SelectionRange {
                             start: cursor,
                             end: cursor,
