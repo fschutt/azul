@@ -998,8 +998,30 @@ pub fn determine_all_events(
             }
         }
 
-        // Detect DoubleClick (targeted at hovered node)
-        if manager.detect_double_click() {
+        // Detect DoubleClick (targeted at hovered node), ONCE — on the release
+        // that completes the gesture.
+        //
+        // `detect_double_click()` is a pure predicate over the two most recent
+        // ENDED input sessions and nothing consumes them: they stay the newest
+        // pair until the next PRESS. So without an edge of its own this raised
+        // the same double-click on every later pass — and the pass that carries
+        // it recurses (a focus change or a `RefreshDom` re-enters
+        // `process_window_events`), advancing only `previous_window_state`,
+        // never the gesture manager. That is why double-clicking the custom
+        // title bar in AzWidgets maximized the window and instantly restored
+        // it: the framework's `-azul-app-region: drag` handler TOGGLES
+        // `flags.frame`, and it ran twice for one gesture.
+        //
+        // The mouse-release edge is the right gate because that release is what
+        // ends the second session and makes the predicate true in the first
+        // place. An INJECTED native double-click is exempt: it has its own
+        // consumption (the event loop clears the latch at the end of the pass)
+        // and its injection point — `CallbackChange::InjectNativeGesture`, the
+        // e2e `double_click` op, iOS/Android recognizers — carries no button
+        // transition to hang an edge off.
+        if manager.has_injected_double_click()
+            || (event_was_mouse_release && manager.detect_double_click())
+        {
             events.push(SyntheticEvent::new(
                 EventType::DoubleClick,
                 EventSource::User,
@@ -2725,6 +2747,81 @@ mod autotest_generated {
         g.inject_native_gesture(NativeGestureEvent::DoubleClick);
         let events = run(&s, &s, &HoverManager::new(), Some(&g), None);
         assert_eq!(count(&events, EventType::DoubleClick), 1);
+    }
+
+    /// Two complete press/release cycles at the same spot, the way the shell
+    /// records them (`record_gesture_input` -> `start_input_session` /
+    /// `end_current_session`).
+    fn manager_after_a_real_double_click() -> GestureAndDragManager {
+        let mut g = GestureAndDragManager::new();
+        // 6 ticks == 100 ms at the nominal 60 fps `SystemTick` rate, well
+        // inside the 500 ms double-click window.
+        for tick in [0_u64, 6] {
+            g.start_input_session(
+                LogicalPosition::new(40.0, 12.0),
+                ts(tick),
+                1,
+                WindowPosition::Uninitialized,
+                LogicalPosition::new(40.0, 12.0),
+            );
+            g.end_current_session();
+        }
+        g
+    }
+
+    fn left_down_at(x: f32, y: f32) -> FullWindowState {
+        let mut s = cursor_at(x, y);
+        s.mouse_state.left_down = true;
+        s
+    }
+
+    #[test]
+    fn a_double_click_is_raised_by_the_release_that_completes_it() {
+        let g = manager_after_a_real_double_click();
+        let events = run(
+            &cursor_at(40.0, 12.0),
+            &left_down_at(40.0, 12.0),
+            &HoverManager::new(),
+            Some(&g),
+            None,
+        );
+        assert_eq!(count(&events, EventType::DoubleClick), 1);
+    }
+
+    #[test]
+    fn a_completed_double_click_is_not_raised_again_by_a_later_pass() {
+        // `detect_double_click()` is a pure predicate over the two most recent
+        // ENDED sessions, and nothing consumes them — they stay the newest pair
+        // until the next PRESS. Every pass after the release therefore used to
+        // raise the SAME double-click again: the recursion inside
+        // `process_window_events` (which advances `previous_window_state` but
+        // not the gesture manager) fires immediately, a mouse move fires later.
+        // Because the `-azul-app-region: drag` handler TOGGLES `flags.frame`,
+        // that is a window that maximizes and instantly restores itself.
+        let g = manager_after_a_real_double_click();
+        let released = cursor_at(40.0, 12.0);
+
+        // 1. The recursion: previous == current, so no button transition at all.
+        let recursed = run(&released, &released, &HoverManager::new(), Some(&g), None);
+        assert_eq!(
+            count(&recursed, EventType::DoubleClick),
+            0,
+            "the same double-click was raised again on re-entry: {recursed:?}"
+        );
+
+        // 2. A later pass carrying an unrelated change (the cursor moved).
+        let moved = run(
+            &cursor_at(41.0, 13.0),
+            &released,
+            &HoverManager::new(),
+            Some(&g),
+            None,
+        );
+        assert_eq!(
+            count(&moved, EventType::DoubleClick),
+            0,
+            "the same double-click was raised again on a mouse move: {moved:?}"
+        );
     }
 
     #[test]
