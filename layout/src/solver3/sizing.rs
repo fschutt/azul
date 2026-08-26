@@ -1448,6 +1448,41 @@ fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
     aw.max(0.0)
 }
 
+/// Stretch-fit inline size, or the max-content size when there is nothing to
+/// stretch to.
+///
+/// CSS Sizing 3 §5.1: stretch-fit is defined against a **definite** available
+/// size. Under a max-content constraint there is none — Taffy hands the bridge
+/// `AvailableSpace::MaxContent`, which `compute_non_flex_layout` deliberately
+/// turns into `f32::INFINITY` so text can report its intrinsic width — and an
+/// `auto` box must then resolve to its max-content contribution instead.
+///
+/// Stretching to it produced an INFINITE used width that was persisted like any
+/// other, and infinity is not a number later stages survive: the display list
+/// built an infinite clip rect, `f32 as u32` saturated it to `u32::MAX` device
+/// pixels, and the CPU compositor asked for a ~900 GB pixmap. Downstream every
+/// scroll clamp computed from that box (`max_x`) is equally meaningless, so the
+/// box could not be scrolled either.
+///
+/// Kept as a separate small `#[inline(never)]` fn taking `&` args and returning
+/// `f32` for the same reason [`auto_block_inline_size`] is: the M12.7 remill
+/// lift mis-reads `cb.width` when the load happens inside the ~6 KB
+/// `calculate_used_size_for_node`.
+#[inline(never)]
+fn auto_block_inline_size_definite_or_max_content(
+    cb: &LogicalSize,
+    bp: &BoxProps,
+    max_content_width: f32,
+) -> f32 {
+    if cb.width.is_finite() {
+        auto_block_inline_size(cb, bp)
+    } else {
+        // `.max(0.0)` also normalises a NaN intrinsic to 0 — an unmeasured box
+        // is zero-sized, never a size that poisons everything downstream.
+        max_content_width.max(0.0)
+    }
+}
+
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Errors
@@ -1477,7 +1512,14 @@ pub fn calculate_used_size_for_node(
         // Since anonymous boxes don't have a DOM node, we default to horizontal-tb.
         // The parent's writing mode is already reflected in containing_block_size.
         return Ok(LogicalSize::new(
-            containing_block_size.width,
+            // Same indefinite-available-space rule as the named case below: an
+            // anonymous box under a max-content constraint is max-content wide,
+            // not infinitely wide.
+            if containing_block_size.width.is_finite() {
+                containing_block_size.width
+            } else {
+                intrinsic.max_content_width.max(0.0)
+            },
             if intrinsic.max_content_height > 0.0 {
                 intrinsic.max_content_height
             } else {
@@ -1647,7 +1689,11 @@ pub fn calculate_used_size_for_node(
                     // return comes back in D0 as the call's SSA result (opt can't forward
                     // the init over it), and with D8-D15 preserved across calc's later
                     // calls the value survives to the return.
-                    auto_block_inline_size(containing_block_size, box_props)
+                    auto_block_inline_size_definite_or_max_content(
+                        containing_block_size,
+                        box_props,
+                        intrinsic.max_content_width,
+                    )
                 }
                 LayoutDisplay::InlineBlock | LayoutDisplay::InlineGrid | LayoutDisplay::InlineFlex => {
                     // +spec:width-calculation:c01de8 - inline-block auto width uses shrink-to-fit (§10.3.9)
@@ -2748,6 +2794,51 @@ mod autotest_generated {
             let r = auto_block_inline_size(&cb, &bp);
             assert!(!r.is_nan(), "NaN escaped for cb.width={}", cb.width);
             assert_eq!(r, 0.0);
+        }
+    }
+
+    #[test]
+    fn an_indefinite_containing_block_resolves_auto_to_max_content_not_infinity() {
+        // Taffy's MinContent/MaxContent measurement passes hand the bridge an
+        // INFINITE available width on purpose. Stretching to it produced an
+        // infinite used width that was then persisted, and infinity is not a
+        // number later stages survive — it became a `u32::MAX`-wide compositor
+        // layer and a ~900 GB pixmap request.
+        let r = auto_block_inline_size_definite_or_max_content(
+            &size(f32::INFINITY, 0.0),
+            &props(10.0, 2.0, 5.0),
+            420.0,
+        );
+        assert_eq!(r, 420.0, "auto under a max-content constraint is max-content");
+    }
+
+    #[test]
+    fn a_definite_containing_block_still_stretch_fits() {
+        // The guard must be invisible to every layout that was already correct:
+        // 800 - (10+2+5)*2 = 766, exactly as before.
+        let r = auto_block_inline_size_definite_or_max_content(
+            &size(800.0, 600.0),
+            &props(10.0, 2.0, 5.0),
+            420.0,
+        );
+        assert_eq!(r, 766.0);
+    }
+
+    #[test]
+    fn auto_inline_size_is_finite_for_every_containing_block() {
+        // Including the cases that reach this from a measurement pass with an
+        // unmeasured (NaN/negative) intrinsic — a zero-width box is recoverable,
+        // a non-finite one poisons the display list, the clip and the scroll clamp.
+        for cb in [f32::INFINITY, f32::NEG_INFINITY, f32::NAN, 800.0, -800.0] {
+            for mc in [420.0, 0.0, -1.0, f32::NAN] {
+                let r = auto_block_inline_size_definite_or_max_content(
+                    &size(cb, 0.0),
+                    &props(1.0, 1.0, 1.0),
+                    mc,
+                );
+                assert!(r.is_finite(), "cb={cb} max_content={mc} produced {r}");
+                assert!(r >= 0.0, "cb={cb} max_content={mc} produced {r}");
+            }
         }
     }
 
