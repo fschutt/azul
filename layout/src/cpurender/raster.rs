@@ -3805,9 +3805,10 @@ fn render_image(
         DecodedImage::Gl(_) => return,
     };
 
-    // Area/bilinear blit: each destination pixel samples its source footprint
-    // (`image_scale::sample`) instead of nearest-neighbour indexing a
-    // pre-converted RGBA buffer.
+    // Area/bilinear blit: each destination pixel takes the value
+    // `image_scale::sample` would give it, but the per-pixel invariants are
+    // hoisted and the source rows are converted once each — see
+    // `blit_sampled_image`.
     let dst_x = rect.x as i32;
     let dst_y = rect.y as i32;
     let dst_w = rect.width as u32;
@@ -3823,44 +3824,390 @@ fn render_image(
             (c.y + c.height) as i32,
         ));
 
-    for py in 0..dst_h {
-        for px in 0..dst_w {
-            let tx = dst_x + px as i32;
-            let ty = dst_y + py as i32;
-            if tx < 0 || ty < 0 || tx >= pw as i32 || ty >= ph as i32 {
-                continue;
-            }
-            // Clip check
-            if tx < clip_x1 || ty < clip_y1 || tx >= clip_x2 || ty >= clip_y2 {
-                continue;
-            }
+    let Some(win) = visible_dst_window(
+        dst_x,
+        dst_y,
+        dst_w,
+        dst_h,
+        pw,
+        ph,
+        (clip_x1, clip_y1, clip_x2, clip_y2),
+    ) else {
+        return;
+    };
 
-            let [sr, sg, sb, sa8] = crate::image_scale::sample(&src, dst_w, dst_h, px, py);
-            let di = ((ty as u32 * pw + tx as u32) * 4) as usize;
+    blit_sampled_image(pixmap, &src, dst_x, dst_y, dst_w, dst_h, win, &mut RowConversions::new());
+}
 
-            if di + 3 < pixmap.data.len() {
-                let sa = u32::from(sa8);
-                if sa == 255 {
-                    pixmap.data[di] = sr;
-                    pixmap.data[di + 1] = sg;
-                    pixmap.data[di + 2] = sb;
-                    pixmap.data[di + 3] = 255;
-                } else if sa > 0 {
-                    // Alpha blend: dst = src * sa + dst * (255 - sa)
-                    let da = 255 - sa;
-                    pixmap.data[di] =
-                        ((u32::from(sr) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
-                    pixmap.data[di + 1] =
-                        ((u32::from(sg) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
-                    pixmap.data[di + 2] =
-                        ((u32::from(sb) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
-                    pixmap.data[di + 3] =
-                        ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
-                }
+/// The sub-window of a `dst_w × dst_h` image blit that is actually painted:
+/// the destination rect intersected with the clip AND the pixmap, expressed in
+/// the image's OWN destination-pixel coordinates as `(px_lo, py_lo, px_hi,
+/// py_hi)` half-open. `None` when nothing of the image is visible.
+///
+/// # Why the loop must be narrowed rather than filtered
+///
+/// `image_scale::sample` is a pure function of `(px, py)` and the FULL
+/// destination size, so restricting which `(px, py)` the loop visits cannot
+/// change any painted pixel's value. The blit used to walk all
+/// `dst_w × dst_h` pixels and `continue` on the clip test: a 40 px damage
+/// strip over a 2078×1132 canvas still ran 2.35 M iterations to paint 83 k
+/// pixels. Narrowing the loop also lets everything the sampler needs be set
+/// up ONCE for the pixels that are actually painted — per-column tap
+/// positions, and the source rows those taps land on.
+fn visible_dst_window(
+    dst_x: i32,
+    dst_y: i32,
+    dst_w: u32,
+    dst_h: u32,
+    pw: u32,
+    ph: u32,
+    clip: (i32, i32, i32, i32),
+) -> Option<(u32, u32, u32, u32)> {
+    let (clip_x1, clip_y1, clip_x2, clip_y2) = clip;
+    let x_lo = clip_x1.max(0).max(dst_x);
+    let y_lo = clip_y1.max(0).max(dst_y);
+    let x_hi = clip_x2
+        .min(i32::try_from(pw).unwrap_or(i32::MAX))
+        .min(dst_x.saturating_add(i32::try_from(dst_w).unwrap_or(i32::MAX)));
+    let y_hi = clip_y2
+        .min(i32::try_from(ph).unwrap_or(i32::MAX))
+        .min(dst_y.saturating_add(i32::try_from(dst_h).unwrap_or(i32::MAX)));
+    if x_hi <= x_lo || y_hi <= y_lo {
+        return None;
+    }
+    // Both differences are non-negative: `x_lo >= dst_x` and `x_hi > x_lo`.
+    Some((
+        (x_lo - dst_x) as u32,
+        (y_lo - dst_y) as u32,
+        (x_hi - dst_x) as u32,
+        (y_hi - dst_y) as u32,
+    ))
+}
+
+/// Must match `image_scale::MAX_TAPS`. Divergence is caught by
+/// `the_fast_blit_is_byte_identical_to_image_scale_sample`, which compares the
+/// blit against `image_scale::sample` itself.
+const BLIT_MAX_TAPS: u32 = 4;
+
+/// How many source rows the blit converted to straight RGBA.
+///
+/// Exists so a test can pin the COMPLEXITY rather than a wall clock: each
+/// source row a destination row needs is converted once and reused by every
+/// destination row that lands on it, so this stays O(source rows touched) —
+/// never O(destination rows × taps), which is what a per-pixel
+/// `image_scale::sample` effectively did (four `SrcImage::pixel` calls per
+/// destination pixel, each re-deriving the format and re-clamping).
+struct RowConversions(usize);
+
+impl RowConversions {
+    const fn new() -> Self {
+        Self(0)
+    }
+}
+
+/// One source row as straight RGBA8, plus which row it holds.
+struct RgbaRow {
+    /// Source y this buffer holds, or `None` when empty.
+    y: Option<u32>,
+    /// `src.width * 4` bytes.
+    bytes: Vec<u8>,
+}
+
+impl RgbaRow {
+    fn new(width: usize) -> Self {
+        Self { y: None, bytes: vec![0u8; width * 4] }
+    }
+}
+
+/// Convert source row `y` into `out` as straight RGBA8. The format match runs
+/// ONCE per row instead of once per tap (four times per destination pixel).
+fn source_row_to_rgba(src: &crate::image_scale::SrcImage<'_>, y: u32, out: &mut [u8]) {
+    use azul_core::resources::RawImageFormat;
+    let Some(bpp) = crate::image_scale::bytes_per_pixel(src.format) else {
+        out.fill(0);
+        return;
+    };
+    let w = src.width as usize;
+    let base = y as usize * w * bpp;
+    let row = &src.bytes[base..base + w * bpp];
+    match src.format {
+        RawImageFormat::RGBA8 => out.copy_from_slice(row),
+        RawImageFormat::BGRA8 => {
+            for (o, p) in out.chunks_exact_mut(4).zip(row.chunks_exact(4)) {
+                o[0] = p[2];
+                o[1] = p[1];
+                o[2] = p[0];
+                o[3] = p[3];
             }
         }
+        RawImageFormat::RGB8 => {
+            for (o, p) in out.chunks_exact_mut(4).zip(row.chunks_exact(3)) {
+                o[0] = p[0];
+                o[1] = p[1];
+                o[2] = p[2];
+                o[3] = 255;
+            }
+        }
+        RawImageFormat::BGR8 => {
+            for (o, p) in out.chunks_exact_mut(4).zip(row.chunks_exact(3)) {
+                o[0] = p[2];
+                o[1] = p[1];
+                o[2] = p[0];
+                o[3] = 255;
+            }
+        }
+        // A coverage/luma plane replicated to RGB with an OPAQUE alpha.
+        RawImageFormat::R8 => {
+            for (o, p) in out.chunks_exact_mut(4).zip(row.iter()) {
+                o[0] = *p;
+                o[1] = *p;
+                o[2] = *p;
+                o[3] = 255;
+            }
+        }
+        // `bytes_per_pixel` already returned `None` for anything else.
+        _ => out.fill(0),
+    }
+}
+
+/// Composite one straight-RGBA destination row into the pixmap. Split out of
+/// the sampling loops so the float work above is a flat, branch-free pass that
+/// vectorizes, and the branchy alpha decision reads bytes.
+fn composite_rgba_row(pixmap: &mut AzulPixmap, di_base: usize, stage: &[u8]) {
+    for (i, q) in stage.chunks_exact(4).enumerate() {
+        let di = di_base + i * 4;
+        if di + 3 >= pixmap.data.len() {
+            break;
+        }
+        let sa = u32::from(q[3]);
+        if sa == 255 {
+            pixmap.data[di] = q[0];
+            pixmap.data[di + 1] = q[1];
+            pixmap.data[di + 2] = q[2];
+            pixmap.data[di + 3] = 255;
+        } else if sa > 0 {
+            // Alpha blend: dst = src * sa + dst * (255 - sa)
+            let da = 255 - sa;
+            pixmap.data[di] = ((u32::from(q[0]) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+            pixmap.data[di + 1] =
+                ((u32::from(q[1]) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
+            pixmap.data[di + 2] =
+                ((u32::from(q[2]) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
+            pixmap.data[di + 3] =
+                ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
+        }
+    }
+}
+
+/// Blit `src` into `pixmap` at `dst_x, dst_y` scaled to `dst_w × dst_h`,
+/// painting only the destination sub-window `win = (px_lo, py_lo, px_hi,
+/// py_hi)`.
+///
+/// # What this is
+///
+/// The value written for destination pixel `(px, py)` is EXACTLY
+/// `image_scale::sample(src, dst_w, dst_h, px, py)` — same taps, same f32
+/// expressions, same rounding, bit for bit (pinned by
+/// `the_fast_blit_is_byte_identical_to_image_scale_sample`). What differs is
+/// how often the work that does not depend on the pixel is done.
+///
+/// # Why it is not a `sample()` call per pixel
+///
+/// `sample` is the golden reference: pure, per-pixel, no state. Calling it per
+/// destination pixel made every pixel pay two f32 divisions to re-derive the
+/// scale, and four `SrcImage::pixel` calls that each re-matched the pixel
+/// format, re-clamped the coordinates and re-bounds-checked the buffer. On the
+/// path that actually matters — a HiDPI window compositing a logical-sized
+/// canvas, i.e. a 2× bilinear UPSCALE over the whole window — that is ~19 ns
+/// per destination pixel, and AzPaint at 1055×677 points blits 2.35 M of them
+/// on every pointer move: ~45 ms per frame, which is the whole frame budget
+/// three times over. It measured 12× the nearest-neighbour blit it replaced.
+///
+/// This keeps the quality and gets the cost back:
+///
+/// * the scale, tap counts and per-column tap positions are computed once,
+/// * each source row is converted to straight RGBA once (`RgbaRow`) and reused
+///   by every destination row that samples it — a 2× upscale touches one new
+///   source row every two destination rows,
+/// * the bilinear case is separable: the horizontal partial
+///   `p00·(1−tx) + p10·tx` is kept in f32 per source row, so the per-destination
+///   -pixel work is one lerp of two f32 rows. Keeping the partial in f32 is what
+///   makes the result bit-identical rather than merely close.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
+#[allow(clippy::too_many_arguments)] // a blit is a rect, a source and a window
+fn blit_sampled_image(
+    pixmap: &mut AzulPixmap,
+    src: &crate::image_scale::SrcImage<'_>,
+    dst_x: i32,
+    dst_y: i32,
+    dst_w: u32,
+    dst_h: u32,
+    win: (u32, u32, u32, u32),
+    conversions: &mut RowConversions,
+) {
+    let (px_lo, py_lo, px_hi, py_hi) = win;
+    // `is_sampleable` is what lets every read below skip its bounds check: it
+    // proves `bytes.len() >= width * height * bytes_per_pixel`.
+    if px_hi <= px_lo || py_hi <= py_lo || !src.is_sampleable() {
+        return;
+    }
+    let scale_x = src.width as f32 / dst_w.max(1) as f32;
+    let scale_y = src.height as f32 / dst_h.max(1) as f32;
+    let vis_w = (px_hi - px_lo) as usize;
+    let pw = pixmap.width;
+    let src_w = src.width as usize;
+    let last_x = src.width as i32 - 1;
+    let last_y = src.height as i32 - 1;
+
+    let mut stage = vec![0u8; vis_w * 4];
+
+    if scale_x <= 1.0 && scale_y <= 1.0 {
+        // ---- upscale / 1:1 — separable bilinear over a two-row cache -------
+        // Per visible column: the two source x taps (as RGBA byte offsets) and
+        // the horizontal weight. `fx` is written exactly as `image_scale`
+        // writes it, so `tx` is bit-identical.
+        let mut cols: Vec<(u32, u32, f32)> = Vec::with_capacity(vis_w);
+        for dx in px_lo..px_hi {
+            let fx = (dx as f32 + 0.5) * scale_x - 0.5;
+            let x0f = fx.floor();
+            let tx = fx - x0f;
+            let x0 = (x0f as i32).clamp(0, last_x) as u32;
+            let x1 = (x0f as i32 + 1).clamp(0, last_x) as u32;
+            cols.push((x0 * 4, x1 * 4, tx));
+        }
+        let mut rgba = RgbaRow::new(src_w);
+        // The horizontal partials for the two source rows the current
+        // destination row lerps between.
+        let mut h0 = vec![0f32; vis_w * 4];
+        let mut h1 = vec![0f32; vis_w * 4];
+        let (mut have0, mut have1) = (u32::MAX, u32::MAX);
+        for py in py_lo..py_hi {
+            let fy = (py as f32 + 0.5) * scale_y - 0.5;
+            let y0f = fy.floor();
+            let ty = fy - y0f;
+            let y0 = (y0f as i32).clamp(0, last_y) as u32;
+            let y1 = (y0f as i32 + 1).clamp(0, last_y) as u32;
+
+            if have0 != y0 {
+                if have1 == y0 {
+                    core::mem::swap(&mut h0, &mut h1);
+                    have0 = y0;
+                    have1 = u32::MAX;
+                } else {
+                    if rgba.y != Some(y0) {
+                        source_row_to_rgba(src, y0, &mut rgba.bytes);
+                        rgba.y = Some(y0);
+                        conversions.0 += 1;
+                    }
+                    horizontal_lerp_row(&rgba.bytes, &cols, &mut h0);
+                    have0 = y0;
+                }
+            }
+            if have1 != y1 {
+                if y1 == y0 {
+                    h1.copy_from_slice(&h0);
+                } else {
+                    if rgba.y != Some(y1) {
+                        source_row_to_rgba(src, y1, &mut rgba.bytes);
+                        rgba.y = Some(y1);
+                        conversions.0 += 1;
+                    }
+                    horizontal_lerp_row(&rgba.bytes, &cols, &mut h1);
+                }
+                have1 = y1;
+            }
+
+            let w0 = 1.0 - ty;
+            for ((o, &a), &b) in stage.iter_mut().zip(h0.iter()).zip(h1.iter()) {
+                *o = (a * w0 + b * ty).round().clamp(0.0, 255.0) as u8;
+            }
+            let ty_px = (dst_y + py as i32) as u32;
+            let tx_px = (dst_x + px_lo as i32) as u32;
+            composite_rgba_row(pixmap, ((ty_px * pw + tx_px) * 4) as usize, &stage);
+        }
+        return;
     }
 
+    // ---- downscale on at least one axis — bounded area average -------------
+    let nx = (scale_x.ceil() as u32).clamp(1, BLIT_MAX_TAPS);
+    let ny = (scale_y.ceil() as u32).clamp(1, BLIT_MAX_TAPS);
+    // Per visible column, the `nx` source x taps as RGBA byte offsets.
+    let mut cols: Vec<[u32; BLIT_MAX_TAPS as usize]> = Vec::with_capacity(vis_w);
+    for dx in px_lo..px_hi {
+        let cx = (dx as f32 + 0.5) * scale_x;
+        let mut taps = [0u32; BLIT_MAX_TAPS as usize];
+        for (t, slot) in taps.iter_mut().enumerate().take(nx as usize) {
+            let fx = cx + ((t as f32 + 0.5) / nx as f32 - 0.5) * scale_x;
+            *slot = (fx.floor() as i32).clamp(0, last_x) as u32 * 4;
+        }
+        cols.push(taps);
+    }
+    // Up to `ny` source rows are live at once; consecutive destination rows
+    // reuse most of them, so the cache is indexed by source y.
+    let mut rows: Vec<RgbaRow> = (0..ny as usize).map(|_| RgbaRow::new(src_w)).collect();
+    let n = nx * ny;
+    let half = n / 2;
+    for py in py_lo..py_hi {
+        let cy = (py as f32 + 0.5) * scale_y;
+        let mut live = [0usize; BLIT_MAX_TAPS as usize];
+        // Bitmask of cache slots THIS destination row already depends on, so
+        // an eviction can never throw away a row a later tap still needs.
+        // There are `ny` slots and at most `ny - 1` are claimed when a miss
+        // happens, so a free slot always exists.
+        let mut claimed = 0u32;
+        for (t, slot) in live.iter_mut().enumerate().take(ny as usize) {
+            let fy = cy + ((t as f32 + 0.5) / ny as f32 - 0.5) * scale_y;
+            let y = (fy.floor() as i32).clamp(0, last_y) as u32;
+            let idx = match rows.iter().position(|r| r.y == Some(y)) {
+                Some(i) => i,
+                None => {
+                    let victim =
+                        (0..rows.len()).find(|i| claimed & (1u32 << i) == 0).unwrap_or(0);
+                    source_row_to_rgba(src, y, &mut rows[victim].bytes);
+                    rows[victim].y = Some(y);
+                    conversions.0 += 1;
+                    victim
+                }
+            };
+            claimed |= 1u32 << idx;
+            *slot = idx;
+        }
+        for (i, taps) in cols.iter().enumerate() {
+            let (mut r, mut g, mut b, mut a) = (0u32, 0u32, 0u32, 0u32);
+            for &row_idx in live.iter().take(ny as usize) {
+                let row = &rows[row_idx].bytes;
+                for &off in taps.iter().take(nx as usize) {
+                    let o = off as usize;
+                    r += u32::from(row[o]);
+                    g += u32::from(row[o + 1]);
+                    b += u32::from(row[o + 2]);
+                    a += u32::from(row[o + 3]);
+                }
+            }
+            let s = &mut stage[i * 4..i * 4 + 4];
+            s[0] = ((r + half) / n) as u8;
+            s[1] = ((g + half) / n) as u8;
+            s[2] = ((b + half) / n) as u8;
+            s[3] = ((a + half) / n) as u8;
+        }
+        let ty_px = (dst_y + py as i32) as u32;
+        let tx_px = (dst_x + px_lo as i32) as u32;
+        composite_rgba_row(pixmap, ((ty_px * pw + tx_px) * 4) as usize, &stage);
+    }
+}
+
+/// The horizontal half of the separable bilinear pass: `p00·(1−tx) + p10·tx`
+/// per channel, kept in f32 so the vertical pass reproduces `image_scale`'s
+/// arithmetic exactly.
+fn horizontal_lerp_row(rgba: &[u8], cols: &[(u32, u32, f32)], out: &mut [f32]) {
+    for (o, &(x0, x1, tx)) in out.chunks_exact_mut(4).zip(cols.iter()) {
+        let (i0, i1) = (x0 as usize, x1 as usize);
+        let (a, b) = (&rgba[i0..i0 + 4], &rgba[i1..i1 + 4]);
+        let w = 1.0 - tx;
+        for c in 0..4 {
+            o[c] = f32::from(a[c]) * w + f32::from(b[c]) * tx;
+        }
+    }
 }
 
 fn build_rect_path(rect: &AzRect) -> PathStorage {
@@ -6918,6 +7265,201 @@ mod autotest_generated {
             );
         }
         assert_eq!(px_at(&p, 2, 2), [255, 255, 255, 255], "outside the bounds");
+    }
+
+    /// The blit exactly as it was written before the fast path: one
+    /// `image_scale::sample` per destination pixel, composited with the
+    /// documented formula. Deliberately duplicated here — it is the thing the
+    /// production blit must keep agreeing with, so it has to exist somewhere
+    /// the production code cannot drift it.
+    fn reference_blit(
+        pixmap: &mut AzulPixmap,
+        src: &crate::image_scale::SrcImage<'_>,
+        dst_x: i32,
+        dst_y: i32,
+        dst_w: u32,
+        dst_h: u32,
+    ) {
+        let pw = pixmap.width;
+        let ph = pixmap.height;
+        for py in 0..dst_h {
+            for px in 0..dst_w {
+                let tx = dst_x + px as i32;
+                let ty = dst_y + py as i32;
+                if tx < 0 || ty < 0 || tx >= pw as i32 || ty >= ph as i32 {
+                    continue;
+                }
+                let [sr, sg, sb, sa8] = crate::image_scale::sample(src, dst_w, dst_h, px, py);
+                let di = ((ty as u32 * pw + tx as u32) * 4) as usize;
+                if di + 3 >= pixmap.data.len() {
+                    continue;
+                }
+                let sa = u32::from(sa8);
+                if sa == 255 {
+                    pixmap.data[di] = sr;
+                    pixmap.data[di + 1] = sg;
+                    pixmap.data[di + 2] = sb;
+                    pixmap.data[di + 3] = 255;
+                } else if sa > 0 {
+                    let da = 255 - sa;
+                    pixmap.data[di] =
+                        ((u32::from(sr) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+                    pixmap.data[di + 1] =
+                        ((u32::from(sg) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
+                    pixmap.data[di + 2] =
+                        ((u32::from(sb) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
+                    pixmap.data[di + 3] =
+                        ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
+                }
+            }
+        }
+    }
+
+    /// A deterministic, non-uniform source in `fmt`. Uniform data would let a
+    /// wrong tap position pass, and a wrong swizzle pass too.
+    fn noisy_src(fmt: azul_core::resources::RawImageFormat, w: u32, h: u32) -> Vec<u8> {
+        let bpp = crate::image_scale::bytes_per_pixel(fmt).expect("a sampleable format");
+        (0..(w as usize * h as usize * bpp))
+            .map(|i| ((i * 37 + 11) % 256) as u8)
+            .collect()
+    }
+
+    #[test]
+    fn the_fast_image_blit_is_byte_identical_to_image_scale_sample() {
+        // `image_scale::sample` is the golden reference every consumer of the
+        // scaler agrees with, and the blit no longer CALLS it once per
+        // destination pixel — that cost ~19 ns/px, which on the path that
+        // actually matters (a HiDPI window compositing a logical-sized canvas,
+        // i.e. a 2x bilinear upscale over the whole window) is ~45 ms of blit
+        // for one frame. The arithmetic is what could silently drift, so every
+        // destination byte must still be the byte the reference produces, in
+        // every format and on both sides of the upscale/downscale branch.
+        use azul_core::resources::RawImageFormat as F;
+        for fmt in [F::RGBA8, F::BGRA8, F::RGB8, F::BGR8, F::R8] {
+            let (sw, sh) = (13u32, 7u32);
+            let bytes = noisy_src(fmt, sw, sh);
+            let src =
+                crate::image_scale::SrcImage { bytes: &bytes, format: fmt, width: sw, height: sh };
+            assert!(src.is_sampleable(), "{fmt:?} must be sampleable");
+            for (dw, dh) in [
+                (13u32, 7u32), // 1:1
+                (40, 23),      // upscale both axes
+                (5, 3),        // downscale both axes
+                (40, 3),       // upscale x, downscale y
+                (5, 23),       // downscale x, upscale y
+                (1, 1),        // extreme downscale
+                (13, 23),      // 1:1 on x, upscale on y
+            ] {
+                let mut fast = pixmap(dw + 4, dh + 4);
+                let mut want = pixmap(dw + 4, dh + 4);
+                blit_sampled_image(
+                    &mut fast,
+                    &src,
+                    2,
+                    2,
+                    dw,
+                    dh,
+                    (0, 0, dw, dh),
+                    &mut RowConversions::new(),
+                );
+                reference_blit(&mut want, &src, 2, 2, dw, dh);
+                assert_eq!(
+                    snap(&fast),
+                    snap(&want),
+                    "{fmt:?} {sw}x{sh} -> {dw}x{dh}: the fast blit must be BYTE-IDENTICAL to \
+                     image_scale::sample, not merely close"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_clipped_image_blit_narrows_its_loop_to_the_clip() {
+        // THE STRUCTURAL BUG. The blit walked every pixel of the image NODE and
+        // `continue`d on the clip test, so a 40 px damage strip over a
+        // 2078x1132 canvas still ran 2.35 M loop iterations — and, until this,
+        // 2.35 M `image_scale::sample` calls. The window the loop runs over
+        // must be the clip, not the node.
+        let win = visible_dst_window(100, 50, 2000, 1000, 4000, 2000, (140, 90, 180, 130))
+            .expect("the clip overlaps the image");
+        assert_eq!(win, (40, 40, 80, 80), "the loop must cover only the clipped 40x40");
+
+        // Nothing visible -> no loop at all, not a full-node walk that writes
+        // nothing.
+        assert!(
+            visible_dst_window(100, 50, 10, 10, 4000, 2000, (500, 500, 600, 600)).is_none(),
+            "a clip that misses the image must produce no window"
+        );
+
+        // The pixmap edge clamps exactly like the clip does: an image hanging
+        // off the top-left starts at the first on-screen pixel.
+        let win =
+            visible_dst_window(-20, -30, 100, 100, 50, 40, (i32::MIN, i32::MIN, i32::MAX, i32::MAX))
+                .expect("partly on screen");
+        assert_eq!(win, (20, 30, 70, 70));
+    }
+
+    #[test]
+    fn each_source_row_is_converted_once_not_once_per_destination_row() {
+        // THE COMPLEXITY INVARIANT, and the reason the fix is not just
+        // "inline sample()". A per-pixel `image_scale::sample` re-read the
+        // source through `SrcImage::pixel` FOUR times per destination pixel,
+        // each re-deriving the pixel format and re-clamping — 9.4 M
+        // format-dispatched reads for one 2x upscale of AzPaint's canvas.
+        //
+        // Converting each source row to straight RGBA once and reusing it
+        // makes the format dispatch O(source rows touched). Asserting that
+        // count is stable under machine load, unlike a millisecond threshold.
+        use azul_core::resources::RawImageFormat as F;
+
+        // 4x UPSCALE: 40 source rows feeding 160 destination rows.
+        let (sw, sh) = (50u32, 40u32);
+        let bytes = noisy_src(F::RGBA8, sw, sh);
+        let src =
+            crate::image_scale::SrcImage { bytes: &bytes, format: F::RGBA8, width: sw, height: sh };
+        let (dw, dh) = (200u32, 160u32);
+        let mut p = pixmap(dw, dh);
+        let mut conv = RowConversions::new();
+        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, dh), &mut conv);
+        assert!(
+            conv.0 <= sh as usize + 1,
+            "a {sh}-row source must be converted about once per row, not per destination row: \
+             {} conversions",
+            conv.0
+        );
+        assert!(
+            conv.0 < dh as usize,
+            "conversions ({}) must not scale with the {dh} destination rows",
+            conv.0
+        );
+
+        // 4x DOWNSCALE: every destination row averages 4 source rows, and the
+        // tap rows advance monotonically — so each source row is still read
+        // once, never once per tap.
+        let (sw, sh) = (200u32, 160u32);
+        let bytes = noisy_src(F::RGBA8, sw, sh);
+        let src =
+            crate::image_scale::SrcImage { bytes: &bytes, format: F::RGBA8, width: sw, height: sh };
+        let (dw, dh) = (50u32, 40u32);
+        let mut p = pixmap(dw, dh);
+        let mut conv = RowConversions::new();
+        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, dh), &mut conv);
+        assert!(
+            conv.0 <= sh as usize,
+            "a {sh}-row source downscaled 4x must convert at most {sh} rows, got {}",
+            conv.0
+        );
+
+        // A CLIPPED blit touches only the source rows its window needs — the
+        // point of narrowing the loop.
+        let mut p = pixmap(dw, dh);
+        let mut conv = RowConversions::new();
+        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, 4), &mut conv);
+        assert!(
+            conv.0 <= 4 * BLIT_MAX_TAPS as usize,
+            "4 clipped destination rows must not convert the whole {sh}-row source: {}",
+            conv.0
+        );
     }
 
     #[test]
