@@ -476,6 +476,42 @@ fn find_first_matching_focusable_node(
     })
 }
 
+/// The child DOMs `host` mounts through `VirtualView` items, transitively, in
+/// display-list order.
+///
+/// Read off the host's display list — the same place
+/// `headless::resolve_virtual_view_placements` reads it — because that is the
+/// only host→child link available to a function that is handed nothing but
+/// `layout_results`. Bounded by the number of layout results, so a cyclic or
+/// self-referential item cannot spin.
+fn nested_dom_ids(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    host: DomId,
+) -> Vec<DomId> {
+    use crate::solver3::display_list::DisplayListItem;
+
+    let mut out: Vec<DomId> = Vec::new();
+    let mut queue: Vec<DomId> = vec![host];
+    let mut head = 0usize;
+    let limit = layout_results.len().saturating_add(1);
+    while head < queue.len() && head < limit {
+        let current = queue[head];
+        head += 1;
+        let Some(lr) = layout_results.get(&current) else {
+            continue;
+        };
+        for item in lr.display_list.items.iter() {
+            if let DisplayListItem::VirtualView { child_dom_id, .. } = item {
+                if *child_dom_id != host && !out.contains(child_dom_id) {
+                    out.push(*child_dom_id);
+                    queue.push(*child_dom_id);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Resolve a `FocusTarget`, or QUEUE it when there is no layout to resolve
 /// against yet.
 ///
@@ -529,7 +565,31 @@ pub fn resolve_focus_target(
     match focus_target {
         Path(FocusTargetPath { dom, css_path }) => {
             let layout = ctx.get_layout(dom)?;
-            Ok(find_first_matching_focusable_node(layout, dom, css_path))
+            if let Some(found) = find_first_matching_focusable_node(layout, dom, css_path) {
+                return Ok(Some(found));
+            }
+            // A `VirtualView` mounts its callback's DOM as a SEPARATE layout
+            // result under its own DomId. To the app that subtree is part of
+            // the same document — it wrote it, it gets its edit callbacks —
+            // but a selector resolved against the HOST dom alone could never
+            // see it, so `set_focus_to_path` matched nothing and the caller's
+            // focus request was applied as "clear focus".
+            //
+            // That is why an app whose editable content lives in a VirtualView
+            // (AzWriter's page canvas) opened with no caret at all: its
+            // startup focus targeted `.mw-doc`, which is a class on the page
+            // content root inside the nested dom.
+            for nested in nested_dom_ids(layout_results, *dom) {
+                let Some(nested_layout) = layout_results.get(&nested) else {
+                    continue;
+                };
+                if let Some(found) =
+                    find_first_matching_focusable_node(nested_layout, &nested, css_path)
+                {
+                    return Ok(Some(found));
+                }
+            }
+            Ok(None)
         }
 
         Id(dom_node_id) => {
@@ -695,6 +755,25 @@ mod autotest_generated {
             scroll_ids: HashMap::new(),
             scroll_id_to_node_id: HashMap::new(),
         }
+    }
+
+    /// A host display list that mounts `child` through a `VirtualView` item —
+    /// the only host→child link `resolve_focus_target` can read.
+    fn virtual_view_display_list(child: DomId) -> DisplayList {
+        use azul_core::geom::{LogicalPosition, LogicalSize};
+
+        use crate::solver3::display_list::{DisplayListItem, WindowLogicalRect};
+
+        let bounds =
+            WindowLogicalRect::new(LogicalPosition::zero(), LogicalSize::new(100.0, 100.0));
+        let mut dl = DisplayList::default();
+        dl.items.push(DisplayListItem::VirtualView {
+            child_dom_id: child,
+            bounds,
+            clip_rect: bounds,
+            content_offset: LogicalPosition::zero(),
+        });
+        dl
     }
 
     fn window(entries: Vec<(DomId, StyledDom)>) -> BTreeMap<DomId, DomLayoutResult> {
@@ -1432,6 +1511,83 @@ mod autotest_generated {
             css_path: class_path("no-such-class"),
         });
         assert_eq!(resolve_focus_target(&target, &results, None), Ok(None));
+    }
+
+    /// A `VirtualView` mounts its DOM under its OWN DomId, so a selector the
+    /// app resolves against the host dom must still find it — otherwise an app
+    /// whose editable content lives in a VirtualView can never focus it by
+    /// path, and the request lands as "clear focus".
+    ///
+    /// This is AzWriter's startup caret: `set_focus_to_path(ROOT, ".mw-doc")`,
+    /// where `.mw-doc` is on the page content root inside the nested dom.
+    #[test]
+    fn resolve_focus_target_path_reaches_into_a_virtual_views_nested_dom() {
+        let host = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_div()));
+        let mut page = Dom::create_div();
+        page.set_contenteditable(true);
+        let nested = StyledDom::create_from_dom(
+            Dom::create_body().with_child(
+                page.with_ids_and_classes(
+                    vec![azul_core::dom::IdOrClass::Class("mw-doc".into())].into(),
+                ),
+            ),
+        );
+
+        let mut results = window(vec![(dom(0), host), (dom(1), nested)]);
+        results
+            .get_mut(&dom(0))
+            .unwrap()
+            .display_list = std::sync::Arc::new(virtual_view_display_list(dom(1)));
+
+        let target = FocusTarget::Path(FocusTargetPath {
+            dom: dom(0),
+            css_path: class_path("mw-doc"),
+        });
+        assert_eq!(
+            resolve_focus_target(&target, &results, None),
+            Ok(Some(nid(1, 1))),
+            "the selector must resolve into the dom the VirtualView mounted; \
+             answering None here is applied by every caller as 'clear focus', \
+             which is why the editor opened with no caret"
+        );
+    }
+
+    #[test]
+    fn resolve_focus_target_path_still_prefers_the_host_dom_over_a_nested_one() {
+        // Both doms carry `.target`; the host's match wins, so adding the
+        // nested search cannot steal a focus that already resolved.
+        let host = StyledDom::create_from_dom(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_tab_index(TabIndex::Auto)
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("target".into())].into(),
+                    ),
+            ),
+        );
+        let nested = StyledDom::create_from_dom(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_tab_index(TabIndex::Auto)
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("target".into())].into(),
+                    ),
+            ),
+        );
+        let mut results = window(vec![(dom(0), host), (dom(1), nested)]);
+        results
+            .get_mut(&dom(0))
+            .unwrap()
+            .display_list = std::sync::Arc::new(virtual_view_display_list(dom(1)));
+
+        let target = FocusTarget::Path(FocusTargetPath {
+            dom: dom(0),
+            css_path: class_path("target"),
+        });
+        assert_eq!(
+            resolve_focus_target(&target, &results, None),
+            Ok(Some(nid(0, 1)))
+        );
     }
 
     #[test]
