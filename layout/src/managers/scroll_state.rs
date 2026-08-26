@@ -657,6 +657,9 @@ impl ScrollManager {
             eff_y,
         );
         let (dom_id, node_id) = target?;
+        let (delta_x, delta_y) = self.map_wheel_onto_the_only_scrollable_axis(
+            dom_id, node_id, delta_x, delta_y,
+        );
         let input = ScrollInput {
             dom_id,
             node_id,
@@ -700,6 +703,51 @@ impl ScrollManager {
             }
         }
         fallback
+    }
+
+    /// A vertical wheel over a box that can ONLY scroll horizontally moves it
+    /// horizontally.
+    ///
+    /// Every browser does this, and without it a horizontal strip — a page
+    /// rail, a tab bar, a filmstrip — is simply dead to the normal gesture. A
+    /// mouse wheel has no horizontal axis at all, and on a Mac trackpad a
+    /// genuine horizontal swipe is frequently claimed by the system for
+    /// back/forward navigation, so the vertical delta is in practice the only
+    /// input such a box can ever receive.
+    ///
+    /// Only applies when the delta is purely vertical and the target has no
+    /// vertical travel whatsoever: a box that scrolls both ways keeps both
+    /// axes, and a real horizontal delta is passed through untouched.
+    ///
+    /// The RAW device delta was already stored in `pending_wheel_event` above,
+    /// so wheel-as-zoom widgets still see what the hardware actually reported.
+    fn map_wheel_onto_the_only_scrollable_axis(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        delta_x: f32,
+        delta_y: f32,
+    ) -> (f32, f32) {
+        const EPS: f32 = 0.5;
+        if delta_x.abs() > EPS || delta_y.abs() <= EPS {
+            return (delta_x, delta_y);
+        }
+        let Some(state) = self.states.get(&(dom_id, node_id)) else {
+            return (delta_x, delta_y);
+        };
+        let effective_width = state
+            .virtual_scroll_size
+            .map_or(state.content_rect.size.width, |s| s.width);
+        let effective_height = state
+            .virtual_scroll_size
+            .map_or(state.content_rect.size.height, |s| s.height);
+        let max_x = (effective_width - state.container_rect.size.width).max(0.0);
+        let max_y = (effective_height - state.container_rect.size.height).max(0.0);
+        if max_y <= EPS && max_x > EPS {
+            (delta_y, 0.0)
+        } else {
+            (delta_x, delta_y)
+        }
     }
 
     /// MWA-B10: the a11y tree's scroll surface for a node — current offset
@@ -2936,6 +2984,52 @@ mod autotest_generated {
         assert!(m.can_consume_delta(DOM, node(0), 0.0, f32::NEG_INFINITY));
         assert!(m.can_consume_delta(DOM, node(0), 0.0, f32::MAX));
         assert!(!m.can_consume_delta(DOM, node(999), 0.0, f32::MAX), "unknown node");
+    }
+
+    // ======================================== map_wheel_onto_the_only_scrollable_axis
+
+    #[test]
+    fn a_vertical_wheel_scrolls_a_strip_that_can_only_move_horizontally() {
+        // A page rail / tab bar / filmstrip. A mouse wheel has no horizontal
+        // axis, so without this the strip cannot be scrolled by wheel at all.
+        let m = mgr(size(100.0, 40.0), size(900.0, 40.0));
+        assert_eq!(
+            m.map_wheel_onto_the_only_scrollable_axis(DOM, node(0), 0.0, 30.0),
+            (30.0, 0.0),
+        );
+    }
+
+    #[test]
+    fn a_box_that_scrolls_both_ways_keeps_the_axes_the_device_reported() {
+        // Transposing here would make a vertical gesture pan sideways on any
+        // ordinary two-way scroller — far worse than the dead strip it fixes.
+        let m = mgr(size(100.0, 100.0), size(900.0, 900.0));
+        assert_eq!(
+            m.map_wheel_onto_the_only_scrollable_axis(DOM, node(0), 0.0, 30.0),
+            (0.0, 30.0),
+        );
+    }
+
+    #[test]
+    fn a_real_horizontal_delta_is_never_rewritten() {
+        // A trackpad swipe that already carries x must pass through untouched,
+        // or a diagonal gesture would lose its vertical component.
+        let m = mgr(size(100.0, 40.0), size(900.0, 40.0));
+        assert_eq!(
+            m.map_wheel_onto_the_only_scrollable_axis(DOM, node(0), -12.0, 30.0),
+            (-12.0, 30.0),
+        );
+    }
+
+    #[test]
+    fn a_strip_with_nothing_to_scroll_is_left_alone() {
+        // No travel on either axis: rewriting would hand the physics a delta
+        // for an axis that cannot move, which reads as an overscroll bounce.
+        let m = mgr(size(100.0, 40.0), size(100.0, 40.0));
+        assert_eq!(
+            m.map_wheel_onto_the_only_scrollable_axis(DOM, node(0), 0.0, 30.0),
+            (0.0, 30.0),
+        );
     }
 
     // ==================================================== select_scroll_target
