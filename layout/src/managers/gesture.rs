@@ -1081,11 +1081,32 @@ impl GestureAndDragManager {
         }
     }
 
+    /// Did the PLATFORM report a double-click (as opposed to this manager
+    /// inferring one from the session history)?
+    ///
+    /// The injected gesture is CONSUMED — the event loop clears the latch at
+    /// the end of the pass that saw it — whereas [`Self::detect_double_click`]
+    /// is a pure predicate over the session history that stays true until the
+    /// next press. Event *determination* has to tell those two apart, because
+    /// only the injected one may fire without a mouse-release edge.
+    #[must_use]
+    pub const fn has_injected_double_click(&self) -> bool {
+        matches!(self.native_gesture, Some(NativeGestureEvent::DoubleClick))
+    }
+
     /// Detect if last two sessions form a double-click.
     ///
     /// Returns true if timing and distance match double-click criteria.
+    ///
+    /// PURE PREDICATE, deliberately: `CallbackInfo::was_double_clicked` asks it
+    /// during dispatch, so it must still answer `true` after the event that
+    /// carried the double-click was raised. Nothing here is consumed — the two
+    /// ended sessions stay the newest pair until the next press — so a CALLER
+    /// that turns this into an event owes it an edge of its own (see
+    /// `determine_all_events`, which only raises `DoubleClick` on the release
+    /// that completes the gesture).
     #[must_use] pub fn detect_double_click(&self) -> bool {
-        if matches!(self.native_gesture, Some(NativeGestureEvent::DoubleClick)) {
+        if self.has_injected_double_click() {
             return true;
         }
         let sessions = &self.input_sessions;
