@@ -72,6 +72,37 @@ pub fn is_exposed_to_accessibility(node_data: &NodeData) -> bool {
         )
 }
 
+/// Does this declaration actually say what KIND of control the node is?
+///
+/// ONE definition, deliberately — three surfaces resolve a node's role (the
+/// accesskit tree's `A11yManager::build_node`, its no-layout fallback in
+/// `A11yManager::update_tree`, and the iOS/Android `A11ySnapshot`) and they
+/// must not disagree about it.
+///
+/// `AccessibilityRole::Unknown` is what `AccessibilityInfo::default()` hands
+/// out, and it is the value `AccessibilityInfo::assign` treats as "not
+/// specified" when it merges a patch. It therefore means *the declaration is
+/// silent about the kind of control*, NOT *this control is of an unknown
+/// kind* — so it must never outrank the element's own type.
+///
+/// It used to. Because `build_node` selected the role as "if there is any
+/// `AccessibilityInfo` at all, its `role` wins", the one-field form the engine
+/// itself recommends —
+///
+/// ```ignore
+/// slider.dom().with_accessibility_name("Volume")
+/// ```
+///
+/// — replaced the node's real role with `Role::Unknown`, which VoiceOver skips
+/// exactly the way it skips `GenericContainer`. Naming a control DELETED it
+/// from the accessibility tree, so the more accessibility an app declared the
+/// less of it a screen reader could reach: 25 of AzWidgets' 691 nodes were
+/// `Unknown` for this reason alone.
+#[must_use]
+pub fn accessibility_role_is_specified(role: &AccessibilityRole) -> bool {
+    !matches!(role, AccessibilityRole::Unknown)
+}
+
 /// Cursor/selection info passed to the a11y tree builder.
 /// Used to set `text_selection` on contenteditable nodes so screen readers
 /// can announce the cursor position and selection range.
@@ -237,7 +268,15 @@ impl A11yManager {
                 let mut node = if let Some((layout_node, _layout_idx, abs_pos)) = layout_info {
                     Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
                 } else {
-                    let role = a11y_info_ref.map_or_else(|| Self::node_type_to_role(&node_data.node_type), |info| Self::map_role(&info.role));
+                    // Same rule as `build_node` (which this branch stands in
+                    // for when the node has no layout yet): only a SPECIFIED
+                    // role overrides the element's own type.
+                    let role = match a11y_info_ref {
+                        Some(info) if accessibility_role_is_specified(&info.role) => {
+                            Self::map_role(&info.role)
+                        }
+                        _ => Self::node_type_to_role(&node_data.node_type),
+                    };
                     let mut builder = Node::new(role);
                     if let NodeType::Text(text) = &node_data.node_type {
                         builder.set_label(text.as_str());
@@ -504,13 +543,19 @@ impl A11yManager {
         hidpi_factor: f32,
         window_size: LogicalSize,
     ) -> Node {
-        // Set role based on NodeType or AccessibilityInfo.
+        // Set role based on NodeType or AccessibilityInfo. A DECLARED role
+        // wins; an `Unknown` one is not a declaration at all — see
+        // `accessibility_role_is_specified`, which is why naming a control no
+        // longer erases its role.
         let role = if node_data.is_contenteditable() {
             Role::MultilineTextInput
-        } else if let Some(info) = a11y_info {
-            Self::map_role(&info.role)
         } else {
-            Self::node_type_to_role(&node_data.node_type)
+            match a11y_info {
+                Some(info) if accessibility_role_is_specified(&info.role) => {
+                    Self::map_role(&info.role)
+                }
+                _ => Self::node_type_to_role(&node_data.node_type),
+            }
         };
 
         let mut builder = Node::new(role);
@@ -1131,6 +1176,65 @@ mod autotest_generated {
             target_node: A11yNodeId(1),
             data,
         }
+    }
+
+    /// A `DomLayoutResult` carrying a real `StyledDom` but an EMPTY layout
+    /// tree. `update_tree`'s tree SHAPE — who is whose child, what is
+    /// reachable, where focus lands — is a pure function of `node_data` +
+    /// `node_hierarchy`; the layout tree only supplies bounds. So this is
+    /// enough to reproduce exactly the tree a real window publishes, with no
+    /// solver pass and no fonts.
+    fn layout_result_of(styled_dom: azul_core::styled_dom::StyledDom) -> DomLayoutResult {
+        use std::{collections::HashMap, sync::Arc};
+
+        use azul_core::geom::LogicalRect;
+
+        use crate::solver3::{display_list::DisplayList, layout_tree::LayoutTree};
+
+        DomLayoutResult {
+            styled_dom,
+            layout_tree: LayoutTree {
+                nodes: Vec::new(),
+                warm: Vec::new(),
+                cold: Vec::new(),
+                root: 0,
+                dom_to_layout: BTreeMap::new(),
+                children_arena: Vec::new(),
+                children_offsets: Vec::new(),
+                subtree_needs_intrinsic: Vec::new(),
+            },
+            calculated_positions: Vec::new(),
+            viewport: LogicalRect::zero(),
+            display_list: Arc::new(DisplayList::default()),
+            scroll_ids: HashMap::new(),
+            scroll_id_to_node_id: HashMap::new(),
+        }
+    }
+
+    /// `update_tree` over a set of real DOMs, one per `DomId`, in id order.
+    fn update_over_doms(doms: Vec<azul_core::dom::Dom>) -> TreeUpdate {
+        use azul_core::styled_dom::StyledDom;
+
+        let mut layout_results = BTreeMap::new();
+        for (i, dom) in doms.into_iter().enumerate() {
+            layout_results.insert(
+                DomId { inner: i },
+                layout_result_of(StyledDom::create_from_dom(dom)),
+            );
+        }
+        let scroll_manager = ScrollManager::new();
+        let overrides = BTreeMap::new();
+        A11yManager::update_tree(
+            A11yNodeId(0),
+            &layout_results,
+            &scroll_manager,
+            &AzString::from("Azul Widget Showcase"),
+            LogicalSize::new(1000.0, 700.0),
+            None,
+            1.0,
+            &overrides,
+            None,
+        )
     }
 
     /// `update_tree` with no DOMs at all — the smallest legal input.
@@ -2294,6 +2398,188 @@ mod autotest_generated {
             update.focus,
             A11yNodeId(0),
             "with no content nodes, focus must fall back to the root"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Naming a control must not DELETE it (the AzWidgets a11y regression)
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn naming_a_node_keeps_the_role_its_element_type_implies() {
+        // The one-field form the engine's own lint recommends. It produces
+        // `AccessibilityInfo { name: Some(..), role: Unknown, .. }`, and
+        // `Unknown` is `Default`'s "not specified" — so the element's own kind
+        // must survive. It used to be replaced by `Role::Unknown`, which
+        // VoiceOver skips exactly the way it skips `GenericContainer`: naming a
+        // control removed it from the tree.
+        for (node_type, expected) in [
+            (NodeType::Button, Role::Button),
+            (NodeType::Div, Role::Group),
+            (NodeType::A, Role::Link),
+            (NodeType::Input, Role::TextInput),
+            (NodeType::H1, Role::Heading),
+        ] {
+            let mut a11y = AccessibilityInfo::default();
+            a11y.accessibility_name = OptionString::Some(AzString::from("Accent colour"));
+            assert_eq!(
+                a11y.role,
+                AccessibilityRole::Unknown,
+                "the fixture must exercise the unspecified-role case"
+            );
+
+            let node = A11yManager::build_node(
+                &NodeData::create_node(node_type.clone()),
+                &plain_hot(),
+                None,
+                Some(&a11y),
+                1.0,
+                LogicalSize::new(800.0, 600.0),
+            );
+            assert_eq!(
+                node.role(),
+                expected,
+                "{node_type:?} lost its role to a name-only declaration"
+            );
+            assert_eq!(node.label(), Some("Accent colour"), "the name must survive too");
+        }
+    }
+
+    #[test]
+    fn a_declared_role_still_outranks_the_element_type() {
+        // The other half of the contract: an explicit role is authoritative.
+        let mut a11y = info(AccessibilityRole::Slider);
+        a11y.accessibility_name = OptionString::Some(AzString::from("Volume"));
+        let node = A11yManager::build_node(
+            &NodeData::create_node(NodeType::Div),
+            &plain_hot(),
+            None,
+            Some(&a11y),
+            1.0,
+            LogicalSize::new(800.0, 600.0),
+        );
+        assert_eq!(node.role(), Role::Slider);
+    }
+
+    #[test]
+    fn no_named_node_in_a_widget_showcase_tree_is_announced_as_unknown() {
+        // Whole-tree statement of the same bug, over the shape AzWidgets
+        // actually builds: a labelled section whose control carries a name and
+        // nothing else. `Role::Unknown` must not appear anywhere.
+        use azul_core::dom::Dom;
+
+        let labelled = |caption: &str, control: Dom| {
+            Dom::create_div()
+                .with_child(Dom::create_span_with_text(caption))
+                // Exactly what `examples/azul-widgets`' `labelled()` helper
+                // does: the caption a sighted user reads IS the control's name.
+                .with_child(control.with_accessibility_name(caption))
+        };
+        let body = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_child(labelled("Accent colour", Dom::create_div()))
+                .with_child(labelled("Volume", Dom::create_div()))
+                .with_child(labelled("Subscribe", Dom::create_div())),
+        );
+
+        let update = update_over_doms(vec![body]);
+        let unknown: Vec<_> = update
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.role() == Role::Unknown)
+            .map(|(id, n)| (*id, n.label()))
+            .collect();
+        assert!(
+            unknown.is_empty(),
+            "named controls fell out of the tree as Role::Unknown: {unknown:?}"
+        );
+    }
+
+    #[test]
+    fn the_ios_android_snapshot_resolves_roles_the_same_way_the_accesskit_tree_does() {
+        // `A11ySnapshot` is the platform-neutral twin for the two shells
+        // accesskit has no backend for. It carried the identical defect, and a
+        // second copy of a rule is how the two drift apart — both now go
+        // through `accessibility_role_is_specified`.
+        use azul_core::{dom::Dom, styled_dom::StyledDom};
+
+        use crate::managers::{a11y_snapshot::A11ySnapshot, gpu_state::GpuStateManager};
+
+        let mut layout_results = BTreeMap::new();
+        layout_results.insert(
+            DomId { inner: 0 },
+            layout_result_of(StyledDom::create_from_dom(Dom::create_body().with_child(
+                Dom::create_button("Subscribe", azul_core::a11y::SmallAriaInfo::label("Subscribe"))
+                    .with_accessibility_name("Subscribe"),
+            ))),
+        );
+        let gpu = GpuStateManager::new(
+            azul_core::task::Duration::from_millis(0),
+            azul_core::task::Duration::from_millis(0),
+        );
+        let snapshot = A11ySnapshot::build(
+            &layout_results,
+            &ScrollManager::new(),
+            &gpu,
+            None,
+            "t",
+            LogicalSize::new(800.0, 600.0),
+        );
+        let unknown: Vec<_> = snapshot
+            .elements
+            .iter()
+            .filter(|e| e.role == AccessibilityRole::Unknown)
+            .map(|e| e.label.clone())
+            .collect();
+        assert!(
+            unknown.is_empty(),
+            "named elements came back with an Unknown role: {unknown:?}"
+        );
+    }
+
+    #[test]
+    fn a_well_formed_multi_dom_tree_passes_through_the_guard_untouched() {
+        // The consistency guard exists to neutralise MALFORMED input. On a
+        // well-formed one — including the main window merged with a
+        // `<transient-window>` child DOM — it must be a NO-OP: every node
+        // present, reachable exactly once, nothing re-hung on the root. (The
+        // AzWidgets a11y regression was blamed on this guard; it is not the
+        // culprit, and this pins that.)
+        use azul_core::dom::Dom;
+
+        let page = |name: &str| {
+            Dom::create_body()
+                .with_child(Dom::create_span_with_text(name))
+                .with_child(
+                    Dom::create_div()
+                        .with_child(Dom::create_span_with_text("one"))
+                        .with_child(Dom::create_span_with_text("two")),
+                )
+        };
+        let update = update_over_doms(vec![page("main"), page("popup")]);
+
+        let by_id: HashMap<A11yNodeId, &Node> =
+            update.nodes.iter().map(|(id, n)| (*id, n)).collect();
+        let root = by_id[&A11yNodeId(0)];
+        assert_eq!(
+            root.children().len(),
+            2,
+            "one root child per DOM, and no orphan re-hung alongside them: {:?}",
+            root.children()
+        );
+
+        let mut reachable = std::collections::HashSet::new();
+        let mut stack = vec![A11yNodeId(0)];
+        while let Some(id) = stack.pop() {
+            assert!(reachable.insert(id), "{id:?} is reachable twice");
+            if let Some(n) = by_id.get(&id) {
+                stack.extend(n.children().iter().copied());
+            }
+        }
+        assert_eq!(
+            reachable.len(),
+            update.nodes.len(),
+            "the guard dropped nodes from a well-formed tree"
         );
     }
 

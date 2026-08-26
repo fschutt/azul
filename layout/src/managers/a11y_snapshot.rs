@@ -210,10 +210,18 @@ impl A11ySnapshot {
                     }
                 }
 
-                let role = node_data.get_accessibility_info().map_or_else(
-                    || node_type_to_role(&node_data.node_type),
-                    |info| info.role,
-                );
+                // A DECLARED role wins; `Unknown` is the default that means
+                // "not specified" and must not erase the element's own kind.
+                // Same rule the accesskit tree applies — see
+                // `crate::managers::a11y::accessibility_role_is_specified`.
+                let role = match node_data.get_accessibility_info() {
+                    Some(info)
+                        if crate::managers::a11y::accessibility_role_is_specified(&info.role) =>
+                    {
+                        info.role
+                    }
+                    _ => node_type_to_role(&node_data.node_type),
+                };
 
                 let mut checked = None;
                 let mut disabled = false;
