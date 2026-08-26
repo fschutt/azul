@@ -32,6 +32,8 @@
 use std::path::PathBuf;
 
 use azul::prelude::*;
+use azul::task::TerminateTimer;
+use azul::time::SystemTimeDiff;
 
 pub mod code;
 pub mod ink;
@@ -77,6 +79,11 @@ pub struct AppState {
     /// the only place in the app that sees the engine's scroll offset. Drives
     /// which number the page rail highlights.
     pub visible_page: usize,
+    /// Which annotation burst new strokes join. Bumped by the idle timer.
+    pub epoch: u64,
+    /// The idle timer's id, kept so each pen-up can RESTART one timer instead
+    /// of piling up a fresh one per stroke.
+    pub idle_timer: TimerId,
     pub root: PathBuf,
     pub status: String,
     /// Pad ExpressKeys as of the last frame, so a press EDGE can be detected.
@@ -105,11 +112,16 @@ impl AppState {
 
 /// Cluster strokes into findings.
 ///
-/// Clustering is spatial AND temporal, because that is how the marks were
-/// made: strokes drawn close together, close in time, and carrying the same
-/// intent are one remark. Two `.unwrap()` highlights on opposite ends of a
-/// page minutes apart are two findings; the brace and the words next to it are
-/// one.
+/// # The epoch does the work
+///
+/// Two marks are one remark when they were MADE as one remark, and the only
+/// honest record of that is the pause between them — which is why the boundary
+/// comes from the idle timer (`ANNOTATION_IDLE_MS`) and not from geometry.
+/// Position alone cannot tell a second thought about a line from a correction
+/// of the first, and both happen constantly.
+///
+/// Line proximity is still required WITHIN an epoch, because one uninterrupted
+/// burst of marking often covers several unrelated places on a page.
 fn derive_findings(
     strokes: &[Stroke],
     file: &code::SourceFile,
@@ -124,10 +136,9 @@ fn derive_findings(
         let l0 = first_line + (y0 / ui::LINE_H).floor().max(0.0) as usize;
         let l1 = first_line + (y1 / ui::LINE_H).floor().max(0.0) as usize;
 
-        // Merge into an existing finding when the intent matches and the line
-        // ranges touch — the brace and the note beside it become one remark.
         let merged = out.iter_mut().find(|f| {
-            f.semantic == s.semantic
+            f.epoch == s.epoch
+                && f.semantic == s.semantic
                 && l0 <= f.last_line.saturating_add(2)
                 && l1.saturating_add(2) >= f.first_line
         });
@@ -148,6 +159,7 @@ fn derive_findings(
             last_line: l1,
             voice_note: voice,
             stroke_count: 1,
+            epoch: s.epoch,
         });
     }
     out.sort_by_key(|f| f.first_line);
@@ -179,6 +191,8 @@ pub fn run() {
         clips: Vec::new(),
         level_samples: 0,
         visible_page: 0,
+        epoch: 0,
+        idle_timer: TimerId::unique(),
         root,
         status,
         last_pad_keys: 0,
@@ -224,7 +238,8 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     // code, it does not say anything about it. Letting it carry `issue` would
     // produce findings whose ink shape contradicts their label.
     let semantic = s.tool.semantic_for(s.active);
-    s.live = Some(Stroke { page, semantic, points: vec![p], id });
+    let epoch = s.epoch;
+    s.live = Some(Stroke { page, semantic, points: vec![p], id, epoch });
 
     // The audio pen starts recording by being used. Any other way round means
     // remembering to arm it first, and the remark worth saying out loud is the
@@ -295,8 +310,8 @@ pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
 /// down to pick another up, and a tool change that costs a trip to a toolbar
 /// reproduces exactly that interruption. A one-dab stroke would be invisible
 /// anyway, so nothing is lost by spending it.
-pub extern "C" fn on_ink_up(mut data: RefAny, info: CallbackInfo) -> Update {
-    let is_click = {
+pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (is_click, timer_id) = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
@@ -304,18 +319,79 @@ pub extern "C" fn on_ink_up(mut data: RefAny, info: CallbackInfo) -> Update {
             return Update::DoNothing;
         };
         if done.points.len() < CLICK_POINT_LIMIT {
-            true
+            (true, s.idle_timer)
         } else {
             s.strokes.push(done);
             s.rederive();
             session::save(&s);
-            false
+            (false, s.idle_timer)
         }
     };
     if is_click {
         return on_cycle_tool(data, info);
     }
+    arm_idle_timer(&mut info, data, timer_id);
     Update::RefreshDom
+}
+
+/// How long the ink must stay still before the annotation is considered
+/// finished.
+///
+/// Long enough to survive lifting the pen to look at the code, short enough
+/// that two genuinely separate remarks are not welded together. It is a
+/// judgement about pen-and-paper rhythm, not a tuning constant with a right
+/// answer — but SOME threshold is required, because the alternative is
+/// guessing from geometry, which cannot distinguish a correction from a new
+/// thought about the same line.
+const ANNOTATION_IDLE_MS: u64 = 1_800;
+
+/// (Re)start the idle timer, so it always measures from the LAST stroke.
+///
+/// One timer id reused rather than a fresh one per stroke: a dense burst of
+/// marking would otherwise leave dozens of pending timers, every one of which
+/// would fire and split the annotation it was supposed to keep whole.
+fn arm_idle_timer(info: &mut CallbackInfo, data: RefAny, id: TimerId) {
+    info.remove_timer(id);
+    let timer = Timer::create(
+        data,
+        TimerCallback { cb: on_annotation_idle, ctx: OptionRefAny::None },
+        info.get_system_time_fn(),
+    )
+    .with_delay(Duration::System(SystemTimeDiff::from_millis(ANNOTATION_IDLE_MS)));
+    info.add_timer(id, timer);
+}
+
+/// The pen has been still long enough: seal this annotation.
+///
+/// Sealing is what makes the next stroke a NEW remark rather than a
+/// continuation. It also closes an open audio clip, because the spoken
+/// rationale belongs to the marks that were on the page while it was being
+/// said — letting it run into the next annotation would bind it to ink it has
+/// nothing to do with.
+pub extern "C" fn on_annotation_idle(
+    mut data: RefAny,
+    _: TimerCallbackInfo,
+) -> TimerCallbackReturn {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return TimerCallbackReturn {
+            should_update: Update::DoNothing,
+            should_terminate: TerminateTimer::Terminate,
+        };
+    };
+    s.epoch += 1;
+    if let Some(clip) = s.recording.take() {
+        s.clips.push(clip);
+        s.level_samples = 0;
+    }
+    s.status = format!("annotation {} sealed", s.epoch);
+    session::save(&s);
+    TimerCallbackReturn {
+        // One-shot: the next pen-up arms a fresh one. A repeating timer would
+        // keep bumping the epoch through an idle session and scatter later ink
+        // across epochs nobody ever drew in.
+        should_update: Update::RefreshDom,
+        should_terminate: TerminateTimer::Terminate,
+    }
 }
 
 /// Below this many samples the gesture was a click, not a mark.
@@ -370,6 +446,66 @@ pub extern "C" fn on_jump_to_page(mut data: RefAny, mut info: CallbackInfo) -> U
     // Highlight the target immediately. The VirtualView will confirm it on its
     // next invoke; without this the rail would not move until the strip did.
     s.visible_page = page;
+    Update::RefreshDom
+}
+
+/// Ink menu → pick a semantic.
+///
+/// Separate from `on_pick_semantic` because a menu item carries its OWN
+/// `RefAny` payload rather than a node dataset: there is no hit node to read an
+/// `IndexTag` off, so the index arrives as the callback's data and the app
+/// state has to be reached some other way.
+pub extern "C" fn on_menu_semantic(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(tag) = data.downcast_ref::<ui::IndexTag>().map(|t| t.index) else {
+        return Update::DoNothing;
+    };
+    let Some(&sem) = Semantic::ALL.get(tag) else {
+        return Update::DoNothing;
+    };
+    let Some(mut app) = info.get_dataset(info.get_hit_node()).into_option() else {
+        // The menu is on the DOM ROOT, so a menu click has no meaningful hit
+        // node to carry state — see `on_menu_save` for why the other menu
+        // items get the app handle directly instead.
+        return Update::DoNothing;
+    };
+    let Some(mut s) = app.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.active = sem;
+    Update::RefreshDom
+}
+
+/// Session menu → write the archive now.
+pub extern "C" fn on_menu_save(mut data: RefAny, _: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.status = if session::save(&s) {
+        format!("saved to {}", scratch_dir().display())
+    } else {
+        "save FAILED".to_string()
+    };
+    Update::RefreshDom
+}
+
+/// Session menu → open the archive folder in the desktop file manager.
+pub extern "C" fn on_menu_reveal(mut data: RefAny, _: CallbackInfo) -> Update {
+    let dir = scratch_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    // Shelling out rather than going through a toolkit API because there is no
+    // "reveal in file manager" in the C API to go through — noted rather than
+    // hidden, since everything else in this app deliberately does.
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&dir).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.status = format!("archives in {}", dir.display());
     Update::RefreshDom
 }
 
