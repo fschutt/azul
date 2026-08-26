@@ -910,8 +910,20 @@ fluent = ["azul-layout", "azul-layout/fluent"]
 # icons must also pull the brotli decompressor here.
 icons = ["azul-layout", "azul-layout/icons", "dep:brotli-decompressor"]
 
-# HTTP client support for downloading resources
-http = ["azul-layout", "azul-layout/http"]
+# HTTP client support for downloading resources.
+#
+# `azul-layout?/http` — NOT the bare `azul-layout` its siblings above use — so
+# that asking for `http` cannot, by itself, drag the whole engine into a
+# `link-dynamic` build. `map-tiles` implies `http` (the tile worker calls
+# `azul_layout::http::http_get`), and a demo has to enable `map-tiles` to get a
+# tile worker at all; with the bare form that turned AzMaps' dependency-only
+# link-dynamic build into a full azul-layout + ureq + rustls compile, undoing
+# the "demos link the prebuilt libazul, no engine rebuild" arrangement.
+# Nothing is lost: the only `#[cfg(feature = "http")]` in dll/src re-exports
+# `azul_layout::http` from `desktop::`, and that module is `cabi_internal`-gated
+# — every build that can reach it already enables `azul-layout` via
+# `_internal_deps`, so the forward still fires there.
+http = ["azul-layout?/http"]
 
 # ZIP archives. The `Zip` handle (extra/zip) is always compiled so it
 # codegen-exposes unconditionally; this pulls the compressor behind it.
