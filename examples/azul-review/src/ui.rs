@@ -6,22 +6,38 @@
 
 use azul::prelude::*;
 use azul::callbacks::RenderImageCallbackInfo;
-use azul::dom::{IdOrClass, RenderImageCallback};
-use azul::vec::IdOrClassVec;
+use azul::dom::{AccessibilityInfo, IdOrClass, RenderImageCallback};
+use azul::menu::{Menu, MenuItem, StringMenuItem};
+use azul::vec::{IdOrClassVec, MenuItemVec};
 use azul::image::{ImageRef, RawImageFormat};
 use azul::vec::U8VecRef;
 use azul::image::{RawImage, RawImageData};
 
 use crate::{code, ink, model::Semantic, AppState};
 
+
 /// Line height in logical px. Shared by the renderer and by the code that
 /// infers WHICH LINES a stroke covers — if these two ever disagree, every
 /// annotation silently anchors to the wrong place.
 pub const LINE_H: f32 = 15.0;
 /// Page width, sized for ~110 columns of the mono face.
-const PAGE_W: f32 = 760.0;
+const PAGE_W: f32 = 1000.0;
 /// Left gutter for line numbers; ink to the left of this is margin commentary.
 const GUTTER_W: f32 = 52.0;
+
+/// Blank paper to the RIGHT of the code, and the reason the sheet is this wide.
+///
+/// This is where handwritten remarks actually go — on a printout the note sits
+/// beside the line it is about, not on top of it. Without a real margin there
+/// is nowhere to write that does not obscure the code, so every mark has to be
+/// a highlight and the pen half of the grammar becomes unusable.
+///
+/// The findings panel that used to occupy this space was the same information
+/// twice, restated as a list — the "structure first" habit this app exists to
+/// invert. The ink IS the record.
+const MARGIN_GUTTER_W: f32 = 260.0;
+/// Paper edge around everything.
+const PAGE_PAD: f32 = 32.0;
 /// Gap between sheets in the strip. Wide enough that the shadow of one page
 /// does not read as part of the next.
 const PAGE_GAP: f32 = 24.0;
@@ -96,6 +112,17 @@ pub fn index_of(info: &mut CallbackInfo) -> Option<usize> {
         .and_then(|mut d| d.downcast_ref::<IndexTag>().map(|t| t.index))
 }
 
+/// An `AccessibilityInfo` carrying nothing but a name.
+///
+/// Every control in this toolbar is icon-first, and an icon-only control reads
+/// to a screen reader as a private-use codepoint — which is to say, as noise.
+fn named(name: &str) -> AccessibilityInfo {
+    AccessibilityInfo {
+        accessibility_name: OptionString::Some(name.into()),
+        ..AccessibilityInfo::default()
+    }
+}
+
 /// Marks an ink layer with the page it belongs to.
 #[derive(Debug, Clone, Copy)]
 pub struct PageTag {
@@ -120,41 +147,185 @@ pub extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
     center.add_child(sheet(&s, &data));
     center.add_child(status_bar(&s));
     root.add_child(center);
-    root.add_child(margin_panel(&s, &data));
-    root
+    // No findings panel. Derived findings are still computed and still written
+    // to the archive, but restating them beside the page was the same content
+    // twice — and the second copy was a LIST, which is the "structure first"
+    // shape this app exists to invert. The remark lives in the page's own
+    // margin, where it was written.
+    root.with_menu_bar(menu_bar(&data))
 }
 
-/// File browser. Works against a whole repo or a single directory — the only
-/// difference is what `load_tree` skipped.
+/// The native menu bar, on the DOM root.
+///
+/// Everything here is also reachable from the page or the pad, on purpose: the
+/// menu is for discovering that a command exists and for the keyboard, not a
+/// path anyone should have to use mid-review. Its real job is being the place
+/// a macOS user looks first.
+fn menu_bar(data: &RefAny) -> Menu {
+    let mut items: Vec<MenuItem> = Vec::new();
+
+    let mut ink = StringMenuItem::create("Ink");
+    for (i, sem) in Semantic::ALL.iter().enumerate() {
+        ink = ink.with_child(MenuItem::String(
+            StringMenuItem::create(sem.label())
+                .with_callback(RefAny::new(IndexTag { index: i }), crate::on_menu_semantic),
+        ));
+    }
+    ink = ink.with_child(MenuItem::Separator);
+    ink = ink.with_child(MenuItem::String(
+        StringMenuItem::create("Cycle nib")
+            .with_callback(data.clone(), crate::on_cycle_tool),
+    ));
+    ink = ink.with_child(MenuItem::String(
+        StringMenuItem::create("Start / stop recording")
+            .with_callback(data.clone(), crate::on_toggle_record),
+    ));
+    items.push(MenuItem::String(ink));
+
+    let mut session = StringMenuItem::create("Session");
+    session = session.with_child(MenuItem::String(
+        StringMenuItem::create("Save now").with_callback(data.clone(), crate::on_menu_save),
+    ));
+    session = session.with_child(MenuItem::String(
+        StringMenuItem::create("Reveal archive folder")
+            .with_callback(data.clone(), crate::on_menu_reveal),
+    ));
+    items.push(MenuItem::String(session));
+
+    // `copy_from_ptr` is the only bulk constructor the FFI vectors expose;
+    // it deep-clones each element, so `items` is still ours to drop.
+    Menu::create(MenuItemVec::copy_from_ptr(&items[0], items.len()))
+}
+
+/// File browser, in the shape of a Finder list view.
+///
+/// # Why a tree and not the flat paths it used to show
+///
+/// `load_tree` returns paths like `layout/src/widgets/accordion.rs`, and shown
+/// flat they are unreadable at 11px — every row starts with the same forty
+/// characters. Folding the shared prefixes into folder rows costs one pass and
+/// makes the shape of the review target legible, which is most of what a file
+/// list is for.
+///
+/// Rows carry a type ICON rather than a spelled-out kind for the same reason
+/// Finder does: at this size the glyph is read faster than the word, and the
+/// word would push the filename out of the column.
 fn sidebar(s: &AppState, data: &RefAny) -> Dom {
     let mut col = Dom::create_div().with_css(
-        "display: flex; flex-direction: column; width: 250px; flex-shrink: 0; \
-         background: #f7f6f3; border-right: 1px solid #cfcbc4; overflow: auto;",
+        // `min-height: 0px` is what makes this scroll at all. Without it the
+        // column's height resolves to its CONTENT in the flex row, so it grows
+        // past the window instead of overflowing, and `overflow-y` never has
+        // anything to act on.
+        "display: flex; flex-direction: column; width: 260px; flex-shrink: 0; \
+         min-height: 0px; height: 100%; background: #f7f6f3; \
+         border-right: 1px solid #cfcbc4;",
     );
     col.add_child(
-        Dom::create_div_with_text("Files")
-            .with_css("font-weight: bold; font-size: 12px; padding: 10px; color: #55514a;"),
+        Dom::create_div_with_text("Name")
+            .with_css(
+                "font-size: 11px; padding: 7px 10px; color: #6b665e; flex-shrink: 0; \
+                 border-bottom: 1px solid #d8d4cd; background: #efede8;",
+            ),
     );
+
+    let mut list = Dom::create_div()
+        .with_css("flex-grow: 1; min-height: 0px; overflow-y: auto; overflow-x: hidden;");
+
+    // Emit a folder row whenever a path component differs from the previous
+    // row's. The file list is sorted by display path, so one linear pass is
+    // enough — no tree needs to be built.
+    let mut prev: Vec<String> = Vec::new();
     for (i, f) in s.files.iter().enumerate() {
-        let active = s.current == Some(i);
-        let css = if active {
-            "padding: 4px 10px; font-size: 11px; background: #dfe7f5; color: #1a1a1a;"
-        } else {
-            "padding: 4px 10px; font-size: 11px; color: #3c3a36;"
-        };
-        col.add_child(
-            Dom::create_div_with_text(f.display.as_str())
-                .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
-                .with_css(css)
-                .with_callback(
-                    EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data.clone(),
-                    // index is carried by the closure-free indexed callback
-                    crate::on_pick_file,
-                ),
-        );
+        let parts: Vec<&str> = f.display.split(['/', '\\']).collect();
+        let (dirs, name) = parts.split_at(parts.len().saturating_sub(1));
+        for (depth, comp) in dirs.iter().enumerate() {
+            if prev.get(depth).map(String::as_str) == Some(*comp) {
+                continue;
+            }
+            list.add_child(finder_row(comp, depth, "folder", "#4a90d9", false, None, data));
+        }
+        prev = dirs.iter().map(|c| (*c).to_string()).collect();
+        let leaf = name.first().copied().unwrap_or(f.display.as_str());
+        list.add_child(finder_row(
+            leaf,
+            dirs.len(),
+            file_icon(leaf),
+            "#7d786f",
+            s.current == Some(i),
+            Some(i),
+            data,
+        ));
     }
+    col.add_child(list);
     col
+}
+
+/// A Finder-style icon for a file, by extension.
+const fn file_icon(name: &str) -> &'static str {
+    // No `Path::extension` here: the row only has a display name, and a
+    // trailing-dot or extensionless file must still get an icon rather than
+    // an empty box.
+    let bytes = name.as_bytes();
+    let mut i = bytes.len();
+    while i > 0 {
+        i -= 1;
+        if bytes[i] == b'.' {
+            let ext = bytes.split_at(i + 1).1;
+            return match ext {
+                b"rs" | b"c" | b"h" | b"cpp" | b"hpp" | b"py" | b"js" | b"ts" => "code",
+                b"sh" => "terminal",
+                b"md" => "article",
+                b"toml" | b"yml" | b"yaml" | b"json" => "data_object",
+                _ => "insert_drive_file",
+            };
+        }
+    }
+    "insert_drive_file"
+}
+
+/// One row of the file list: indent, icon, label.
+fn finder_row(
+    label: &str,
+    depth: usize,
+    icon: &str,
+    icon_color: &str,
+    selected: bool,
+    index: Option<usize>,
+    data: &RefAny,
+) -> Dom {
+    let mut row = Dom::create_div().with_css(
+        format!(
+            "display: flex; flex-direction: row; align-items: center; gap: 6px; \
+             padding: 3px 10px 3px {}px; font-size: 11px; flex-shrink: 0; \
+             background: {}; color: {};",
+            10 + depth * 16,
+            if selected { "#3478f6" } else { "transparent" },
+            if selected { "#ffffff" } else { "#2b2b2b" },
+        )
+        .as_str(),
+    );
+    row.add_child(
+        Dom::create_icon(icon).with_css(
+            format!(
+                "font-size: 14px; color: {};",
+                if selected { "#ffffff" } else { icon_color },
+            )
+            .as_str(),
+        ),
+    );
+    row.add_child(Dom::create_div_with_text(label));
+    match index {
+        Some(i) => row
+            .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
+            .with_callback(
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                data.clone(),
+                crate::on_pick_file,
+            ),
+        // A folder row is a heading, not a target: `load_tree` already flattened
+        // the tree, so there is nothing to expand or collapse.
+        None => row,
+    }
 }
 
 /// Semantic palette. Pad ExpressKeys select the same five, in this order.
@@ -166,20 +337,34 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     for (i, sem) in Semantic::ALL.iter().enumerate() {
         let c = sem.color();
         let selected = *sem == s.active;
-        let css = format!(
-            "padding: 5px 12px; font-size: 12px; border-radius: 4px; \
-             background: rgba({},{},{},{}); color: {}; border: {};",
-            c.r,
-            c.g,
-            c.b,
-            if selected { "1.0" } else { "0.18" },
-            if selected { "#ffffff" } else { "#2b2b2b" },
-            if selected { "2px solid #2b2b2b" } else { "1px solid #cfcbc4" },
+        let mut swatch = Dom::create_div().with_css(
+            format!(
+                "display: flex; flex-direction: row; align-items: center; gap: 5px; \
+                 padding: 5px 10px; font-size: 12px; border-radius: 4px; \
+                 background: rgba({},{},{},{}); color: {}; border: {};",
+                c.r,
+                c.g,
+                c.b,
+                if selected { "1.0" } else { "0.18" },
+                if selected { "#ffffff" } else { "#2b2b2b" },
+                if selected { "2px solid #2b2b2b" } else { "1px solid #cfcbc4" },
+            )
+            .as_str(),
+        );
+        swatch.add_child(Dom::create_icon(sem.icon()).with_css("font-size: 15px;"));
+        // The number stays: it is the pad ExpressKey and the keyboard shortcut,
+        // and unlike the name it cannot be inferred from the glyph.
+        swatch.add_child(
+            Dom::create_div_with_text(format!("{}", i + 1).as_str())
+                .with_css("font-size: 10px; opacity: 0.75;"),
         );
         bar.add_child(
-            Dom::create_div_with_text(format!("{}  [{}]", sem.label(), i + 1).as_str())
+            swatch
                 .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
-                .with_css(css.as_str())
+                // Without a name a screen reader reads the icon's private-use
+                // codepoint, and the only text child is the shortcut digit —
+                // "1" is a worse answer than nothing.
+                .with_accessibility_info(named(sem.label()))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     data.clone(),
@@ -190,27 +375,40 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
     // Which nib is in hand. A readout, not a control: the tool changes by
     // clicking on the PAGE, so that the hand never leaves it. Showing it in the
     // toolbar anyway is the only way to know what a click just switched to.
-    bar.add_child(
-        Dom::create_div_with_text(format!("nib: {}  (click page to cycle)", s.tool.label()).as_str())
-            .with_css(
-                "margin-left: 16px; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
-                 background: #ffffff; color: #2b2b2b; border: 1px dashed #a9a49b;",
-            ),
+    let mut nib = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; align-items: center; gap: 6px; \
+         margin-left: 16px; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
+         background: #ffffff; color: #2b2b2b; border: 1px dashed #a9a49b;",
     );
+    nib.add_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 15px;"));
+    nib.add_child(Dom::create_div_with_text(s.tool.label()));
+    bar.add_child(nib);
 
     let rec = s.recording.is_some();
     if rec {
         bar.add_child(meter(s));
     }
+    let mut record = Dom::create_div().with_css(if rec {
+        "display: flex; flex-direction: row; align-items: center; gap: 6px; \
+         margin-left: 10px; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
+         background: #d62d20; color: white;"
+    } else {
+        "display: flex; flex-direction: row; align-items: center; gap: 6px; \
+         margin-left: auto; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
+         background: #ffffff; color: #2b2b2b; border: 1px solid #cfcbc4;"
+    });
+    record.add_child(
+        Dom::create_icon(if rec { "fiber_manual_record" } else { "mic" })
+            .with_css("font-size: 15px;"),
+    );
+    record.add_child(Dom::create_div_with_text(if rec { "recording" } else { "record" }));
     bar.add_child(
-        Dom::create_div_with_text(if rec { "◉ recording" } else { "○ record" })
-            .with_css(if rec {
-                "margin-left: 10px; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
-                 background: #d62d20; color: white;"
+        record
+            .with_accessibility_info(named(if rec {
+                "stop recording"
             } else {
-                "margin-left: auto; padding: 5px 12px; font-size: 12px; border-radius: 4px; \
-                 background: #ffffff; color: #2b2b2b; border: 1px solid #cfcbc4;"
-            })
+                "start recording"
+            }))
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseUp),
                 data.clone(),
@@ -263,7 +461,8 @@ fn page_rail(s: &AppState, data: &RefAny) -> Dom {
     let mut rail = Dom::create_div().with_css(
         "display: flex; flex-direction: row; align-items: center; gap: 3px; \
          padding: 4px 12px; background: #efede8; border-bottom: 1px solid #cfcbc4; \
-         overflow-x: auto; overflow-y: hidden; flex-shrink: 0;",
+         overflow-x: auto; overflow-y: hidden; flex-shrink: 0; \
+         width: 100%; box-sizing: border-box;",
     );
     let Some(file) = s.file() else { return rail };
     for page in 0..file.page_count() {
@@ -338,7 +537,13 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
             RefAny::new(SheetStrip { app: data.clone() }),
             sheets_virtual_view,
         )
-        .with_ids_and_classes(IdOrClassVec::from_item(IdOrClass::id(STRIP_ID))),
+        .with_ids_and_classes(IdOrClassVec::from_item(IdOrClass::id(STRIP_ID)))
+        // WITHOUT this the strip collapses to a sliver. A VirtualView is a
+        // block box whose materialised window the engine places absolutely, so
+        // it contributes NOTHING to the node's own content height — an `auto`
+        // height therefore resolves to nearly nothing no matter how tall the
+        // sheets are. It has to be told to fill the column.
+        .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
     );
     area
 }
@@ -433,14 +638,31 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
         "position: relative; width: {}px; height: {}px; background: #ffffff; \
          border: 1px solid #b9b4ab; box-shadow: 0px 1px 4px #00000030; \
          margin-right: {}px; flex-shrink: 0; box-sizing: border-box; \
-         padding: 20px; overflow: hidden;",
+         padding: {}px; overflow: hidden;",
         PAGE_W as isize,
         page_h() as isize,
         PAGE_GAP as isize,
+        PAGE_PAD as isize,
     ).as_str());
 
-    // Code, one row per line, gutter then text.
-    let mut col = Dom::create_div().with_css("display: flex; flex-direction: column;");
+    // A faint rule where the code stops and the margin begins. Printouts have
+    // no such line, but on screen there is no paper texture to tell you the
+    // right-hand third is writeable — without it the margin reads as padding
+    // and never gets used.
+    sheet.add_child(Dom::create_div().with_css(format!(
+        "position: absolute; top: {}px; bottom: {}px; left: {}px; width: 1px; \
+         background: #ece8e1;",
+        PAGE_PAD as isize / 2,
+        PAGE_PAD as isize / 2,
+        (PAGE_W - MARGIN_GUTTER_W) as isize,
+    ).as_str()));
+
+    // Code, one row per line, gutter then text. Clipped to the width left of
+    // the margin so a long line runs under the rule instead of through it.
+    let mut col = Dom::create_div().with_css(format!(
+        "display: flex; flex-direction: column; width: {}px; overflow: hidden;",
+        (PAGE_W - MARGIN_GUTTER_W - PAGE_PAD) as isize,
+    ).as_str());
     for (i, line) in lines.iter().enumerate() {
         let mut row = Dom::create_div().with_css(format!(
             "display: flex; flex-direction: row; height: {LINE_H}px;"
@@ -533,68 +755,6 @@ extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> Ima
     ImageRef::new_rawimage(img).into_option().unwrap_or_else(|| {
         ImageRef::null_image(w as usize, h as usize, RawImageFormat::RGBA8, U8VecRef::from(&[][..]))
     })
-}
-
-/// Derived findings, plus the open-questions queue.
-fn margin_panel(s: &AppState, _data: &RefAny) -> Dom {
-    let mut col = Dom::create_div().with_css(
-        "display: flex; flex-direction: column; width: 300px; flex-shrink: 0; \
-         background: #f7f6f3; border-left: 1px solid #cfcbc4; overflow: auto;",
-    );
-    col.add_child(
-        Dom::create_div_with_text("Derived findings")
-            .with_css("font-weight: bold; font-size: 12px; padding: 10px; color: #55514a;"),
-    );
-    if s.findings.is_empty() {
-        col.add_child(
-            Dom::create_div_with_text("Draw on the code — findings appear here.")
-                .with_css("font-size: 11px; color: #8a857c; padding: 0px 10px 10px 10px;"),
-        );
-    }
-    for f in &s.findings {
-        let c = f.semantic.color();
-        let mut card = Dom::create_div().with_css(format!(
-            "margin: 6px 10px; padding: 8px; background: white; border-radius: 4px; \
-             border-left: 4px solid rgb({},{},{});",
-            c.r, c.g, c.b
-        ).as_str());
-        card.add_child(
-            Dom::create_div_with_text(format!(
-                "{}  L{}-{}",
-                f.semantic.label(),
-                f.first_line,
-                f.last_line
-            ).as_str())
-            .with_css("font-size: 11px; font-weight: bold; color: #2b2b2b;"),
-        );
-        if let Some(v) = &f.voice_note {
-            card.add_child(
-                Dom::create_div_with_text(v.as_str())
-                    .with_css("font-size: 10px; color: #6b665e; margin-top: 4px;"),
-            );
-        }
-        col.add_child(card);
-    }
-
-    // The "?" queue: every question-shaped mark, gathered so none is lost.
-    let questions: Vec<_> = s
-        .findings
-        .iter()
-        .filter(|f| f.semantic == Semantic::Question)
-        .collect();
-    if !questions.is_empty() {
-        col.add_child(
-            Dom::create_div_with_text(format!("Open questions ({})", questions.len()).as_str())
-                .with_css("font-weight: bold; font-size: 12px; padding: 12px 10px 4px 10px; color: #55514a;"),
-        );
-        for q in questions {
-            col.add_child(
-                Dom::create_div_with_text(format!("? {}:{}", q.file, q.first_line).as_str())
-                    .with_css("font-size: 11px; color: #205cd6; padding: 2px 10px;"),
-            );
-        }
-    }
-    col
 }
 
 fn status_bar(s: &AppState) -> Dom {

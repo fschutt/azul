@@ -59,6 +59,21 @@ impl Semantic {
         }
     }
 
+    /// Material icon name for the palette button.
+    ///
+    /// A glyph rather than the word: five spelled-out labels ate most of the
+    /// toolbar, and the palette is picked by muscle memory and pad key anyway —
+    /// the word was only ever read once.
+    pub const fn icon(self) -> &'static str {
+        match self {
+            Self::Scope => "highlight",
+            Self::Issue => "report_problem",
+            Self::Question => "help_outline",
+            Self::Duplicate => "difference",
+            Self::Praise => "star",
+        }
+    }
+
     /// Highlighter strokes are wide and translucent and go UNDER the glyphs;
     /// pen strokes are narrow, opaque, and go over them. This single bool is
     /// what makes the two-layer grammar work.
@@ -90,6 +105,14 @@ pub struct Stroke {
     pub points: Vec<InkPoint>,
     /// Monotonic id, also the stroke's temporal order — clustering uses it.
     pub id: u64,
+    /// Which annotation this stroke belongs to.
+    ///
+    /// Bumped by the idle timer, NOT inferred from geometry. Whether two marks
+    /// are one remark or two is a fact about how they were made, and the pause
+    /// between them is the only honest record of it — a spatial rule cannot
+    /// tell a second thought about the same line from a correction of the
+    /// first, and both happen constantly.
+    pub epoch: u64,
 }
 
 impl Stroke {
@@ -129,6 +152,9 @@ pub struct Finding {
     pub voice_note: Option<String>,
     /// How many strokes produced it — a cheap confidence signal.
     pub stroke_count: usize,
+    /// The annotation burst this came from. Two findings can share a line
+    /// range and still be separate remarks; the epoch is what says so.
+    pub epoch: u64,
 }
 
 /// Audio captured while drawing, bound to the strokes made in that window.
@@ -170,6 +196,15 @@ impl Tool {
             Self::Marker => "marker",
             Self::Pen => "pen",
             Self::AudioPen => "audio pen",
+        }
+    }
+
+    /// Material icon name for the nib readout.
+    pub const fn icon(self) -> &'static str {
+        match self {
+            Self::Marker => "brush",
+            Self::Pen => "draw",
+            Self::AudioPen => "record_voice_over",
         }
     }
 
