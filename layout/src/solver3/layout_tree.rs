@@ -4190,6 +4190,32 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
 // +spec:display-property:46e71c - Maps outer display (block/inline) and inner display (flow/flow-root/table/flex/grid) to FormattingContext
 // +spec:display-property:aa582d - maps display types to formatting contexts (inline-level, block-level, atomic inline, block container)
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+/// A CHILDLESS block that is (or sits inside) a `contenteditable` editing host
+/// still establishes an inline formatting context.
+///
+/// `layout_ifc` keeps ONE line box — the editing-host strut — for an IFC root
+/// with no inline content that is editable: the line the caret stands on, the
+/// height `display_list::empty_editable_caret_rect` paints into, and the box a
+/// click has to land in. A block with NO CHILDREN AT ALL never reached that
+/// code, because `has_only_inline_children` answers false for "no children"
+/// (an empty box is neither inline nor block content), so the box became a
+/// Block FC and collapsed to zero height.
+///
+/// A brand-new document is exactly one such box: an empty `<p>` inside the
+/// editable content root. With no line box there was nothing to click, nothing
+/// to paint a caret on, and no way to start typing — you could only get a
+/// caret into a document that already had text in it.
+///
+/// Non-editable empty blocks are untouched: they keep collapsing to nothing.
+fn is_empty_editing_host_line(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let has_children = hierarchy
+        .get(node_id)
+        .and_then(|h| h.first_child_id(node_id))
+        .is_some();
+    !has_children && crate::solver3::getters::is_node_contenteditable_inherited(styled_dom, node_id)
+}
+
 fn determine_formatting_context_for_display(
     styled_dom: &StyledDom,
     node_id: NodeId,
@@ -4219,7 +4245,9 @@ fn determine_formatting_context_for_display(
             establishes_new_context: true,
         },
         LayoutDisplay::Block | LayoutDisplay::ListItem => {
-            if has_only_inline_children(styled_dom, node_id) {
+            if has_only_inline_children(styled_dom, node_id)
+                || is_empty_editing_host_line(styled_dom, node_id)
+            {
                 #[cfg(feature = "web_lift")]
                 unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0002) as u32); }
                 FormattingContext::Inline
