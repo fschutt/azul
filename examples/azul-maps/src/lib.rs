@@ -201,6 +201,73 @@ mod pan_tests {
     }
 }
 
+/// This demo only paints tiles if the engine it links carries `map-tiles`.
+///
+/// `MapWidget::dom()` routes through `azul_dll::unified::map::map_widget_dom`
+/// (pinned by `dll/tests/map_binding_contract.rs`), and that function is split
+/// on the feature: WITH `map-tiles` it hands the widget the MVT fetch worker,
+/// WITHOUT it it returns the bare placeholder DOM and every tile stays
+/// `Pending` forever — a map you can pan over an empty loading grid.
+///
+/// Which half compiles is decided by the features THIS manifest asks azul-dll
+/// for, not by the libazul the binary might load at run time. `link-dynamic`
+/// alone looks sufficient — the dylib is built with `build-dll`, which does
+/// enable `map-tiles` — but the moment anything else in the workspace unifies
+/// `cabi_internal` into azul-dll (`examples/rust` takes azul-dll's DEFAULT
+/// features, and the default set contains `link-static` → `cabi_export` →
+/// `cabi_internal`), `dll/build.rs` stops linking the dylib altogether
+/// ("dynamic linking is unused") and the engine is compiled straight into this
+/// binary out of the unified feature set. `map-tiles` is not in that set unless
+/// this manifest asks for it, so a workspace-wide `cargo build` silently
+/// produced a worker-less AzMaps while a lone `cargo build -p AzMaps` did not.
+///
+/// The desktop dependency lost `map-tiles` in f08458b3c ("demos link the
+/// prebuilt static libazul.a"); iOS and Android kept it, which is why only
+/// desktop regressed. Symptom on the binary:
+/// `AZ_MAP_DEBUG=1 ./target/release/AzMaps` printing
+/// `[map] spawn_pending: ABORT — no fetch_callback on the cache`, forever.
+#[cfg(test)]
+mod engine_feature_tests {
+    const MANIFEST: &str = include_str!("../Cargo.toml");
+
+    /// Every `azul-dll` dependency line this manifest declares — one per
+    /// target family (desktop default, android, ios).
+    fn azul_dll_dependency_lines() -> Vec<&'static str> {
+        MANIFEST
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with('#'))
+            .filter(|l| l.contains(r#"package = "azul-dll""#))
+            .collect()
+    }
+
+    #[test]
+    fn the_demo_asks_the_engine_for_the_tile_pipeline_on_every_target() {
+        let deps = azul_dll_dependency_lines();
+        assert!(
+            !deps.is_empty(),
+            "this manifest declares no azul-dll dependency at all — the selector \
+             below is stale, not the manifest"
+        );
+
+        for dep in &deps {
+            assert!(
+                dep.contains("\"map-tiles\""),
+                "an azul-dll dependency of AzMaps does not enable `map-tiles`:\n  \
+                 {dep}\n\
+                 Without it `map_widget_dom` compiles its \
+                 `#[cfg(not(feature = \"map-tiles\"))]` half, which returns the \
+                 placeholder DOM and wires NO tile-fetch worker — the demo pans a \
+                 permanently empty grid. Enabling it here is what makes the demo \
+                 correct in BOTH link modes: it is harmless when the dylib supplies \
+                 the worker, and it is the only thing that supplies it when cargo \
+                 unifies `cabi_internal` in and the engine gets compiled into this \
+                 binary instead."
+            );
+        }
+    }
+}
+
 // ───────── Styles ─────────────────────────────────────────────────────
 
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";

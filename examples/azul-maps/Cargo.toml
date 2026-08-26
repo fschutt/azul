@@ -16,7 +16,16 @@ description = """
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# `map-tiles` is what makes `map_widget_dom` wire the MVT fetch worker instead
+# of returning the placeholder DOM — see the contract test in src/lib.rs. It has
+# to be asked for HERE, not left to the dylib: `link-dynamic` only reaches the
+# `build-dll` libazul (which does carry the feature) while nothing unifies
+# `cabi_internal` into azul-dll. `examples/rust` takes azul-dll's DEFAULT
+# features, and those include `link-static` -> `cabi_export` -> `cabi_internal`,
+# so any build covering both packages flips this crate to compiling the engine
+# in-crate out of the unified feature set — where `map-tiles` was absent, and
+# AzMaps shipped a map that could never fetch a tile.
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic", "map-tiles"] }
 
 # On Android the crate builds as a NativeActivity cdylib: link the android-activity
 # glue into libazul (so it provides android_main / ANativeActivity_onCreate) and
