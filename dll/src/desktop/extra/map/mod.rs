@@ -112,17 +112,20 @@ pub extern "C" fn tile_fetch_worker(
         map_tile_writeback, TileFetchInit, TileReadyMsg,
     };
 
-    let (tile, url, mapcss, theme) = match init.downcast_ref::<TileFetchInit>() {
+    let (tile, url, mapcss, theme, cached_bytes) = match init.downcast_ref::<TileFetchInit>() {
         Some(i) => (
             i.tile,
             i.url.as_str().to_string(),
             i.style_css.as_str().to_string(),
             i.theme,
+            i.bytes.as_ref().to_vec(),
         ),
         None => return,
     };
 
-    let send_back = |svg: AzString, error: AzString| -> ThreadWriteBackMsg {
+    // `bytes` travels back to the main thread ONLY when we downloaded it, so a
+    // restyle does not copy the payload back and forth for nothing.
+    let send_back = |svg: AzString, error: AzString, bytes: Vec<u8>| -> ThreadWriteBackMsg {
         ThreadWriteBackMsg::new(
             WriteBackCallback {
                 cb: map_tile_writeback,
@@ -133,6 +136,7 @@ pub extern "C" fn tile_fetch_worker(
                 svg,
                 error,
                 theme,
+                bytes: azul_css::U8Vec::from_vec(bytes),
             }),
         )
     };
@@ -142,23 +146,43 @@ pub extern "C" fn tile_fetch_worker(
         eprintln!("[map] worker start tile=({},{},{}) url={}", tile.z, tile.x, tile.y, url);
     }
 
-    // 1-2. Fetch.
-    let bytes = match azul_layout::http::http_get(&url) {
-        Ok(resp) => resp.body.as_ref().to_vec(),
-        Err(e) => {
-            if dbg {
-                eprintln!("[map] worker fetch FAILED tile=({},{},{}): {e:?}", tile.z, tile.x, tile.y);
+    // 1-2. Fetch — UNLESS the cache already handed us the payload, in which
+    // case this job is a restyle and touches the network zero times. A tile's
+    // geometry is downloaded once per session however often the look changes.
+    let restyle = !cached_bytes.is_empty();
+    let bytes = if restyle {
+        if dbg {
+            eprintln!(
+                "[map] worker restyle tile=({},{},{}) theme={theme:?} — {} cached bytes, no fetch",
+                tile.z, tile.x, tile.y, cached_bytes.len()
+            );
+        }
+        cached_bytes
+    } else {
+        match azul_layout::http::http_get(&url) {
+            Ok(resp) => {
+                let b = resp.body.as_ref().to_vec();
+                if dbg {
+                    eprintln!(
+                        "[map] worker fetched tile=({},{},{}) {} bytes",
+                        tile.z, tile.x, tile.y, b.len()
+                    );
+                }
+                b
             }
-            sender.send(ThreadReceiveMsg::WriteBack(send_back(
-                AzString::from(""),
-                AzString::from(alloc::format!("fetch failed: {e:?}")),
-            )));
-            return;
+            Err(e) => {
+                if dbg {
+                    eprintln!("[map] worker fetch FAILED tile=({},{},{}): {e:?}", tile.z, tile.x, tile.y);
+                }
+                sender.send(ThreadReceiveMsg::WriteBack(send_back(
+                    AzString::from(""),
+                    AzString::from(alloc::format!("fetch failed: {e:?}")),
+                    Vec::new(),
+                )));
+                return;
+            }
         }
     };
-    if dbg {
-        eprintln!("[map] worker fetched tile=({},{},{}) {} bytes", tile.z, tile.x, tile.y, bytes.len());
-    }
 
     // Cancellation check between fetch and decode.
     if matches!(
@@ -168,16 +192,19 @@ pub extern "C" fn tile_fetch_worker(
         return;
     }
 
-    // 3-4. Decode + emit SVG.
+    // 3-4. Decode + emit SVG. `decode_mvt_tile` consumes the bytes, so keep the
+    // copy we owe the main thread first (only when we actually downloaded it).
+    let give_back = if restyle { Vec::new() } else { bytes.clone() };
     match decode_mvt_tile(bytes, tile) {
         Ok(features) => {
             let svg = features_to_svg(&features, tile, &mapcss);
             if dbg {
-                eprintln!("[map] worker decoded tile=({},{},{}) {} features svg_len={}", tile.z, tile.x, tile.y, features.len(), svg.len());
+                eprintln!("[map] worker decoded tile=({},{},{}) theme={theme:?} {} features svg_len={}", tile.z, tile.x, tile.y, features.len(), svg.len());
             }
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
                 AzString::from(svg),
                 AzString::from(""),
+                give_back,
             )));
         }
         Err(e) => {
@@ -187,6 +214,7 @@ pub extern "C" fn tile_fetch_worker(
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
                 AzString::from(""),
                 AzString::from(alloc::format!("decode failed: {e}")),
+                give_back,
             )));
         }
     }

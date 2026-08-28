@@ -127,7 +127,137 @@ pub enum MapTheme {
     Custom,
 }
 
+/// The LIGHT/DARK half of a map look — the axis the CASCADE owns.
+///
+/// This is deliberately not a `MapTheme` variant. Every cartography style has
+/// both a light and a dark rendering, and which one to show is the same
+/// question `@media (prefers-color-scheme: dark)` already answers for every
+/// other node in the tree. The widget must not answer it a second time, with
+/// its own platform rules, against its own copy of the theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MapColorScheme {
+    #[default]
+    Light,
+    Dark,
+}
+
+impl MapColorScheme {
+    /// The scheme the CASCADE is resolving against — `SystemStyle::theme` is
+    /// literally what `DynamicSelectorContext::from_system_style` turns into
+    /// the `ThemeCondition` that `prefers-color-scheme` matches on
+    /// (`css/src/dynamic_selector.rs`). Reading it here means the map and the
+    /// stylesheet cannot disagree about what "dark" means.
+    #[must_use]
+    pub const fn from_system_theme(theme: azul_css::system::Theme) -> Self {
+        match theme {
+            azul_css::system::Theme::Dark => Self::Dark,
+            _ => Self::Light,
+        }
+    }
+}
+
+/// The CARTOGRAPHY half of a map look — the axis the APP owns.
+///
+/// "Which map am I looking at" (OSM-ish, Google-like, Apple-like) is a product
+/// decision and belongs to the widget's caller. It is orthogonal to light/dark:
+/// each of these has both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MapTileStyle {
+    /// CARTO Positron / Dark Matter via `OpenFreeMap`.
+    #[default]
+    Standard,
+    /// OSM Bright (light only; pairs with Dark Matter).
+    Bright,
+    /// OSM Liberty (light only; pairs with Dark Matter).
+    Liberty,
+    /// Google-Maps-like.
+    Google,
+    /// Apple-Maps-like.
+    Apple,
+    /// The caller's own `MapTileLayer::style_css`.
+    Custom,
+}
+
+impl MapTileStyle {
+    /// This cartography rendered for `scheme`. THE join of the two axes: the
+    /// only place a (style, scheme) pair becomes one concrete sheet.
+    #[must_use]
+    pub const fn look(self, scheme: MapColorScheme) -> MapTheme {
+        let dark = matches!(scheme, MapColorScheme::Dark);
+        match self {
+            Self::Standard => if dark { MapTheme::Dark } else { MapTheme::Positron },
+            // Bright and Liberty are light-only designs; their dark counterpart
+            // is Dark Matter, the same pairing MapLibre's demo styles use.
+            Self::Bright => if dark { MapTheme::Dark } else { MapTheme::Bright },
+            Self::Liberty => if dark { MapTheme::Dark } else { MapTheme::Liberty },
+            Self::Google => if dark { MapTheme::GoogleNight } else { MapTheme::GoogleLight },
+            Self::Apple => if dark { MapTheme::AppleDark } else { MapTheme::AppleLight },
+            Self::Custom => MapTheme::Custom,
+        }
+    }
+
+    /// The platform's familiar cartography. A FAMILY choice, not a light/dark
+    /// one — picking Apple-like maps on Apple platforms is a product decision
+    /// that has nothing to do with the colour scheme, which is why this `cfg!`
+    /// is legitimate where the old `resolve()`'s light/dark `cfg!` was not.
+    #[must_use]
+    pub const fn platform_default() -> Self {
+        if cfg!(any(target_os = "macos", target_os = "ios")) {
+            Self::Apple
+        } else if cfg!(target_os = "android") {
+            Self::Google
+        } else {
+            Self::Standard
+        }
+    }
+}
+
 impl MapTheme {
+    /// Which cartography this look belongs to (the app-owned axis).
+    #[must_use]
+    pub const fn style(self) -> MapTileStyle {
+        match self {
+            Self::Positron | Self::Dark => MapTileStyle::Standard,
+            Self::Bright => MapTileStyle::Bright,
+            Self::Liberty => MapTileStyle::Liberty,
+            Self::GoogleLight | Self::GoogleNight => MapTileStyle::Google,
+            Self::AppleLight | Self::AppleDark => MapTileStyle::Apple,
+            Self::Custom => MapTileStyle::Custom,
+            Self::System => MapTileStyle::platform_default(),
+        }
+    }
+
+    /// The scheme this look PINS, or `None` when it defers to the cascade.
+    ///
+    /// Only `System` defers. Naming a light or dark preset explicitly is an app
+    /// overriding the cascade on purpose, and an explicit override wins — the
+    /// same contract as writing a colour directly on a node.
+    #[must_use]
+    pub const fn pinned_scheme(self) -> Option<MapColorScheme> {
+        match self {
+            Self::Positron | Self::Bright | Self::Liberty
+            | Self::GoogleLight | Self::AppleLight => Some(MapColorScheme::Light),
+            Self::Dark | Self::GoogleNight | Self::AppleDark => Some(MapColorScheme::Dark),
+            Self::System | Self::Custom => None,
+        }
+    }
+
+    /// This look as it should be rendered when the cascade says `scheme`.
+    ///
+    /// Replaces `resolve(window_theme)` as the widget's internal entry point:
+    /// the light/dark input is the CASCADE's, and the platform `cfg!` that
+    /// remains only picks the cartography family.
+    #[must_use]
+    pub const fn for_scheme(self, scheme: MapColorScheme) -> Self {
+        match self.pinned_scheme() {
+            Some(_) => self,
+            None => match self {
+                Self::Custom => Self::Custom,
+                _ => self.style().look(scheme),
+            },
+        }
+    }
+
     /// The `MapCSS` sheet of a preset; empty for `Custom` and the unresolved
     /// `System` (resolve it with [`Self::resolve`] first).
     #[must_use]
@@ -162,22 +292,20 @@ impl MapTheme {
 
     /// `System` resolved against the window's theme; every other preset
     /// is its own resolution.
+    /// COMPATIBILITY entry point, kept because it is public API. Internals use
+    /// [`Self::for_scheme`] with the scheme the CASCADE resolved instead: the
+    /// window theme and the cascade's `prefers-color-scheme` are fed from two
+    /// different places (`FullWindowState::theme` vs `SystemStyle::theme`) and
+    /// on macOS only the former is refreshed on a theme flip, so resolving off
+    /// the window theme makes the map disagree with its own stylesheet.
     #[must_use]
     pub fn resolve(self, window_theme: azul_core::window::WindowTheme) -> Self {
-        use azul_core::window::WindowTheme;
-        if self != Self::System {
-            return self;
-        }
-        let dark = matches!(window_theme, WindowTheme::DarkMode);
-        if cfg!(any(target_os = "macos", target_os = "ios")) {
-            if dark { Self::AppleDark } else { Self::AppleLight }
-        } else if cfg!(target_os = "android") {
-            if dark { Self::GoogleNight } else { Self::GoogleLight }
-        } else if dark {
-            Self::Dark
+        let scheme = if matches!(window_theme, azul_core::window::WindowTheme::DarkMode) {
+            MapColorScheme::Dark
         } else {
-            Self::Positron
-        }
+            MapColorScheme::Light
+        };
+        self.for_scheme(scheme)
     }
 
     /// The credit line a preset's licence asks for (CC BY 4.0 for the
@@ -606,15 +734,59 @@ impl MapWidget {
 
 // ────────── Tile cache (dataset RefAny payload) ───────────────────────
 
+/// What a cached tile IS: these coordinates, styled for that look.
+///
+/// The look is part of the KEY, not a stamp the cache checks and invalidates
+/// on. Two looks of one tile are two entries that coexist, so switching look
+/// (a light/dark flip, an app changing cartography) RE-KEYS the lookup and the
+/// other variant stays cached — instantly available if the user flips back, and
+/// usable as a fallback while the new one styles.
+///
+/// The old cache keyed on `MapTileId` alone and kept a single `decoded_theme`
+/// beside it. Any disagreement between the two threw decoded tiles away and
+/// re-fetched them, so a look that was not yet settled on the first frame cost
+/// a second network round-trip for every visible tile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileStyleKey {
+    pub tile: MapTileId,
+    pub theme: MapTheme,
+}
+
+// Ordered by hand rather than derived: `MapTheme` is an api.json type whose
+// derive list is generated, and widening it just to key a private map would be
+// drift. A fieldless `#[repr(C)]` enum casts to its discriminant, which is all
+// the ordering needs — it only has to be total and stable so the `BTreeMap`
+// iterates deterministically for the debug log and the e2e snapshots.
+impl PartialOrd for TileStyleKey {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for TileStyleKey {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.tile
+            .cmp(&other.tile)
+            .then_with(|| (self.theme as u8).cmp(&(other.theme as u8)))
+    }
+}
+
 #[derive(Debug)]
 pub struct MapTileCache {
     pub layer: MapTileLayer,
     pub viewport: MapViewport,
-    /// `Ready(svg)` once the tile has been fetched + decoded;
-    /// `Pending` while queued, `Fetching` while a worker thread is
+    /// `Ready(svg)` once the tile has been fetched + styled for THIS key's
+    /// look; `Pending` while queued, `Fetching` while a worker thread is
     /// in flight; absent otherwise. `BTreeMap` for deterministic
     /// iteration so the debug log + e2e snapshots are stable.
-    pub tiles: BTreeMap<MapTileId, TileEntry>,
+    pub tiles: BTreeMap<TileStyleKey, TileEntry>,
+    /// The tile's raw MVT payload, keyed by coordinates ALONE because the bytes
+    /// do not depend on the look — the same features are styled differently.
+    ///
+    /// This is what makes a look change free of network traffic: a restyle is
+    /// handed these bytes and performs no HTTP request at all. A tile is
+    /// therefore fetched at most once per session no matter how often the
+    /// cascade's light/dark answer changes.
+    pub tile_bytes: BTreeMap<MapTileId, azul_css::U8Vec>,
     /// Worker thread entry point that fetches + decodes one tile.
     /// Supplied by `MapWidget::dom_with_fetch` (the caller, usually
     /// `azul_dll`'s map-tiles glue, provides this because the MVT
@@ -647,12 +819,25 @@ pub struct MapTileCache {
     /// Pixel position of the last right-button press while a camera drag
     /// (tilt / rotate) is in flight; `None` between drags.
     pub tilt_anchor: Option<azul_core::geom::LogicalPosition>,
-    /// The RESOLVED theme the cached tiles were decoded with (see
-    /// [`MapTheme::resolve`]). The render callback compares it with the
-    /// window's current theme every frame; a mismatch re-queues every tile
-    /// (the decode happens on the fetch worker with the sheet of record)
-    /// and drops in-flight results decoded with the old sheet.
-    pub decoded_theme: MapTheme,
+    /// A MEMO of the look the last render resolved — nothing more.
+    ///
+    /// The render decides the look from the style available at render time and
+    /// writes it here purely so the spawn/sweep callbacks (which have no render
+    /// info) know which key to fill. It is deliberately NOT a validity stamp:
+    /// changing it invalidates nothing and discards nothing, because the look
+    /// is part of every tile's key.
+    pub active_theme: MapTheme,
+    /// The light/dark answer THE CASCADE gave, recorded by whichever callback
+    /// last had a `CallbackInfo` (mount, the 250 ms sweep, any pointer event).
+    ///
+    /// `SystemStyle::theme` is the exact input `prefers-color-scheme` matches
+    /// on, so the map and the app's stylesheet always agree. It is `None` until
+    /// the first such callback runs — the very first VirtualView render happens
+    /// before mount, and rather than invent an answer there it renders the
+    /// layer's own look and lets the sweep correct it. Getting that first guess
+    /// wrong is now free: it re-keys, it does not invalidate, and no tile is
+    /// fetched twice.
+    pub cascade_scheme: Option<MapColorScheme>,
     /// The user's `on_pin_tap` hook, copied from the builder so pointer-up can
     /// fire it. Carried across relayout.
     pub on_pin_tap: OptionMapPinTap,
@@ -660,48 +845,100 @@ pub struct MapTileCache {
 
 impl MapTileCache {
     #[must_use] pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
-        let decoded_theme = layer.theme;
+        let active_theme = layer.theme;
         Self {
             layer,
             viewport,
             tiles: BTreeMap::new(),
+            tile_bytes: BTreeMap::new(),
             fetch_callback: None,
             drag_anchor: None,
             pinch_anchor: None,
             press_origin: None,
             tilt_anchor: None,
-            decoded_theme,
+            active_theme,
+            cascade_scheme: None,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
         }
     }
 
-    /// Adopt a newly resolved theme: every decoded tile goes back to
-    /// `Pending` so the fetch worker re-decodes it with the new sheet.
-    /// `true` when something changed.
-    pub fn adopt_theme(&mut self, resolved: MapTheme) -> bool {
-        if self.decoded_theme == resolved {
-            return false;
+    /// The look to render right now: the layer's choice of cartography, taken
+    /// to the cascade's light/dark. An explicitly pinned preset wins.
+    #[must_use]
+    pub fn current_look(&self) -> MapTheme {
+        match self.cascade_scheme {
+            Some(scheme) => self.layer.theme.for_scheme(scheme),
+            // Nothing has told us what the cascade says yet (pre-mount). Use the
+            // layer's own look; the sweep re-keys within 250 ms, for free.
+            None => self.layer.theme,
         }
-        self.decoded_theme = resolved;
-        for entry in self.tiles.values_mut() {
-            if matches!(entry, TileEntry::Ready { .. } | TileEntry::Failed { .. }) {
-                *entry = TileEntry::Pending;
-            }
-        }
-        true
+    }
+
+    /// Record the look the renderer resolved. Returns `true` when it moved.
+    ///
+    /// This USED to be `adopt_theme`, and it used to push every decoded tile
+    /// back to `Pending` so the worker would re-fetch and re-decode it. That
+    /// was the conflation: a look is not a reason to throw away geometry. The
+    /// look now selects a key, so a change here costs nothing — the tiles for
+    /// the new look are styled from bytes already in `tile_bytes`, and the
+    /// tiles for the old look stay cached.
+    pub fn set_active_theme(&mut self, resolved: MapTheme) -> bool {
+        let changed = self.active_theme != resolved;
+        self.active_theme = resolved;
+        changed
+    }
+
+    /// The key `tile` occupies at the look the cache is currently showing.
+    #[must_use]
+    pub fn key_at_current_look(&self, tile: MapTileId) -> TileStyleKey {
+        TileStyleKey { tile, theme: self.current_look() }
+    }
+
+    /// Insert / replace `tile`'s entry at the current look.
+    pub fn insert_tile(&mut self, tile: MapTileId, entry: TileEntry) {
+        let k = self.key_at_current_look(tile);
+        self.tiles.insert(k, entry);
+    }
+
+    /// `tile`'s entry at the current look, if the cache holds one.
+    #[must_use]
+    pub fn tile_entry(&self, tile: MapTileId) -> Option<&TileEntry> {
+        self.tiles.get(&self.key_at_current_look(tile))
     }
 
     /// Worker-thread → main-thread write path. Set the decoded SVG for
-    /// a tile (called from `map_tile_writeback`). Stamps `Ready`.
-    pub fn mark_tile_ready(&mut self, tile: MapTileId, svg: AzString) {
-        self.tiles.insert(tile, TileEntry::Ready { svg });
+    /// a tile AT THE LOOK IT WAS STYLED FOR (called from
+    /// `map_tile_writeback`). Stamps `Ready`.
+    pub fn mark_tile_ready(&mut self, key: TileStyleKey, svg: AzString) {
+        self.tiles.insert(key, TileEntry::Ready { svg });
     }
 
     /// Mark a tile's fetch as failed so the grid doesn't re-spawn it
     /// every frame.
-    pub fn mark_tile_failed(&mut self, tile: MapTileId, error: AzString) {
-        self.tiles.insert(tile, TileEntry::Failed { error });
+    pub fn mark_tile_failed(&mut self, key: TileStyleKey, error: AzString) {
+        self.tiles.insert(key, TileEntry::Failed { error });
+    }
+
+    /// The best SVG the cache can show for `tile` right now, preferring
+    /// `want` — the depth in "fix the fallback in depth".
+    ///
+    /// An exact hit is used as-is. Otherwise ANY other look of the same tile is
+    /// returned: real cartography in the wrong palette beats a grey placeholder,
+    /// and it is already in memory. This is what removes the flash of empty grid
+    /// when the colour scheme flips — the previous look keeps painting until the
+    /// restyle lands, and the restyle needs no network.
+    #[must_use]
+    pub fn best_available_svg(&self, tile: MapTileId, want: MapTheme) -> Option<(MapTheme, AzString)> {
+        if let Some(TileEntry::Ready { svg }) = self.tiles.get(&TileStyleKey { tile, theme: want }) {
+            return Some((want, svg.clone()));
+        }
+        self.tiles
+            .iter()
+            .find_map(|(k, e)| match e {
+                TileEntry::Ready { svg } if k.tile == tile => Some((k.theme, svg.clone())),
+                _ => None,
+            })
     }
 
     /// Bound the tile cache by evicting tiles far from the current viewport.
@@ -724,24 +961,60 @@ impl MapTileCache {
         }
 
         // Higher score = farther from what the user sees = evict sooner.
-        let score = |id: &MapTileId| tile_viewport_score(&self.viewport, &self.layer, *id);
+        //
+        // An entry for a look we are NOT showing is the first thing to go: it is
+        // a stand-in for a flip that has already happened, not what the user is
+        // looking at. Without this penalty the budget below is a budget on
+        // (tile, look) PAIRS, so while two looks are live the number of distinct
+        // tiles the cache can hold would silently halve.
+        const OTHER_LOOK_PENALTY: f64 = 1.0e9;
+        let active = self.active_theme;
+        let score = |k: &TileStyleKey| {
+            tile_viewport_score(&self.viewport, &self.layer, k.tile)
+                + if k.theme == active { 0.0 } else { OTHER_LOOK_PENALTY }
+        };
 
-        let mut evictable: Vec<(f64, MapTileId)> = self
+        let mut evictable: Vec<(f64, TileStyleKey)> = self
             .tiles
             .iter()
             .filter(|(_, e)| !matches!(e, TileEntry::Pending | TileEntry::Fetching))
-            .map(|(id, _)| (score(id), *id))
+            .map(|(k, _)| (score(k), *k))
             .collect();
         // Farthest first.
         evictable.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
 
         let mut to_remove = self.tiles.len().saturating_sub(MAX_CACHED_TILES);
-        for (_, id) in evictable {
+        for (_, k) in evictable {
             if to_remove == 0 {
                 break;
             }
-            self.tiles.remove(&id);
+            self.tiles.remove(&k);
             to_remove -= 1;
+        }
+
+        // The byte cache is bounded by the same policy, but SEPARATELY: it is
+        // keyed by coordinates, so one entry backs every look of a tile. Keep
+        // bytes for any tile that still has a styled entry (a restyle must not
+        // have to re-fetch), and drop the rest farthest-first.
+        let live: alloc::collections::BTreeSet<MapTileId> =
+            self.tiles.keys().map(|k| k.tile).collect();
+        if self.tile_bytes.len() > MAX_CACHED_TILES {
+            let mut byte_evictable: Vec<(f64, MapTileId)> = self
+                .tile_bytes
+                .keys()
+                .filter(|t| !live.contains(t))
+                .map(|t| (tile_viewport_score(&self.viewport, &self.layer, *t), *t))
+                .collect();
+            byte_evictable
+                .sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
+            let mut drop_n = self.tile_bytes.len().saturating_sub(MAX_CACHED_TILES);
+            for (_, t) in byte_evictable {
+                if drop_n == 0 {
+                    break;
+                }
+                self.tile_bytes.remove(&t);
+                drop_n -= 1;
+            }
         }
     }
 
@@ -756,12 +1029,12 @@ impl MapTileCache {
     /// [`tile_viewport_score`] puts the tile under the user's eyes first and
     /// the margin and stale zooms last, with nothing cancelled or lost.
     #[must_use]
-    pub fn pending_tiles_nearest_first(&self) -> Vec<MapTileId> {
-        let mut pending: Vec<(f64, MapTileId)> = self
+    pub fn pending_tiles_nearest_first(&self) -> Vec<TileStyleKey> {
+        let mut pending: Vec<(f64, TileStyleKey)> = self
             .tiles
             .iter()
             .filter(|(_, e)| matches!(e, TileEntry::Pending))
-            .map(|(id, _)| (tile_viewport_score(&self.viewport, &self.layer, *id), *id))
+            .map(|(k, _)| (tile_viewport_score(&self.viewport, &self.layer, k.tile), *k))
             .collect();
         // Nearest first; the `(z, x, y)` key order breaks exact ties so the
         // result is deterministic.
@@ -770,7 +1043,7 @@ impl MapTileCache {
                 .unwrap_or(core::cmp::Ordering::Equal)
                 .then_with(|| a.1.cmp(&b.1))
         });
-        pending.into_iter().map(|(_, id)| id).collect()
+        pending.into_iter().map(|(_, k)| k).collect()
     }
 }
 
@@ -827,12 +1100,18 @@ pub struct TileFetchInit {
     pub tile: MapTileId,
     pub url: AzString,
     /// The `MapCSS` to decode with: `MapTileLayer::effective_style_css` for
-    /// the resolved theme (empty = the built-in palette).
+    /// the look being styled (empty = the built-in palette).
     pub style_css: AzString,
-    /// The resolved theme `style_css` belongs to — echoed back in
-    /// `TileReadyMsg` so a result decoded for a theme the widget has since
-    /// left is dropped instead of painted.
+    /// The look `style_css` belongs to — echoed back in `TileReadyMsg` so the
+    /// result is filed under the key it was actually styled for.
     pub theme: MapTheme,
+    /// The tile's MVT payload when the cache already holds it.
+    ///
+    /// Non-empty turns this job into a pure RESTYLE: the worker decodes and
+    /// styles these bytes and issues NO network request. This is what makes a
+    /// colour-scheme flip cost zero fetches — the geometry is already here, only
+    /// the palette changed.
+    pub bytes: azul_css::U8Vec,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -848,6 +1127,10 @@ pub struct TileReadyMsg {
     pub error: AzString,
     /// The theme the SVG was decoded for (from `TileFetchInit::theme`).
     pub theme: MapTheme,
+    /// The MVT payload the worker downloaded, handed back so the main thread
+    /// can cache it and never fetch this tile again. Empty when the worker was
+    /// given bytes to begin with (a restyle) — there is nothing new to store.
+    pub bytes: azul_css::U8Vec,
 }
 
 // ────────── Merge callback — cache survives relayout ─────────────────
@@ -888,17 +1171,15 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
                 old_g.fetch_callback.clone_from(&new_g.fetch_callback);
             }
             old_g.viewport = new_g.viewport;
-            let theme_changed = old_g.layer.theme != new_g.layer.theme
-                || old_g.layer.style_css != new_g.layer.style_css;
+            // Adopt the app's layer verbatim. There is nothing to invalidate: if
+            // the app switched cartography, the next render simply looks up a
+            // different key, and the tiles for the previous look stay cached (so
+            // switching back is instant, and they serve as the fallback until
+            // the new look styles). This block used to force `decoded_theme` to
+            // a sentinel so `adopt_theme` would push every decoded tile back to
+            // `Pending` — a rebuild that re-declared the SAME layer therefore
+            // threw away and re-fetched the whole viewport.
             old_g.layer = new_g.layer.clone();
-            if theme_changed {
-                // The app picked another look (or another custom sheet):
-                // the decoded tiles are the OLD look. Re-queue them; the
-                // render resolves `System` against the window next frame.
-                let resolved = new_g.layer.theme;
-                old_g.decoded_theme = MapTheme::Custom; // force adopt
-                old_g.adopt_theme(resolved);
-            }
             old_g.on_viewport_changed = new_g.on_viewport_changed.clone();
         }
     }
@@ -1277,8 +1558,12 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         cache.viewport.zoom = (cache.viewport.zoom + dz).clamp(min, max);
         let vp = cache.viewport;
         let layer = cache.layer.clone();
+        let look = cache.current_look();
         for t in map_visible_tiles(&vp, bounds, &layer) {
-            cache.tiles.entry(t).or_insert(TileEntry::Pending);
+            cache
+                .tiles
+                .entry(TileStyleKey { tile: t, theme: look })
+                .or_insert(TileEntry::Pending);
         }
         (vp, cache.on_viewport_changed.clone())
     };
@@ -1548,6 +1833,14 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     // Per-call spawn cap — bounds the burst on a big viewport jump.
     const MAX_SPAWN_PER_CALL: usize = 16;
 
+    // THE CASCADE'S ANSWER, taken here because this is the earliest point the
+    // widget has a `CallbackInfo` (mount, the 250 ms sweep, every pointer
+    // event all funnel through here). `SystemStyle::theme` is the same value
+    // `DynamicSelectorContext::from_system_style` feeds to
+    // `prefers-color-scheme`, so the tiles and the app's stylesheet resolve
+    // light/dark from one source instead of two.
+    let scheme = MapColorScheme::from_system_theme(info.get_system_style().theme);
+
     // Collect the work first (URL build + state flip) under one borrow,
     // then spawn outside it so we don't hold the cache lock across
     // `info.add_thread`.
@@ -1577,24 +1870,67 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             }
             return; // no worker wired — leave tiles Pending (placeholder grid)
         }
+        cache.cascade_scheme = Some(scheme);
+        let look = cache.current_look();
+        cache.set_active_theme(look);
+        // A tile that is merely QUEUED for a look we have since left is RE-KEYED
+        // to the look we now want — not dropped, and never fetched for the look
+        // nobody is going to look at. `Pending` means "wanted, nothing done
+        // yet"; what is wanted has not changed, only which sheet to style it
+        // with, so moving the key preserves the request and costs no request.
+        //
+        // Dropping them instead strands the FIRST render's queue on every cold
+        // start: that render runs before any callback exists, so it keys at the
+        // layer's own look — `System`, which is never equal to the look `System`
+        // resolves to — and the whole viewport would have to be re-queued by the
+        // next render before anything could be fetched.
+        //
+        // `Fetching` / `Ready` / `Failed` are never touched here: those hold real
+        // work, and each is already filed under the look it belongs to.
+        let stale: Vec<TileStyleKey> = cache
+            .tiles
+            .iter()
+            .filter(|(k, e)| matches!(e, TileEntry::Pending) && k.theme != look)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in stale {
+            cache.tiles.remove(&k);
+            cache
+                .tiles
+                .entry(TileStyleKey { tile: k.tile, theme: look })
+                .or_insert(TileEntry::Pending);
+        }
+
         let template = cache.layer.url_template.as_str().to_string();
-        let theme = cache.decoded_theme;
-        let style_css = cache.layer.effective_style_css(theme);
         // Centre-out: the tiles under the user's eyes first, the off-screen
         // margin and other-zoom leftovers last (see `pending_tiles_nearest_first`).
-        let pending: Vec<MapTileId> = cache
+        let pending: Vec<TileStyleKey> = cache
             .pending_tiles_nearest_first()
             .into_iter()
             .take(MAX_SPAWN_PER_CALL)
             .collect();
-        for tile in pending {
-            let url = build_tile_url(&template, tile);
-            cache.tiles.insert(tile, TileEntry::Fetching);
+        for key in pending {
+            let url = build_tile_url(&template, key.tile);
+            // Each job is styled for the look ITS KEY asks for, not for one
+            // cache-wide "current" look. A sweep can therefore legitimately
+            // carry jobs for two different looks at once (the new one being
+            // filled in, an old one still queued) and neither invalidates the
+            // other.
+            let style_css = cache.layer.effective_style_css(key.theme);
+            // Bytes already in hand => restyle, no network. This is the whole
+            // point of the split cache: geometry is fetched once per tile, ever.
+            let bytes = cache
+                .tile_bytes
+                .get(&key.tile)
+                .cloned()
+                .unwrap_or_else(|| azul_css::U8Vec::from_vec(Vec::new()));
+            cache.tiles.insert(key, TileEntry::Fetching);
             to_spawn.push(TileFetchInit {
-                tile,
+                tile: key.tile,
                 url: AzString::from(url),
-                style_css: style_css.clone(),
-                theme,
+                style_css,
+                theme: key.theme,
+                bytes,
             });
         }
         // Now that the current view's tiles are queued (Fetching, so eviction
@@ -1691,7 +2027,7 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
         }
         return Update::DoNothing;
     };
-    let msg = (m.tile, m.svg.clone(), m.error.clone(), m.theme);
+    let msg = (m.tile, m.svg.clone(), m.error.clone(), m.theme, m.bytes.clone());
     drop(m);
     {
         let Some(mut cache) = cache_dataset.downcast_mut::<MapTileCache>() else {
@@ -1707,24 +2043,47 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
             }
             return Update::DoNothing;
         };
+        // Cache the geometry FIRST and unconditionally. Whatever happens to the
+        // styled result, these bytes mean this tile never has to be downloaded
+        // again — including for a look nobody has asked for yet.
+        let fetched_bytes = msg.4.as_ref().len();
+        if fetched_bytes != 0 {
+            cache.tile_bytes.insert(msg.0, msg.4);
+        }
+
+        // File the result under the look it was STYLED FOR. There is no
+        // "arrived for the wrong theme" case any more: a result for a look the
+        // widget has moved on from is still correct data for that look, so it is
+        // kept, not thrown away and re-fetched. If the user flips back it paints
+        // instantly; until then it serves as the fallback for its own tile.
+        let key = TileStyleKey { tile: msg.0, theme: msg.3 };
+        let ok = msg.2.as_str().is_empty();
+        let svg_len = msg.1.as_str().len();
+        if ok {
+            cache.mark_tile_ready(key, msg.1);
+        } else {
+            cache.mark_tile_failed(key, msg.2.clone());
+        }
+
+        // Logged AFTER the decision, reporting the decision. The old line
+        // printed `ok=true` from "the error string is empty" BEFORE the theme
+        // check that then discarded the tile — so a tile about to be thrown
+        // away and re-fetched logged as a success. A log line that lies is
+        // worse than no log line.
         #[cfg(feature = "std")]
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
             eprintln!(
-                "[map] writeback tile=({},{},{}) ok={} svg_len={} err={:?}",
-                msg.0.z, msg.0.x, msg.0.y,
-                msg.2.as_str().is_empty(), msg.1.as_str().len(), msg.2.as_str()
+                "[map] writeback tile=({},{},{}) theme={:?} stored={} svg_len={} \
+                 bytes_cached={} err={:?}",
+                msg.0.z,
+                msg.0.x,
+                msg.0.y,
+                msg.3,
+                if ok { "Ready" } else { "Failed" },
+                svg_len,
+                fetched_bytes,
+                msg.2.as_str()
             );
-        }
-        if msg.3 != cache.decoded_theme {
-            // Decoded with the sheet of a theme the widget has since left
-            // (the window flipped light/dark mid-fetch): painting it would
-            // mix palettes. Back to Pending; the next sweep refetches it
-            // with the sheet of record.
-            cache.tiles.insert(msg.0, TileEntry::Pending);
-        } else if msg.2.as_str().is_empty() {
-            cache.mark_tile_ready(msg.0, msg.1);
-        } else {
-            cache.mark_tile_failed(msg.0, msg.2);
         }
     } // drop the cache borrow before touching `info`
 
@@ -1844,15 +2203,16 @@ extern "C" fn map_widget_render(
         };
     }
 
-    let (layer, viewport) = match data.downcast_mut::<MapTileCache>() {
+    let (layer, viewport, look) = match data.downcast_mut::<MapTileCache>() {
         Some(mut c) => {
-            // THE THEME FOLLOWS THE WINDOW: `System` resolves against the
-            // window's light / dark theme here, every frame, so an OS theme
-            // flip re-decodes the visible tiles with the other palette (no
-            // rebuild, no app code). A preset resolves to itself.
-            let resolved = c.layer.theme.resolve(info.window_theme);
-            c.adopt_theme(resolved);
-            (c.layer.clone(), c.viewport)
+            // THE CASCADE OWNS LIGHT/DARK. The look is the layer's cartography
+            // taken to the scheme recorded from `SystemStyle::theme` — the same
+            // value `prefers-color-scheme` matches on — not a resolution this
+            // callback performs against `info.window_theme`. Nothing is
+            // invalidated here: the look only selects which key to read.
+            let look = c.current_look();
+            c.set_active_theme(look);
+            (c.layer.clone(), c.viewport, look)
         }
         None => {
             return VirtualViewReturn {
@@ -1915,31 +2275,44 @@ extern "C" fn map_widget_render(
                     x: wrap_tile_x(x, tile_count),
                     y: y as u32,
                 };
-                cache.tiles.entry(id).or_insert(TileEntry::Pending);
+                cache
+                    .tiles
+                    .entry(TileStyleKey { tile: id, theme: look })
+                    .or_insert(TileEntry::Pending);
             }
         }
     }
 
-    // Snapshot the per-tile state under a short borrow, then drop it
-    // before building DOM. `Ready` tiles carry their decoded SVG so the
-    // render loop can parse it into a DOM child; the rest carry a glyph
-    // (`…` Pending / `⟳` Fetching / `✗` Failed) so the fetch path stays
+    // Snapshot what to DISPLAY per visible tile, under a short borrow, then
+    // drop it before building DOM.
+    //
+    // Display is a lookup, not the cache state: `best_available_svg` prefers
+    // the current look and otherwise takes any look already decoded for that
+    // tile. So while a scheme change re-styles, the previous palette keeps
+    // painting real cartography instead of the grid falling back to grey
+    // placeholders. Only a tile with NO decoded look at all shows a glyph
+    // (`…` Pending / `⟳` Fetching / `✗` Failed), which keeps the fetch path
     // observable.
     let states: BTreeMap<MapTileId, TileDisplay> = data
         .downcast_ref::<MapTileCache>()
         .map_or_else(BTreeMap::new, |c| {
-            c.tiles
-                .iter()
-                .map(|(id, e)| {
-                    let disp = match e {
-                        TileEntry::Pending => TileDisplay::Glyph("…"),
-                        TileEntry::Fetching => TileDisplay::Glyph("⟳"),
-                        TileEntry::Ready { svg } => TileDisplay::Svg(svg.clone()),
-                        TileEntry::Failed { .. } => TileDisplay::Glyph("✗"),
-                    };
-                    (*id, disp)
-                })
-                .collect()
+            let mut out = BTreeMap::new();
+            for k in c.tiles.keys() {
+                if out.contains_key(&k.tile) {
+                    continue;
+                }
+                let disp = if let Some((_, svg)) = c.best_available_svg(k.tile, look) {
+                    TileDisplay::Svg(svg)
+                } else {
+                    match c.tiles.get(&TileStyleKey { tile: k.tile, theme: look }) {
+                        Some(TileEntry::Fetching) => TileDisplay::Glyph("⟳"),
+                        Some(TileEntry::Failed { .. }) => TileDisplay::Glyph("✗"),
+                        _ => TileDisplay::Glyph("…"),
+                    }
+                };
+                out.insert(k.tile, disp);
+            }
+            out
         });
 
     // Build the visible-tile grid. Each tile div is GPU-translated
@@ -2255,16 +2628,23 @@ mod theme_tests {
     }
 
     #[test]
-    fn adopting_another_theme_requeues_decoded_tiles_and_the_fetch_carries_the_sheet() {
+    fn changing_the_look_re_keys_the_cache_and_keeps_the_decoded_tile() {
         let mut cache = MapTileCache::new(MapTileLayer::default(), MapViewport::default());
         let id = MapTileId { z: 1, x: 0, y: 0 };
-        cache.mark_tile_ready(id, AzString::from("<svg/>"));
-        assert!(!cache.adopt_theme(cache.decoded_theme), "same theme: nothing to do");
-        assert!(matches!(cache.tiles[&id], TileEntry::Ready { .. }));
-        assert!(cache.adopt_theme(MapTheme::Dark));
-        assert!(matches!(cache.tiles[&id], TileEntry::Pending), "a decoded tile is re-queued for the new look");
-        assert_eq!(cache.decoded_theme, MapTheme::Dark);
-        assert_eq!(cache.layer.effective_style_css(cache.decoded_theme).as_str(), super::super::map_themes::DARK);
+        let look_a = cache.key_at_current_look(id);
+        cache.mark_tile_ready(look_a, AzString::from("<svg/>"));
+        assert!(!cache.set_active_theme(cache.active_theme), "same look: nothing to do");
+        assert!(matches!(cache.tiles[&look_a], TileEntry::Ready { .. }));
+        assert!(cache.set_active_theme(MapTheme::Dark));
+        // A look change RE-KEYS the lookup; it must never invalidate geometry
+        // that is already decoded. Look A's tile stays Ready and instantly
+        // available if the user flips back.
+        assert!(
+            matches!(cache.tiles[&look_a], TileEntry::Ready { .. }),
+            "a look change must not discard a decoded tile"
+        );
+        assert_eq!(cache.active_theme, MapTheme::Dark);
+        assert_eq!(cache.layer.effective_style_css(cache.active_theme).as_str(), super::super::map_themes::DARK);
     }
 }
 
@@ -2404,16 +2784,22 @@ mod tests {
         let mut cache = MapTileCache::new(layer, viewport);
         for x in 0..4 {
             for y in 0..4 {
-                cache.tiles.insert(MapTileId { z: 2, x, y }, TileEntry::Pending);
+                cache.insert_tile(MapTileId { z: 2, x, y }, TileEntry::Pending);
             }
         }
         // A leftover from the previous zoom, which the (z, x, y) key order
         // used to fetch FIRST.
-        cache.tiles.insert(MapTileId { z: 1, x: 0, y: 0 }, TileEntry::Pending);
+        cache.insert_tile(MapTileId { z: 1, x: 0, y: 0 }, TileEntry::Pending);
         // Tiles already in flight / ready are not re-queued.
-        cache.tiles.insert(MapTileId { z: 2, x: 9, y: 9 }, TileEntry::Fetching);
+        cache.insert_tile(MapTileId { z: 2, x: 9, y: 9 }, TileEntry::Fetching);
 
-        let order = cache.pending_tiles_nearest_first();
+        // The queue is keyed by (tile, look); this test is about the ORDER the
+        // coordinates come out in, so drop the (single, uniform) look here.
+        let order: Vec<MapTileId> = cache
+            .pending_tiles_nearest_first()
+            .into_iter()
+            .map(|k| k.tile)
+            .collect();
         assert_eq!(order.len(), 17, "{order:?}");
         assert_eq!(order[0], MapTileId { z: 2, x: 2, y: 2 }, "the tile under the centre first");
         let ring: std::collections::BTreeSet<MapTileId> = order[..9].iter().copied().collect();
@@ -2503,13 +2889,13 @@ mod tests {
         worker_handle
             .downcast_mut::<MapTileCache>()
             .unwrap()
-            .mark_tile_ready(tile, AzString::from("<svg/>"));
+            .insert_tile(tile, TileEntry::Ready { svg: AzString::from("<svg/>") });
 
         // ...and it IS visible through the merged cache (shared storage). With the
         // old copy-merge this assertion failed — the tile was stranded.
         let g = merged.downcast_ref::<MapTileCache>().unwrap();
         assert!(
-            g.tiles.contains_key(&tile),
+            g.tile_entry(tile).is_some(),
             "a worker writeback after relayout must reach the rendered cache"
         );
     }
@@ -2528,7 +2914,7 @@ mod tests {
         let mut old_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
         old_cache.viewport.zoom = 7.0; // internal state from previous frames
         let tile = MapTileId { z: 2, x: 1, y: 1 };
-        old_cache.tiles.insert(tile, TileEntry::Ready { svg: "<svg/>".into() });
+        old_cache.insert_tile(tile, TileEntry::Ready { svg: "<svg/>".into() });
 
         let new_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(2.0));
 
@@ -2539,7 +2925,7 @@ mod tests {
         approx(f64::from(g.viewport.zoom), f64::from(viewport_at(2.0).zoom), 1e-6);
         // …while the fetched tiles survive in the same allocation.
         assert!(
-            g.tiles.contains_key(&tile),
+            g.tile_entry(tile).is_some(),
             "fetched tiles must survive the merge (workers write into this cache)"
         );
     }
@@ -2632,16 +3018,15 @@ mod tests {
         for x in 0..20u32 {
             for y in 0..20u32 {
                 cache
-                    .tiles
-                    .insert(MapTileId { z: 4, x, y }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+                    .insert_tile(MapTileId { z: 4, x, y }, TileEntry::Ready { svg: AzString::from("<svg/>") });
             }
         }
         // A near, in-flight tile (must NEVER be evicted).
-        cache.tiles.insert(MapTileId { z: 4, x: 8, y: 8 }, TileEntry::Pending);
+        cache.insert_tile(MapTileId { z: 4, x: 8, y: 8 }, TileEntry::Pending);
         // A near, ready tile (should survive — low distance score).
-        cache.tiles.insert(MapTileId { z: 4, x: 9, y: 8 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+        cache.insert_tile(MapTileId { z: 4, x: 9, y: 8 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
         // A very far ready tile (should be evicted first).
-        cache.tiles.insert(MapTileId { z: 4, x: 0, y: 0 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+        cache.insert_tile(MapTileId { z: 4, x: 0, y: 0 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
 
         assert!(cache.tiles.len() > 192, "precondition: over the cap");
         cache.prune_distant_tiles();
@@ -2649,12 +3034,12 @@ mod tests {
         assert!(cache.tiles.len() <= 192, "cache must be bounded after prune");
         // In-flight tile survives.
         assert!(matches!(
-            cache.tiles.get(&MapTileId { z: 4, x: 8, y: 8 }),
+            cache.tile_entry(MapTileId { z: 4, x: 8, y: 8 }),
             Some(TileEntry::Pending)
         ));
         // Near tile survives; the corner tile is gone.
-        assert!(cache.tiles.contains_key(&MapTileId { z: 4, x: 9, y: 8 }));
-        assert!(!cache.tiles.contains_key(&MapTileId { z: 4, x: 0, y: 0 }));
+        assert!(cache.tile_entry(MapTileId { z: 4, x: 9, y: 8 }).is_some());
+        assert!(cache.tile_entry(MapTileId { z: 4, x: 0, y: 0 }).is_none());
     }
 
     #[test]
@@ -2662,8 +3047,7 @@ mod tests {
         let mut cache = test_cache();
         for x in 0..4u32 {
             cache
-                .tiles
-                .insert(MapTileId { z: 4, x, y: 8 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+                .insert_tile(MapTileId { z: 4, x, y: 8 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
         }
         cache.prune_distant_tiles();
         assert_eq!(cache.tiles.len(), 4, "under the cap → nothing evicted");
@@ -3732,12 +4116,13 @@ mod autotest_generated {
     fn mark_tile_ready_and_failed_overwrite_each_other() {
         let mut cache = cache_at(0.0, 0.0, 4.0);
         let tile = MapTileId { z: 4, x: 8, y: 8 };
-        cache.mark_tile_ready(tile, AzString::from("<svg/>"));
-        assert!(matches!(cache.tiles.get(&tile), Some(TileEntry::Ready { .. })));
-        cache.mark_tile_failed(tile, AzString::from("boom"));
-        assert!(matches!(cache.tiles.get(&tile), Some(TileEntry::Failed { .. })));
-        cache.mark_tile_ready(tile, AzString::from(""));
-        assert!(matches!(cache.tiles.get(&tile), Some(TileEntry::Ready { .. })));
+        let key = cache.key_at_current_look(tile);
+        cache.mark_tile_ready(key, AzString::from("<svg/>"));
+        assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Ready { .. })));
+        cache.mark_tile_failed(key, AzString::from("boom"));
+        assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Failed { .. })));
+        cache.mark_tile_ready(key, AzString::from(""));
+        assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Ready { .. })));
         assert_eq!(cache.tiles.len(), 1, "the same id must not duplicate");
     }
 
@@ -3751,13 +4136,13 @@ mod autotest_generated {
             AzString::from("x".repeat(1_000_000)),
         ];
         for (i, svg) in payloads.into_iter().enumerate() {
-            cache.mark_tile_ready(
+            cache.insert_tile(
                 MapTileId {
                     z: 4,
                     x: i as u32,
                     y: 0,
                 },
-                svg,
+                TileEntry::Ready { svg },
             );
         }
         assert_eq!(cache.tiles.len(), 4);
@@ -3781,7 +4166,7 @@ mod autotest_generated {
                 y: 0,
             },
         ] {
-            cache.mark_tile_failed(tile, AzString::from("e"));
+            cache.insert_tile(tile, TileEntry::Failed { error: AzString::from("e") });
         }
         assert_eq!(cache.tiles.len(), 3);
     }
@@ -3794,8 +4179,7 @@ mod autotest_generated {
         for x in 0..side {
             for y in 0..side {
                 cache
-                    .tiles
-                    .insert(MapTileId { z, x, y }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+                    .insert_tile(MapTileId { z, x, y }, TileEntry::Ready { svg: AzString::from("<svg/>") });
             }
         }
     }
@@ -3805,7 +4189,7 @@ mod autotest_generated {
         let mut cache = cache_at(0.0, 0.0, 4.0);
         for x in 0..16u32 {
             for y in 0..16u32 {
-                cache.tiles.insert(
+                cache.insert_tile(
                     MapTileId { z: 4, x, y },
                     if (x + y) % 2 == 0 {
                         TileEntry::Pending
@@ -3851,11 +4235,11 @@ mod autotest_generated {
         fill_ready_grid(&mut cache, 4, 16);
         cache.prune_distant_tiles();
         let first = cache.tiles.len();
-        let survivors: Vec<MapTileId> = cache.tiles.keys().copied().collect();
+        let survivors: Vec<MapTileId> = cache.tiles.keys().map(|k| k.tile).collect();
         cache.prune_distant_tiles();
         assert_eq!(cache.tiles.len(), first);
         assert_eq!(
-            cache.tiles.keys().copied().collect::<Vec<_>>(),
+            cache.tiles.keys().map(|k| k.tile).collect::<Vec<_>>(),
             survivors,
             "a second prune under the cap must change nothing"
         );
@@ -3869,16 +4253,15 @@ mod autotest_generated {
         fill_ready_grid(&mut cache, 4, 16);
         let wrong_zoom = MapTileId { z: 9, x: 256, y: 256 };
         cache
-            .tiles
-            .insert(wrong_zoom, TileEntry::Ready { svg: AzString::from("<svg/>") });
+            .insert_tile(wrong_zoom, TileEntry::Ready { svg: AzString::from("<svg/>") });
         let near = MapTileId { z: 4, x: 8, y: 8 };
         cache.prune_distant_tiles();
         assert!(cache.tiles.len() <= 192);
         assert!(
-            !cache.tiles.contains_key(&wrong_zoom),
+            cache.tile_entry(wrong_zoom).is_none(),
             "a zoom-mismatched tile must be evicted before same-zoom neighbours"
         );
-        assert!(cache.tiles.contains_key(&near), "the centre tile must survive");
+        assert!(cache.tile_entry(near).is_some(), "the centre tile must survive");
     }
 
     // ==================================================================
@@ -3889,11 +4272,11 @@ mod autotest_generated {
     fn merge_with_a_wrong_typed_new_dataset_returns_the_old_one_intact() {
         let mut old_cache = cache_at(0.0, 0.0, 5.0);
         let tile = MapTileId { z: 5, x: 1, y: 1 };
-        old_cache.mark_tile_ready(tile, AzString::from("<svg/>"));
+        old_cache.insert_tile(tile, TileEntry::Ready { svg: AzString::from("<svg/>") });
         let mut merged = merge_map_tile_cache(RefAny::new(0u32), RefAny::new(old_cache));
         let cache = merged.downcast_ref::<MapTileCache>().expect("old cache");
         assert_eq!(cache.viewport.zoom, 5.0, "no adoption from a bogus new dataset");
-        assert!(cache.tiles.contains_key(&tile));
+        assert!(cache.tile_entry(tile).is_some());
     }
 
     #[test]
@@ -4501,7 +4884,7 @@ mod autotest_generated {
     fn spawn_pending_tile_fetches_is_a_no_op_without_a_worker() {
         let mut cache = cache_at(0.0, 0.0, 4.0);
         for x in 0..4u32 {
-            cache.tiles.insert(MapTileId { z: 4, x, y: 8 }, TileEntry::Pending);
+            cache.insert_tile(MapTileId { z: 4, x, y: 8 }, TileEntry::Pending);
         }
         let mut dataset = RefAny::new(cache);
         let (_, changes) = with_callback_info(|info| {
@@ -4520,8 +4903,13 @@ mod autotest_generated {
     fn spawn_pending_tile_fetches_caps_the_burst_at_sixteen() {
         let mut cache = cache_at(0.0, 0.0, 4.0);
         cache.fetch_callback = Some(ThreadCallback::new(noop_worker));
+        // Queue at the look the spawn pass will resolve. The harness's
+        // `SystemStyle::default()` is a light theme, and the spawn dequeues
+        // `Pending` jobs left over from a look the widget has moved on from —
+        // this test is about the burst CAP, not about that re-keying.
+        cache.cascade_scheme = Some(MapColorScheme::Light);
         for x in 0..20u32 {
-            cache.tiles.insert(MapTileId { z: 4, x, y: 8 }, TileEntry::Pending);
+            cache.insert_tile(MapTileId { z: 4, x, y: 8 }, TileEntry::Pending);
         }
         let mut dataset = RefAny::new(cache);
 
@@ -4584,6 +4972,7 @@ mod autotest_generated {
             tile,
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
+            bytes: azul_css::U8Vec::from_vec(Vec::new()),
         });
         let (update, changes) = with_callback_info(|info| {
             map_tile_writeback(dataset.clone(), ok.clone(), info)
@@ -4594,7 +4983,7 @@ mod autotest_generated {
             .any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)));
         {
             let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
-            assert!(matches!(cache.tiles.get(&tile), Some(TileEntry::Ready { .. })));
+            assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Ready { .. })));
         }
 
         let failed = RefAny::new(TileReadyMsg {
@@ -4602,13 +4991,14 @@ mod autotest_generated {
             tile,
             svg: AzString::from(""),
             error: AzString::from("404"),
+            bytes: azul_css::U8Vec::from_vec(Vec::new()),
         });
         let (update, _) = with_callback_info(|info| {
             map_tile_writeback(dataset.clone(), failed.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
-        assert!(matches!(cache.tiles.get(&tile), Some(TileEntry::Failed { .. })));
+        assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Failed { .. })));
     }
 
     #[test]
@@ -4624,12 +5014,13 @@ mod autotest_generated {
             tile,
             svg: AzString::from("<svg/>".repeat(50_000)),
             error: AzString::from(""),
+            bytes: azul_css::U8Vec::from_vec(Vec::new()),
         });
         let (update, _) =
             with_callback_info(|info| map_tile_writeback(dataset.clone(), msg.clone(), info));
         assert_eq!(update, Update::DoNothing);
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
-        assert!(cache.tiles.contains_key(&tile));
+        assert!(cache.tile_entry(tile).is_some());
     }
 
     #[test]
@@ -4651,12 +5042,179 @@ mod autotest_generated {
             tile: MapTileId { z: 1, x: 0, y: 0 },
             svg: AzString::from("<svg/>"),
             error: AzString::from(""),
+            bytes: azul_css::U8Vec::from_vec(Vec::new()),
         });
         let (update, changes) = with_callback_info(|info| {
             map_tile_writeback(RefAny::new(9u64), msg.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
+    }
+
+    // ── The two axes: cartography (the app's) vs light/dark (the cascade's) ──
+
+    #[test]
+    fn a_look_is_a_cartography_taken_to_a_colour_scheme_and_every_style_has_both() {
+        // The property that makes (style, scheme) a real product rather than
+        // ten ad-hoc enum variants: every cartography renders in either scheme,
+        // and the look you get back says which scheme it is.
+        for style in [
+            MapTileStyle::Standard,
+            MapTileStyle::Bright,
+            MapTileStyle::Liberty,
+            MapTileStyle::Google,
+            MapTileStyle::Apple,
+        ] {
+            for scheme in [MapColorScheme::Light, MapColorScheme::Dark] {
+                let look = style.look(scheme);
+                assert_eq!(
+                    look.pinned_scheme(),
+                    Some(scheme),
+                    "{style:?} in {scheme:?} must render as {scheme:?}"
+                );
+                assert!(
+                    !look.stylesheet().as_str().is_empty(),
+                    "{style:?} in {scheme:?} must have a sheet to decode with"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_system_defers_to_the_cascade_and_an_explicit_preset_overrides_it() {
+        // `System` is the only look with no opinion of its own — the cascade
+        // fills the scheme in. Everything else is an app deliberately
+        // overriding the cascade, and an explicit override has to win.
+        assert_eq!(MapTheme::System.pinned_scheme(), None);
+        assert_eq!(
+            MapTheme::System.for_scheme(MapColorScheme::Dark),
+            MapTileStyle::platform_default().look(MapColorScheme::Dark),
+        );
+        assert_eq!(
+            MapTheme::AppleLight.for_scheme(MapColorScheme::Dark),
+            MapTheme::AppleLight,
+            "an app that asked for the light Apple look keeps it in dark mode"
+        );
+        assert_eq!(
+            MapTheme::Dark.for_scheme(MapColorScheme::Light),
+            MapTheme::Dark
+        );
+    }
+
+    #[test]
+    fn a_colour_scheme_flip_re_keys_the_cache_and_discards_no_decoded_tile() {
+        // THE REGRESSION. This used to push every decoded tile back to
+        // `Pending`, so a colour scheme that settled one frame late cost a
+        // second download of the entire viewport.
+        let tile = MapTileId { z: 2, x: 1, y: 1 };
+        let mut cache = cache_at(0.0, 0.0, 2.0);
+        let light = MapTileStyle::Apple.look(MapColorScheme::Light);
+        let dark = MapTileStyle::Apple.look(MapColorScheme::Dark);
+
+        cache.mark_tile_ready(
+            TileStyleKey { tile, theme: light },
+            AzString::from("<svg id='l'/>"),
+        );
+        assert!(cache.set_active_theme(dark), "the look moved");
+
+        assert!(
+            matches!(
+                cache.tiles.get(&TileStyleKey { tile, theme: light }),
+                Some(TileEntry::Ready { .. })
+            ),
+            "the light tile is still correct data for the light look and must \
+             survive the flip — re-key, never invalidate"
+        );
+        assert_eq!(cache.active_theme, dark);
+    }
+
+    #[test]
+    fn an_unstyled_look_falls_back_to_a_decoded_one_instead_of_a_grey_placeholder() {
+        let tile = MapTileId { z: 2, x: 1, y: 1 };
+        let mut cache = cache_at(0.0, 0.0, 2.0);
+        let light = MapTileStyle::Apple.look(MapColorScheme::Light);
+        let dark = MapTileStyle::Apple.look(MapColorScheme::Dark);
+        cache.mark_tile_ready(
+            TileStyleKey { tile, theme: light },
+            AzString::from("<svg id='l'/>"),
+        );
+
+        let (got, svg) = cache
+            .best_available_svg(tile, dark)
+            .expect("the light tile must stand in while the dark one styles");
+        assert_eq!(got, light, "real cartography beats a grey box");
+        assert_eq!(svg.as_str(), "<svg id='l'/>");
+
+        // An exact hit always wins over the stand-in.
+        cache.mark_tile_ready(
+            TileStyleKey { tile, theme: dark },
+            AzString::from("<svg id='d'/>"),
+        );
+        let (got, svg) = cache
+            .best_available_svg(tile, dark)
+            .expect("exact hit");
+        assert_eq!(got, dark);
+        assert_eq!(svg.as_str(), "<svg id='d'/>");
+    }
+
+    #[test]
+    fn the_writeback_files_a_tile_under_its_own_look_and_caches_the_payload() {
+        // The old writeback compared the arriving theme against the cache's
+        // single `decoded_theme` and, on a mismatch, threw the decoded tile
+        // away and re-queued it — the second fetch of every tile. And it logged
+        // `ok=true` on the way past, before the check that discarded it.
+        let tile = MapTileId { z: 4, x: 1, y: 2 };
+        let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
+        let arrived_for = MapTileStyle::Apple.look(MapColorScheme::Dark);
+        {
+            let mut c = dataset.downcast_mut::<MapTileCache>().expect("cache");
+            c.set_active_theme(MapTileStyle::Apple.look(MapColorScheme::Light));
+        }
+
+        let msg = RefAny::new(TileReadyMsg {
+            tile,
+            svg: AzString::from("<svg/>"),
+            error: AzString::from(""),
+            theme: arrived_for,
+            bytes: azul_css::U8Vec::from_vec(Vec::from([1u8, 2, 3])),
+        });
+        let _ = with_callback_info(|info| map_tile_writeback(dataset.clone(), msg.clone(), info));
+
+        let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
+        assert!(
+            matches!(
+                cache.tiles.get(&TileStyleKey { tile, theme: arrived_for }),
+                Some(TileEntry::Ready { .. })
+            ),
+            "a result for a look the widget has since left is still correct data \
+             for that look: it must be filed, not re-queued"
+        );
+        assert_eq!(
+            cache.tile_bytes.get(&tile).map(|b| b.as_ref().to_vec()),
+            Some(Vec::from([1u8, 2, 3])),
+            "the payload must be cached so no look ever re-downloads this tile"
+        );
+    }
+
+    #[test]
+    fn the_byte_cache_is_keyed_by_coordinates_so_every_look_shares_one_download() {
+        let tile = MapTileId { z: 2, x: 1, y: 1 };
+        let mut cache = cache_at(0.0, 0.0, 2.0);
+        cache
+            .tile_bytes
+            .insert(tile, azul_css::U8Vec::from_vec(Vec::from([9u8])));
+        for scheme in [MapColorScheme::Light, MapColorScheme::Dark] {
+            cache.mark_tile_ready(
+                TileStyleKey { tile, theme: MapTileStyle::Google.look(scheme) },
+                AzString::from("<svg/>"),
+            );
+        }
+        assert_eq!(cache.tiles.len(), 2, "two looks are two styled entries");
+        assert_eq!(
+            cache.tile_bytes.len(),
+            1,
+            "but the geometry behind them is downloaded exactly once"
+        );
     }
 
     #[test]
@@ -4742,7 +5300,7 @@ mod autotest_generated {
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
         for tile in &expected {
             assert!(
-                matches!(cache.tiles.get(tile), Some(TileEntry::Pending)),
+                matches!(cache.tile_entry(*tile), Some(TileEntry::Pending)),
                 "tile {tile:?} must be queued by the render pass"
             );
         }
@@ -4774,7 +5332,7 @@ mod autotest_generated {
             LogicalSize::new(512.0, 512.0),
             &layer_zoom(0, 19),
         ) {
-            cache.mark_tile_ready(tile, AzString::from("not xml at all <<<"));
+            cache.insert_tile(tile, TileEntry::Ready { svg: AzString::from("not xml at all <<<") });
         }
         let dataset = RefAny::new(cache);
         let ret =
@@ -4795,14 +5353,13 @@ mod autotest_generated {
         );
         for (i, tile) in tiles.iter().enumerate() {
             match i % 4 {
-                0 => {
-                    cache.tiles.insert(*tile, TileEntry::Pending);
-                }
-                1 => {
-                    cache.tiles.insert(*tile, TileEntry::Fetching);
-                }
-                2 => cache.mark_tile_failed(*tile, AzString::from("\u{1F600} failed")),
-                _ => cache.mark_tile_ready(*tile, AzString::from("")),
+                0 => cache.insert_tile(*tile, TileEntry::Pending),
+                1 => cache.insert_tile(*tile, TileEntry::Fetching),
+                2 => cache.insert_tile(
+                    *tile,
+                    TileEntry::Failed { error: AzString::from("\u{1F600} failed") },
+                ),
+                _ => cache.insert_tile(*tile, TileEntry::Ready { svg: AzString::from("") }),
             }
         }
         let dataset = RefAny::new(cache);
