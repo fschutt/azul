@@ -262,12 +262,12 @@ mod tests {
     fn the_manager_retargets_instead_of_stacking() {
         let mut m = AnimationManager::new();
         let key = AnimKey(7);
-        let interp = Interp::Spring(Spring::SMOOTH);
+        let mode = InterpolationMode::Spring(Spring::SMOOTH);
 
         m.start_or_retarget_move(
             key,
             flip(rect(0.0, 0.0, 10.0, 10.0), rect(100.0, 0.0, 10.0, 10.0)),
-            interp,
+            mode,
         );
         assert_eq!(m.len(), 1);
         for _ in 0..10 {
@@ -279,7 +279,7 @@ mod tests {
         m.start_or_retarget_move(
             key,
             flip(rect(0.0, 0.0, 10.0, 10.0), rect(200.0, 0.0, 10.0, 10.0)),
-            interp,
+            mode,
         );
         assert_eq!(m.len(), 1, "retarget created a second animation");
         let after = m.get(key).expect("still animating").current_transform();
@@ -295,7 +295,7 @@ mod tests {
         m.start_enter(
             AnimKey(1),
             (-120.0, 0.0),
-            Interp::Curve {
+            InterpolationMode::Curve {
                 function: AnimationInterpolationFunction::Linear,
                 duration_secs: 0.1,
             },
@@ -318,14 +318,14 @@ mod tests {
         // occupy would be wrong.
         let mut m = AnimationManager::new();
         let key = AnimKey(3);
-        let interp = Interp::Spring(Spring::SMOOTH);
+        let mode = InterpolationMode::Spring(Spring::SMOOTH);
         m.start_or_retarget_move(
             key,
             flip(rect(0.0, 0.0, 10.0, 10.0), rect(50.0, 0.0, 10.0, 10.0)),
-            interp,
+            mode,
         );
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Move));
-        m.start_exit(key, (-120.0, 0.0), interp);
+        m.start_exit(key, (-120.0, 0.0), mode);
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Exit));
         assert_eq!(m.len(), 1);
     }
@@ -401,7 +401,7 @@ mod tests {
                 (AnimKey(1), stayed, stayed),
                 (AnimKey(2), moved_first, moved_last),
             ],
-            Interp::Spring(Spring::SMOOTH),
+            InterpolationMode::Spring(Spring::SMOOTH),
         );
         assert_eq!(seeded, 1, "only the node that moved should animate");
         assert!(m.get(AnimKey(1)).is_none());
@@ -413,7 +413,7 @@ mod tests {
         // Two produces in quick succession must not stack two animations on
         // one node — that is the visible "fighting" artefact.
         let mut m = AnimationManager::new();
-        let interp = Interp::Spring(Spring::SMOOTH);
+        let mode = InterpolationMode::Spring(Spring::SMOOTH);
         seed_moves(
             &mut m,
             [(
@@ -421,7 +421,7 @@ mod tests {
                 rect(0.0, 0.0, 10.0, 10.0),
                 rect(50.0, 0.0, 10.0, 10.0),
             )],
-            interp,
+            mode,
         );
         for _ in 0..5 {
             m.tick(1.0 / 60.0);
@@ -433,7 +433,7 @@ mod tests {
                 rect(0.0, 0.0, 10.0, 10.0),
                 rect(90.0, 0.0, 10.0, 10.0),
             )],
-            interp,
+            mode,
         );
         assert_eq!(seeded, 1);
         assert_eq!(m.len(), 1, "a second produce stacked a second animation");
@@ -443,9 +443,9 @@ mod tests {
     fn an_enter_does_not_clobber_an_animation_already_in_flight() {
         let mut m = AnimationManager::new();
         let key = AnimKey(5);
-        let interp = Interp::Spring(Spring::SMOOTH);
-        m.start_exit(key, (-120.0, 0.0), interp);
-        m.start_enter(key, (-120.0, 0.0), interp);
+        let mode = InterpolationMode::Spring(Spring::SMOOTH);
+        m.start_exit(key, (-120.0, 0.0), mode);
+        m.start_enter(key, (-120.0, 0.0), mode);
         assert_eq!(m.get(key).map(|a| a.class), Some(AnimClass::Exit));
     }
 }

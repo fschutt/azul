@@ -1,49 +1,24 @@
 //! DOM-morph animation: interpolation core, FLIP geometry, and the keyed
 //! animation store.
 //!
-//! # The model
+//! # Model
 //!
-//! Animation here is **not** a new scheduler. It compiles down to keyed timer
-//! callbacks writing into the top cascade layer (`user_overridden_properties`),
-//! exactly as the existing caret/selection tweens do. This module owns only the
-//! parts that are pure math plus the bookkeeping that has to survive across
-//! frames:
+//! Animation compiles to keyed timer callbacks writing into the top cascade layer
+//! (`user_overridden_properties`). This module handles the math and bookkeeping
+//! across frames:
 //!
-//! * [`Spring`] / [`AnimChannel`] — how a scalar gets from `from` to `to`, with
-//!   **interruption as a first-class operation** ([`AnimChannel::retarget`]).
-//! * [`flip`] — the First/Last inversion that turns a layout change into a
-//!   composited transform, so a move costs a GPU key rather than a relayout.
-//! * [`AnimationManager`] — the keyed store. Keys are reconciliation identities,
-//!   which is what makes retargeting possible at all: A→B→C finds the in-flight
-//!   state instead of starting a second animation over the top of the first.
+//! * [`Spring`] / [`AnimChannel`]: How a single value transitions from `from` to `to`,
+//!   with interruption as a first-class operation ([`AnimChannel::retarget`]).
+//! * [`flip`]: The First/Last inversion that turns a layout change into a
+//!   composited transform, saving relayouts.
+//! * [`AnimationManager`]: The keyed store - keys are reconciliation identities
+//!   so that retargeting finds the in-flight state instead of overlapping.
 //!
-//! # Why springs rather than only easing curves
+//! # Curve vs. Spring
 //!
-//! A cubic-bezier is a function of *normalised time*, so interrupting one and
-//! starting another discards the current velocity — the element visibly snaps.
-//! A spring integrates from the current `(value, velocity)`, so a retarget mid
-//! flight continues smoothly. That is the whole reason drag-release and
-//! rapid A→B→C feel right.
-//!
-//! `Spring` is a real `#[repr(C)]` variant of `AnimationInterpolationFunction`,
-//! so a spring is expressible in CSS and across the C ABI like any other timing
-//! function — not a Rust-only concept bolted beside one. [`SpringCurve`] lives
-//! in `azul-css` next to the enum it belongs to and is re-exported here as
-//! [`Spring`], so there is exactly one definition of a type that crosses the
-//! ABI.
-//!
-//! That variant is unlike the others in one way worth knowing: it has **no
-//! duration**, so it cannot be evaluated at a normalised `t`. Anything holding a
-//! timeline must branch on `is_spring()`; `AnimChannel` does this by dispatching
-//! on [`Interp`], which is why springs never reach [`ease`].
-//!
-//! [`SpringCurve`]: azul_css::props::basic::animation::SpringCurve
-//!
-//! # no_std
-//!
-//! `alloc` only. Note the module-level `use alloc::vec::Vec` — a body-level
-//! `use` would not be in scope for function *signatures*, which is precisely
-//! how a `--no-default-features` build was broken once already.
+//! Easing curves are functions of normalized time. Interrupting them discards velocity,
+//! causing snapping. Springs integrate from the current `(value, velocity)`, allowing
+//! smooth retargeting.
 
 use alloc::{collections::BTreeMap, vec::Vec};
 
@@ -57,62 +32,52 @@ use crate::{
     styled_dom::NodeHierarchyItem,
 };
 
-/// Mass-spring-damper parameters.
-///
-/// Re-exported from `azul_css` so there is ONE definition: the spring is part
-/// of `AnimationInterpolationFunction`, which crosses the C ABI, and a second
-/// structurally-identical `Spring` in core would be a silent ABI trap the day
-/// one of them gained a field.
-///
-/// Integrated with semi-implicit (symplectic) Euler, which is the cheap,
-/// stable choice for interactive springs: it does not blow up at the frame
-/// rates a UI actually sees, and unlike the closed-form solution it needs no
-/// case split on the damping regime.
+/// Re-export of [`SpringCurve`].
 pub use azul_css::props::basic::animation::SpringCurve as Spring;
 
-/// How a channel is driven.
+/// A single animated value over time (e.g., an x-coordinate or opacity).
 ///
-/// Wraps [`AnimationInterpolationFunction`] rather than extending it — see the
-/// module docs on the ABI.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Interp {
-    /// Duration-based easing. Not interruptible without a visible discontinuity.
-    Curve {
-        /// The CSS easing curve.
-        function: AnimationInterpolationFunction,
-        /// Total duration in seconds. Zero means "apply instantly".
-        duration_secs: f32,
-    },
-    /// Physics-based. Interruptible with velocity continuity.
-    Spring(Spring),
-}
-
-impl Default for Interp {
-    fn default() -> Self {
-        Self::Spring(Spring::SMOOTH)
-    }
-}
-
-/// One animated scalar.
-///
-/// Compose these for anything richer: a FLIP move is four channels (translate
-/// x/y, scale x/y), a fade is one.
+/// Complex animations are created by combining multiple channels. For example,
+/// moving an element in 2D requires four channels: x and y translation, and x and y scale.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnimChannel {
     /// Where the value started. Re-seeded on every retarget.
     pub from: f32,
     /// Where it is heading.
     pub to: f32,
-    /// The value right now — what the caller writes into the cascade.
+    /// The current value to write into the cascade.
     pub current: f32,
-    /// Units per second. Carried across retargets; that is the point.
+    /// Units per second. Carried across retargets.
     pub velocity: f32,
-    /// Seconds since this leg started (curve mode only).
+    /// Seconds since the animation began (curve mode only).
     pub elapsed_secs: f32,
     /// How it is driven.
-    pub interp: Interp,
-    /// Latched once the channel arrives, so `is_finished` cannot flicker.
+    pub mode: InterpolationMode,
+    /// Latched once the channel arrives.
     finished: bool,
+}
+
+/// Specifies how an animated value transitions over time.
+///
+/// It can either be driven by a time-based curve (duration-based) or by a
+/// physics-based spring (velocity and target-based).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InterpolationMode {
+    /// Duration-based easing. Not interruptible without a discontinuity.
+    Curve {
+        /// The CSS easing curve.
+        function: AnimationInterpolationFunction,
+        /// Total duration in seconds. Zero means apply instantly.
+        duration_secs: f32,
+    },
+    /// Physics-based. Interruptible with velocity continuity.
+    Spring(Spring),
+}
+
+impl Default for InterpolationMode {
+    fn default() -> Self {
+        Self::Spring(Spring::SMOOTH)
+    }
 }
 
 impl AnimChannel {
@@ -130,7 +95,7 @@ impl AnimChannel {
             current: from,
             velocity: 0.0,
             elapsed_secs: 0.0,
-            interp: Interp::Curve {
+            mode: InterpolationMode::Curve {
                 function,
                 duration_secs,
             },
@@ -147,7 +112,7 @@ impl AnimChannel {
             current: from,
             velocity: 0.0,
             elapsed_secs: 0.0,
-            interp: Interp::Spring(spring),
+            mode: InterpolationMode::Spring(spring),
             finished: false,
         }
     }
@@ -157,8 +122,8 @@ impl AnimChannel {
         if self.finished {
             return self.current;
         }
-        match self.interp {
-            Interp::Curve {
+        match self.mode {
+            InterpolationMode::Curve {
                 function,
                 duration_secs,
             } => {
@@ -172,15 +137,12 @@ impl AnimChannel {
                 let linear_t = (self.elapsed_secs / duration_secs).clamp(0.0, 1.0);
                 let eased = ease(function, linear_t);
                 let previous = self.current;
-                // Explicit FP on purpose: mul_add fuses only with +fma and
-                // changes results bit-for-bit; animation sampling must stay
-                // bit-reproducible. (clippy::suboptimal_flops)
+                // Suboptimal flops allowed for bit-reproducibility across builds.
                 #[allow(clippy::suboptimal_flops)]
                 {
                     self.current = self.from + (self.to - self.from) * eased;
                 }
-                // Track velocity even on curves: if this channel is later
-                // retargeted onto a spring, the handover is continuous.
+                // Track velocity even on curves to ensure continuous handover to springs.
                 self.velocity = if dt > 0.0 {
                     (self.current - previous) / dt
                 } else {
@@ -191,7 +153,7 @@ impl AnimChannel {
                     self.finished = true;
                 }
             }
-            Interp::Spring(spring) => {
+            InterpolationMode::Spring(spring) => {
                 let (value, velocity) = spring.step(self.current, self.to, self.velocity, dt);
                 self.current = value;
                 self.velocity = velocity;
@@ -205,18 +167,15 @@ impl AnimChannel {
         self.current
     }
 
-    /// Whether this channel has arrived and can be dropped.
+    /// Whether this channel has arrived at the target value and can be dropped (animation finished)
     #[must_use]
     pub const fn is_finished(&self) -> bool {
         self.finished
     }
 
-    /// Aim at a new target **without losing the current value or velocity**.
+    /// Aim at a new target without losing the current value or velocity.
     ///
-    /// This is the operation a browser's WAAPI cannot express: there, a new
-    /// animation replaces the old one and the element jumps to the new `from`.
-    /// Here A→B→C mid-flight continues from wherever it actually is, at the
-    /// speed it is actually travelling.
+    /// This allows smooth retargeting mid-flight.
     pub fn retarget(&mut self, new_to: f32) {
         if (self.to - new_to).abs() < f32::EPSILON && !self.finished {
             return; // already heading there; do not restart the clock
@@ -225,7 +184,7 @@ impl AnimChannel {
         self.to = new_to;
         self.elapsed_secs = 0.0;
         self.finished = false;
-        // `velocity` is deliberately NOT reset — that is the whole feature.
+        // Velocity is deliberately not reset to allow smooth retargeting.
     }
 }
 
@@ -242,19 +201,16 @@ pub fn ease(function: AnimationInterpolationFunction, t: f32) -> f32 {
         AnimationInterpolationFunction::Ease => cubic_bezier_y(0.25, 0.1, 0.25, 1.0, t),
         AnimationInterpolationFunction::EaseIn => cubic_bezier_y(0.42, 0.0, 1.0, 1.0, t),
         AnimationInterpolationFunction::EaseOut => cubic_bezier_y(0.0, 0.0, 0.58, 1.0, t),
-        // `Spring(_)` shares the ease-in-out body ON PURPOSE: a spring has
-        // no `t` — reaching here means a caller put a spring where a
-        // duration-based curve was expected (`AnimChannel` dispatches on
-        // `Interp`, so a spring never takes this path — it integrates in
-        // `Spring::step` from its live (value, velocity)). The stand-in
-        // matches `AnimationInterpolationFunction::get_curve`, so the two
-        // disagree nowhere, and it degrades to plausible motion rather than
-        // a panic or a frozen element.
-        AnimationInterpolationFunction::EaseInOut | AnimationInterpolationFunction::Spring(_) => {
+        AnimationInterpolationFunction::EaseInOut => cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t),
+        AnimationInterpolationFunction::Spring(_) => {
+            crate::diagnostics::emit(String::from(
+                "Warning: Spring evaluated as an easing curve. This is a misusage."
+            ));
+            // Degrade gracefully to ease-in-out to prevent crashes.
             cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t)
         }
-        // A CSS timing bezier is normalised to P0 = (0,0), P3 = (1,1), so only
-        // the two control points carry information.
+        // The 0,0 and 1,1 points are hardcoded directly into the math equation itself,
+        // so only ctrl_1 and ctrl_2 are needed.
         AnimationInterpolationFunction::CubicBezier(curve) => cubic_bezier_y(
             curve.ctrl_1.x,
             curve.ctrl_1.y,
@@ -265,20 +221,20 @@ pub fn ease(function: AnimationInterpolationFunction, t: f32) -> f32 {
     }
 }
 
-/// y of a CSS timing bezier at parameter x, with P0 = (0,0) and P3 = (1,1).
+/// Calculates the y value of a CSS timing bezier given an x (time progress).
 ///
-/// CSS timing functions are parameterised by x (progress), not by the curve's
-/// own parameter, so x must be inverted first. Newton converges in a couple of
-/// iterations for the well-behaved curves; the bisection fallback keeps it
-/// correct for curves with near-zero derivative.
+/// Unlike a standard bezier evaluation that calculates `(x, y)` from a curve parameter `t`,
+/// CSS easing requires finding `y` (eased progress) for a specific `x` (linear time).
+/// To do this, we must first reverse-engineer `t` from `x`.
+///
+/// We try a fast math shortcut to find `t`. If the curve is too flat, we fall back
+/// to a slower, safer method to find the exact `t`, which is then used to calculate `y`.
 fn cubic_bezier_y(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     const NEWTON_ITERATIONS: usize = 4;
     const BISECTION_ITERATIONS: usize = 12;
     const EPSILON: f32 = 1e-5;
 
-    // Explicit FP on purpose: mul_add fuses only with +fma and changes
-    // results bit-for-bit; easing must stay bit-reproducible across builds.
-    // (clippy::suboptimal_flops)
+    // allowed for bit-reproducibility across builds
     #[allow(clippy::suboptimal_flops)]
     let bezier = |a: f32, b: f32, t: f32| {
         let inv = 1.0 - t;
@@ -329,10 +285,11 @@ fn cubic_bezier_y(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
 
 /// The inverted transform of a FLIP move.
 ///
-/// Applied to an element already laid out at Last, it makes the element *appear*
-/// at First. Animating these four numbers to identity plays the move on the GPU
-/// with no relayout — which is why a move costs a transform key rather than a
-/// per-frame re-solve.
+/// "First" is the element's original position. "Last" is its new position after layout.
+/// FLIP animation works by placing the element at Last, then applying a transform to
+/// make it look like it's at First, and finally animating that transform down to zero.
+/// This allows elements to move smoothly on the GPU without triggering expensive layout
+/// recalculations on every frame.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(C)]
 pub struct FlipTransform {
@@ -355,7 +312,7 @@ impl FlipTransform {
         scale_y: 1.0,
     };
 
-    /// Whether this is close enough to identity that emitting it is pointless.
+    /// Whether this is close enough to identity.
     #[must_use]
     pub fn is_identity(&self) -> bool {
         self.translate_x.abs() < 0.01
@@ -365,19 +322,10 @@ impl FlipTransform {
     }
 }
 
-/// Compute the FLIP inversion from a First (pre-change) and Last (post-change) rect.
+/// Compute the FLIP transform to move from the `first` rect to the `last` rect.
 ///
-/// Degenerate Last extents fall back to scale 1 rather than producing infinities:
-/// a zero-sized target is a collapsed or not-yet-measured node, and a NaN
-/// transform would poison the display list.
-/// POSITION ONLY — a USER ruling (2026-08-17), not an omission, and also what
-/// the design doc's Move row specifies ("FLIP: transform Δ→identity"). A
-/// matched node whose size changed has already RELAYOUTED at its final size;
-/// scaling it from the old size squashes freshly laid-out content (text set
-/// for the wide layout rendered at half width) for the whole flight. Content
-/// never distorts unless the user explicitly animates CSS `transform`, which
-/// is a pure transform without relayout — there, distortion is the point.
-/// A move travels; it does not morph.
+/// If the `last` rect has a zero size, the scale falls back to 1.
+/// The function only calculates changes in position, avoiding content distortion.
 #[must_use]
 pub fn flip(first: LogicalRect, last: LogicalRect) -> FlipTransform {
     let _ = (first.size, last.size); // sizes are layout's job, not the animation's
@@ -390,9 +338,6 @@ pub fn flip(first: LogicalRect, last: LogicalRect) -> FlipTransform {
 }
 
 /// Which presence class an animation belongs to.
-///
-/// These map 1:1 onto what the diff already reports: unmatched-new is Enter,
-/// unmatched-old is Exit, and a `NodeMove` pair whose geometry changed is Move.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimClass {
     /// Node exists in the new DOM only.
@@ -405,10 +350,8 @@ pub enum AnimClass {
 
 /// Identity of an animation across frames.
 ///
-/// This is deliberately **not** a `NodeId`: node ids are array positions and are
-/// not stable across a re-produce, so keying on them would make every frame look
-/// like a fresh animation and retargeting would never fire. The reconciliation
-/// key (`.with_key()` / `#id` / structural hash) is what survives.
+/// Uses the reconciliation key (`.with_key()` / `#id` / structural hash)
+/// to remain stable across frames, unlike `NodeId`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AnimKey(pub u64);
@@ -433,48 +376,35 @@ pub struct ActiveAnim {
 impl ActiveAnim {
     /// A move: start at the FLIP inversion, animate to identity.
     #[must_use]
-    pub const fn move_from_flip(flip: FlipTransform, interp: Interp) -> Self {
+    pub const fn move_from_flip(flip: FlipTransform, mode: InterpolationMode) -> Self {
         Self {
             class: AnimClass::Move,
-            translate_x: channel(flip.translate_x, 0.0, interp),
-            translate_y: channel(flip.translate_y, 0.0, interp),
-            scale_x: channel(flip.scale_x, 1.0, interp),
-            scale_y: channel(flip.scale_y, 1.0, interp),
-            opacity: channel(1.0, 1.0, interp),
+            translate_x: channel(flip.translate_x, 0.0, mode),
+            translate_y: channel(flip.translate_y, 0.0, mode),
+            scale_x: channel(flip.scale_x, 1.0, mode),
+            scale_y: channel(flip.scale_y, 1.0, mode),
+            opacity: channel(1.0, 1.0, mode),
         }
     }
 
-    /// An enter: SLIDE IN from `(from_x, from_y)` to identity, full opacity,
-    /// full size.
-    ///
-    /// Was fade+scale-up; changed by the same USER ruling as [`flip`]:
-    /// presence changes travel, content never distorts or ghosts. The offset
-    /// is the caller's choice — the engine default slides from the nearest
-    /// viewport edge, so a sidebar re-opens the way it left.
+    /// An enter: slide in from `(from_x, from_y)` to identity, full opacity and size.
     #[must_use]
-    pub const fn enter_slide(from_x: f32, from_y: f32, interp: Interp) -> Self {
+    pub const fn enter_slide(from_x: f32, from_y: f32, mode: InterpolationMode) -> Self {
         Self {
             class: AnimClass::Enter,
-            translate_x: channel(from_x, 0.0, interp),
-            translate_y: channel(from_y, 0.0, interp),
-            scale_x: channel(1.0, 1.0, interp),
-            scale_y: channel(1.0, 1.0, interp),
-            opacity: channel(1.0, 1.0, interp),
+            translate_x: channel(from_x, 0.0, mode),
+            translate_y: channel(from_y, 0.0, mode),
+            scale_x: channel(1.0, 1.0, mode),
+            scale_y: channel(1.0, 1.0, mode),
+            opacity: channel(1.0, 1.0, mode),
         }
     }
 
-    /// An exit: SLIDE OUT from identity to `(to_x, to_y)`, full opacity,
-    /// full size. Only visible with exit-retention.
+    /// An exit: slide out from identity to `(to_x, to_y)`, full opacity and size.
+    /// Only visible with exit-retention.
     ///
-    /// Was fade+shrink-in-place; same USER ruling as [`flip`]: a departing
-    /// sidebar slides away to its edge — it does not dissolve.
-    ///
-    /// Reverse a presence animation IN FLIGHT: the channels retarget from
-    /// their CURRENT values (velocity preserved — `Channel::retarget`'s whole
-    /// feature) toward the new destination. `Exit` + a slide target turns an
-    /// entering node around; `Enter` + identity catches an exiting node
-    /// (the remount-mid-exit catch: the zombie is dropped and the LIVE node
-    /// travels home from wherever the exit had carried it).
+    /// Reversing a presence animation in flight will retarget from the current
+    /// values with velocity preserved.
     pub fn retarget_presence(&mut self, class: AnimClass, to_x: f32, to_y: f32) {
         self.class = class;
         self.translate_x.retarget(to_x);
@@ -485,14 +415,14 @@ impl ActiveAnim {
     }
 
     #[must_use]
-    pub const fn exit_slide(to_x: f32, to_y: f32, interp: Interp) -> Self {
+    pub const fn exit_slide(to_x: f32, to_y: f32, mode: InterpolationMode) -> Self {
         Self {
             class: AnimClass::Exit,
-            translate_x: channel(0.0, to_x, interp),
-            translate_y: channel(0.0, to_y, interp),
-            scale_x: channel(1.0, 1.0, interp),
-            scale_y: channel(1.0, 1.0, interp),
-            opacity: channel(1.0, 1.0, interp),
+            translate_x: channel(0.0, to_x, mode),
+            translate_y: channel(0.0, to_y, mode),
+            scale_x: channel(1.0, 1.0, mode),
+            scale_y: channel(1.0, 1.0, mode),
+            opacity: channel(1.0, 1.0, mode),
         }
     }
 
@@ -534,8 +464,7 @@ impl ActiveAnim {
 
     /// Re-aim at a new FLIP target, preserving position and velocity.
     pub fn retarget_move(&mut self, flip: FlipTransform) {
-        // The NEW inversion is where the element must appear to start, so the
-        // channels are re-seeded toward identity from wherever they are now.
+        // Seed toward identity from the current position.
         self.translate_x.retarget(0.0);
         self.translate_y.retarget(0.0);
         self.scale_x.retarget(1.0);
@@ -546,20 +475,19 @@ impl ActiveAnim {
     }
 }
 
-const fn channel(from: f32, to: f32, interp: Interp) -> AnimChannel {
-    match interp {
-        Interp::Curve {
+const fn channel(from: f32, to: f32, mode: InterpolationMode) -> AnimChannel {
+    match mode {
+        InterpolationMode::Curve {
             function,
             duration_secs,
         } => AnimChannel::curve(from, to, function, duration_secs),
-        Interp::Spring(spring) => AnimChannel::spring(from, to, spring),
+        InterpolationMode::Spring(spring) => AnimChannel::spring(from, to, spring),
     }
 }
 
 /// The keyed store of in-flight animations.
 ///
-/// Sibling to `GpuStateManager`. Holds only what must outlive a frame; the
-/// actual writing of values happens in the layout crate, which owns the cascade.
+/// Holds only what must outlive a frame.
 #[derive(Debug, Clone, Default)]
 pub struct AnimationManager {
     active: BTreeMap<AnimKey, ActiveAnim>,
@@ -586,43 +514,43 @@ impl AnimationManager {
         self.active.is_empty()
     }
 
-    /// Start a move, or **retarget** one already in flight under this key.
-    ///
-    /// This is the entry point that makes rapid A→B→C smooth: the second call
-    /// does not stack a new animation on the first, it redirects it.
-    pub fn start_or_retarget_move(&mut self, key: AnimKey, flip: FlipTransform, interp: Interp) {
+    /// Start a move, or retarget one already in flight under this key.
+    pub fn start_or_retarget_move(
+        &mut self,
+        key: AnimKey,
+        flip: FlipTransform,
+        mode: InterpolationMode,
+    ) {
         if let Some(existing) = self.active.get_mut(&key) {
             existing.retarget_move(flip);
         } else {
             self.active
-                .insert(key, ActiveAnim::move_from_flip(flip, interp));
+                .insert(key, ActiveAnim::move_from_flip(flip, mode));
         }
     }
 
     /// Start an enter animation, unless this key is already animating.
-    pub fn start_enter(&mut self, key: AnimKey, from: (f32, f32), interp: Interp) {
+    pub fn start_enter(&mut self, key: AnimKey, from: (f32, f32), mode: InterpolationMode) {
         self.active
             .entry(key)
-            .or_insert_with(|| ActiveAnim::enter_slide(from.0, from.1, interp));
+            .or_insert_with(|| ActiveAnim::enter_slide(from.0, from.1, mode));
     }
 
-    /// Start an exit animation. An exit always WINS — the node is leaving, so
-    /// continuing toward a layout position it will never occupy is wrong —
-    /// but it does not RESTART: if an animation is already in flight under
-    /// this key (a node unmounted mid-enter, or mid-move), the channels
-    /// RETARGET from their current value with velocity preserved, so the
-    /// node turns around instead of snapping to its laid-out position first.
-    pub fn start_exit(&mut self, key: AnimKey, to: (f32, f32), interp: Interp) {
+    /// Start an exit animation.
+    ///
+    /// If an animation is already in flight, the channels retarget from their
+    /// current value with velocity preserved.
+    pub fn start_exit(&mut self, key: AnimKey, to: (f32, f32), mode: InterpolationMode) {
         match self.active.get_mut(&key) {
             Some(anim) => anim.retarget_presence(AnimClass::Exit, to.0, to.1),
             None => {
                 self.active
-                    .insert(key, ActiveAnim::exit_slide(to.0, to.1, interp));
+                    .insert(key, ActiveAnim::exit_slide(to.0, to.1, mode));
             }
         }
     }
 
-    /// Mutable access to an in-flight animation — the mid-flight-catch hook.
+    /// Mutable access to an in-flight animation.
     pub fn get_mut(&mut self, key: AnimKey) -> Option<&mut ActiveAnim> {
         self.active.get_mut(&key)
     }
@@ -634,18 +562,13 @@ impl AnimationManager {
     }
 
     /// Every in-flight animation with its key.
-    ///
-    /// The compositor needs this each frame to turn identity-keyed animation
-    /// state into per-`NodeId` GPU values; it cannot ask for keys it does not
-    /// already know about.
     pub fn iter(&self) -> impl Iterator<Item = (AnimKey, &ActiveAnim)> {
         self.active.iter().map(|(k, v)| (*k, v))
     }
 
     /// Advance every animation and drop the ones that arrived.
     ///
-    /// Returns the keys that finished this tick, so the caller can release the
-    /// GPU keys and — for exits — drop the retained subtree exactly once.
+    /// Returns the keys that finished this tick.
     pub fn tick(&mut self, dt: f32) -> Vec<AnimKey> {
         let mut finished = Vec::new();
         for (key, anim) in &mut self.active {
@@ -660,7 +583,7 @@ impl AnimationManager {
         finished
     }
 
-    /// Drop an animation without letting it finish (e.g. its node vanished).
+    /// Drop an animation without letting it finish.
     pub fn cancel(&mut self, key: AnimKey) -> Option<ActiveAnim> {
         self.active.remove(&key)
     }
@@ -668,26 +591,7 @@ impl AnimationManager {
 
 /// Turn the diff's correspondence map into `(key, First, Last)` triples.
 ///
-/// `node_moves` is what `reconcile_dom` already produced: old `NodeId` ->
-/// new `NodeId` for every node that survived the re-produce. This pairs each
-/// one with its pre-swap and post-solve geometry so [`seed_moves`] can decide
-/// what actually moved.
-///
-/// Geometry is fetched through closures rather than a map parameter because the
-/// two rects live in different crates and different *phases*: First comes from
-/// the previous frame's `LayoutCache` (still alive at the diff seam), Last from
-/// the freshly solved layout, which does not exist until well after that seam.
-/// Passing accessors lets the caller bridge that gap without core depending on
-/// the layout crate.
-///
-/// The key is the **reconciliation key**, the same identity the diff matched on
-/// — not the `NodeId`. A `NodeId` is an array position: it can change for a
-/// node that did not move, and can be reused by an unrelated node. Keying an
-/// animation store on it would make retargeting fire on the wrong element, or
-/// not at all.
-///
-/// Pairs missing either rect are dropped: a node with no previous geometry has
-/// nothing to fly from, and one with no new geometry is not on screen to fly to.
+/// Pairs missing either rect are dropped.
 pub fn correspondences_from_moves<F, L>(
     node_moves: &[NodeMove],
     new_node_data: &[NodeData],
@@ -718,17 +622,9 @@ where
     out
 }
 
-/// The `AnimKey` → current `NodeId` mapping for this frame's correspondences.
+/// The `AnimKey` -> current `NodeId` mapping for this frame's correspondences.
 ///
-/// Animation state is keyed by reconciliation identity so it can outlive a
-/// rebuild, but the compositor writes GPU values per `NodeId`. Something has to
-/// bridge the two, and it has to be rebuilt every layout: the key is stable
-/// across rebuilds precisely because the `NodeId` is not.
-///
-/// Kept separate from [`correspondences_from_moves`] rather than folded into its
-/// return type, because the two have different lifetimes — the correspondences
-/// are consumed once at seed time, this map is read every frame until the
-/// animation settles.
+/// Bridges the reconciliation identity and per-frame `NodeId`.
 #[must_use]
 pub fn anim_keys_for_moves(
     node_moves: &[NodeMove],
@@ -753,16 +649,12 @@ pub fn anim_keys_for_moves(
 
 /// Seed (or retarget) a FLIP move for every correspondence whose geometry moved.
 ///
-/// This is the engine entry point for Phase 1: the caller hands over the
-/// old↔new correspondences the diff already produced, paired with the First
-/// (pre-swap) and Last (post-solve) rects, and every pair that actually moved
-/// becomes a composited transform animation. Pairs that did not move are
-/// skipped — seeding an identity FLIP would allocate a GPU key and animate
-/// nothing.
-///
-/// Returns how many animations were started or retargeted, which is exactly the
-/// number of nodes that need a GPU transform key this frame.
-pub fn seed_moves<I>(manager: &mut AnimationManager, correspondences: I, interp: Interp) -> usize
+/// Returns how many animations were started or retargeted.
+pub fn seed_moves<I>(
+    manager: &mut AnimationManager,
+    correspondences: I,
+    mode: InterpolationMode,
+) -> usize
 where
     I: IntoIterator<Item = (AnimKey, LogicalRect, LogicalRect)>,
 {
@@ -772,7 +664,7 @@ where
         if transform.is_identity() {
             continue;
         }
-        manager.start_or_retarget_move(key, transform, interp);
+        manager.start_or_retarget_move(key, transform, mode);
         seeded += 1;
     }
     seeded
