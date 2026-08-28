@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact-value assertions on interpolation results

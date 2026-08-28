@@ -61,3 +61,8 @@ impl_option!(
     OptionSensorReading,
     [Debug, Clone, Copy, PartialEq]
 );
+
+
+#[cfg(test)]
+#[path = "sensors_test.rs"]
+mod sensors_test;

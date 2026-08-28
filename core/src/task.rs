@@ -1357,3 +1357,8 @@ pub struct ThreadReceiverDestructorCallback {
     pub cb: ThreadReceiverDestructorCallbackType,
 }
 impl_callback_simple!(ThreadReceiverDestructorCallback);
+
+
+#[cfg(test)]
+#[path = "task_test.rs"]
+mod task_test;

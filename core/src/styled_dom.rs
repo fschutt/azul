@@ -3135,3 +3135,8 @@ pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
 
     true
 }
+
+
+#[cfg(test)]
+#[path = "styled_dom_test.rs"]
+mod styled_dom_test;

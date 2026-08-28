@@ -191,3 +191,8 @@ pub fn any_contains(_needle: &str) -> bool {
 }
 #[cfg(not(feature = "std"))]
 pub fn clear() {}
+
+
+#[cfg(test)]
+#[path = "diagnostics_test.rs"]
+mod diagnostics_test;

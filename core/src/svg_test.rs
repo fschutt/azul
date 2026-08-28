@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 #[allow(clippy::pedantic, clippy::nursery, clippy::float_cmp)]
 mod autotest_generated {

@@ -882,3 +882,8 @@ impl DialogAriaInfo {
         }
     }
 }
+
+
+#[cfg(test)]
+#[path = "a11y_test.rs"]
+mod a11y_test;

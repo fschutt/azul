@@ -187,3 +187,8 @@ impl core::hash::Hash for GeolocationProbeConfig {
         self.min_interval_ms.hash(state);
     }
 }
+
+
+#[cfg(test)]
+#[path = "geolocation_test.rs"]
+mod geolocation_test;

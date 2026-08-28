@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 #[allow(clippy::float_cmp, clippy::too_many_lines)]
 mod autotest_generated {

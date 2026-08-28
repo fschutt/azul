@@ -181,3 +181,8 @@ pub fn jsonl_enabled() -> bool {
 pub fn detail_enabled() -> bool {
     flags().detail
 }
+
+
+#[cfg(test)]
+#[path = "profile_test.rs"]
+mod profile_test;

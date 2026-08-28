@@ -95,3 +95,8 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq]
 );
+
+
+#[cfg(test)]
+#[path = "keyring_test.rs"]
+mod keyring_test;

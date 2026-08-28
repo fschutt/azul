@@ -4796,3 +4796,8 @@ impl CssPropertyCache {
         self.compact_cache = None;
     }
 }
+
+
+#[cfg(test)]
+#[path = "prop_cache_test.rs"]
+mod prop_cache_test;

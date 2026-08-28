@@ -794,3 +794,8 @@ impl_option!(
     OptionDragDelta,
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
+
+
+#[cfg(test)]
+#[path = "drag_test.rs"]
+mod drag_test;

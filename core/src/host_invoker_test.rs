@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 /// Adversarial tests for the host-invoker registry.
 ///
 /// Everything here that touches `HOST_HANDLE_RELEASER` / `GENERIC_INVOKER` /
@@ -33,7 +35,7 @@ mod autotest_generated {
     use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering as AtOrdering};
     use std::{ffi::CStr, sync::PoisonError};
 
-    use super::{tests::TEST_LOCK, *};
+    use crate::host_invoker::{tests::TEST_LOCK, *};
     use crate::refany::OptionRefAny;
 
     /// Lock the shared slot mutex, tolerating poisoning from an earlier failed

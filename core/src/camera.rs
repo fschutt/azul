@@ -150,3 +150,8 @@ impl Default for CaptureStats {
         }
     }
 }
+
+
+#[cfg(test)]
+#[path = "camera_test.rs"]
+mod camera_test;

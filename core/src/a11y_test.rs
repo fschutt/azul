@@ -1,6 +1,8 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 mod assign_tests {
-    use crate::a11y::*;
+    use super::*;
     use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
     use alloc::vec::Vec;
     use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
@@ -73,7 +75,7 @@ mod assign_tests {
 
 #[cfg(test)]
 mod autotest_generated {
-    use crate::a11y::*;
+    use super::*;
     use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
     use alloc::vec::Vec;
     use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};

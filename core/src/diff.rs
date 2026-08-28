@@ -2327,3 +2327,8 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
 
     (fp, transfers)
 }
+
+
+#[cfg(test)]
+#[path = "diff_test.rs"]
+mod diff_test;

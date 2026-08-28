@@ -1556,3 +1556,8 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+
+#[cfg(test)]
+#[path = "callbacks_test.rs"]
+mod callbacks_test;

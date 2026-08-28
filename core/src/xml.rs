@@ -7906,3 +7906,8 @@ pub fn str_to_c_code<'a>(
          return 0;\n}}\n"
     ))
 }
+
+
+#[cfg(test)]
+#[path = "xml_test.rs"]
+mod xml_test;

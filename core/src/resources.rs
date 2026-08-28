@@ -3720,3 +3720,8 @@ pub fn add_resources(
         }
     }
 }
+
+
+#[cfg(test)]
+#[path = "resources_test.rs"]
+mod resources_test;

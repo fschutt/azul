@@ -52,3 +52,8 @@ impl GlyphInstance {
         self.size.scale_for_dpi(scale_factor);
     }
 }
+
+
+#[cfg(test)]
+#[path = "ui_solver_test.rs"]
+mod ui_solver_test;

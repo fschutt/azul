@@ -319,3 +319,8 @@ pub fn init_from_env() {
         recompute(Level::Debug as u8);
     }
 }
+
+
+#[cfg(test)]
+#[path = "log_filter_test.rs"]
+mod log_filter_test;

@@ -626,3 +626,8 @@ fn bake_resolved_style(
         data.add_css_property(with_state(p));
     }
 }
+
+
+#[cfg(test)]
+#[path = "transient_test.rs"]
+mod transient_test;

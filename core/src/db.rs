@@ -122,3 +122,8 @@ impl DbRows {
         self.values.as_ref().get(idx)
     }
 }
+
+
+#[cfg(test)]
+#[path = "db_test.rs"]
+mod db_test;
