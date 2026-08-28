@@ -22,21 +22,39 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutMarginLeft},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            StyleFontSize,
+        },
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutMarginLeft, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            LayoutPaddingTop,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContentVec, StyleBackgroundContent, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleCursor, StyleUserSelect},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
 
 static ALERT_CONTAINER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-alert"))];
-static ALERT_MESSAGE_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-alert-message"))];
+static ALERT_MESSAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-alert-message",
+))];
 static ALERT_CLOSE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-alert-close"))];
 
@@ -88,30 +106,91 @@ impl AlertKind {
     const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
-                ColorU { r: 207, g: 244, b: 252, a: 255 }, // #cff4fc
-                ColorU { r: 182, g: 239, b: 251, a: 255 }, // #b6effb
-                ColorU { r: 5, g: 81, b: 96, a: 255 },     // #055160
+                ColorU {
+                    r: 207,
+                    g: 244,
+                    b: 252,
+                    a: 255,
+                }, // #cff4fc
+                ColorU {
+                    r: 182,
+                    g: 239,
+                    b: 251,
+                    a: 255,
+                }, // #b6effb
+                ColorU {
+                    r: 5,
+                    g: 81,
+                    b: 96,
+                    a: 255,
+                }, // #055160
             ),
             Self::Success => (
-                ColorU { r: 209, g: 231, b: 221, a: 255 }, // #d1e7dd
-                ColorU { r: 186, g: 219, b: 204, a: 255 }, // #badbcc
-                ColorU { r: 15, g: 81, b: 50, a: 255 },    // #0f5132
+                ColorU {
+                    r: 209,
+                    g: 231,
+                    b: 221,
+                    a: 255,
+                }, // #d1e7dd
+                ColorU {
+                    r: 186,
+                    g: 219,
+                    b: 204,
+                    a: 255,
+                }, // #badbcc
+                ColorU {
+                    r: 15,
+                    g: 81,
+                    b: 50,
+                    a: 255,
+                }, // #0f5132
             ),
             Self::Warning => (
-                ColorU { r: 255, g: 243, b: 205, a: 255 }, // #fff3cd
-                ColorU { r: 255, g: 236, b: 181, a: 255 }, // #ffecb5
-                ColorU { r: 102, g: 77, b: 3, a: 255 },    // #664d03
+                ColorU {
+                    r: 255,
+                    g: 243,
+                    b: 205,
+                    a: 255,
+                }, // #fff3cd
+                ColorU {
+                    r: 255,
+                    g: 236,
+                    b: 181,
+                    a: 255,
+                }, // #ffecb5
+                ColorU {
+                    r: 102,
+                    g: 77,
+                    b: 3,
+                    a: 255,
+                }, // #664d03
             ),
             Self::Danger => (
-                ColorU { r: 248, g: 215, b: 218, a: 255 }, // #f8d7da
-                ColorU { r: 245, g: 194, b: 199, a: 255 }, // #f5c2c7
-                ColorU { r: 132, g: 32, b: 41, a: 255 },   // #842029
+                ColorU {
+                    r: 248,
+                    g: 215,
+                    b: 218,
+                    a: 255,
+                }, // #f8d7da
+                ColorU {
+                    r: 245,
+                    g: 194,
+                    b: 199,
+                    a: 255,
+                }, // #f5c2c7
+                ColorU {
+                    r: 132,
+                    g: 32,
+                    b: 41,
+                    a: 255,
+                }, // #842029
             ),
         }
     }
 
     /// CSS class name for this alert kind (mirrors `ButtonType::class_name`).
-    #[must_use] pub const fn class_name(&self) -> &'static str {
+    #[must_use]
+    pub const fn class_name(&self) -> &'static str {
         match self {
             Self::Info => "__azul-alert-info",
             Self::Success => "__azul-alert-success",
@@ -179,9 +258,9 @@ fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
             0,
         ))),
         // padding: 12px
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            12,
-        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(12,)
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
             LayoutPaddingBottom::const_px(12),
         )),
@@ -204,9 +283,11 @@ fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
             LayoutBorderRightWidth::const_px(1),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
             StyleBorderBottomStyle {
                 inner: BorderStyle::Solid,
@@ -222,9 +303,9 @@ fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-            inner: border,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+            StyleBorderTopColor { inner: border }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor { inner: border },
         )),
@@ -247,7 +328,9 @@ fn build_alert_style(kind: AlertKind) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
             StyleBorderBottomRightRadius::const_px(6),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
         // Text colour is inherited by the message + close children.
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
@@ -277,13 +360,15 @@ static ALERT_CLOSE_STYLE: &[CssPropertyWithConditions] = &[
 impl Alert {
     /// Creates a new informational (blue) alert with the given message.
     #[inline]
-    #[must_use] pub fn create(message: AzString) -> Self {
+    #[must_use]
+    pub fn create(message: AzString) -> Self {
         Self::with_kind(message, AlertKind::Info)
     }
 
     /// Creates a new alert with the given message and colour variant.
     #[inline]
-    #[must_use] pub fn with_kind(message: AzString, kind: AlertKind) -> Self {
+    #[must_use]
+    pub fn with_kind(message: AzString, kind: AlertKind) -> Self {
         Self {
             alert_state: AlertStateWrapper::default(),
             message,
@@ -302,7 +387,8 @@ impl Alert {
 
     /// Builder-style setter for the colour variant.
     #[inline]
-    #[must_use] pub fn with_alert_kind(mut self, kind: AlertKind) -> Self {
+    #[must_use]
+    pub fn with_alert_kind(mut self, kind: AlertKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -315,7 +401,8 @@ impl Alert {
 
     /// Builder-style setter for the dismissible flag.
     #[inline]
-    #[must_use] pub const fn with_dismissible(mut self, dismissible: bool) -> Self {
+    #[must_use]
+    pub const fn with_dismissible(mut self, dismissible: bool) -> Self {
         self.set_dismissible(dismissible);
         self
     }
@@ -334,7 +421,8 @@ impl Alert {
 
     /// Builder-style setter for the dismiss callback (implies dismissible).
     #[inline]
-    #[must_use] pub fn with_on_dismiss<C: Into<AlertOnDismissCallback>>(
+    #[must_use]
+    pub fn with_on_dismiss<C: Into<AlertOnDismissCallback>>(
         mut self,
         data: RefAny,
         on_dismiss: C,
@@ -345,7 +433,8 @@ impl Alert {
 
     /// Replaces `self` with a default (empty info) alert and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -353,7 +442,8 @@ impl Alert {
 
     /// Converts this alert into a DOM subtree with the `__azul-native-alert` class.
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -362,7 +452,9 @@ impl Alert {
 
         let message = crate::widgets::widget_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ALERT_MESSAGE_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ALERT_MESSAGE_STYLE));
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                ALERT_MESSAGE_STYLE,
+            ));
 
         let mut children = alloc::vec![message];
 
@@ -539,7 +631,9 @@ mod autotest_generated {
     }
 
     /// The *kind* of every declared property, in order (ignores the values).
-    fn property_types(style: &CssPropertyWithConditionsVec) -> Vec<core::mem::Discriminant<CssProperty>> {
+    fn property_types(
+        style: &CssPropertyWithConditionsVec,
+    ) -> Vec<core::mem::Discriminant<CssProperty>> {
         style
             .as_ref()
             .iter()
@@ -684,7 +778,9 @@ mod autotest_generated {
         let mut out = Vec::new();
         for change in changes {
             if let CallbackChange::ChangeNodeCssProperties {
-                node_id, properties, ..
+                node_id,
+                properties,
+                ..
             } = change
             {
                 for p in properties.as_ref() {
@@ -777,7 +873,15 @@ mod autotest_generated {
     #[test]
     fn kind_colors_is_const_evaluable() {
         const INFO: (ColorU, ColorU, ColorU) = AlertKind::Info.colors();
-        assert_eq!(INFO.0, ColorU { r: 207, g: 244, b: 252, a: 255 });
+        assert_eq!(
+            INFO.0,
+            ColorU {
+                r: 207,
+                g: 244,
+                b: 252,
+                a: 255
+            }
+        );
     }
 
     // ------------------------------------------------------------------
@@ -874,7 +978,11 @@ mod autotest_generated {
             assert_eq!(text_color(&style), Some(text), "{kind:?}: text colour");
 
             let borders = border_colors(&style);
-            assert_eq!(borders.len(), 4, "{kind:?}: all four edges must be coloured");
+            assert_eq!(
+                borders.len(),
+                4,
+                "{kind:?}: all four edges must be coloured"
+            );
             assert!(
                 borders.iter().all(|c| *c == border),
                 "{kind:?}: every edge must use the kind's border colour, got {borders:?}"
@@ -961,8 +1069,14 @@ mod autotest_generated {
     fn create_with_empty_message_equals_default_and_is_value_comparable() {
         assert_eq!(Alert::create(AzString::from("")), Alert::default());
         // equality is structural, not pointer-based
-        assert_eq!(Alert::create(AzString::from("a")), Alert::create(AzString::from("a")));
-        assert_ne!(Alert::create(AzString::from("a")), Alert::create(AzString::from("b")));
+        assert_eq!(
+            Alert::create(AzString::from("a")),
+            Alert::create(AzString::from("a"))
+        );
+        assert_ne!(
+            Alert::create(AzString::from("a")),
+            Alert::create(AzString::from("b"))
+        );
         assert_ne!(
             Alert::create(AzString::from("a")),
             Alert::with_kind(AzString::from("a"), AlertKind::Danger)
@@ -975,12 +1089,12 @@ mod autotest_generated {
         let cases: Vec<AzString> = alloc::vec![
             AzString::from(""),
             AzString::from(" "),
-            AzString::from("a\0b"),                                  // interior NUL
-            AzString::from("line\nbreak\ttab"),                      // control chars
+            AzString::from("a\0b"),             // interior NUL
+            AzString::from("line\nbreak\ttab"), // control chars
             AzString::from("👨‍👩‍👧‍👦 e\u{0301}\u{0327} مرحبا שלום 🇩🇪"), // ZWJ + combining + RTL
-            AzString::from("\u{feff}\u{202e}rtl-override"),          // BOM + bidi override
-            AzString::from("×"),                                     // same glyph as the close button
-            AzString::from(long.as_str()),                           // 100k chars
+            AzString::from("\u{feff}\u{202e}rtl-override"), // BOM + bidi override
+            AzString::from("×"),                // same glyph as the close button
+            AzString::from(long.as_str()),      // 100k chars
         ];
 
         for message in cases {
@@ -1028,7 +1142,10 @@ mod autotest_generated {
             // applying the same kind twice must not append/duplicate anything
             let before = alert.container_style.clone();
             alert.set_kind(kind);
-            assert_eq!(alert.container_style, before, "{kind:?}: set_kind must be idempotent");
+            assert_eq!(
+                alert.container_style, before,
+                "{kind:?}: set_kind must be idempotent"
+            );
         }
 
         // a full cycle back to the original kind restores the original alert
@@ -1051,9 +1168,18 @@ mod autotest_generated {
         alert.set_kind(AlertKind::Warning);
 
         assert_eq!(alert.message.as_str(), "keep me");
-        assert!(alert.dismissible, "set_kind must not clear the close button");
-        assert!(alert.alert_state.on_dismiss.is_some(), "set_kind must not drop the callback");
-        assert!(!alert.alert_state.inner.visible, "set_kind must not resurrect a dismissed alert");
+        assert!(
+            alert.dismissible,
+            "set_kind must not clear the close button"
+        );
+        assert!(
+            alert.alert_state.on_dismiss.is_some(),
+            "set_kind must not drop the callback"
+        );
+        assert!(
+            !alert.alert_state.inner.visible,
+            "set_kind must not resurrect a dismissed alert"
+        );
     }
 
     #[test]
@@ -1088,8 +1214,14 @@ mod autotest_generated {
 
         assert_eq!(alert.kind, AlertKind::Warning);
         assert_eq!(alert.message.as_str(), "m");
-        assert_eq!(alert.container_style, style_before, "toggling must not restyle");
-        assert!(alert.alert_state.on_dismiss.is_none(), "toggling must not invent a callback");
+        assert_eq!(
+            alert.container_style, style_before,
+            "toggling must not restyle"
+        );
+        assert!(
+            alert.alert_state.on_dismiss.is_none(),
+            "toggling must not invent a callback"
+        );
     }
 
     #[test]
@@ -1125,9 +1257,15 @@ mod autotest_generated {
 
         alert.set_on_dismiss(RefAny::new(1u8), dismiss_cb(dismiss_do_nothing));
 
-        assert!(alert.dismissible, "a dismiss callback must render a close button");
+        assert!(
+            alert.dismissible,
+            "a dismiss callback must render a close button"
+        );
         assert!(alert.alert_state.on_dismiss.is_some());
-        assert!(alert.alert_state.inner.visible, "wiring a callback must not hide the alert");
+        assert!(
+            alert.alert_state.inner.visible,
+            "wiring a callback must not hide the alert"
+        );
     }
 
     #[test]
@@ -1146,7 +1284,11 @@ mod autotest_generated {
 
         // a second call must *replace* the payload + function, not stack another one
         alert.set_on_dismiss(RefAny::new(9i64), dismiss_cb(record_dismiss));
-        let second = alert.alert_state.on_dismiss.as_ref().expect("second callback");
+        let second = alert
+            .alert_state
+            .on_dismiss
+            .as_ref()
+            .expect("second callback");
         assert_eq!(second.refany.get_type_id(), RefAny::new(9i64).get_type_id());
         assert_eq!(second.callback, dismiss_cb(record_dismiss));
         assert_ne!(second.callback, dismiss_cb(dismiss_do_nothing));
@@ -1173,7 +1315,10 @@ mod autotest_generated {
         alert.set_on_dismiss(RefAny::new(0u8), dismiss_cb(record_dismiss));
         alert.set_dismissible(false);
 
-        assert!(alert.alert_state.on_dismiss.is_some(), "the callback is still stored");
+        assert!(
+            alert.alert_state.on_dismiss.is_some(),
+            "the callback is still stored"
+        );
         let dom = alert.dom();
         assert_eq!(
             dom.children.as_ref().len(),
@@ -1188,14 +1333,18 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_returns_the_original_and_resets_self() {
-        let mut alert = Alert::with_kind(AzString::from("payload"), AlertKind::Danger)
-            .with_dismissible(true);
+        let mut alert =
+            Alert::with_kind(AzString::from("payload"), AlertKind::Danger).with_dismissible(true);
         let snapshot = alert.clone();
 
         let returned = alert.swap_with_default();
 
         assert_eq!(returned, snapshot, "the original must come back untouched");
-        assert_eq!(alert, Alert::default(), "self must be reset to a default alert");
+        assert_eq!(
+            alert,
+            Alert::default(),
+            "self must be reset to a default alert"
+        );
         assert_eq!(alert.message.as_str(), "");
         assert_eq!(alert.kind, AlertKind::Info);
         assert!(!alert.dismissible);
@@ -1220,7 +1369,10 @@ mod autotest_generated {
 
         let returned = alert.swap_with_default();
 
-        assert!(returned.alert_state.on_dismiss.is_some(), "the callback moves out");
+        assert!(
+            returned.alert_state.on_dismiss.is_some(),
+            "the callback moves out"
+        );
         assert!(
             alert.alert_state.on_dismiss.is_none(),
             "the reset alert must not keep a reference to the old callback"
@@ -1259,14 +1411,20 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_dismissible_alert_appends_a_focusable_close_button() {
-        let dom = Alert::create(AzString::from("hi")).with_dismissible(true).dom();
+        let dom = Alert::create(AzString::from("hi"))
+            .with_dismissible(true)
+            .dom();
 
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 2, "[message, close]");
 
         let close = &children[1];
         assert!(close.root.has_class("__azul-native-alert-close"));
-        assert_eq!(text_of(close), Some("\u{00D7}"), "the close glyph is U+00D7 MULTIPLICATION SIGN");
+        assert_eq!(
+            text_of(close),
+            Some("\u{00D7}"),
+            "the close glyph is U+00D7 MULTIPLICATION SIGN"
+        );
         assert!(
             matches!(close.root.get_tab_index(), Some(TabIndex::Auto)),
             "the close button must be keyboard-reachable"
@@ -1338,7 +1496,8 @@ mod autotest_generated {
         let mut data = RefAny::new(AlertStateWrapper::default());
 
         // CLOSE_NODE == the close button <p>, its parent (node 0) is the container
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
+        let (update, changes) =
+            run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
         assert_eq!(
@@ -1361,9 +1520,14 @@ mod autotest_generated {
             .into(),
         });
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
+        let (update, changes) =
+            run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
-        assert_eq!(update, Update::RefreshDom, "the user callback's Update is returned");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user callback's Update is returned"
+        );
         assert_eq!(
             log_calls(&mut log),
             alloc::vec![false],
@@ -1390,12 +1554,19 @@ mod autotest_generated {
         });
 
         for _ in 0..2 {
-            let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
+            let (update, changes) =
+                run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
             assert_eq!(update, Update::RefreshDom);
-            assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
+            assert_eq!(
+                display_writes(&changes),
+                alloc::vec![(0usize, LayoutDisplay::None)]
+            );
         }
 
-        assert!(!wrapper_visible(&mut data), "a second dismiss must not un-hide");
+        assert!(
+            !wrapper_visible(&mut data),
+            "a second dismiss must not un-hide"
+        );
         assert_eq!(
             log_calls(&mut log),
             alloc::vec![false, false],
@@ -1411,7 +1582,10 @@ mod autotest_generated {
         let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 0, data.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "nothing may be restyled without a parent");
+        assert!(
+            changes.is_empty(),
+            "nothing may be restyled without a parent"
+        );
         assert!(wrapper_visible(&mut data), "state must not flip");
     }
 
@@ -1443,7 +1617,8 @@ mod autotest_generated {
         // the callback-bearing node carries a RefAny of the *wrong* type
         let data = RefAny::new(0xdead_beef_u64);
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
+        let (update, changes) =
+            run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert!(

@@ -303,7 +303,9 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("try {");
     b.indent();
     b.line("if (typeof require === 'function') return require('fs').existsSync(p);");
-    b.line("if (typeof globalThis.Deno !== 'undefined') { globalThis.Deno.statSync(p); return true; }");
+    b.line(
+        "if (typeof globalThis.Deno !== 'undefined') { globalThis.Deno.statSync(p); return true; }",
+    );
     b.dedent();
     b.line("} catch (_e) { /* unreadable or missing — keep probing */ }");
     b.line("return false;");
@@ -315,7 +317,10 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("const env = (typeof process !== 'undefined' && process.env) ? process.env : {};");
     b.line("// 1) AZ_LIB: explicit path to the shared-library file. Used verbatim.");
     b.line("if (env.AZ_LIB) return env.AZ_LIB;");
-    b.line(&format!("const fileName = _platformLibName('{}');", DLL_NAME));
+    b.line(&format!(
+        "const fileName = _platformLibName('{}');",
+        DLL_NAME
+    ));
     b.line("const candidates = [];");
     b.line("// 2) Same directory as azul.js (npm-style: dylib next to the binding).");
     b.line("if (typeof __dirname !== 'undefined') candidates.push(__dirname + '/' + fileName);");

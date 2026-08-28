@@ -312,8 +312,7 @@ fn emit_monomorphized_alias(
             // Same `-VARIANT-` infix as emit_tagged_union — avoids
             // collision with sibling unit enums that happen to be named
             // `<Foo>Tag`.
-            let tag_class =
-                cobol_identifier(&format!("AZ-{}-VARIANT", to_cobol_case(&ta.name)));
+            let tag_class = cobol_identifier(&format!("AZ-{}-VARIANT", to_cobol_case(&ta.name)));
             builder.line(&format!("*> --- MONOMORPHIZED UNION {} ---", typedef));
             for (idx, v) in variants.iter().enumerate() {
                 let var = sanitize_cobol_identifier(&to_cobol_case(&v.name));
@@ -330,10 +329,7 @@ fn emit_monomorphized_alias(
             // here for the actual payload.
             let _ = variants;
             let anchor_name = cobol_identifier("PAYLOAD-ANCHOR");
-            builder.line(&format!(
-                "           05  {:<24} PIC X(64).",
-                anchor_name
-            ));
+            builder.line(&format!("           05  {:<24} PIC X(64).", anchor_name));
             builder.blank();
         }
     }
@@ -375,10 +371,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let _ = ir;
     let _ = e.variants.len();
     let anchor_name = cobol_identifier("PAYLOAD-ANCHOR");
-    builder.line(&format!(
-        "           05  {:<24} PIC X(64).",
-        anchor_name
-    ));
+    builder.line(&format!("           05  {:<24} PIC X(64).", anchor_name));
     builder.blank();
 }
 
@@ -452,10 +445,9 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
             let nm = sanitize_cobol_identifier(&to_cobol_case(&a.name));
             let usage = match a.ref_kind {
                 ArgRefKind::Owned => pic_for_type(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "USAGE POINTER".to_string(),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    "USAGE POINTER".to_string()
+                }
             };
             format!("{}: {}", nm, usage)
         })

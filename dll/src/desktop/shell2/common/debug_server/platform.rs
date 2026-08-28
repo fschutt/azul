@@ -43,10 +43,7 @@ use azul_layout::e2e::{
 /// Called once from `run()` when `AZ_DEBUG=<port>` is set.
 /// Subsequent calls return the existing handle (without a new receiver).
 #[cfg(feature = "std")]
-pub fn start_debug_server(
-    port: u16,
-) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
-
+pub fn start_debug_server(port: u16) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;
@@ -174,18 +171,29 @@ pub fn start_debug_server(
 fn serve_response(stream: &mut std::net::TcpStream, header: &str, body: &[u8]) {
     use std::io::{Read, Write};
     stream.set_nodelay(true).ok();
-    if stream.write_all(header.as_bytes()).is_err() { return; }
+    if stream.write_all(header.as_bytes()).is_err() {
+        return;
+    }
     for chunk in body.chunks(8192) {
-        if stream.write_all(chunk).is_err() { return; }
+        if stream.write_all(chunk).is_err() {
+            return;
+        }
     }
     let _ = stream.flush();
     let _ = stream.shutdown(std::net::Shutdown::Write);
     let mut drain = [0u8; 512];
-    while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+    while let Ok(n) = stream.read(&mut drain) {
+        if n == 0 {
+            break;
+        }
+    }
 }
 
 #[cfg(feature = "std")]
-fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) {
+fn handle_http_connection(
+    stream: &mut std::net::TcpStream,
+    request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>,
+) {
     use std::io::{Read, Write};
 
     let mut buffer = [0u8; 16384];
@@ -273,7 +281,11 @@ fn handle_http_connection(stream: &mut std::net::TcpStream, request_tx: &Arc<Mut
             .and_then(|(_, q)| {
                 q.split('&').find_map(|kv| {
                     let (k, v) = kv.split_once('=')?;
-                    if k == "lang" { Some(v) } else { None }
+                    if k == "lang" {
+                        Some(v)
+                    } else {
+                        None
+                    }
                 })
             })
             .unwrap_or("rust");
@@ -466,15 +478,29 @@ pub fn register_debug_timer(
     const DEBUG_TIMER_ID: usize = 0xDEBE;
     let timer_id: usize = DEBUG_TIMER_ID;
     let app_data_for_timer = window.get_app_data().borrow().clone();
-    let window_id = window.get_current_window_state().window_id.as_str().to_string();
-    let get_system_time_fn = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn;
-    let debug_timer = create_debug_timer(app_data_for_timer, get_system_time_fn, request_rx, component_map, window_id);
+    let window_id = window
+        .get_current_window_state()
+        .window_id
+        .as_str()
+        .to_string();
+    let get_system_time_fn =
+        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn;
+    let debug_timer = create_debug_timer(
+        app_data_for_timer,
+        get_system_time_fn,
+        request_rx,
+        component_map,
+        window_id,
+    );
     window.start_timer(timer_id, debug_timer);
 
     log(
         LogLevel::Debug,
         LogCategory::DebugServer,
-        format!("[Window Init] Debug timer registered with ID 0x{:X}", timer_id),
+        format!(
+            "[Window Init] Debug timer registered with ID 0x{:X}",
+            timer_id
+        ),
         None,
     );
 }

@@ -20,17 +20,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use azul_core::{
-    icon::SharedIconProvider,
-    refany::RefAny,
-    resources::AppConfig,
-};
+use azul_core::{icon::SharedIconProvider, refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 
-use super::event::PlatformWindow;
 use super::super::headless::HeadlessWindow;
+use super::event::PlatformWindow;
 use super::WindowError;
 
 // ---------------------------------------------------------------------------
@@ -42,14 +38,22 @@ use super::WindowError;
 pub enum Step {
     /// Fast resize: update dimensions and call `incremental_relayout`,
     /// matching the real macOS/X11/Win32 resize path (no DOM rebuild).
-    Resize { width: f32, height: f32 },
+    Resize {
+        width: f32,
+        height: f32,
+    },
     /// Full rebuild — calls `regenerate_layout` (user layout callback
     /// fires, StyledDom is recreated from scratch).
     Tick,
     /// Cold path resize: updates dimensions AND calls regenerate_layout.
     /// Useful for reproducing the prior baseline numbers.
-    ResizeFull { width: f32, height: f32 },
-    SleepMs { ms: u64 },
+    ResizeFull {
+        width: f32,
+        height: f32,
+    },
+    SleepMs {
+        ms: u64,
+    },
 }
 
 #[derive(serde::Deserialize, Debug, Clone, Copy)]
@@ -79,7 +83,9 @@ pub struct RssProbes {
     pub memory_breakdown: bool,
 }
 
-fn default_every_n() -> u32 { 100 }
+fn default_every_n() -> u32 {
+    100
+}
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct Output {
@@ -91,11 +97,16 @@ pub struct Output {
 
 impl Default for Output {
     fn default() -> Self {
-        Output { jsonl_path: dash(), summary_path: dash() }
+        Output {
+            jsonl_path: dash(),
+            summary_path: dash(),
+        }
     }
 }
 
-fn dash() -> String { "-".into() }
+fn dash() -> String {
+    "-".into()
+}
 
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct Scenario {
@@ -118,9 +129,8 @@ pub struct Scenario {
 /// Returns the scenario file path if `AZ_E2E_TEST` is set.
 pub fn scenario_path() -> Option<String> {
     static P: OnceLock<Option<String>> = OnceLock::new();
-    P.get_or_init(|| {
-        std::env::var("AZ_E2E_TEST").ok().filter(|s| !s.is_empty())
-    }).clone()
+    P.get_or_init(|| std::env::var("AZ_E2E_TEST").ok().filter(|s| !s.is_empty()))
+        .clone()
 }
 
 // ---------------------------------------------------------------------------
@@ -147,9 +157,12 @@ pub fn run_e2e_scenario(
     })?;
 
     eprintln!("[E2E] scenario: {}", scenario.name);
-    eprintln!("[E2E] warmup_ticks={} steps={} loop_iter={:?}",
-        scenario.warmup_ticks, scenario.steps.len(),
-        scenario.r#loop.as_ref().map(|l| l.iterations));
+    eprintln!(
+        "[E2E] warmup_ticks={} steps={} loop_iter={:?}",
+        scenario.warmup_ticks,
+        scenario.steps.len(),
+        scenario.r#loop.as_ref().map(|l| l.iterations)
+    );
 
     // Construct HeadlessWindow (same path the AZ_BACKEND=headless flow uses).
     let icon_provider_handle = core::mem::take(&mut config.icon_provider);
@@ -244,7 +257,10 @@ pub fn run_e2e_scenario(
                     if let Err(e) =
                         window.regenerate_now(azul_core::callbacks::RelayoutReason::Resize)
                     {
-                        eprintln!("[E2E] iter {} resize_full regenerate_layout error: {}", iter, e);
+                        eprintln!(
+                            "[E2E] iter {} resize_full regenerate_layout error: {}",
+                            iter, e
+                        );
                     }
                 }
                 Step::Tick => {
@@ -263,7 +279,9 @@ pub fn run_e2e_scenario(
             probe_count += 1;
             let rss = current_rss_mib();
             final_rss = rss;
-            if rss > peak_rss { peak_rss = rss; }
+            if rss > peak_rss {
+                peak_rss = rss;
+            }
             let delta = rss - baseline_rss;
 
             if probe_count > probe_cfg.warmup_skip {
@@ -272,7 +290,10 @@ pub fn run_e2e_scenario(
                     &scenario.output.jsonl_path,
                     &format!(
                         r#"{{"ev":"probe","iter":{},"rss_mib":{:.2},"delta_mib":{:.2},"heap_mib":{:.2}}}"#,
-                        iter, rss, delta, (heap_bytes as f64) / 1_048_576.0
+                        iter,
+                        rss,
+                        delta,
+                        (heap_bytes as f64) / 1_048_576.0
                     ),
                 );
 
@@ -293,8 +314,12 @@ pub fn run_e2e_scenario(
 
     // Final RSS sample.
     let final_rss_last = current_rss_mib();
-    if final_rss_last > final_rss { final_rss = final_rss_last; }
-    if final_rss_last > peak_rss { peak_rss = final_rss_last; }
+    if final_rss_last > final_rss {
+        final_rss = final_rss_last;
+    }
+    if final_rss_last > peak_rss {
+        peak_rss = final_rss_last;
+    }
     let growth = final_rss - baseline_rss;
 
     let duration_s = t_start.elapsed().as_secs_f64();
@@ -310,7 +335,9 @@ pub fn run_e2e_scenario(
     }
     if let Some(iter) = absolute_breach_at {
         status = "fail";
-        if !reason.is_empty() { reason.push_str("; "); }
+        if !reason.is_empty() {
+            reason.push_str("; ");
+        }
         if let Some(cap) = probe_cfg.assert_absolute_mib_max {
             reason.push_str(&format!("absolute breach at iter {} (>{:.2})", iter, cap));
         }
@@ -320,7 +347,15 @@ pub fn run_e2e_scenario(
         &scenario.output.summary_path,
         &format!(
             r#"{{"ev":"summary","name":{:?},"iterations":{},"baseline_mib":{:.2},"final_mib":{:.2},"peak_mib":{:.2},"growth_mib":{:.2},"duration_s":{:.2},"status":{:?},"reason":{:?}}}"#,
-            scenario.name, iterations, baseline_rss, final_rss, peak_rss, growth, duration_s, status, reason
+            scenario.name,
+            iterations,
+            baseline_rss,
+            final_rss,
+            peak_rss,
+            growth,
+            duration_s,
+            status,
+            reason
         ),
     );
 
@@ -345,7 +380,11 @@ fn emit_jsonl(path: &str, line: &str) {
         return;
     }
     use std::io::Write;
-    match std::fs::OpenOptions::new().create(true).append(true).open(path) {
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
         Ok(mut f) => {
             let _ = writeln!(f, "{}", line);
         }
@@ -479,29 +518,53 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
     let (scroll_states, scrollbar_states) = lw.scroll_manager.debug_counts();
     let (hover_points, hover_total) = lw.hover_manager.debug_counts();
     let vv_states = lw.virtual_view_manager.debug_counts();
-    let (gesture_sessions, gesture_long_press) =
-        lw.gesture_drag_manager.debug_counts();
+    let (gesture_sessions, gesture_long_press) = lw.gesture_drag_manager.debug_counts();
     let rr = &lw.renderer_resources;
 
     // --- CpuBackend / window-level probes ---
     #[cfg(feature = "cpurender")]
-    let (cpu_layers, cpu_next_layer_id, cpu_last_frame_px, cpu_prev_dl_items,
-         cpu_glyph_paths, cpu_glyph_cells) = {
+    let (
+        cpu_layers,
+        cpu_next_layer_id,
+        cpu_last_frame_px,
+        cpu_prev_dl_items,
+        cpu_glyph_paths,
+        cpu_glyph_cells,
+    ) = {
         let cb = &window.cpu_backend;
-        let (layers, next_id) = cb.compositor.as_ref()
+        let (layers, next_id) = cb
+            .compositor
+            .as_ref()
             .map(|c| (c.layers.len(), c.next_layer_id_peek()))
             .unwrap_or((0, 0));
-        let last_bytes = cb.last_frame.as_ref()
+        let last_bytes = cb
+            .last_frame
+            .as_ref()
             .map(|p| (p.width() * p.height()) as usize * 4)
             .unwrap_or(0);
-        let prev_dl = cb.previous_display_list.as_ref()
-            .map(|dl| dl.items.len()).unwrap_or(0);
-        (layers, next_id, last_bytes, prev_dl,
-         cb.glyph_cache.paths_len(), cb.glyph_cache.cells_len())
+        let prev_dl = cb
+            .previous_display_list
+            .as_ref()
+            .map(|dl| dl.items.len())
+            .unwrap_or(0);
+        (
+            layers,
+            next_id,
+            last_bytes,
+            prev_dl,
+            cb.glyph_cache.paths_len(),
+            cb.glyph_cache.cells_len(),
+        )
     };
     #[cfg(not(feature = "cpurender"))]
-    let (cpu_layers, cpu_next_layer_id, cpu_last_frame_px, cpu_prev_dl_items,
-         cpu_glyph_paths, cpu_glyph_cells) = (0usize, 0u64, 0usize, 0usize, 0usize, 0usize);
+    let (
+        cpu_layers,
+        cpu_next_layer_id,
+        cpu_last_frame_px,
+        cpu_prev_dl_items,
+        cpu_glyph_paths,
+        cpu_glyph_cells,
+    ) = (0usize, 0u64, 0usize, 0usize, 0usize, 0usize);
 
     let prev_ws = window.common.previous_window_state.is_some() as usize;
     let hit_test_entries: usize = window.cpu_backend.hit_tester.node_rects_total();

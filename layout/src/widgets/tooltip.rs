@@ -31,9 +31,16 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     props::{
         basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutPosition, LayoutFlexGrow, LayoutTop, LayoutLeft, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom},
+        layout::{
+            LayoutDisplay, LayoutFlexGrow, LayoutLeft, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutTop,
+        },
         property::{CssProperty, StyleWhiteSpaceValue},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleWhiteSpace, StyleOpacity},
+        style::{
+            StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleOpacity, StyleTextColor, StyleWhiteSpace,
+        },
     },
     AzString,
 };
@@ -83,13 +90,15 @@ static TOOLTIP_TIP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
     CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(TIP_OFFSET_Y))),
     CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        8,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(8),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(8),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        4,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(4),
     )),
@@ -140,7 +149,8 @@ impl Default for Tooltip {
 
 impl Tooltip {
     /// Creates a tooltip wrapping `anchor` that shows `text` on hover.
-    #[must_use] pub fn new(anchor: Dom, text: AzString) -> Self {
+    #[must_use]
+    pub fn new(anchor: Dom, text: AzString) -> Self {
         Self {
             anchor,
             text,
@@ -157,7 +167,8 @@ impl Tooltip {
 
     /// Builder-style setter for the tip text.
     #[inline]
-    #[must_use] pub fn with_text(mut self, text: AzString) -> Self {
+    #[must_use]
+    pub fn with_text(mut self, text: AzString) -> Self {
         self.set_text(text);
         self
     }
@@ -170,19 +181,22 @@ impl Tooltip {
 
     /// Builder-style setter for the tip popup style.
     #[inline]
-    #[must_use] pub fn with_tip_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_tip_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_tip_style(style);
         self
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::default();
         core::mem::swap(&mut s, self);
         s
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // The hover handlers only navigate the DOM (the tip is found relative to
         // the hovered wrapper), so no per-tooltip state is needed.
         let marker = RefAny::new(());
@@ -230,7 +244,10 @@ fn tip_of_wrapper(info: &CallbackInfo) -> Option<azul_core::dom::DomNodeId> {
 /// Pointer entered the wrapper → reveal the tip.
 extern "C" fn on_tooltip_enter(_data: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(tip) = tip_of_wrapper(&info) {
-        info.set_css_property(tip, CssProperty::const_opacity(StyleOpacity::const_new(100)));
+        info.set_css_property(
+            tip,
+            CssProperty::const_opacity(StyleOpacity::const_new(100)),
+        );
     }
     Update::DoNothing
 }
@@ -386,7 +403,9 @@ mod autotest_generated {
     /// A `Dom` nested `depth` levels deep — a stress input for the recursive
     /// child bookkeeping `dom()` relies on.
     fn nested_anchor(depth: usize) -> Dom {
-        let mut d = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("leaf"));
+        let mut d = Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("leaf"),
+        );
         for _ in 0..depth {
             d = Dom::create_div().with_child(d);
         }
@@ -513,7 +532,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => Some((node_id.index(), properties.as_ref().to_vec())),
                 _ => None,
             })
@@ -567,7 +588,9 @@ mod autotest_generated {
 
     #[test]
     fn new_stores_anchor_and_text_verbatim() {
-        let anchor = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("anchor"));
+        let anchor = Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("anchor"),
+        );
         let text = AzString::from("tip".to_string());
         let t = Tooltip::new(anchor.clone(), text.clone());
 
@@ -596,10 +619,7 @@ mod autotest_generated {
         // The style tables must not vary with the anchor/text — a widget whose
         // styling depended on its content would be unstyleable.
         let a = Tooltip::new(Dom::create_div(), AzString::from_const_str(""));
-        let b = Tooltip::new(
-            nested_anchor(8),
-            AzString::from("🦀".repeat(1000)),
-        );
+        let b = Tooltip::new(nested_anchor(8), AzString::from("🦀".repeat(1000)));
 
         assert_eq!(a.wrapper_style, b.wrapper_style);
         assert_eq!(a.tip_style, b.tip_style);
@@ -637,8 +657,12 @@ mod autotest_generated {
 
     #[test]
     fn new_with_a_very_wide_anchor_does_not_panic() {
-        let anchor = Dom::create_div()
-            .with_children((0..2000).map(|_| Dom::create_div()).collect::<Vec<_>>().into());
+        let anchor = Dom::create_div().with_children(
+            (0..2000)
+                .map(|_| Dom::create_div())
+                .collect::<Vec<_>>()
+                .into(),
+        );
         let t = Tooltip::new(anchor, AzString::from_const_str("wide"));
 
         assert_eq!(t.anchor.children.as_ref().len(), 2000);
@@ -665,7 +689,8 @@ mod autotest_generated {
     fn set_text_and_with_text_agree_and_touch_nothing_else() {
         for s in adversarial_texts() {
             let base = Tooltip::new(
-                Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
+                Dom::create_div()
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
                 AzString::from_const_str("initial"),
             );
 
@@ -698,15 +723,15 @@ mod autotest_generated {
 
     #[test]
     fn text_and_tip_style_setters_commute() {
-        let style = style_of(vec![CssProperty::const_opacity(StyleOpacity::const_new(42))]);
+        let style = style_of(vec![CssProperty::const_opacity(StyleOpacity::const_new(
+            42,
+        ))]);
         let text = AzString::from("both".to_string());
 
         let a = Tooltip::default()
             .with_text(text.clone())
             .with_tip_style(style.clone());
-        let b = Tooltip::default()
-            .with_tip_style(style)
-            .with_text(text);
+        let b = Tooltip::default().with_tip_style(style).with_text(text);
 
         assert_eq!(a, b, "the two builder setters must be independent");
     }
@@ -727,7 +752,10 @@ mod autotest_generated {
         let built = Tooltip::default().with_tip_style(style.clone());
 
         assert_eq!(mutated, built);
-        assert_eq!(mutated.tip_style, style, "the style must be stored verbatim");
+        assert_eq!(
+            mutated.tip_style, style,
+            "the style must be stored verbatim"
+        );
     }
 
     #[test]
@@ -784,7 +812,9 @@ mod autotest_generated {
     #[test]
     fn swap_with_default_returns_the_old_value_and_leaves_a_default() {
         let original = Tooltip::new(
-            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("anchor")),
+            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "anchor",
+            )),
             AzString::from("tip".to_string()),
         )
         .with_tip_style(style_of(vec![CssProperty::const_opacity(
@@ -844,15 +874,19 @@ mod autotest_generated {
 
         assert_eq!(declared_positions(&style), vec![LayoutPosition::Absolute]);
         assert!(
-            style.as_ref().contains(&CssPropertyWithConditions::simple(
-                CssProperty::const_top(LayoutTop::const_px(TIP_OFFSET_Y))
-            )),
+            style
+                .as_ref()
+                .contains(&CssPropertyWithConditions::simple(CssProperty::const_top(
+                    LayoutTop::const_px(TIP_OFFSET_Y)
+                ))),
             "the documented vertical offset must be declared"
         );
         assert!(
-            style.as_ref().contains(&CssPropertyWithConditions::simple(
-                CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap))
-            )),
+            style
+                .as_ref()
+                .contains(&CssPropertyWithConditions::simple(CssProperty::WhiteSpace(
+                    StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap)
+                ))),
             "the tip must stay on one line"
         );
     }
@@ -922,7 +956,9 @@ mod autotest_generated {
 
     #[test]
     fn dom_builds_a_wrapper_with_the_anchor_then_the_tip() {
-        let anchor = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("anchor"));
+        let anchor = Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("anchor"),
+        );
         let dom = Tooltip::new(anchor.clone(), AzString::from_const_str("tip")).dom();
 
         assert!(has_class(&dom, WRAPPER_CLASS_NAME));
@@ -987,7 +1023,11 @@ mod autotest_generated {
         let dom = Tooltip::new(Dom::create_div(), AzString::from_const_str("t")).dom();
         let callbacks = dom.root.callbacks.as_ref();
 
-        assert_eq!(callbacks.len(), 2, "exactly two hover handlers are expected");
+        assert_eq!(
+            callbacks.len(),
+            2,
+            "exactly two hover handlers are expected"
+        );
         assert_eq!(
             callbacks[0].event,
             EventFilter::Hover(HoverEventFilter::MouseEnter)
@@ -1009,7 +1049,8 @@ mod autotest_generated {
     #[test]
     fn dom_binds_no_callbacks_on_the_anchor_or_the_tip() {
         let dom = Tooltip::new(
-            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
+            Dom::create_div()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
             AzString::from_const_str("t"),
         )
         .dom();
@@ -1028,7 +1069,8 @@ mod autotest_generated {
         // deliberately compared field-by-field rather than with `==`.
         let make = || {
             Tooltip::new(
-                Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
+                Dom::create_div()
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a")),
                 AzString::from_const_str("tip"),
             )
         };
@@ -1065,7 +1107,10 @@ mod autotest_generated {
         for depth in [0, 1, 8, 64] {
             let dom = Tooltip::new(nested_anchor(depth), AzString::from_const_str("t")).dom();
             let estimated = dom.estimated_total_children;
-            let flattened = StyledDom::create_from_dom(dom).node_hierarchy.as_ref().len();
+            let flattened = StyledDom::create_from_dom(dom)
+                .node_hierarchy
+                .as_ref()
+                .len();
             assert_eq!(
                 flattened,
                 estimated + 1,
@@ -1076,8 +1121,12 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_very_wide_anchor_flattens_without_panicking() {
-        let anchor = Dom::create_div()
-            .with_children((0..2000).map(|_| Dom::create_div()).collect::<Vec<_>>().into());
+        let anchor = Dom::create_div().with_children(
+            (0..2000)
+                .map(|_| Dom::create_div())
+                .collect::<Vec<_>>()
+                .into(),
+        );
         let dom = Tooltip::new(anchor, AzString::from_const_str("wide")).dom();
 
         let styled = StyledDom::create_from_dom(dom);
@@ -1119,24 +1168,27 @@ mod autotest_generated {
             let (tip, _) = with_info(Some(anchor_tip_dom()), node(stale), |info| {
                 tip_of_wrapper(&info)
             });
-            assert_eq!(tip, None, "node {stale} does not exist in the 3-node fixture");
+            assert_eq!(
+                tip, None,
+                "node {stale} does not exist in the 3-node fixture"
+            );
         }
     }
 
     #[test]
     fn tip_of_wrapper_with_a_none_hit_node_is_none() {
-        let (tip, _) = with_info(
-            Some(anchor_tip_dom()),
-            NodeHierarchyItemId::NONE,
-            |info| tip_of_wrapper(&info),
-        );
+        let (tip, _) = with_info(Some(anchor_tip_dom()), NodeHierarchyItemId::NONE, |info| {
+            tip_of_wrapper(&info)
+        });
         assert_eq!(tip, None, "an unset hit node must not resolve to a tip");
     }
 
     #[test]
     fn tip_of_wrapper_on_a_childless_node_is_none() {
         // node 1 is a leaf -> no first child -> no tip.
-        let (tip, _) = with_info(Some(anchor_tip_dom()), node(1), |info| tip_of_wrapper(&info));
+        let (tip, _) = with_info(Some(anchor_tip_dom()), node(1), |info| {
+            tip_of_wrapper(&info)
+        });
         assert_eq!(tip, None);
     }
 
@@ -1152,9 +1204,12 @@ mod autotest_generated {
 
     #[test]
     fn tip_of_wrapper_returns_the_second_child() {
-        let (tip, _) = with_info(Some(anchor_tip_dom()), node(0), |info| tip_of_wrapper(&info));
+        let (tip, _) = with_info(Some(anchor_tip_dom()), node(0), |info| {
+            tip_of_wrapper(&info)
+        });
         assert_eq!(
-            tip.and_then(|t| t.node.into_crate_internal()).map(|n| n.index()),
+            tip.and_then(|t| t.node.into_crate_internal())
+                .map(|n| n.index()),
             Some(2)
         );
     }
@@ -1174,7 +1229,8 @@ mod autotest_generated {
 
         let (tip, _) = with_info(Some(styled), node(wrapper), |info| tip_of_wrapper(&info));
         assert_eq!(
-            tip.and_then(|t| t.node.into_crate_internal()).map(|n| n.index()),
+            tip.and_then(|t| t.node.into_crate_internal())
+                .map(|n| n.index()),
             Some(expected)
         );
     }
@@ -1230,7 +1286,10 @@ mod autotest_generated {
         });
 
         assert_eq!(
-            opacity_writes(&changes).iter().map(|(_, o)| *o).collect::<Vec<_>>(),
+            opacity_writes(&changes)
+                .iter()
+                .map(|(_, o)| *o)
+                .collect::<Vec<_>>(),
             declared
         );
     }
@@ -1264,7 +1323,11 @@ mod autotest_generated {
         let fixtures: Vec<(&str, Option<StyledDom>, NodeHierarchyItemId)> = vec![
             ("no layout result", None, node(0)),
             ("stale hit node", Some(anchor_tip_dom()), node(999)),
-            ("none hit node", Some(anchor_tip_dom()), NodeHierarchyItemId::NONE),
+            (
+                "none hit node",
+                Some(anchor_tip_dom()),
+                NodeHierarchyItemId::NONE,
+            ),
             ("leaf hit node", Some(anchor_tip_dom()), node(1)),
             (
                 "single child",
@@ -1295,7 +1358,11 @@ mod autotest_generated {
     fn handlers_ignore_their_payload() {
         // The handlers are stateless — a foreign (or even empty) payload must
         // not change what they do.
-        for data in [RefAny::new(()), RefAny::new(0xdead_beef_u64), RefAny::new(())] {
+        for data in [
+            RefAny::new(()),
+            RefAny::new(0xdead_beef_u64),
+            RefAny::new(()),
+        ] {
             let (update, changes) = with_info(Some(anchor_tip_dom()), node(0), |info| {
                 on_tooltip_enter(data.clone(), info)
             });

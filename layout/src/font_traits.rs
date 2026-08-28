@@ -14,10 +14,10 @@ pub use crate::text3::script::Language;
 pub use crate::text3::{
     cache::{
         AvailableSpace, BidiDirection, ContentIndex, FontHash, FontManager, FontSelector,
-        FontStyle, Glyph, ImageSource, InlineContent, InlineImage, InlineShape, TextShapingCache,
-        LayoutError, LayoutFontMetrics, LayoutFragment, ObjectFit, SegmentAlignment, ShapeBoundary,
-        ShapeDefinition, ShapedItem, Size, StyleProperties, StyledRun, UnifiedConstraints,
-        UnifiedLayout, VerticalMetrics,
+        FontStyle, Glyph, ImageSource, InlineContent, InlineImage, InlineShape, LayoutError,
+        LayoutFontMetrics, LayoutFragment, ObjectFit, SegmentAlignment, ShapeBoundary,
+        ShapeDefinition, ShapedItem, Size, StyleProperties, StyledRun, TextShapingCache,
+        UnifiedConstraints, UnifiedLayout, VerticalMetrics,
     },
     script::Script,
 };

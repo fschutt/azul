@@ -363,7 +363,10 @@ mod autotest_generated {
         assert_eq!(mock_advance_px(&prefixed, 20.0), None);
 
         // The valid name repeated: not a match either.
-        assert_eq!(mock_advance_px(&"Azul Mock Mono".repeat(50_000), 20.0), None);
+        assert_eq!(
+            mock_advance_px(&"Azul Mock Mono".repeat(50_000), 20.0),
+            None
+        );
     }
 
     #[test]
@@ -419,26 +422,42 @@ mod autotest_generated {
         assert_eq!(mock_advance_px("Azul Mock Wide", 0.0), Some(0.0));
 
         // -0.0 * 0.5 == -0.0, and Wide returns the input verbatim.
-        assert!(mock_advance_px("Azul Mock Mono", -0.0).unwrap().is_sign_negative());
-        assert!(mock_advance_px("Azul Mock Wide", -0.0).unwrap().is_sign_negative());
+        assert!(mock_advance_px("Azul Mock Mono", -0.0)
+            .unwrap()
+            .is_sign_negative());
+        assert!(mock_advance_px("Azul Mock Wide", -0.0)
+            .unwrap()
+            .is_sign_negative());
     }
 
     #[test]
     fn mock_advance_px_nan_propagates_without_panicking() {
         for family in ["Azul Mock Mono", "Azul Mock Wide"] {
-            assert!(mock_advance_px(family, f32::NAN).unwrap().is_nan(), "{family}");
-            assert!(mock_advance_px(family, -f32::NAN).unwrap().is_nan(), "{family}");
+            assert!(
+                mock_advance_px(family, f32::NAN).unwrap().is_nan(),
+                "{family}"
+            );
+            assert!(
+                mock_advance_px(family, -f32::NAN).unwrap().is_nan(),
+                "{family}"
+            );
         }
     }
 
     #[test]
     fn mock_advance_px_infinities_propagate() {
-        assert_eq!(mock_advance_px("Azul Mock Mono", f32::INFINITY), Some(f32::INFINITY));
+        assert_eq!(
+            mock_advance_px("Azul Mock Mono", f32::INFINITY),
+            Some(f32::INFINITY)
+        );
         assert_eq!(
             mock_advance_px("Azul Mock Mono", f32::NEG_INFINITY),
             Some(f32::NEG_INFINITY)
         );
-        assert_eq!(mock_advance_px("Azul Mock Wide", f32::INFINITY), Some(f32::INFINITY));
+        assert_eq!(
+            mock_advance_px("Azul Mock Wide", f32::INFINITY),
+            Some(f32::INFINITY)
+        );
         assert_eq!(
             mock_advance_px("Azul Mock Wide", f32::NEG_INFINITY),
             Some(f32::NEG_INFINITY)
@@ -472,7 +491,10 @@ mod autotest_generated {
         let tiny = f32::from_bits(1); // ~1e-45, smallest positive subnormal
         let mono = mock_advance_px("Azul Mock Mono", tiny).unwrap();
         assert!(mono.is_finite() && !mono.is_sign_negative());
-        assert!(mono <= tiny, "halving a subnormal must not grow it: {mono:e}");
+        assert!(
+            mono <= tiny,
+            "halving a subnormal must not grow it: {mono:e}"
+        );
         assert_eq!(mock_advance_px("Azul Mock Wide", tiny), Some(tiny));
     }
 
@@ -543,7 +565,13 @@ mod autotest_generated {
     fn mock_font_ranges_is_exactly_printable_ascii() {
         let ranges = mock_font_ranges();
         assert_eq!(ranges.len(), 1);
-        assert_eq!(ranges[0], UnicodeRange { start: 0x20, end: 0x7E });
+        assert_eq!(
+            ranges[0],
+            UnicodeRange {
+                start: 0x20,
+                end: 0x7E
+            }
+        );
     }
 
     #[test]
@@ -598,18 +626,11 @@ mod autotest_generated {
         assert!(!covers(0x7F), "0x7F DEL (just above) must not be covered");
 
         for cp in [
-            0x00,
-            0x09,
-            0x0A,
-            0x80,
-            0xA0,
-            0x5D0,      // Hebrew
-            0x627,      // Arabic
-            0x4E00,     // CJK
-            0xFFFD,
-            0x1_0000,
-            0x1_F600,   // emoji
-            0x10_FFFF,  // char::MAX
+            0x00, 0x09, 0x0A, 0x80, 0xA0, 0x5D0,  // Hebrew
+            0x627,  // Arabic
+            0x4E00, // CJK
+            0xFFFD, 0x1_0000, 0x1_F600,  // emoji
+            0x10_FFFF, // char::MAX
         ] {
             assert!(!covers(cp), "U+{cp:04X} must fall through to real fallback");
         }
@@ -619,12 +640,18 @@ mod autotest_generated {
     fn mock_font_ranges_returns_an_independent_owned_vec() {
         let mut first = mock_font_ranges();
         first.clear();
-        first.push(UnicodeRange { start: 0, end: 0x10_FFFF });
+        first.push(UnicodeRange {
+            start: 0,
+            end: 0x10_FFFF,
+        });
 
         let second = mock_font_ranges();
         assert_eq!(
             second,
-            vec![UnicodeRange { start: 0x20, end: 0x7E }],
+            vec![UnicodeRange {
+                start: 0x20,
+                end: 0x7E
+            }],
             "mutating a returned Vec must not affect later calls"
         );
         assert_eq!(second, mock_font_ranges(), "not deterministic");
@@ -670,7 +697,10 @@ mod autotest_generated {
                 "{family:?} is not a TrueType sfnt"
             );
             let num_tables = be_u16(data, 4).unwrap() as usize;
-            assert!(num_tables > 0 && num_tables < 64, "{family:?}: {num_tables} tables");
+            assert!(
+                num_tables > 0 && num_tables < 64,
+                "{family:?}: {num_tables} tables"
+            );
             assert!(
                 data.len() >= 12 + num_tables * 16,
                 "{family:?}: table directory is truncated"
@@ -805,8 +835,8 @@ mod autotest_generated {
         // font made impossible. Collapse the outlines back onto one shape and
         // this fails instead of silently making those assertions vacuous.
         for (family, data) in BUILTIN_MOCK_FONTS {
-            let outlines = glyph_outlines(data)
-                .unwrap_or_else(|| panic!("{family:?}: cannot read glyf/loca"));
+            let outlines =
+                glyph_outlines(data).unwrap_or_else(|| panic!("{family:?}: cannot read glyf/loca"));
 
             let blank: Vec<usize> = outlines
                 .iter()
@@ -1005,7 +1035,9 @@ mod distinguishable_glyphs {
                 let gid = font
                     .lookup_glyph_index(cp)
                     .unwrap_or_else(|| panic!("{family:?}: {ch:?} has no glyph"));
-                advances.entry(font.get_horizontal_advance(gid)).or_insert(ch);
+                advances
+                    .entry(font.get_horizontal_advance(gid))
+                    .or_insert(ch);
                 if cp == 0x20 {
                     continue; // blank: its bbox is the seeded one, not ink
                 }

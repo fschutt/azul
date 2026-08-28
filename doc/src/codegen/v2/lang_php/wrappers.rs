@@ -43,9 +43,13 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
     let mut out = String::new();
     out.push('\n');
 
-    out.push_str("// ----------------------------------------------------------------------------\n");
+    out.push_str(
+        "// ----------------------------------------------------------------------------\n",
+    );
     out.push_str("// Idiomatic wrapper classes (one per disposable struct / tagged union enum).\n");
-    out.push_str("// ----------------------------------------------------------------------------\n");
+    out.push_str(
+        "// ----------------------------------------------------------------------------\n",
+    );
     out.push('\n');
 
     for s in &ir.structs {
@@ -292,7 +296,9 @@ fn emit_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
             out.push_str("    /**\n");
             out.push_str("     * Return the variant discriminator tag value (as an int).\n");
             out.push_str("     *\n");
-            out.push_str("     * @return int one of the `Az<Enum>_Tag_*` constants from the cdef.\n");
+            out.push_str(
+                "     * @return int one of the `Az<Enum>_Tag_*` constants from the cdef.\n",
+            );
             out.push_str("     */\n");
             out.push_str("    public function tag(): int\n");
             out.push_str("    {\n");
@@ -341,16 +347,15 @@ fn emit_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
                         "     * The caller must ensure {}() is true; otherwise the returned\n",
                         pred
                     ));
-                    out.push_str("     * value reads garbage memory because of the union layout.\n");
+                    out.push_str(
+                        "     * value reads garbage memory because of the union layout.\n",
+                    );
                     out.push_str("     *\n");
                     out.push_str("     * @return mixed FFI cdata of the variant payload struct\n");
                     out.push_str("     */\n");
                     out.push_str(&format!("    public function {}()\n", pay));
                     out.push_str("    {\n");
-                    out.push_str(&format!(
-                        "        return $this->ptr->{};\n",
-                        php_field
-                    ));
+                    out.push_str(&format!("        return $this->ptr->{};\n", php_field));
                     out.push_str("    }\n\n");
                 }
             }
@@ -439,10 +444,7 @@ fn emit_instance_method(out: &mut String, f: &FunctionDef, _takes_union_ptr: boo
         f.c_name
     ));
     out.push_str("     */\n");
-    out.push_str(&format!(
-        "    public function {}({})\n",
-        php_name, params
-    ));
+    out.push_str(&format!("    public function {}({})\n", php_name, params));
     out.push_str("    {\n");
 
     emit_callback_register_lines(out, &user_args);
@@ -509,10 +511,7 @@ fn emit_instance_method_alias(out: &mut String, f: &FunctionDef, php_name: &str)
         f.c_name
     ));
     out.push_str("     */\n");
-    out.push_str(&format!(
-        "    public function {}({})\n",
-        php_name, params
-    ));
+    out.push_str(&format!("    public function {}({})\n", php_name, params));
     out.push_str("    {\n");
 
     emit_callback_register_lines(out, &user_args);
@@ -558,10 +557,7 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, class_name: &str) {
         }
         out.push_str("     *\n");
     }
-    out.push_str(&format!(
-        "     * Wraps `Azul::lib()->{}`.\n",
-        f.c_name
-    ));
+    out.push_str(&format!("     * Wraps `Azul::lib()->{}`.\n", f.c_name));
     if returns_self {
         out.push_str(&format!(
             "     *\n     * @return self instance wrapping the returned FFI cdata.\n"
@@ -745,9 +741,9 @@ fn sanitize_php_identifier(name: &str) -> String {
         | "elseif" | "and" | "or" | "xor" | "namespace" | "use" | "trait" | "interface"
         | "abstract" | "final" | "private" | "public" | "protected" | "static" | "var"
         | "const" | "global" | "try" | "catch" | "finally" | "throw" | "return" | "yield"
-        | "include" | "require" | "include_once" | "require_once" | "match" | "fn"
-        | "array" | "callable" | "bool" | "int" | "float" | "string" | "void" | "iterable"
-        | "object" | "mixed" | "never" | "self" | "parent" | "true" | "false" | "null" => {
+        | "include" | "require" | "include_once" | "require_once" | "match" | "fn" | "array"
+        | "callable" | "bool" | "int" | "float" | "string" | "void" | "iterable" | "object"
+        | "mixed" | "never" | "self" | "parent" | "true" | "false" | "null" => {
             format!("{}_", name)
         }
         _ => name.to_string(),

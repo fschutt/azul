@@ -93,12 +93,16 @@ pub fn generate_types(
 
     // Callback typedefs: emit each as `defctype foo-type :pointer`.
     if !ir.callback_typedefs.is_empty() {
-        builder.line(";; ----------------------------------------------------------------------------");
+        builder.line(
+            ";; ----------------------------------------------------------------------------",
+        );
         builder.line(";; Callback typedefs (raw function pointers).");
         builder.line(";;");
         builder.line(";; Lisp callers use (cffi:defcallback name ret ((arg type) ...) body)");
         builder.line(";; and pass the resulting pointer where these typedefs are expected.");
-        builder.line(";; ----------------------------------------------------------------------------");
+        builder.line(
+            ";; ----------------------------------------------------------------------------",
+        );
         builder.blank();
         for cb in &ir.callback_typedefs {
             emit_callback_typedef(builder, cb, ir);
@@ -242,8 +246,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     // emitted for documentation / potential manual use.
     let tag_slot_ty = enum_underlying_type(e);
     for v in &e.variants {
-        let variant_struct =
-            format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
+        let variant_struct = format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
         builder.line(&format!("(defcstruct {}", variant_struct));
         builder.indent();
         builder.line(&format!("(tag {})", tag_slot_ty));
@@ -266,11 +269,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
             EnumVariantKind::Struct(fields) => {
                 for f in fields {
                     let cffi_ty = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
-                    builder.line(&format!(
-                        "({} {})",
-                        ident_to_kebab(&f.name),
-                        cffi_ty
-                    ));
+                    builder.line(&format!("({} {})", ident_to_kebab(&f.name), cffi_ty));
                 }
             }
         }
@@ -283,8 +282,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     builder.line(&format!("(defcunion {}", lisp_name));
     builder.indent();
     for v in &e.variants {
-        let variant_struct =
-            format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
+        let variant_struct = format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
         builder.line(&format!(
             "({} (:struct {}))",
             ident_to_kebab(&v.name),
@@ -423,8 +421,7 @@ fn emit_monomorphized_alias(
             // translating a by-value struct that overlaps this union.
             let tag_slot_ty = underlying;
             for v in variants {
-                let variant_struct =
-                    format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
+                let variant_struct = format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
                 builder.line(&format!("(defcstruct {}", variant_struct));
                 builder.indent();
                 builder.line(&format!("(tag {})", tag_slot_ty));
@@ -439,8 +436,7 @@ fn emit_monomorphized_alias(
             builder.line(&format!("(defcunion {}", lisp_name));
             builder.indent();
             for v in variants {
-                let variant_struct =
-                    format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
+                let variant_struct = format!("{}-variant-{}", lisp_name, ident_to_kebab(&v.name));
                 builder.line(&format!(
                     "({} (:struct {}))",
                     ident_to_kebab(&v.name),
@@ -457,11 +453,7 @@ fn emit_monomorphized_alias(
 // Callback typedef -> defctype az-foo-callback-type :pointer
 // =============================================================================
 
-fn emit_callback_typedef(
-    builder: &mut CodeBuilder,
-    cb: &CallbackTypedefDef,
-    ir: &CodegenIR,
-) {
+fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     let lisp_name = to_kebab_case(&cb.name);
 
     if !cb.doc.is_empty() {

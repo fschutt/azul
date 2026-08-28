@@ -35,8 +35,7 @@ use rust_fontconfig::FcFontCache;
 // identical strings + identical tree => identical StyledDom after the
 // `Css::empty()` cascade => identical layout.
 // ----------------------------------------------------------------------------
-const BODY_CSS: &str =
-    "box-sizing:border-box; margin:0; padding:20px; width:800px; height:600px;";
+const BODY_CSS: &str = "box-sizing:border-box; margin:0; padding:20px; width:800px; height:600px;";
 const CONTAINER_CSS: &str = "box-sizing:border-box; margin:0; padding:0; display:flex; \
      width:100%; height:100px; border:5px solid #000000;";
 const ITEM1_CSS: &str =
@@ -130,7 +129,11 @@ fn web_flexbox_simple_reference() {
     println!(
         "NATIVE font_chain_cache.len()={} parsed_fonts.len()={}",
         lw.font_manager.font_chain_cache.len(),
-        lw.font_manager.parsed_fonts.lock().map(|m| m.len()).unwrap_or(999)
+        lw.font_manager
+            .parsed_fonts
+            .lock()
+            .map(|m| m.len())
+            .unwrap_or(999)
     );
 
     // ---- extract rects exactly like solveLayoutReal ----
@@ -164,7 +167,10 @@ fn web_flexbox_simple_reference() {
         "{{\"test\":\"flexbox-simple\",\"viewport\":[{},{}],\"rects\":[{}]}}",
         VIEWPORT_W as i64, VIEWPORT_H as i64, body
     );
-    let out = concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/m9_e2e/flexbox-ref.json");
+    let out = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../scripts/m9_e2e/flexbox-ref.json"
+    );
     match std::fs::write(out, &json) {
         Ok(()) => println!("wrote reference rects -> {out}"),
         Err(e) => println!("WARN: could not write {out}: {e}"),
@@ -172,8 +178,16 @@ fn web_flexbox_simple_reference() {
     println!("REF_JSON {json}");
 
     // ---- exact reference geometry (also the JSON the gate asserts against). ----
-    assert_eq!(rects[0], (0, 0, 800, 600), "body border-box fills 800x600 at origin");
-    assert_eq!(rects[1], (20, 20, 760, 100), "container: width:100% of 760 content, height:100, at padding origin");
+    assert_eq!(
+        rects[0],
+        (0, 0, 800, 600),
+        "body border-box fills 800x600 at origin"
+    );
+    assert_eq!(
+        rects[1],
+        (20, 20, 760, 100),
+        "container: width:100% of 760 content, height:100, at padding origin"
+    );
     // Container border-box height 100 + border:5px => content-box height 90.
     // align-items:stretch stretches the height-auto items to the line's cross
     // size (the container content-box, 90), so each item is 90px tall — matching
@@ -181,6 +195,14 @@ fn web_flexbox_simple_reference() {
     assert_eq!(rects[2], (25, 25, 128, 90), "item1 flex-grow:1");
     assert_eq!(rects[3], (153, 25, 250, 90), "item2 flex-grow:2");
     assert_eq!(rects[4], (403, 25, 372, 90), "item3 flex-grow:3");
-    assert_eq!((128 - 6, 250 - 6, 372 - 6), (122, 244, 366), "extra width splits 1:2:3");
-    assert_eq!(25 + 128 + 250 + 372, 775, "items fill container content width (750)");
+    assert_eq!(
+        (128 - 6, 250 - 6, 372 - 6),
+        (122, 244, 366),
+        "extra width splits 1:2:3"
+    );
+    assert_eq!(
+        25 + 128 + 250 + 372,
+        775,
+        "items fill container content width (750)"
+    );
 }

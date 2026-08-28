@@ -27,14 +27,27 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::CssPropertyWithConditions;
 use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
-use azul_css::{OptionString, 
+use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutHeight, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutWidth, LayoutMarginLeft},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutHeight, LayoutMarginLeft, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop, LayoutWidth,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleCursor, StyleUserSelect, StyleTextColor},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString,
+    AzString, OptionString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -42,16 +55,21 @@ use crate::callbacks::{Callback, CallbackInfo};
 // ---- classes ----
 static TIME_PICKER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-time-picker"))];
-static SPINNER_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-time-picker-spinner"))];
-static DISPLAY_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-time-picker-display"))];
-static ARROW_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-time-picker-arrow"))];
-static SEPARATOR_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-time-picker-separator"))];
-static AMPM_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-time-picker-ampm"))];
+static SPINNER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-time-picker-spinner",
+))];
+static DISPLAY_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-time-picker-display",
+))];
+static ARROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-time-picker-arrow",
+))];
+static SEPARATOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-time-picker-separator",
+))];
+static AMPM_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-time-picker-ampm",
+))];
 
 const UP_ARROW: AzString = AzString::from_const_str("\u{25B2}"); // ▲
 const DOWN_ARROW: AzString = AzString::from_const_str("\u{25BC}"); // ▼
@@ -131,7 +149,8 @@ impl Default for TimePickerState {
 impl TimePickerState {
     /// Returns the hour in canonical 24-hour form (`0..=23`), accounting for the
     /// AM/PM flag in 12-hour mode (12 AM -> 0, 12 PM -> 12).
-    #[must_use] pub const fn canonical_hour(&self) -> u32 {
+    #[must_use]
+    pub const fn canonical_hour(&self) -> u32 {
         if self.is_24h {
             self.hour
         } else {
@@ -151,11 +170,36 @@ impl TimePickerState {
 }
 
 // ---- colours ----
-const BORDER_COLOR: ColorU = ColorU { r: 206, g: 212, b: 218, a: 255 };
-const ARROW_COLOR: ColorU = ColorU { r: 73, g: 80, b: 87, a: 255 };
-const TEXT_COLOR: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
-const ACCENT_BG: ColorU = ColorU { r: 13, g: 110, b: 253, a: 255 };
-const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+const BORDER_COLOR: ColorU = ColorU {
+    r: 206,
+    g: 212,
+    b: 218,
+    a: 255,
+};
+const ARROW_COLOR: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
+    a: 255,
+};
+const TEXT_COLOR: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+};
+const ACCENT_BG: ColorU = ColorU {
+    r: 13,
+    g: 110,
+    b: 253,
+    a: 255,
+};
+const WHITE: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
 
 const ACCENT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ACCENT_BG)];
 const ACCENT_BG_VEC: StyleBackgroundContentVec =
@@ -168,13 +212,15 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        4,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(4),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        6,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(6),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(6),
     )),
@@ -210,13 +256,17 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
         inner: BORDER_COLOR,
     })),
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor { inner: BORDER_COLOR },
+        StyleBorderBottomColor {
+            inner: BORDER_COLOR,
+        },
     )),
     CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: BORDER_COLOR,
     })),
     CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
-        StyleBorderRightColor { inner: BORDER_COLOR },
+        StyleBorderRightColor {
+            inner: BORDER_COLOR,
+        },
     )),
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(6),
@@ -235,7 +285,9 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 /// One spinner column: up arrow, value, down arrow.
 static SPINNER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(40))),
@@ -256,7 +308,9 @@ static ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ARROW_COLOR,
     })),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        2,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(2),
     )),
@@ -270,7 +324,9 @@ static DISPLAY_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        2,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(2),
     )),
@@ -283,9 +339,9 @@ static SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
     })),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        2,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(2),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(2),
     )),
@@ -297,16 +353,22 @@ static AMPM_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor { inner: WHITE })),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: WHITE,
+    })),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(ACCENT_BG_VEC)),
-    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(8))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
+        8,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        4,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(4),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        8,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(8),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(8),
     )),
@@ -335,7 +397,8 @@ impl TimePicker {
         self
     }
 
-    #[must_use] pub fn create(hour: u32, minute: u32) -> Self {
+    #[must_use]
+    pub fn create(hour: u32, minute: u32) -> Self {
         let mut inner = TimePickerState::default();
         let (lo, hi) = inner.hour_bounds();
         inner.hour = i64::from(hour).clamp(lo, hi) as u32;
@@ -360,7 +423,8 @@ impl TimePicker {
     }
 
     /// Builder variant of [`Self::set_24h`].
-    #[must_use] pub fn with_24h(mut self, is_24h: bool) -> Self {
+    #[must_use]
+    pub fn with_24h(mut self, is_24h: bool) -> Self {
         self.set_24h(is_24h);
         self
     }
@@ -371,13 +435,18 @@ impl TimePicker {
     }
 
     /// Builder variant of [`Self::set_pm`].
-    #[must_use] pub const fn with_pm(mut self, is_pm: bool) -> Self {
+    #[must_use]
+    pub const fn with_pm(mut self, is_pm: bool) -> Self {
         self.set_pm(is_pm);
         self
     }
 
     /// Sets the callback invoked when any value changes.
-    pub fn set_on_change<C: Into<TimePickerOnChangeCallback>>(&mut self, data: RefAny, callback: C) {
+    pub fn set_on_change<C: Into<TimePickerOnChangeCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
         self.state.on_change = Some(TimePickerOnChange {
             callback: callback.into(),
             refany: data,
@@ -386,7 +455,8 @@ impl TimePicker {
     }
 
     /// Builder variant of [`Self::set_on_change`].
-    #[must_use] pub fn with_on_change<C: Into<TimePickerOnChangeCallback>>(
+    #[must_use]
+    pub fn with_on_change<C: Into<TimePickerOnChangeCallback>>(
         mut self,
         data: RefAny,
         callback: C,
@@ -396,13 +466,15 @@ impl TimePicker {
     }
 
     /// Replaces `self` with the default value and returns the original.
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0, 0);
         core::mem::swap(&mut s, self);
         s
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         let inner = self.state.inner;
         let is_24h = inner.is_24h;
         let hour_text = AzString::from(format!("{}", inner.hour));
@@ -421,7 +493,9 @@ impl TimePicker {
             ),
             crate::widgets::widget_p_with_text(SEPARATOR_TEXT)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(SEPARATOR_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SEPARATOR_STYLE)),
+                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                    SEPARATOR_STYLE
+                )),
             build_spinner(
                 minute_text,
                 state.clone(),
@@ -656,7 +730,13 @@ fn take_scroll_steps(which: u8, dy: f32) -> i64 {
 #[cfg(not(feature = "std"))]
 fn take_scroll_steps(_which: u8, dy: f32) -> i64 {
     // No thread-locals without `std`: fall back to one step per event.
-    if dy > 0.0 { 1 } else if dy < 0.0 { -1 } else { 0 }
+    if dy > 0.0 {
+        1
+    } else if dy < 0.0 {
+        -1
+    } else {
+        0
+    }
 }
 
 /// Wheel over a spinner column: scroll the value, not the page.
@@ -1288,7 +1368,11 @@ mod autotest_generated {
         // must be the identity across the whole day, or a picker built from a
         // 24-hour timestamp would hand a different hour back to the host.
         for canonical in 0..24u32 {
-            let face = if canonical % 12 == 0 { 12 } else { canonical % 12 };
+            let face = if canonical % 12 == 0 {
+                12
+            } else {
+                canonical % 12
+            };
             let s = TimePickerState {
                 hour: face,
                 minute: 0,
@@ -1470,7 +1554,10 @@ mod autotest_generated {
             let (lo, hi) = s.hour_bounds();
             assert!(lo <= hi, "hour_bounds({is_24h}) = ({lo}, {hi}) is inverted");
             assert!(lo >= 0, "a negative low bound would cast to a huge u32");
-            assert!(hi <= i64::from(u32::MAX), "the high bound does not fit a u32");
+            assert!(
+                hi <= i64::from(u32::MAX),
+                "the high bound does not fit a u32"
+            );
             assert!(hi < 24, "the high bound is not an hour of the day");
         }
     }
@@ -1484,7 +1571,10 @@ mod autotest_generated {
             ..TimePickerState::default()
         }
         .hour_bounds();
-        assert_eq!(u32::try_from(lo24).unwrap(), TimePicker::create(0, 0).state.inner.hour);
+        assert_eq!(
+            u32::try_from(lo24).unwrap(),
+            TimePicker::create(0, 0).state.inner.hour
+        );
         assert_eq!(
             u32::try_from(hi24).unwrap(),
             TimePicker::create(u32::MAX, 0).state.inner.hour,
@@ -1501,7 +1591,11 @@ mod autotest_generated {
         );
         assert_eq!(
             u32::try_from(hi12).unwrap(),
-            TimePicker::create(u32::MAX, 0).with_24h(false).state.inner.hour,
+            TimePicker::create(u32::MAX, 0)
+                .with_24h(false)
+                .state
+                .inner
+                .hour,
         );
     }
 
@@ -1579,8 +1673,14 @@ mod autotest_generated {
     fn create_always_starts_in_24h_am_without_a_callback() {
         for (hour, minute) in [(0u32, 0u32), (13, 45), (u32::MAX, u32::MAX)] {
             let p = TimePicker::create(hour, minute);
-            assert!(p.state.inner.is_24h, "create({hour}, {minute}) did not start in 24-hour mode");
-            assert!(!p.state.inner.is_pm, "create({hour}, {minute}) started in PM");
+            assert!(
+                p.state.inner.is_24h,
+                "create({hour}, {minute}) did not start in 24-hour mode"
+            );
+            assert!(
+                !p.state.inner.is_pm,
+                "create({hour}, {minute}) started in PM"
+            );
             assert!(
                 p.state.on_change.as_ref().is_none(),
                 "create({hour}, {minute}) installed a callback nobody asked for",
@@ -1591,8 +1691,14 @@ mod autotest_generated {
     #[test]
     fn create_zero_is_exactly_the_default_picker() {
         assert_eq!(TimePicker::create(0, 0), TimePicker::default());
-        assert_eq!(TimePicker::create(0, 0).state.inner, TimePickerState::default());
-        assert_eq!(TimePicker::default().state, TimePickerStateWrapper::default());
+        assert_eq!(
+            TimePicker::create(0, 0).state.inner,
+            TimePickerState::default()
+        );
+        assert_eq!(
+            TimePicker::default().state,
+            TimePickerStateWrapper::default()
+        );
     }
 
     #[test]
@@ -1695,8 +1801,14 @@ mod autotest_generated {
             let before = TimePicker::create(9, 41).with_pm(true);
             let mut after = before.clone();
             after.set_24h(target);
-            assert_eq!(after.state.inner.minute, before.state.inner.minute, "the minute moved");
-            assert_eq!(after.state.inner.is_pm, before.state.inner.is_pm, "the PM flag moved");
+            assert_eq!(
+                after.state.inner.minute, before.state.inner.minute,
+                "the minute moved"
+            );
+            assert_eq!(
+                after.state.inner.is_pm, before.state.inner.is_pm,
+                "the PM flag moved"
+            );
             assert_eq!(
                 properties(&after.container_style),
                 properties(&before.container_style),
@@ -1731,7 +1843,10 @@ mod autotest_generated {
                 let built = TimePicker::create(hour, 12).with_24h(target);
                 let mut set = TimePicker::create(hour, 12);
                 set.set_24h(target);
-                assert_eq!(built, set, "with_24h({target}) diverged from set_24h at {hour}:12");
+                assert_eq!(
+                    built, set,
+                    "with_24h({target}) diverged from set_24h at {hour}:12"
+                );
             }
         }
     }
@@ -1758,10 +1873,22 @@ mod autotest_generated {
                 let before = TimePicker::create(11, 22).with_24h(is_24h);
                 let mut after = before.clone();
                 after.set_pm(target);
-                assert_eq!(after.state.inner.is_pm, target, "the PM flag was not stored");
-                assert_eq!(after.state.inner.hour, before.state.inner.hour, "the hour moved");
-                assert_eq!(after.state.inner.minute, before.state.inner.minute, "the minute moved");
-                assert_eq!(after.state.inner.is_24h, before.state.inner.is_24h, "the mode moved");
+                assert_eq!(
+                    after.state.inner.is_pm, target,
+                    "the PM flag was not stored"
+                );
+                assert_eq!(
+                    after.state.inner.hour, before.state.inner.hour,
+                    "the hour moved"
+                );
+                assert_eq!(
+                    after.state.inner.minute, before.state.inner.minute,
+                    "the minute moved"
+                );
+                assert_eq!(
+                    after.state.inner.is_24h, before.state.inner.is_24h,
+                    "the mode moved"
+                );
             }
         }
     }
@@ -1775,7 +1902,10 @@ mod autotest_generated {
         assert_eq!(p.state.inner, once, "set_pm(true) is not idempotent");
         p.set_pm(false);
         p.set_pm(true);
-        assert_eq!(p.state.inner, once, "two flips did not return to the same state");
+        assert_eq!(
+            p.state.inner, once,
+            "two flips did not return to the same state"
+        );
     }
 
     #[test]
@@ -1830,8 +1960,7 @@ mod autotest_generated {
             .as_ref()
             .expect("set_on_change did not store anything");
         assert_eq!(
-            c.callback.cb as *const () as usize,
-            change_do_nothing as *const () as usize,
+            c.callback.cb as *const () as usize, change_do_nothing as *const () as usize,
             "the stored function pointer is not the one that was handed in",
         );
         assert!(
@@ -1840,7 +1969,9 @@ mod autotest_generated {
         );
         let mut payload = c.refany.clone();
         assert_eq!(
-            *payload.downcast_ref::<u32>().expect("the payload changed type"),
+            *payload
+                .downcast_ref::<u32>()
+                .expect("the payload changed type"),
             0xDEAD_BEEF,
         );
     }
@@ -1848,26 +1979,40 @@ mod autotest_generated {
     #[test]
     fn set_on_change_replaces_rather_than_accumulates() {
         let mut p = TimePicker::create(1, 1);
-        p.set_on_change(RefAny::new(1u8), change_do_nothing as TimePickerOnChangeCallbackType);
-        p.set_on_change(RefAny::new(2u8), change_refresh_all as TimePickerOnChangeCallbackType);
+        p.set_on_change(
+            RefAny::new(1u8),
+            change_do_nothing as TimePickerOnChangeCallbackType,
+        );
+        p.set_on_change(
+            RefAny::new(2u8),
+            change_refresh_all as TimePickerOnChangeCallbackType,
+        );
 
         let c = p.state.on_change.as_ref().expect("the callback vanished");
         assert_eq!(
-            c.callback.cb as *const () as usize,
-            change_refresh_all as *const () as usize,
+            c.callback.cb as *const () as usize, change_refresh_all as *const () as usize,
             "the second set_on_change did not win",
         );
         let mut payload = c.refany.clone();
-        assert_eq!(*payload.downcast_ref::<u8>().expect("wrong payload type"), 2);
+        assert_eq!(
+            *payload.downcast_ref::<u8>().expect("wrong payload type"),
+            2
+        );
     }
 
     #[test]
     fn set_on_change_does_not_disturb_the_time_or_the_container_style() {
         let before = TimePicker::create(23, 59);
         let mut after = TimePicker::create(23, 59);
-        after.set_on_change(RefAny::new(0u8), change_do_nothing as TimePickerOnChangeCallbackType);
+        after.set_on_change(
+            RefAny::new(0u8),
+            change_do_nothing as TimePickerOnChangeCallbackType,
+        );
 
-        assert_eq!(after.state.inner, before.state.inner, "installing a callback moved the time");
+        assert_eq!(
+            after.state.inner, before.state.inner,
+            "installing a callback moved the time"
+        );
         assert_eq!(
             properties(&after.container_style),
             properties(&before.container_style),
@@ -1877,20 +2022,38 @@ mod autotest_generated {
 
     #[test]
     fn with_on_change_is_exactly_set_on_change_in_builder_form() {
-        let built = TimePicker::create(5, 9)
-            .with_on_change(RefAny::new(7u32), change_do_nothing as TimePickerOnChangeCallbackType);
+        let built = TimePicker::create(5, 9).with_on_change(
+            RefAny::new(7u32),
+            change_do_nothing as TimePickerOnChangeCallbackType,
+        );
         let mut set = TimePicker::create(5, 9);
-        set.set_on_change(RefAny::new(7u32), change_do_nothing as TimePickerOnChangeCallbackType);
+        set.set_on_change(
+            RefAny::new(7u32),
+            change_do_nothing as TimePickerOnChangeCallbackType,
+        );
 
         assert_eq!(built.state.inner, set.state.inner);
-        let a = built.state.on_change.as_ref().expect("builder dropped the callback");
-        let b = set.state.on_change.as_ref().expect("setter dropped the callback");
-        assert_eq!(a.callback.cb as *const () as usize, b.callback.cb as *const () as usize);
+        let a = built
+            .state
+            .on_change
+            .as_ref()
+            .expect("builder dropped the callback");
+        let b = set
+            .state
+            .on_change
+            .as_ref()
+            .expect("setter dropped the callback");
+        assert_eq!(
+            a.callback.cb as *const () as usize,
+            b.callback.cb as *const () as usize
+        );
 
         let (mut pa, mut pb) = (a.refany.clone(), b.refany.clone());
         assert_eq!(
-            *pa.downcast_ref::<u32>().expect("builder payload changed type"),
-            *pb.downcast_ref::<u32>().expect("setter payload changed type"),
+            *pa.downcast_ref::<u32>()
+                .expect("builder payload changed type"),
+            *pb.downcast_ref::<u32>()
+                .expect("setter payload changed type"),
         );
     }
 
@@ -1907,10 +2070,13 @@ mod autotest_generated {
         let expected = generic_shaped as *const () as usize;
 
         let p = TimePicker::create(1, 1).with_on_change(RefAny::new(0u8), generic);
-        let c = p.state.on_change.as_ref().expect("the generic callback was dropped");
+        let c = p
+            .state
+            .on_change
+            .as_ref()
+            .expect("the generic callback was dropped");
         assert_eq!(
-            c.callback.cb as *const () as usize,
-            expected,
+            c.callback.cb as *const () as usize, expected,
             "the Callback -> TimePickerOnChangeCallback transmute mangled the pointer",
         );
     }
@@ -1920,10 +2086,16 @@ mod autotest_generated {
         // Order-independence: the builders are documented as composable, so a
         // callback must not be dropped by a later `with_24h` / `with_pm`.
         let p = TimePicker::create(9, 30)
-            .with_on_change(RefAny::new(1u8), change_do_nothing as TimePickerOnChangeCallbackType)
+            .with_on_change(
+                RefAny::new(1u8),
+                change_do_nothing as TimePickerOnChangeCallbackType,
+            )
             .with_24h(false)
             .with_pm(true);
-        assert!(p.state.on_change.as_ref().is_some(), "a later builder dropped the callback");
+        assert!(
+            p.state.on_change.as_ref().is_some(),
+            "a later builder dropped the callback"
+        );
         assert_eq!(p.state.inner.hour, 9);
         assert!(p.state.inner.is_pm);
         assert!(!p.state.inner.is_24h);
@@ -1939,16 +2111,25 @@ mod autotest_generated {
         let inner_before = p.state.inner;
         let taken = p.swap_with_default();
 
-        assert_eq!(taken.state.inner, inner_before, "the original state was not handed out");
-        assert_eq!(p, TimePicker::default(), "the picker left behind is not a default one");
+        assert_eq!(
+            taken.state.inner, inner_before,
+            "the original state was not handed out"
+        );
+        assert_eq!(
+            p,
+            TimePicker::default(),
+            "the picker left behind is not a default one"
+        );
     }
 
     #[test]
     fn swap_with_default_carries_the_callback_out_with_the_original() {
         // If the callback stayed behind on the *default* picker, the host would
         // keep getting change notifications from a widget it thought it had taken.
-        let mut p = TimePicker::create(6, 6)
-            .with_on_change(RefAny::new(3u8), change_do_nothing as TimePickerOnChangeCallbackType);
+        let mut p = TimePicker::create(6, 6).with_on_change(
+            RefAny::new(3u8),
+            change_do_nothing as TimePickerOnChangeCallbackType,
+        );
         let taken = p.swap_with_default();
 
         assert!(
@@ -1978,8 +2159,16 @@ mod autotest_generated {
         p.state.inner.minute = u32::MAX;
         let taken = p.swap_with_default();
 
-        assert_eq!(taken.state.inner.hour, u32::MAX, "swap normalised what it took out");
-        assert_eq!(p.state.inner, TimePickerState::default(), "the replacement is not a default");
+        assert_eq!(
+            taken.state.inner.hour,
+            u32::MAX,
+            "swap normalised what it took out"
+        );
+        assert_eq!(
+            p.state.inner,
+            TimePickerState::default(),
+            "the replacement is not a default"
+        );
     }
 
     // ==================================================================
@@ -1991,11 +2180,22 @@ mod autotest_generated {
         let h24 = TimePicker::create(9, 5).dom();
         assert!(matches!(h24.root.get_node_type(), NodeType::Div));
         assert_eq!(classes(&h24), vec![CLASS_CONTAINER.to_string()]);
-        assert_eq!(h24.children.as_ref().len(), 3, "24-hour mode rendered an AM/PM toggle");
+        assert_eq!(
+            h24.children.as_ref().len(),
+            3,
+            "24-hour mode rendered an AM/PM toggle"
+        );
 
         let h12 = TimePicker::create(9, 5).with_24h(false).dom();
-        assert_eq!(h12.children.as_ref().len(), 4, "12-hour mode did not render an AM/PM toggle");
-        assert_eq!(classes(&h12.children.as_ref()[3]), vec![CLASS_AMPM.to_string()]);
+        assert_eq!(
+            h12.children.as_ref().len(),
+            4,
+            "12-hour mode did not render an AM/PM toggle"
+        );
+        assert_eq!(
+            classes(&h12.children.as_ref()[3]),
+            vec![CLASS_AMPM.to_string()]
+        );
     }
 
     #[test]
@@ -2004,17 +2204,37 @@ mod autotest_generated {
         let (hour, sep, minute) = columns(&dom);
 
         assert_eq!(classes(sep), vec![CLASS_SEPARATOR.to_string()]);
-        assert_eq!(text_of(sep).as_deref(), Some(":"), "the separator is not a colon");
+        assert_eq!(
+            text_of(sep).as_deref(),
+            Some(":"),
+            "the separator is not a colon"
+        );
 
         for (which, col) in [("hour", hour), ("minute", minute)] {
-            assert_eq!(classes(col), vec![CLASS_SPINNER.to_string()], "{which}: wrong class");
+            assert_eq!(
+                classes(col),
+                vec![CLASS_SPINNER.to_string()],
+                "{which}: wrong class"
+            );
             let cells = col.children.as_ref();
-            assert_eq!(cells.len(), 3, "{which}: a spinner is up-arrow / value / down-arrow");
+            assert_eq!(
+                cells.len(),
+                3,
+                "{which}: a spinner is up-arrow / value / down-arrow"
+            );
             assert_eq!(classes(&cells[0]), vec![CLASS_ARROW.to_string()]);
             assert_eq!(classes(&cells[1]), vec![CLASS_DISPLAY.to_string()]);
             assert_eq!(classes(&cells[2]), vec![CLASS_ARROW.to_string()]);
-            assert_eq!(text_of(&cells[0]).as_deref(), Some(UP_GLYPH), "{which}: up arrow");
-            assert_eq!(text_of(&cells[2]).as_deref(), Some(DOWN_GLYPH), "{which}: down arrow");
+            assert_eq!(
+                text_of(&cells[0]).as_deref(),
+                Some(UP_GLYPH),
+                "{which}: up arrow"
+            );
+            assert_eq!(
+                text_of(&cells[2]).as_deref(),
+                Some(DOWN_GLYPH),
+                "{which}: down arrow"
+            );
         }
     }
 
@@ -2075,11 +2295,16 @@ mod autotest_generated {
                     "the hour display drifted at {hour}:{minute}",
                 );
                 assert_eq!(
-                    m.parse::<u32>().expect("the minute display is not a number"),
+                    m.parse::<u32>()
+                        .expect("the minute display is not a number"),
                     minute,
                     "the minute display drifted at {hour}:{minute}",
                 );
-                assert_eq!(m.chars().count(), 2, "the minute is not zero-padded at {hour}:{minute}");
+                assert_eq!(
+                    m.chars().count(),
+                    2,
+                    "the minute is not zero-padded at {hour}:{minute}"
+                );
             }
         }
     }
@@ -2092,8 +2317,16 @@ mod autotest_generated {
         p.state.inner.hour = u32::MAX;
         p.state.inner.minute = u32::MAX;
         let (h, m) = displayed(&p.dom());
-        assert_eq!(h, u32::MAX.to_string(), "the hour display truncated a huge value");
-        assert_eq!(m, u32::MAX.to_string(), "the minute display truncated a huge value");
+        assert_eq!(
+            h,
+            u32::MAX.to_string(),
+            "the hour display truncated a huge value"
+        );
+        assert_eq!(
+            m,
+            u32::MAX.to_string(),
+            "the minute display truncated a huge value"
+        );
     }
 
     #[test]
@@ -2107,7 +2340,10 @@ mod autotest_generated {
             Some("PM"),
         );
         // The flag is still set here, but 24-hour mode must not render a toggle.
-        assert_eq!(ampm_label(&TimePicker::create(6, 0).with_pm(true).dom()), None);
+        assert_eq!(
+            ampm_label(&TimePicker::create(6, 0).with_pm(true).dom()),
+            None
+        );
     }
 
     #[test]
@@ -2127,7 +2363,10 @@ mod autotest_generated {
                 .flat_map(|nd| nd.callbacks.as_ref().iter())
                 .filter(|cb| cb.callback.cb == handler)
                 .count();
-            assert_eq!(count, 1, "{name} is wired to {count} node(s), not exactly one");
+            assert_eq!(
+                count, 1,
+                "{name} is wired to {count} node(s), not exactly one"
+            );
         }
     }
 
@@ -2174,7 +2413,10 @@ mod autotest_generated {
                 );
             }
         }
-        assert_eq!(interactive, 5, "12-hour mode must expose 4 arrows + 1 AM/PM toggle");
+        assert_eq!(
+            interactive, 5,
+            "12-hour mode must expose 4 arrows + 1 AM/PM toggle"
+        );
     }
 
     #[test]
@@ -2194,7 +2436,11 @@ mod autotest_generated {
         for idx in [N_HOUR_SPINNER, N_MINUTE_SPINNER] {
             let cbs = styled.node_data.as_ref()[idx].callbacks.clone();
             let cbs = cbs.as_ref();
-            assert_eq!(cbs.len(), 1, "a spinner column carries exactly the scroll handler");
+            assert_eq!(
+                cbs.len(),
+                1,
+                "a spinner column carries exactly the scroll handler"
+            );
             assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Scroll));
         }
     }
@@ -2206,7 +2452,11 @@ mod autotest_generated {
         // the minute drift apart.
         let styled = StyledDom::create_from_dom(TimePicker::create(5, 5).with_24h(false).dom());
         let payloads = state_payloads(&styled);
-        assert_eq!(payloads.len(), 7, "not every handler carries the widget state");
+        assert_eq!(
+            payloads.len(),
+            7,
+            "not every handler carries the widget state"
+        );
 
         {
             let mut first = payloads[0].clone();
@@ -2280,9 +2530,18 @@ mod autotest_generated {
             node(N_HOUR_UP),
             "the hour up arrow is not where the indices say it is",
         );
-        assert_eq!(wired_to(&styled, on_hour_down as usize).0, node(N_HOUR_DOWN));
-        assert_eq!(wired_to(&styled, on_minute_up as usize).0, node(N_MINUTE_UP));
-        assert_eq!(wired_to(&styled, on_minute_down as usize).0, node(N_MINUTE_DOWN));
+        assert_eq!(
+            wired_to(&styled, on_hour_down as usize).0,
+            node(N_HOUR_DOWN)
+        );
+        assert_eq!(
+            wired_to(&styled, on_minute_up as usize).0,
+            node(N_MINUTE_UP)
+        );
+        assert_eq!(
+            wired_to(&styled, on_minute_down as usize).0,
+            node(N_MINUTE_DOWN)
+        );
         assert_eq!(wired_to(&styled, on_ampm_toggle as usize).0, node(N_AMPM));
     }
 
@@ -2292,8 +2551,14 @@ mod autotest_generated {
         let via_dom = TimePicker::create(4, 20).dom();
         assert_eq!(classes(&via_from), classes(&via_dom));
         assert_eq!(displayed(&via_from), displayed(&via_dom));
-        assert_eq!(via_from.children.as_ref().len(), via_dom.children.as_ref().len());
-        assert_eq!(via_from.estimated_total_children, via_dom.estimated_total_children);
+        assert_eq!(
+            via_from.children.as_ref().len(),
+            via_dom.children.as_ref().len()
+        );
+        assert_eq!(
+            via_from.estimated_total_children,
+            via_dom.estimated_total_children
+        );
     }
 
     // ==================================================================
@@ -2314,15 +2579,23 @@ mod autotest_generated {
             (1, 2),
             (usize::MAX / 2, usize::MAX - 1),
         ] {
-            let dom = build_spinner(AzString::from_const_str("0"), RefAny::new(0u8), up, down, on_hour_scroll as usize);
+            let dom = build_spinner(
+                AzString::from_const_str("0"),
+                RefAny::new(0u8),
+                up,
+                down,
+                on_hour_scroll as usize,
+            );
             let cells = dom.children.as_ref();
             assert_eq!(cells.len(), 3);
             assert_eq!(
-                cells[0].root.callbacks.as_ref()[0].callback.cb, up,
+                cells[0].root.callbacks.as_ref()[0].callback.cb,
+                up,
                 "the up handler {up} was mangled",
             );
             assert_eq!(
-                cells[2].root.callbacks.as_ref()[0].callback.cb, down,
+                cells[2].root.callbacks.as_ref()[0].callback.cb,
+                down,
                 "the down handler {down} was mangled",
             );
         }
@@ -2330,7 +2603,13 @@ mod autotest_generated {
 
     #[test]
     fn build_spinner_puts_the_value_between_the_two_arrows() {
-        let dom = build_spinner(AzString::from_const_str("42"), RefAny::new(0u8), 1, 2, on_hour_scroll as usize);
+        let dom = build_spinner(
+            AzString::from_const_str("42"),
+            RefAny::new(0u8),
+            1,
+            2,
+            on_hour_scroll as usize,
+        );
         assert_eq!(classes(&dom), vec![CLASS_SPINNER.to_string()]);
         let cells = dom.children.as_ref();
         assert_eq!(text_of(&cells[0]).as_deref(), Some(UP_GLYPH));
@@ -2353,10 +2632,10 @@ mod autotest_generated {
             " ".to_string(),
             "\0".to_string(),
             "\n\t".to_string(),
-            "٣٠".to_string(),                 // arabic-indic digits
-            "\u{1F55B}".to_string(),          // 🕛
-            "e\u{0301}".to_string(),          // combining acute
-            "\u{202E}12".to_string(),         // RTL override
+            "٣٠".to_string(),         // arabic-indic digits
+            "\u{1F55B}".to_string(),  // 🕛
+            "e\u{0301}".to_string(),  // combining acute
+            "\u{202E}12".to_string(), // RTL override
             "-1".to_string(),
             "٩٩:٩٩".to_string(),
             long,
@@ -2376,7 +2655,13 @@ mod autotest_generated {
     #[test]
     fn build_spinner_shares_the_state_between_both_arrows() {
         let state = RefAny::new(TimePickerStateWrapper::default());
-        let dom = build_spinner(AzString::from_const_str("0"), state.clone(), 1, 2, on_hour_scroll as usize);
+        let dom = build_spinner(
+            AzString::from_const_str("0"),
+            state.clone(),
+            1,
+            2,
+            on_hour_scroll as usize,
+        );
         let cells = dom.children.as_ref();
 
         {
@@ -2392,17 +2677,34 @@ mod autotest_generated {
             .expect("the down arrow does not carry the state")
             .inner
             .hour;
-        assert_eq!(seen, 17, "the two arrows of one spinner hold separate states");
-        assert_eq!(read_state(&state).hour, 17, "the caller's own handle was not shared");
+        assert_eq!(
+            seen, 17,
+            "the two arrows of one spinner hold separate states"
+        );
+        assert_eq!(
+            read_state(&state).hour,
+            17,
+            "the caller's own handle was not shared"
+        );
     }
 
     #[test]
     fn build_spinner_makes_both_arrows_focusable_click_targets() {
-        let dom = build_spinner(AzString::from_const_str("0"), RefAny::new(0u8), 1, 2, on_hour_scroll as usize);
+        let dom = build_spinner(
+            AzString::from_const_str("0"),
+            RefAny::new(0u8),
+            1,
+            2,
+            on_hour_scroll as usize,
+        );
         for (which, cell) in [("up", 0usize), ("down", 2usize)] {
             let cell = &dom.children.as_ref()[cell];
             let cbs = cell.root.callbacks.as_ref();
-            assert_eq!(cbs.len(), 1, "{which}: an arrow registers exactly one handler");
+            assert_eq!(
+                cbs.len(),
+                1,
+                "{which}: an arrow registers exactly one handler"
+            );
             assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
             assert_eq!(
                 cell.root.flags.get_tab_index(),
@@ -2435,9 +2737,21 @@ mod autotest_generated {
 
         let (update, changes) = press(styled, &payload, hit, on_hour_up);
 
-        assert_eq!(read_state(&shared).hour, 10, "the up arrow did not increment the hour");
-        assert_eq!(read_state(&shared).minute, 30, "the hour arrow moved the minute");
-        assert_eq!(update, Update::DoNothing, "no callback is installed, so nothing to report");
+        assert_eq!(
+            read_state(&shared).hour,
+            10,
+            "the up arrow did not increment the hour"
+        );
+        assert_eq!(
+            read_state(&shared).minute,
+            30,
+            "the hour arrow moved the minute"
+        );
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "no callback is installed, so nothing to report"
+        );
         assert_eq!(
             only_retext(&changes),
             (node(text_leaf(N_HOUR_DISPLAY)), "10".to_string()),
@@ -2452,8 +2766,16 @@ mod autotest_generated {
 
         let (_, changes) = press(styled, &payload, hit, on_minute_down);
 
-        assert_eq!(read_state(&shared).minute, 29, "the down arrow did not decrement the minute");
-        assert_eq!(read_state(&shared).hour, 9, "the minute arrow moved the hour");
+        assert_eq!(
+            read_state(&shared).minute,
+            29,
+            "the down arrow did not decrement the minute"
+        );
+        assert_eq!(
+            read_state(&shared).hour,
+            9,
+            "the minute arrow moved the hour"
+        );
         assert_eq!(
             only_retext(&changes),
             (node(text_leaf(N_MINUTE_DISPLAY)), "29".to_string())
@@ -2473,8 +2795,16 @@ mod autotest_generated {
     #[test]
     fn the_hour_clamps_at_both_ends_of_the_24_hour_band() {
         for (start, handler, want) in [
-            (23u32, on_hour_up as extern "C" fn(RefAny, CallbackInfo) -> Update, 23u32),
-            (0, on_hour_down as extern "C" fn(RefAny, CallbackInfo) -> Update, 0),
+            (
+                23u32,
+                on_hour_up as extern "C" fn(RefAny, CallbackInfo) -> Update,
+                23u32,
+            ),
+            (
+                0,
+                on_hour_down as extern "C" fn(RefAny, CallbackInfo) -> Update,
+                0,
+            ),
         ] {
             let (styled, shared) = laid_out(TimePicker::create(start, 0));
             let handler_addr = handler as usize;
@@ -2482,7 +2812,11 @@ mod autotest_generated {
 
             let (_, changes) = press(styled, &payload, hit, handler);
 
-            assert_eq!(read_state(&shared).hour, want, "the hour escaped the band from {start}");
+            assert_eq!(
+                read_state(&shared).hour,
+                want,
+                "the hour escaped the band from {start}"
+            );
             assert_eq!(
                 only_retext(&changes).1,
                 want.to_string(),
@@ -2494,10 +2828,26 @@ mod autotest_generated {
     #[test]
     fn the_hour_clamps_to_the_narrow_band_in_12_hour_mode() {
         for (start, handler, want) in [
-            (12u32, on_hour_up as extern "C" fn(RefAny, CallbackInfo) -> Update, 12u32),
-            (1, on_hour_down as extern "C" fn(RefAny, CallbackInfo) -> Update, 1),
-            (11, on_hour_up as extern "C" fn(RefAny, CallbackInfo) -> Update, 12),
-            (2, on_hour_down as extern "C" fn(RefAny, CallbackInfo) -> Update, 1),
+            (
+                12u32,
+                on_hour_up as extern "C" fn(RefAny, CallbackInfo) -> Update,
+                12u32,
+            ),
+            (
+                1,
+                on_hour_down as extern "C" fn(RefAny, CallbackInfo) -> Update,
+                1,
+            ),
+            (
+                11,
+                on_hour_up as extern "C" fn(RefAny, CallbackInfo) -> Update,
+                12,
+            ),
+            (
+                2,
+                on_hour_down as extern "C" fn(RefAny, CallbackInfo) -> Update,
+                1,
+            ),
         ] {
             let (styled, shared) = laid_out(TimePicker::create(start, 0).with_24h(false));
             let (hit, payload) = wired_to(&styled, handler as usize);
@@ -2517,16 +2867,32 @@ mod autotest_generated {
         // The module's documented PARTIAL: 59 + 1 stays 59 and 0 - 1 stays 0 —
         // the hour must not move either way.
         for (start, handler, want) in [
-            (59u32, on_minute_up as extern "C" fn(RefAny, CallbackInfo) -> Update, 59u32),
-            (0, on_minute_down as extern "C" fn(RefAny, CallbackInfo) -> Update, 0),
+            (
+                59u32,
+                on_minute_up as extern "C" fn(RefAny, CallbackInfo) -> Update,
+                59u32,
+            ),
+            (
+                0,
+                on_minute_down as extern "C" fn(RefAny, CallbackInfo) -> Update,
+                0,
+            ),
         ] {
             let (styled, shared) = laid_out(TimePicker::create(12, start));
             let (hit, payload) = wired_to(&styled, handler as usize);
 
             let (_, changes) = press(styled, &payload, hit, handler);
 
-            assert_eq!(read_state(&shared).minute, want, "the minute escaped 0..=59 from {start}");
-            assert_eq!(read_state(&shared).hour, 12, "the minute carried into the hour");
+            assert_eq!(
+                read_state(&shared).minute,
+                want,
+                "the minute escaped 0..=59 from {start}"
+            );
+            assert_eq!(
+                read_state(&shared).hour,
+                12,
+                "the minute carried into the hour"
+            );
             assert_eq!(
                 only_retext(&changes),
                 (node(N_MINUTE_TEXT), format!("{want:02}")),
@@ -2542,13 +2908,25 @@ mod autotest_generated {
         let (styled, shared) = laid_out(TimePicker::create(0, 0));
         let (hit, payload) = wired_to(&styled, on_hour_up as usize);
         press_n(styled, &payload, hit, on_hour_up, 200);
-        assert_eq!(read_state(&shared).hour, 23, "200 up-presses did not saturate at 23");
+        assert_eq!(
+            read_state(&shared).hour,
+            23,
+            "200 up-presses did not saturate at 23"
+        );
 
         let (styled, shared) = laid_out(TimePicker::create(23, 59));
         let (hit, payload) = wired_to(&styled, on_minute_down as usize);
         press_n(styled, &payload, hit, on_minute_down, 200);
-        assert_eq!(read_state(&shared).minute, 0, "200 down-presses did not saturate at 0");
-        assert_eq!(read_state(&shared).hour, 23, "the saturating minute borrowed from the hour");
+        assert_eq!(
+            read_state(&shared).minute,
+            0,
+            "200 down-presses did not saturate at 0"
+        );
+        assert_eq!(
+            read_state(&shared).hour,
+            23,
+            "the saturating minute borrowed from the hour"
+        );
     }
 
     #[test]
@@ -2579,7 +2957,10 @@ mod autotest_generated {
         let (update, changes) = press(styled, &payload, node(N_CONTAINER), on_hour_up);
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a parentless hit still retexted something");
+        assert!(
+            changes.is_empty(),
+            "a parentless hit still retexted something"
+        );
         assert_eq!(
             read_state(&shared),
             TimePicker::create(9, 30).state.inner,
@@ -2600,7 +2981,10 @@ mod autotest_generated {
             let (update, changes) = press(styled, &payload, hit, on_minute_up);
 
             assert_eq!(update, Update::DoNothing, "{name}: unexpected verdict");
-            assert!(changes.is_empty(), "{name}: a bad hit still retexted something");
+            assert!(
+                changes.is_empty(),
+                "{name}: a bad hit still retexted something"
+            );
             assert_eq!(
                 read_state(&shared).minute,
                 30,
@@ -2623,8 +3007,16 @@ mod autotest_generated {
         let (update, changes) = press(styled, &payload, node(N_SEPARATOR), on_hour_up);
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(read_state(&shared).hour, 10, "the edit itself did not happen");
-        assert_eq!(read_state(&shared).minute, 30, "an hour press moved the minute");
+        assert_eq!(
+            read_state(&shared).hour,
+            10,
+            "the edit itself did not happen"
+        );
+        assert_eq!(
+            read_state(&shared).minute,
+            30,
+            "an hour press moved the minute"
+        );
         assert_eq!(
             only_retext(&changes),
             (node(text_leaf(N_SEPARATOR)), "10".to_string()),
@@ -2647,8 +3039,15 @@ mod autotest_generated {
             let (update, changes) = press(styled, &payload, hit, on_hour_up);
 
             assert_eq!(update, Update::DoNothing, "a foreign payload was accepted");
-            assert!(changes.is_empty(), "a foreign payload still retexted the display");
-            assert_eq!(read_state(&shared).hour, 9, "a foreign payload moved the real state");
+            assert!(
+                changes.is_empty(),
+                "a foreign payload still retexted the display"
+            );
+            assert_eq!(
+                read_state(&shared).hour,
+                9,
+                "a foreign payload moved the real state"
+            );
         }
     }
 
@@ -2728,20 +3127,36 @@ mod autotest_generated {
         // A no-op press is still a press: the display is re-synced with the state
         // and the host is told. (This is the same path a clamped press takes.)
         let probe = log_refany();
-        let (styled, shared) = laid_out(
-            TimePicker::create(6, 7)
-                .with_on_change(probe.clone(), record_change as TimePickerOnChangeCallbackType),
-        );
+        let (styled, shared) = laid_out(TimePicker::create(6, 7).with_on_change(
+            probe.clone(),
+            record_change as TimePickerOnChangeCallbackType,
+        ));
         let (hit, _) = wired_to(&styled, on_hour_up as usize);
 
         let (update, changes) = with_info(styled, hit, |info| {
             adjust_spinner(shared.clone(), *info, false, 0)
         });
 
-        assert_eq!(read_state(&shared).minute, 7, "a zero delta moved the value");
-        assert_eq!(only_retext(&changes).1, "07", "a zero delta skipped the re-sync");
-        assert_eq!(update, Update::RefreshDom, "the host's verdict was swallowed");
-        assert_eq!(read_log(&probe).seen.len(), 1, "a zero delta did not notify the host");
+        assert_eq!(
+            read_state(&shared).minute,
+            7,
+            "a zero delta moved the value"
+        );
+        assert_eq!(
+            only_retext(&changes).1,
+            "07",
+            "a zero delta skipped the re-sync"
+        );
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the host's verdict was swallowed"
+        );
+        assert_eq!(
+            read_log(&probe).seen.len(),
+            1,
+            "a zero delta did not notify the host"
+        );
     }
 
     #[test]
@@ -2780,10 +3195,10 @@ mod autotest_generated {
         // the callback observes the value the user just asked for, not the stale
         // one it is replacing.
         let probe = log_refany();
-        let (styled, shared) = laid_out(
-            TimePicker::create(9, 30)
-                .with_on_change(probe.clone(), record_change as TimePickerOnChangeCallbackType),
-        );
+        let (styled, shared) = laid_out(TimePicker::create(9, 30).with_on_change(
+            probe.clone(),
+            record_change as TimePickerOnChangeCallbackType,
+        ));
         let (hit, payload) = wired_to(&styled, on_hour_up as usize);
 
         let (update, changes) = press(styled, &payload, hit, on_hour_up);
@@ -2803,9 +3218,17 @@ mod autotest_generated {
             log.payload, 0xDEAD_BEEF,
             "the callback was handed something other than the user's own RefAny",
         );
-        assert_eq!(update, Update::RefreshDom, "the user callback's Update was swallowed");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user callback's Update was swallowed"
+        );
         assert_eq!(read_state(&shared).hour, 10);
-        assert_eq!(changes.len(), 1, "the retext was skipped because a callback ran");
+        assert_eq!(
+            changes.len(),
+            1,
+            "the retext was skipped because a callback ran"
+        );
     }
 
     #[test]
@@ -2814,16 +3237,20 @@ mod autotest_generated {
         // state rather than staying silent. Hosts that treat every notification
         // as an edit will see repeats while an arrow is held down.
         let probe = log_refany();
-        let (styled, _) = laid_out(
-            TimePicker::create(23, 0)
-                .with_on_change(probe.clone(), record_change as TimePickerOnChangeCallbackType),
-        );
+        let (styled, _) = laid_out(TimePicker::create(23, 0).with_on_change(
+            probe.clone(),
+            record_change as TimePickerOnChangeCallbackType,
+        ));
         let (hit, payload) = wired_to(&styled, on_hour_up as usize);
 
         press_n(styled, &payload, hit, on_hour_up, 3);
 
         let log = read_log(&probe);
-        assert_eq!(log.seen.len(), 3, "a clamped press stopped notifying the host");
+        assert_eq!(
+            log.seen.len(),
+            3,
+            "a clamped press stopped notifying the host"
+        );
         assert!(
             log.seen.iter().all(|s| s.hour == 23),
             "a clamped press reported a value the widget does not hold",
@@ -2832,10 +3259,10 @@ mod autotest_generated {
 
     #[test]
     fn a_declining_change_callback_does_not_suppress_the_retext() {
-        let (styled, shared) = laid_out(
-            TimePicker::create(9, 30)
-                .with_on_change(RefAny::new(0u8), change_do_nothing as TimePickerOnChangeCallbackType),
-        );
+        let (styled, shared) = laid_out(TimePicker::create(9, 30).with_on_change(
+            RefAny::new(0u8),
+            change_do_nothing as TimePickerOnChangeCallbackType,
+        ));
         let (hit, payload) = wired_to(&styled, on_minute_up as usize);
 
         let (update, changes) = press(styled, &payload, hit, on_minute_up);
@@ -2852,13 +3279,20 @@ mod autotest_generated {
     #[test]
     fn every_verdict_the_change_callback_returns_is_forwarded_unchanged() {
         for (cb, want) in [
-            (change_do_nothing as TimePickerOnChangeCallbackType, Update::DoNothing),
-            (change_refresh_all as TimePickerOnChangeCallbackType, Update::RefreshDomAllWindows),
-            (record_change as TimePickerOnChangeCallbackType, Update::RefreshDom),
+            (
+                change_do_nothing as TimePickerOnChangeCallbackType,
+                Update::DoNothing,
+            ),
+            (
+                change_refresh_all as TimePickerOnChangeCallbackType,
+                Update::RefreshDomAllWindows,
+            ),
+            (
+                record_change as TimePickerOnChangeCallbackType,
+                Update::RefreshDom,
+            ),
         ] {
-            let (styled, _) = laid_out(
-                TimePicker::create(9, 30).with_on_change(log_refany(), cb),
-            );
+            let (styled, _) = laid_out(TimePicker::create(9, 30).with_on_change(log_refany(), cb));
             let (hit, payload) = wired_to(&styled, on_hour_down as usize);
             let (update, _) = press(styled, &payload, hit, on_hour_down);
             assert_eq!(update, want, "a user verdict was rewritten on its way out");
@@ -2959,7 +3393,10 @@ mod autotest_generated {
 
         let (update, changes) = press(styled, &payload, hit, on_ampm_toggle);
 
-        assert!(read_state(&shared).is_pm, "the toggle did not flip AM -> PM");
+        assert!(
+            read_state(&shared).is_pm,
+            "the toggle did not flip AM -> PM"
+        );
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
             only_retext(&changes),
@@ -2999,7 +3436,10 @@ mod autotest_generated {
                 before + 12,
                 "toggling {hour} AM did not move the canonical hour by twelve",
             );
-            assert!(after < 24, "the toggle pushed the canonical hour out of the day");
+            assert!(
+                after < 24,
+                "the toggle pushed the canonical hour out of the day"
+            );
         }
     }
 
@@ -3011,18 +3451,21 @@ mod autotest_generated {
         press(styled, &payload, hit, on_ampm_toggle);
 
         let s = read_state(&shared);
-        assert_eq!((s.hour, s.minute), (11, 45), "the toggle moved the time itself");
+        assert_eq!(
+            (s.hour, s.minute),
+            (11, 45),
+            "the toggle moved the time itself"
+        );
         assert!(!s.is_24h, "the toggle changed the display mode");
     }
 
     #[test]
     fn the_ampm_toggle_notifies_the_host_with_the_new_flag() {
         let probe = log_refany();
-        let (styled, _) = laid_out(
-            TimePicker::create(3, 15)
-                .with_24h(false)
-                .with_on_change(probe.clone(), record_change as TimePickerOnChangeCallbackType),
-        );
+        let (styled, _) = laid_out(TimePicker::create(3, 15).with_24h(false).with_on_change(
+            probe.clone(),
+            record_change as TimePickerOnChangeCallbackType,
+        ));
         let (hit, payload) = wired_to(&styled, on_ampm_toggle as usize);
 
         let (update, _) = press(styled, &payload, hit, on_ampm_toggle);
@@ -3037,7 +3480,11 @@ mod autotest_generated {
             }],
             "the host was not told the new AM/PM state",
         );
-        assert_eq!(update, Update::RefreshDom, "the host's verdict was swallowed");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the host's verdict was swallowed"
+        );
     }
 
     #[test]
@@ -3049,8 +3496,14 @@ mod autotest_generated {
             let (update, changes) = press(styled, &payload, hit, on_ampm_toggle);
 
             assert_eq!(update, Update::DoNothing, "a foreign payload was accepted");
-            assert!(changes.is_empty(), "a foreign payload still relabelled the toggle");
-            assert!(!read_state(&shared).is_pm, "a foreign payload flipped the real flag");
+            assert!(
+                changes.is_empty(),
+                "a foreign payload still relabelled the toggle"
+            );
+            assert!(
+                !read_state(&shared).is_pm,
+                "a foreign payload flipped the real flag"
+            );
         }
     }
 
@@ -3086,7 +3539,10 @@ mod autotest_generated {
             let (update, changes) = press(styled.clone(), &payload, hit, on_ampm_toggle);
 
             assert_eq!(update, Update::DoNothing, "{hit:?}: unexpected verdict");
-            assert!(changes.is_empty(), "{hit:?}: an unresolvable hit still retexted");
+            assert!(
+                changes.is_empty(),
+                "{hit:?}: an unresolvable hit still retexted"
+            );
             assert!(
                 !read_state(&shared).is_pm,
                 "{hit:?}: an unresolvable hit flipped the flag anyway",

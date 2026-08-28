@@ -18,8 +18,8 @@ use azul_core::video::VideoFrame;
 use azul_css::U8Vec;
 use gpu_video::{
     parameters::{
-        ColorRange, ColorSpace, DecoderParameters, VideoAdapterDescriptor,
-        VideoDeviceDescriptor, VideoInstanceDescriptor,
+        ColorRange, ColorSpace, DecoderParameters, VideoAdapterDescriptor, VideoDeviceDescriptor,
+        VideoInstanceDescriptor,
     },
     EncodedInputChunk, OutputFrame, RawFrameData, VideoInstance,
 };
@@ -156,10 +156,14 @@ fn nv12_to_rgba(
     // (luma_scale, luma_bias, Cr->R, Cb->G, Cr->G, Cb->B). Limited range bakes
     // the 255/219 luma stretch into luma_scale; full range uses unity luma.
     let (ls, lb, crr, cbg, crg, cbb): (f32, f32, f32, f32, f32, f32) = match (bt709, full) {
-        (false, false) => (1.164_383, 16.0, 1.596_027, -0.391_762, -0.812_968, 2.017_232), // BT.601 limited
-        (true, false) => (1.164_383, 16.0, 1.792_741, -0.213_249, -0.532_909, 2.112_402), // BT.709 limited
-        (false, true) => (1.0, 0.0, 1.402_000, -0.344_136, -0.714_136, 1.772_000),        // BT.601 full
-        (true, true) => (1.0, 0.0, 1.574_800, -0.187_324, -0.468_124, 1.855_600),         // BT.709 full
+        (false, false) => (
+            1.164_383, 16.0, 1.596_027, -0.391_762, -0.812_968, 2.017_232,
+        ), // BT.601 limited
+        (true, false) => (
+            1.164_383, 16.0, 1.792_741, -0.213_249, -0.532_909, 2.112_402,
+        ), // BT.709 limited
+        (false, true) => (1.0, 0.0, 1.402_000, -0.344_136, -0.714_136, 1.772_000), // BT.601 full
+        (true, true) => (1.0, 0.0, 1.574_800, -0.187_324, -0.468_124, 1.855_600),  // BT.709 full
     };
 
     for j in 0..h {

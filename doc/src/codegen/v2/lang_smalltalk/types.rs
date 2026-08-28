@@ -212,11 +212,7 @@ fn generate_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR)
             EnumVariantKind::Struct(fields) => {
                 for f in fields {
                     let st_type = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
-                    builder.line(&format!(
-                        "({} {})",
-                        st_type,
-                        sanitize_identifier(&f.name)
-                    ));
+                    builder.line(&format!("({} {})", st_type, sanitize_identifier(&f.name)));
                 }
             }
         }
@@ -317,11 +313,7 @@ fn emit_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
     }
 
     let st_type = ref_kind_field_type(&f.type_name, &f.ref_kind, ir);
-    builder.line(&format!(
-        "({} {})",
-        st_type,
-        sanitize_identifier(&f.name)
-    ));
+    builder.line(&format!("({} {})", st_type, sanitize_identifier(&f.name)));
 }
 
 // ============================================================================
@@ -347,7 +339,10 @@ fn generate_callback_alias(builder: &mut CodeBuilder, cb: &CallbackTypedefDef) {
         &cb.doc,
     );
     method_category_line(builder, "ffi");
-    builder.line(&format!("{} class >> typeSize [ ^ Smalltalk wordSize ]", name));
+    builder.line(&format!(
+        "{} class >> typeSize [ ^ Smalltalk wordSize ]",
+        name
+    ));
     builder.blank();
 }
 
@@ -437,5 +432,7 @@ pub(crate) fn class_header(
     category: &str,
     doc: &[String],
 ) {
-    emit_class_header(builder, name, superclass, inst_vars, class_vars, category, doc);
+    emit_class_header(
+        builder, name, superclass, inst_vars, class_vars, category, doc,
+    );
 }

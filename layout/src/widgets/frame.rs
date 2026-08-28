@@ -5,7 +5,8 @@
 //! and a bordered content area below.
 
 use azul_core::dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec};
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -214,36 +215,34 @@ const CSS_MATCH_9156589477016488419: CssPropertyWithConditionsVec =
 
 const CSS_MATCH_CONTENT_AREA_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-frame .__azul-native-frame-content (static properties)
-    CssPropertyWithConditions::simple(CssProperty::PaddingRight(
-        LayoutPaddingRightValue::Exact(LayoutPaddingRight {
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+        LayoutPaddingRight {
             inner: PixelValue::const_px(5),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(
-        LayoutPaddingLeftValue::Exact(LayoutPaddingLeft {
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+        LayoutPaddingLeft {
             inner: PixelValue::const_px(5),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(
-        LayoutPaddingBottomValue::Exact(LayoutPaddingBottom {
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+        LayoutPaddingBottom {
             inner: PixelValue::const_px(5),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::PaddingTop(
-        LayoutPaddingTopValue::Exact(LayoutPaddingTop {
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+        LayoutPaddingTop {
             inner: PixelValue::const_px(5),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::FontSize(
-        StyleFontSizeValue::Exact(StyleFontSize {
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
+        StyleFontSize {
             inner: PixelValue::const_px(11),
-        }),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::FontFamily(
-        StyleFontFamilyVecValue::Exact(StyleFontFamilyVec::from_const_slice(
-            STYLE_FONT_FAMILY_8122988506401935406_ITEMS,
-        )),
-    )),
+        },
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
+        StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
+    ))),
     CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
@@ -319,7 +318,8 @@ pub struct Frame {
 
 impl Frame {
     /// Creates a new `Frame` with the given title and content DOM.
-    #[must_use] pub const fn create(title: AzString, content: Dom) -> Self {
+    #[must_use]
+    pub const fn create(title: AzString, content: Dom) -> Self {
         Self {
             title,
             content,
@@ -341,12 +341,14 @@ impl Frame {
     }
 
     /// Builder-style setter for the flex-grow factor.
-    #[must_use] pub const fn with_flex_grow(mut self, flex_grow: f32) -> Self {
+    #[must_use]
+    pub const fn with_flex_grow(mut self, flex_grow: f32) -> Self {
         self.set_flex_grow(flex_grow);
         self
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         Dom::create_div()
             .with_css_props(CSS_MATCH_8602559445190067154)
             .with_ids_and_classes({
@@ -388,13 +390,11 @@ impl Frame {
                     ])),
                 Dom::create_div()
                     .with_css_props({
-                        let mut props = vec![
-                            CssPropertyWithConditions::simple(CssProperty::FlexGrow(
-                                LayoutFlexGrowValue::Exact(LayoutFlexGrow {
-                                    inner: FloatValue::new(self.flex_grow),
-                                }),
-                            )),
-                        ];
+                        let mut props = vec![CssPropertyWithConditions::simple(
+                            CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow {
+                                inner: FloatValue::new(self.flex_grow),
+                            })),
+                        )];
                         props.extend_from_slice(CSS_MATCH_CONTENT_AREA_PROPERTIES);
                         CssPropertyWithConditionsVec::from_vec(props)
                     })
@@ -662,12 +662,19 @@ mod autotest_generated {
 
     #[test]
     fn create_zeroes_flex_grow_and_stores_both_arguments_verbatim() {
-        let f = frame("Settings", Dom::create_text_do_not_use_without_block_level_wrapper("body"));
+        let f = frame(
+            "Settings",
+            Dom::create_text_do_not_use_without_block_level_wrapper("body"),
+        );
 
         // Positive zero, not -0.0: a negative zero would flip the sign of the encoded
         // isize on some paths and is not what "no growth" means.
         assert_eq!(f.flex_grow.to_bits(), 0_u32, "flex_grow must start at +0.0");
-        assert_eq!(f.title.as_str(), "Settings", "the title was not stored verbatim");
+        assert_eq!(
+            f.title.as_str(),
+            "Settings",
+            "the title was not stored verbatim"
+        );
         assert_eq!(
             text_of(&f.content),
             Some("body"),
@@ -679,7 +686,11 @@ mod autotest_generated {
     fn create_stores_pathological_titles_byte_for_byte() {
         for t in ADVERSARIAL_TEXT {
             let f = frame(t, Dom::create_div());
-            assert_eq!(f.title.as_str(), t, "the frame mangled or normalised its title");
+            assert_eq!(
+                f.title.as_str(),
+                t,
+                "the frame mangled or normalised its title"
+            );
             assert_eq!(
                 f.title.as_str().len(),
                 t.len(),
@@ -701,7 +712,11 @@ mod autotest_generated {
         // 100k astral-plane chars: 400 KB of UTF-8 through the AzString/BoxOrStatic path.
         let huge: String = "\u{1F600}".repeat(100_000);
         let f = frame(&huge, Dom::create_div());
-        assert_eq!(f.title.as_str().len(), 400_000, "the long title was truncated on store");
+        assert_eq!(
+            f.title.as_str().len(),
+            400_000,
+            "the long title was truncated on store"
+        );
 
         let dom = f.dom();
         assert_eq!(
@@ -719,12 +734,19 @@ mod autotest_generated {
             count_descendants(&deep),
             "the cached child count desynced for deeply nested content",
         );
-        assert_eq!(deep.estimated_total_children, 9 + 64, "frame chrome is 8 nodes + the content");
+        assert_eq!(
+            deep.estimated_total_children,
+            9 + 64,
+            "frame chrome is 8 nodes + the content"
+        );
 
         let wide = frame(
             "wide",
             Dom::create_div().with_children(
-                (0..2000).map(|_| Dom::create_div()).collect::<Vec<_>>().into(),
+                (0..2000)
+                    .map(|_| Dom::create_div())
+                    .collect::<Vec<_>>()
+                    .into(),
             ),
         )
         .dom();
@@ -739,7 +761,10 @@ mod autotest_generated {
     #[test]
     fn frames_nest_without_desyncing_the_child_count_cache() {
         let inner = frame("inner", Dom::create_div()).dom();
-        assert_eq!(inner.estimated_total_children, 9, "a bare frame is 9 nodes below the root");
+        assert_eq!(
+            inner.estimated_total_children, 9,
+            "a bare frame is 9 nodes below the root"
+        );
 
         let outer = frame("outer", inner).dom();
         assert_eq!(
@@ -756,16 +781,32 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_moves_every_field_out_and_leaves_a_default() {
-        let mut f = frame("payload", Dom::create_text_do_not_use_without_block_level_wrapper("body")).with_flex_grow(2.5);
+        let mut f = frame(
+            "payload",
+            Dom::create_text_do_not_use_without_block_level_wrapper("body"),
+        )
+        .with_flex_grow(2.5);
 
         let taken = f.swap_with_default();
 
-        assert_eq!(taken.title.as_str(), "payload", "the title did not travel out");
-        assert_eq!(text_of(&taken.content), Some("body"), "the content did not travel out");
+        assert_eq!(
+            taken.title.as_str(),
+            "payload",
+            "the title did not travel out"
+        );
+        assert_eq!(
+            text_of(&taken.content),
+            Some("body"),
+            "the content did not travel out"
+        );
         assert_eq!(taken.flex_grow, 2.5, "flex_grow did not travel out");
 
         assert_eq!(f.title.as_str(), "", "the swapped-in default kept a title");
-        assert_eq!(f.content, Dom::create_div(), "the swapped-in default is not an empty div");
+        assert_eq!(
+            f.content,
+            Dom::create_div(),
+            "the swapped-in default is not an empty div"
+        );
         assert_eq!(
             f.flex_grow.to_bits(),
             0_u32,
@@ -775,16 +816,36 @@ mod autotest_generated {
 
     #[test]
     fn repeated_swap_with_default_never_accumulates_state() {
-        let mut f = frame("x", Dom::create_text_do_not_use_without_block_level_wrapper("y")).with_flex_grow(1.0);
+        let mut f = frame(
+            "x",
+            Dom::create_text_do_not_use_without_block_level_wrapper("y"),
+        )
+        .with_flex_grow(1.0);
         let first = f.swap_with_default();
         assert_eq!(first.title.as_str(), "x");
 
         for i in 0..8 {
             let taken = f.swap_with_default();
-            assert_eq!(taken.title.as_str(), "", "swap #{i} handed back a non-default title");
-            assert_eq!(taken.content, Dom::create_div(), "swap #{i} handed back non-default content");
-            assert_eq!(taken.flex_grow.to_bits(), 0_u32, "swap #{i} handed back a non-zero factor");
-            assert_eq!(f.title.as_str(), "", "swap #{i} left a non-default title behind");
+            assert_eq!(
+                taken.title.as_str(),
+                "",
+                "swap #{i} handed back a non-default title"
+            );
+            assert_eq!(
+                taken.content,
+                Dom::create_div(),
+                "swap #{i} handed back non-default content"
+            );
+            assert_eq!(
+                taken.flex_grow.to_bits(),
+                0_u32,
+                "swap #{i} handed back a non-zero factor"
+            );
+            assert_eq!(
+                f.title.as_str(),
+                "",
+                "swap #{i} left a non-default title behind"
+            );
         }
 
         // The DOM of the drained frame is still a well-formed, empty-titled frame.
@@ -800,8 +861,15 @@ mod autotest_generated {
         // only the *encoding* into the DOM is allowed to collapse it (see below).
         let mut f = default_frame().with_flex_grow(f32::NAN);
         let taken = f.swap_with_default();
-        assert!(taken.flex_grow.is_nan(), "the NaN factor was rewritten by the swap");
-        assert_eq!(f.flex_grow.to_bits(), 0_u32, "the NaN leaked into the swapped-in default");
+        assert!(
+            taken.flex_grow.is_nan(),
+            "the NaN factor was rewritten by the swap"
+        );
+        assert_eq!(
+            f.flex_grow.to_bits(),
+            0_u32,
+            "the NaN leaked into the swapped-in default"
+        );
     }
 
     #[test]
@@ -832,7 +900,10 @@ mod autotest_generated {
             let mut f = default_frame();
             f.set_flex_grow(v);
             if v.is_nan() {
-                assert!(f.flex_grow.is_nan(), "a NaN flex_grow was silently rewritten");
+                assert!(
+                    f.flex_grow.is_nan(),
+                    "a NaN flex_grow was silently rewritten"
+                );
             } else {
                 assert_eq!(
                     f.flex_grow.to_bits(),
@@ -853,7 +924,11 @@ mod autotest_generated {
 
         f.set_flex_grow(1.5);
         assert_eq!(f.flex_grow, 1.5, "a later write did not overwrite the NaN");
-        assert_eq!(count_flex_grow(content_area(&f.dom())), 1, "flex-grow was declared twice");
+        assert_eq!(
+            count_flex_grow(content_area(&f.dom())),
+            1,
+            "flex-grow was declared twice"
+        );
     }
 
     #[test]
@@ -873,10 +948,22 @@ mod autotest_generated {
 
     #[test]
     fn with_flex_grow_touches_only_the_numeric_field() {
-        let f = frame("title", Dom::create_text_do_not_use_without_block_level_wrapper("body")).with_flex_grow(f32::NAN);
+        let f = frame(
+            "title",
+            Dom::create_text_do_not_use_without_block_level_wrapper("body"),
+        )
+        .with_flex_grow(f32::NAN);
 
-        assert_eq!(f.title.as_str(), "title", "with_flex_grow clobbered the title");
-        assert_eq!(text_of(&f.content), Some("body"), "with_flex_grow clobbered the content");
+        assert_eq!(
+            f.title.as_str(),
+            "title",
+            "with_flex_grow clobbered the title"
+        );
+        assert_eq!(
+            text_of(&f.content),
+            Some("body"),
+            "with_flex_grow clobbered the content"
+        );
     }
 
     #[test]
@@ -884,7 +971,11 @@ mod autotest_generated {
         for v in [0.0_f32, -0.0_f32] {
             let dom = default_frame().with_flex_grow(v).dom();
             let got = content_flex_grow(&dom).expect("flex-grow must always be declared");
-            assert_eq!(got.to_bits(), 0_u32, "flex_grow {v} did not encode to +0.0 (got {got})");
+            assert_eq!(
+                got.to_bits(),
+                0_u32,
+                "flex_grow {v} did not encode to +0.0 (got {got})"
+            );
         }
     }
 
@@ -926,7 +1017,10 @@ mod autotest_generated {
 
         // ... and 0.001 is genuinely the smallest factor that still registers.
         let smallest = content_flex_grow(&default_frame().with_flex_grow(0.001).dom()).unwrap();
-        assert!(smallest > 0.0, "0.001 is supposed to be the smallest representable factor");
+        assert!(
+            smallest > 0.0,
+            "0.001 is supposed to be the smallest representable factor"
+        );
     }
 
     #[test]
@@ -934,7 +1028,11 @@ mod autotest_generated {
         let dom = default_frame().with_flex_grow(f32::NAN).dom();
         let got = content_flex_grow(&dom).expect("flex-grow must always be declared");
         assert!(!got.is_nan(), "a NaN flex-grow reached the style tree");
-        assert_eq!(got.to_bits(), 0_u32, "NaN must encode to +0.0 (saturating cast), got {got}");
+        assert_eq!(
+            got.to_bits(),
+            0_u32,
+            "NaN must encode to +0.0 (saturating cast), got {got}"
+        );
     }
 
     #[test]
@@ -947,15 +1045,27 @@ mod autotest_generated {
 
         for v in [f32::INFINITY, f32::MAX] {
             let got = content_flex_grow(&default_frame().with_flex_grow(v).dom()).unwrap();
-            assert!(got.is_finite(), "an infinite flex-grow reached the style tree for {v}");
-            assert_eq!(got, max_encoded, "{v} did not saturate at the isize upper bound");
+            assert!(
+                got.is_finite(),
+                "an infinite flex-grow reached the style tree for {v}"
+            );
+            assert_eq!(
+                got, max_encoded,
+                "{v} did not saturate at the isize upper bound"
+            );
             assert!(got > 0.0, "{v} wrapped around into a non-positive factor");
         }
 
         for v in [f32::NEG_INFINITY, f32::MIN] {
             let got = content_flex_grow(&default_frame().with_flex_grow(v).dom()).unwrap();
-            assert!(got.is_finite(), "an infinite flex-grow reached the style tree for {v}");
-            assert_eq!(got, min_encoded, "{v} did not saturate at the isize lower bound");
+            assert!(
+                got.is_finite(),
+                "an infinite flex-grow reached the style tree for {v}"
+            );
+            assert_eq!(
+                got, min_encoded,
+                "{v} did not saturate at the isize lower bound"
+            );
             assert!(got < 0.0, "{v} wrapped around into a non-negative factor");
         }
     }
@@ -997,11 +1107,31 @@ mod autotest_generated {
         for v in ADVERSARIAL_FLOATS {
             let dom = default_frame().with_flex_grow(v).dom();
 
-            assert_eq!(count_flex_grow(&dom), 0, "the frame root declared a flex-grow");
-            assert_eq!(count_flex_grow(header(&dom)), 0, "the header declared a flex-grow");
-            assert_eq!(count_flex_grow(title_node(&dom)), 0, "the title declared a flex-grow");
-            assert_eq!(flex_grow_of(rule_before(&dom)), Some(1.0), "left rule factor changed");
-            assert_eq!(flex_grow_of(rule_after(&dom)), Some(1.0), "right rule factor changed");
+            assert_eq!(
+                count_flex_grow(&dom),
+                0,
+                "the frame root declared a flex-grow"
+            );
+            assert_eq!(
+                count_flex_grow(header(&dom)),
+                0,
+                "the header declared a flex-grow"
+            );
+            assert_eq!(
+                count_flex_grow(title_node(&dom)),
+                0,
+                "the title declared a flex-grow"
+            );
+            assert_eq!(
+                flex_grow_of(rule_before(&dom)),
+                Some(1.0),
+                "left rule factor changed"
+            );
+            assert_eq!(
+                flex_grow_of(rule_after(&dom)),
+                Some(1.0),
+                "right rule factor changed"
+            );
             assert_eq!(
                 count_flex_grow(content_area(&dom)),
                 1,
@@ -1016,12 +1146,32 @@ mod autotest_generated {
 
     #[test]
     fn dom_has_the_documented_shape() {
-        let dom = frame("Title", Dom::create_text_do_not_use_without_block_level_wrapper("content")).dom();
+        let dom = frame(
+            "Title",
+            Dom::create_text_do_not_use_without_block_level_wrapper("content"),
+        )
+        .dom();
 
-        assert_eq!(kids(&dom).len(), 2, "a frame is a header plus a content area");
-        assert_eq!(kids(header(&dom)).len(), 3, "the header is rule / title / rule");
-        assert_eq!(kids(rule_before(&dom)).len(), 1, "the left rule wraps exactly one div");
-        assert_eq!(kids(rule_after(&dom)).len(), 1, "the right rule wraps exactly one div");
+        assert_eq!(
+            kids(&dom).len(),
+            2,
+            "a frame is a header plus a content area"
+        );
+        assert_eq!(
+            kids(header(&dom)).len(),
+            3,
+            "the header is rule / title / rule"
+        );
+        assert_eq!(
+            kids(rule_before(&dom)).len(),
+            1,
+            "the left rule wraps exactly one div"
+        );
+        assert_eq!(
+            kids(rule_after(&dom)).len(),
+            1,
+            "the right rule wraps exactly one div"
+        );
         assert_eq!(
             kids(title_node(&dom)).len(),
             1,
@@ -1031,7 +1181,11 @@ mod autotest_generated {
             kids(&kids(title_node(&dom))[0]).is_empty(),
             "the text node itself must be a leaf"
         );
-        assert_eq!(kids(content_area(&dom)).len(), 1, "the content area holds exactly one child");
+        assert_eq!(
+            kids(content_area(&dom)).len(),
+            1,
+            "the content area holds exactly one child"
+        );
 
         assert_eq!(text_of(title_node(&dom)), Some("Title"));
         assert_eq!(text_of(&kids(content_area(&dom))[0]), Some("content"));
@@ -1043,8 +1197,16 @@ mod autotest_generated {
         // Dropping the node for an empty title would change the header's flex layout
         // (two rules instead of three items) and silently re-centre the rules.
         let dom = default_frame().dom();
-        assert_eq!(kids(header(&dom)).len(), 3, "an empty title collapsed the header");
-        assert_eq!(text_of(title_node(&dom)), Some(""), "the empty title node vanished");
+        assert_eq!(
+            kids(header(&dom)).len(),
+            3,
+            "an empty title collapsed the header"
+        );
+        assert_eq!(
+            text_of(title_node(&dom)),
+            Some(""),
+            "the empty title node vanished"
+        );
     }
 
     #[test]
@@ -1052,7 +1214,10 @@ mod autotest_generated {
         let dom = frame("t", Dom::create_div()).dom();
 
         assert_eq!(classes(&dom), vec!["__azul-native-frame".to_string()]);
-        assert_eq!(classes(header(&dom)), vec!["__azul-native-frame-header".to_string()]);
+        assert_eq!(
+            classes(header(&dom)),
+            vec!["__azul-native-frame-header".to_string()]
+        );
         assert_eq!(
             classes(rule_before(&dom)),
             vec!["__azul-native-frame-header-before".to_string()],
@@ -1061,11 +1226,17 @@ mod autotest_generated {
             classes(rule_after(&dom)),
             vec!["__azul-native-frame-header-after".to_string()],
         );
-        assert_eq!(classes(content_area(&dom)), vec!["__azul-native-frame-content".to_string()]);
+        assert_eq!(
+            classes(content_area(&dom)),
+            vec!["__azul-native-frame-content".to_string()]
+        );
 
         // The title node and the two inner rule divs are addressed by element/descendant
         // selectors only — they carry no class of their own.
-        assert!(classes(title_node(&dom)).is_empty(), "the title node grew a class");
+        assert!(
+            classes(title_node(&dom)).is_empty(),
+            "the title node grew a class"
+        );
         assert!(classes(&kids(rule_before(&dom))[0]).is_empty());
         assert!(classes(&kids(rule_after(&dom))[0]).is_empty());
     }
@@ -1074,8 +1245,14 @@ mod autotest_generated {
     fn dom_declares_exactly_the_build_time_constants_on_the_chrome_nodes() {
         let dom = frame("t", Dom::create_div()).dom();
 
-        assert_eq!(inline_props(&dom), declared(CSS_MATCH_8602559445190067154.as_ref()));
-        assert_eq!(inline_props(header(&dom)), declared(CSS_MATCH_16739370686243728873.as_ref()));
+        assert_eq!(
+            inline_props(&dom),
+            declared(CSS_MATCH_8602559445190067154.as_ref())
+        );
+        assert_eq!(
+            inline_props(header(&dom)),
+            declared(CSS_MATCH_16739370686243728873.as_ref())
+        );
         assert_eq!(
             inline_props(rule_before(&dom)),
             declared(CSS_MATCH_15775557796860201720.as_ref()),
@@ -1084,7 +1261,10 @@ mod autotest_generated {
             inline_props(rule_after(&dom)),
             declared(CSS_MATCH_9156589477016488419.as_ref()),
         );
-        assert_eq!(inline_props(title_node(&dom)), declared(CSS_MATCH_4236783900531286611.as_ref()));
+        assert_eq!(
+            inline_props(title_node(&dom)),
+            declared(CSS_MATCH_4236783900531286611.as_ref())
+        );
     }
 
     #[test]
@@ -1163,14 +1343,22 @@ mod autotest_generated {
         for node in all_nodes(&dom) {
             for p in inline_props(node) {
                 if let Some(c) = border_color_of(&p) {
-                    assert_eq!(c, BORDER_COLOR, "{:?} uses an off-palette colour", p.get_type());
+                    assert_eq!(
+                        c,
+                        BORDER_COLOR,
+                        "{:?} uses an off-palette colour",
+                        p.get_type()
+                    );
                     seen += 1;
                 }
             }
         }
         // top+left on the left rule, top+right on the right rule, all four on the content
         // area.
-        assert_eq!(seen, 8, "the number of coloured borders in the frame changed");
+        assert_eq!(
+            seen, 8,
+            "the number of coloured borders in the frame changed"
+        );
     }
 
     #[test]
@@ -1204,12 +1392,19 @@ mod autotest_generated {
         // an asymmetry in the widget's style constants, not in the code under test —
         // recorded here so a deliberate change to either side shows up as a failure.
         let dom = frame("t", Dom::create_div()).dom();
-        let before: Vec<CssPropertyType> =
-            inline_props(rule_before(&dom)).iter().map(CssProperty::get_type).collect();
-        let after: Vec<CssPropertyType> =
-            inline_props(rule_after(&dom)).iter().map(CssProperty::get_type).collect();
+        let before: Vec<CssPropertyType> = inline_props(rule_before(&dom))
+            .iter()
+            .map(CssProperty::get_type)
+            .collect();
+        let after: Vec<CssPropertyType> = inline_props(rule_after(&dom))
+            .iter()
+            .map(CssProperty::get_type)
+            .collect();
 
-        assert!(before.contains(&CssPropertyType::Width), "the left rule lost its width cap");
+        assert!(
+            before.contains(&CssPropertyType::Width),
+            "the left rule lost its width cap"
+        );
         assert!(
             !after.contains(&CssPropertyType::Width),
             "the right rule gained a width — the known before/after asymmetry was fixed, \
@@ -1230,8 +1425,14 @@ mod autotest_generated {
             CssPropertyType::FlexGrow,
             CssPropertyType::FlexDirection,
         ] {
-            assert!(before.contains(&shared), "the left rule is missing {shared:?}");
-            assert!(after.contains(&shared), "the right rule is missing {shared:?}");
+            assert!(
+                before.contains(&shared),
+                "the left rule is missing {shared:?}"
+            );
+            assert!(
+                after.contains(&shared),
+                "the right rule is missing {shared:?}"
+            );
         }
     }
 
@@ -1254,8 +1455,10 @@ mod autotest_generated {
 
         // ... and the height/border pair really does sit on the containers.
         for outer in [rule_before(&dom), rule_after(&dom)] {
-            let types: Vec<CssPropertyType> =
-                inline_props(outer).iter().map(CssProperty::get_type).collect();
+            let types: Vec<CssPropertyType> = inline_props(outer)
+                .iter()
+                .map(CssProperty::get_type)
+                .collect();
             assert!(types.contains(&CssPropertyType::Height));
             assert!(types.contains(&CssPropertyType::BorderTopWidth));
         }
@@ -1294,7 +1497,10 @@ mod autotest_generated {
         let dom = frame("t", content).dom();
         let placed = &kids(content_area(&dom))[0];
 
-        assert_eq!(*placed, expected, "the content DOM was rewritten on the way in");
+        assert_eq!(
+            *placed, expected,
+            "the content DOM was rewritten on the way in"
+        );
         assert_eq!(classes(placed), vec!["user-content".to_string()]);
         assert_eq!(kids(placed).len(), 2);
     }
@@ -1303,9 +1509,22 @@ mod autotest_generated {
     fn dom_is_deterministic_for_equal_inputs() {
         for t in ADVERSARIAL_TEXT {
             for v in ADVERSARIAL_FLOATS {
-                let a = frame(t, Dom::create_text_do_not_use_without_block_level_wrapper(t)).with_flex_grow(v).dom();
-                let b = frame(t, Dom::create_text_do_not_use_without_block_level_wrapper(t)).with_flex_grow(v).dom();
-                assert_eq!(a, b, "two identical frames rendered differently for {t:?} / {v}");
+                let a = frame(
+                    t,
+                    Dom::create_text_do_not_use_without_block_level_wrapper(t),
+                )
+                .with_flex_grow(v)
+                .dom();
+                let b = frame(
+                    t,
+                    Dom::create_text_do_not_use_without_block_level_wrapper(t),
+                )
+                .with_flex_grow(v)
+                .dom();
+                assert_eq!(
+                    a, b,
+                    "two identical frames rendered differently for {t:?} / {v}"
+                );
             }
         }
     }
@@ -1321,7 +1540,10 @@ mod autotest_generated {
         // ... while two factors that collapse to the same encoding are indistinguishable.
         let nan = default_frame().with_flex_grow(f32::NAN).dom();
         let zero = default_frame().with_flex_grow(0.0).dom();
-        assert_eq!(nan, zero, "NaN and 0.0 stopped encoding to the same style tree");
+        assert_eq!(
+            nan, zero,
+            "NaN and 0.0 stopped encoding to the same style tree"
+        );
     }
 
     #[test]
@@ -1334,8 +1556,15 @@ mod autotest_generated {
                 baseline,
                 "the title style changed for input {t:?}",
             );
-            assert_eq!(kids(header(&dom)).len(), 3, "the header shape changed for input {t:?}");
-            assert_eq!(dom.estimated_total_children, 9, "the node count changed for {t:?}");
+            assert_eq!(
+                kids(header(&dom)).len(),
+                3,
+                "the header shape changed for input {t:?}"
+            );
+            assert_eq!(
+                dom.estimated_total_children, 9,
+                "the node count changed for {t:?}"
+            );
         }
     }
 }

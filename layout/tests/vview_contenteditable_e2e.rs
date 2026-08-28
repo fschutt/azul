@@ -57,10 +57,7 @@ fn fresh_model() -> SharedModel {
 
 /// The VirtualView callback: renders the model's current page window.
 extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
-    let model = data
-        .downcast_ref::<SharedModel>()
-        .expect("model")
-        .clone();
+    let model = data.downcast_ref::<SharedModel>().expect("model").clone();
     let mut model = model.lock().unwrap();
     // #16: the engine's reinvoke signal must carry document-space offsets
     // the app can feed straight into page_of_y ("user is looking at pages
@@ -77,7 +74,9 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
         for para in &model.pages[page_idx] {
             let mut p = Dom::create_div().with_css("display: block;");
             p.set_contenteditable(true);
-            p = p.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(para.as_str()));
+            p = p.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                para.as_str(),
+            ));
             page = page.with_child(p);
         }
         root = root.with_child(page);
@@ -105,9 +104,8 @@ fn relayout(lw: &mut LayoutWindow, model: &SharedModel) {
         )
         .with_css("width: 600px; height: 500px; overflow: hidden;"),
     );
-    let (css, _) = azul_css::parser2::new_from_str(
-        "* { margin: 0; padding: 0; } body { font-size: 14px; }",
-    );
+    let (css, _) =
+        azul_css::parser2::new_from_str("* { margin: 0; padding: 0; } body { font-size: 14px; }");
     let styled_dom = StyledDom::create(&mut dom, css);
     let window_state = lw.current_window_state.clone();
     let renderer_resources = RendererResources::default();
@@ -262,8 +260,8 @@ fn edit_page_one_scroll_far_undo_reverts_without_corruption() {
     // ── Scroll back: page 0 shows the ORIGINAL text again.
     model.lock().unwrap().window = 0..5;
     relayout(&mut lw, &model);
-    let (para_after, _) = find_para(&lw, nested, "page 0 content")
-        .expect("page 0 re-mounted with the reverted text");
+    let (para_after, _) =
+        find_para(&lw, nested, "page 0 content").expect("page 0 re-mounted with the reverted text");
     assert!(
         find_para(&lw, nested, "page 0 ").map(|(p, _)| p) == Some(para_after),
         "no leftover split half: the only 'page 0 ' hit is the merged paragraph"
@@ -283,7 +281,6 @@ fn edit_page_one_scroll_far_undo_reverts_without_corruption() {
         "a notified-but-unacked redo drops at the re-render (C11 promise)"
     );
 }
-
 
 /// AZUL-STILL-TODO #16: the reinvoke path hands the app a CLEAN
 /// "user is now looking at pages N..M" signal — document-space scroll
@@ -374,9 +371,13 @@ fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
             eff_scroll, declared_scroll,
             "None keeps the declared window, it does not invent one"
         );
-        let _ = lw
-            .virtual_view_manager
-            .update_virtual_view_info(DomId::ROOT_ID, vv_node, azul_core::geom::LogicalPosition::zero(), eff_scroll, eff_virtual);
+        let _ = lw.virtual_view_manager.update_virtual_view_info(
+            DomId::ROOT_ID,
+            vv_node,
+            azul_core::geom::LogicalPosition::zero(),
+            eff_scroll,
+            eff_virtual,
+        );
         lw.scroll_manager
             .update_virtual_scroll_bounds(DomId::ROOT_ID, vv_node, eff_virtual, None);
         lw.scroll_manager.calculate_scrollbar_states();
@@ -398,9 +399,13 @@ fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
             .get_declared_sizes(DomId::ROOT_ID, vv_node);
         let eff_virtual = None.or(kept_virtual).unwrap();
         let eff_scroll = Some(phase2_scroll).or(kept_scroll).unwrap_or(eff_virtual);
-        let _ = lw
-            .virtual_view_manager
-            .update_virtual_view_info(DomId::ROOT_ID, vv_node, azul_core::geom::LogicalPosition::zero(), eff_scroll, eff_virtual);
+        let _ = lw.virtual_view_manager.update_virtual_view_info(
+            DomId::ROOT_ID,
+            vv_node,
+            azul_core::geom::LogicalPosition::zero(),
+            eff_scroll,
+            eff_virtual,
+        );
         lw.scroll_manager
             .update_virtual_scroll_bounds(DomId::ROOT_ID, vv_node, eff_virtual, None);
         lw.scroll_manager.calculate_scrollbar_states();

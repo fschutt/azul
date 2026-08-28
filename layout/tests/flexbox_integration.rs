@@ -635,7 +635,9 @@ fn test_flexbox_flex_basis_auto() {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Content")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Content",
+                )),
         );
 
     let css = r#"
@@ -707,13 +709,22 @@ fn test_flexbox_flex_basis_zero() {
 fn min_height_zero_lets_a_flex_child_shrink_below_its_content() {
     fn word_shell(canvas_css: &str) -> (Dom, String) {
         let dom = Dom::create_body()
-            .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("title".into())].into()))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("title".into())].into()),
+            )
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![IdOrClass::Class("canvas".into())].into())
-                    .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("sheet".into())].into())),
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(vec![IdOrClass::Class("sheet".into())].into()),
+                    ),
             )
-            .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("status".into())].into()));
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("status".into())].into()),
+            );
         let css = format!(
             r#"
             * {{ margin: 0; padding: 0; }}
@@ -785,13 +796,22 @@ fn min_height_zero_lets_a_flex_child_shrink_below_its_content() {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(vec![IdOrClass::Class("col".into())].into())
-            .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("title".into())].into()))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("title".into())].into()),
+            )
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![IdOrClass::Class("canvas".into())].into())
-                    .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("sheet".into())].into())),
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(vec![IdOrClass::Class("sheet".into())].into()),
+                    ),
             )
-            .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("status".into())].into())),
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("status".into())].into()),
+            ),
     );
     let css = r#"
         * { margin: 0; padding: 0; }

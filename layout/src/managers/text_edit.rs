@@ -20,7 +20,6 @@ use azul_core::{
     task::{Duration, Instant},
 };
 
-
 /// Default cursor blink interval in milliseconds
 pub const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
 
@@ -65,9 +64,11 @@ impl Default for BlinkState {
     }
 }
 
-
 impl BlinkState {
-    #[must_use] pub fn new() -> Self { Self::default() }
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Override the blink interval (from `caret-animation-duration`).
     ///
@@ -122,7 +123,8 @@ impl BlinkState {
         self.blink_timer_active = active;
     }
 
-    #[must_use] pub const fn is_blink_timer_active(&self) -> bool {
+    #[must_use]
+    pub const fn is_blink_timer_active(&self) -> bool {
         self.blink_timer_active
     }
 
@@ -134,10 +136,12 @@ impl BlinkState {
     /// meant a tick-driven clock produced a `Duration::Tick` elapsed value that
     /// could never be "greater than" it — the caret stopped blinking, silently
     /// and permanently, on every clockless build.
-    #[must_use] pub fn should_blink(&self, now: &Instant) -> bool {
+    #[must_use]
+    pub fn should_blink(&self, now: &Instant) -> bool {
         self.last_input_time.as_ref().is_none_or(|last_input| {
-                now.duration_since(last_input).greater_than(&self.blink_interval)
-            })
+            now.duration_since(last_input)
+                .greater_than(&self.blink_interval)
+        })
     }
 
     /// Clear all blink state (when editing ends).
@@ -253,13 +257,15 @@ impl Clone for TextTweenState {
 impl TextTweenState {
     /// True while any tween is mid-flight (drives the 16ms tween timer and
     /// forces the caret solid — blinking is suppressed during animation).
-    #[must_use] pub const fn is_active(&self) -> bool {
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
         self.caret.is_some() || self.selection.is_some() || self.focus_ring.is_some()
     }
 
     /// Publish `is_active()` to the shared flag the tween timer polls.
     pub fn publish_active(&self) {
-        self.tick_flag.store(self.is_active(), AtomicOrdering::Release);
+        self.tick_flag
+            .store(self.is_active(), AtomicOrdering::Release);
     }
 
     /// Reset all tracking (focus lost / editing cleared / dom switched).
@@ -380,7 +386,8 @@ impl PartialEq for TextEditManager {
 
 impl TextEditManager {
     /// Create a new text edit manager with no active editing state
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             multi_cursor: None,
             cross_block: None,
@@ -404,28 +411,36 @@ impl TextEditManager {
     // === Editing lifecycle ===
 
     /// Whether a contenteditable element is currently being edited.
-    #[must_use] pub const fn has_active_editing(&self) -> bool {
+    #[must_use]
+    pub const fn has_active_editing(&self) -> bool {
         self.multi_cursor.is_some()
     }
 
     /// Get the `DomId` of the node being edited.
-    #[must_use] pub fn get_editing_dom_id(&self) -> Option<DomId> {
+    #[must_use]
+    pub fn get_editing_dom_id(&self) -> Option<DomId> {
         self.multi_cursor.as_ref().map(|mc| mc.node_id.dom)
     }
 
     /// Get the `NodeId` of the node being edited.
-    #[must_use] pub fn get_editing_node_id(&self) -> Option<NodeId> {
-        self.multi_cursor.as_ref()
+    #[must_use]
+    pub fn get_editing_node_id(&self) -> Option<NodeId> {
+        self.multi_cursor
+            .as_ref()
             .and_then(|mc| mc.node_id.node.into_crate_internal())
     }
 
     /// Get the primary cursor position (last-added cursor).
-    #[must_use] pub fn get_primary_cursor(&self) -> Option<TextCursor> {
-        self.multi_cursor.as_ref().and_then(MultiCursorState::get_primary_cursor)
+    #[must_use]
+    pub fn get_primary_cursor(&self) -> Option<TextCursor> {
+        self.multi_cursor
+            .as_ref()
+            .and_then(MultiCursorState::get_primary_cursor)
     }
 
     /// Whether the cursor should be drawn (editing active AND blink visible).
-    #[must_use] pub const fn should_draw_cursor(&self) -> bool {
+    #[must_use]
+    pub const fn should_draw_cursor(&self) -> bool {
         self.has_active_editing() && self.blink.is_visible
     }
 
@@ -588,20 +603,24 @@ impl TextEditManager {
     /// Build the Vec of cursor locations for `LayoutContext`.
     ///
     /// Returns all cursor positions from `MultiCursorState`, or empty if not editing.
-    #[must_use] pub fn build_cursor_locations(&self) -> Vec<(DomId, NodeId, TextCursor)> {
+    #[must_use]
+    pub fn build_cursor_locations(&self) -> Vec<(DomId, NodeId, TextCursor)> {
         let Some(ref mc) = self.multi_cursor else {
             return Vec::new();
         };
         let Some(node_id) = mc.node_id.node.into_crate_internal() else {
             return Vec::new();
         };
-        mc.selections.iter().map(|s| {
-            let cursor = match &s.selection {
-                Selection::Cursor(c) => *c,
-                Selection::Range(r) => r.end,
-            };
-            (mc.node_id.dom, node_id, cursor)
-        }).collect()
+        mc.selections
+            .iter()
+            .map(|s| {
+                let cursor = match &s.selection {
+                    Selection::Cursor(c) => *c,
+                    Selection::Range(r) => r.end,
+                };
+                (mc.node_id.dom, node_id, cursor)
+            })
+            .collect()
     }
 
     /// Cross-block selection (spans multiple IFC roots), precomputed by
@@ -622,7 +641,9 @@ impl TextEditManager {
     }
 
     /// Take the cross-block selection (delete/apply flows consume it).
-    pub const fn take_cross_block_selection(&mut self) -> Option<azul_core::selection::TextSelection> {
+    pub const fn take_cross_block_selection(
+        &mut self,
+    ) -> Option<azul_core::selection::TextSelection> {
         let s = self.cross_block.take();
         if s.is_some() {
             self.display_list_dirty = true;
@@ -631,7 +652,8 @@ impl TextEditManager {
     }
 
     /// The active cross-block selection, if any.
-    #[must_use] pub const fn get_cross_block_selection(&self) -> Option<&azul_core::selection::TextSelection> {
+    #[must_use]
+    pub const fn get_cross_block_selection(&self) -> Option<&azul_core::selection::TextSelection> {
         self.cross_block.as_ref()
     }
 
@@ -690,13 +712,16 @@ impl TextEditManager {
     /// `affected_nodes` carries EVERY range of the session under the one node
     /// key, so a multi-range (Ctrl+D) session paints all of its occurrences and
     /// not just the primary one.
-    #[must_use] pub fn build_text_selections_map(&self) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
+    #[must_use]
+    pub fn build_text_selections_map(
+        &self,
+    ) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
         if let Some(cb) = &self.cross_block {
             let mut map = std::collections::BTreeMap::new();
             map.insert(cb.dom_id, cb.clone());
             return map;
         }
-        use azul_core::selection::{TextSelection, SelectionAnchor, SelectionFocus};
+        use azul_core::selection::{SelectionAnchor, SelectionFocus, TextSelection};
 
         let mut map = std::collections::BTreeMap::new();
         let Some(session) = self.session_selection_ranges() else {
@@ -707,22 +732,25 @@ impl TextEditManager {
         let mut affected_nodes = std::collections::BTreeMap::new();
         affected_nodes.insert(session.node_id, session.ranges);
 
-        map.insert(session.dom_id, TextSelection {
-            dom_id: session.dom_id,
-            anchor: SelectionAnchor {
-                ifc_root_node_id: session.node_id,
-                cursor: range.start,
-                char_bounds: LogicalRect::zero(),
-                mouse_position: azul_core::geom::LogicalPosition::zero(),
+        map.insert(
+            session.dom_id,
+            TextSelection {
+                dom_id: session.dom_id,
+                anchor: SelectionAnchor {
+                    ifc_root_node_id: session.node_id,
+                    cursor: range.start,
+                    char_bounds: LogicalRect::zero(),
+                    mouse_position: azul_core::geom::LogicalPosition::zero(),
+                },
+                focus: SelectionFocus {
+                    ifc_root_node_id: session.node_id,
+                    cursor: range.end,
+                    mouse_position: azul_core::geom::LogicalPosition::zero(),
+                },
+                affected_nodes,
+                is_forward: range_is_forward(&range),
             },
-            focus: SelectionFocus {
-                ifc_root_node_id: session.node_id,
-                cursor: range.end,
-                mouse_position: azul_core::geom::LogicalPosition::zero(),
-            },
-            affected_nodes,
-            is_forward: range_is_forward(&range),
-        });
+        );
 
         map
     }
@@ -780,25 +808,22 @@ impl crate::managers::NodeIdRemap for TextEditManager {
         // A cross-block selection is render-ready geometry keyed by IFC-root
         // NodeIds. Unremapped, it paints a highlight over whichever nodes
         // inherited those indices.
-        if self
-            .cross_block
-            .as_ref()
-            .is_some_and(|cb| cb.dom_id == dom)
-        {
+        if self.cross_block.as_ref().is_some_and(|cb| cb.dom_id == dom) {
             self.remap_cross_block_selection(map);
         }
 
         // Queued `Input` notifications name the host they belong to; a host
         // that was unmounted has no event to dispatch, and keeping the id
         // would dispatch it at the node that took its place.
-        self.pending_edit_notifications
-            .retain_mut(|node| match map.resolve_dom_node_id(dom, *node) {
+        self.pending_edit_notifications.retain_mut(|node| {
+            match map.resolve_dom_node_id(dom, *node) {
                 Some(new_id) => {
                     *node = new_id;
                     true
                 }
                 None => false,
-            });
+            }
+        });
     }
 }
 
@@ -907,9 +932,7 @@ mod autotest_generated {
                 selection,
             })
             .collect();
-        let primary_id = identified
-            .last()
-            .map_or_else(SelectionId::new, |s| s.id);
+        let primary_id = identified.last().map_or_else(SelectionId::new, |s| s.id);
         MultiCursorState {
             selections: identified,
             primary_id,
@@ -937,7 +960,10 @@ mod autotest_generated {
         // The default interval is the wall-clock one, so every existing caller
         // that never sets an interval keeps the 530ms behaviour it had.
         assert_eq!(b.blink_interval, CURSOR_BLINK_INTERVAL);
-        assert_eq!(b.blink_interval, Duration::from_millis(CURSOR_BLINK_INTERVAL_MS));
+        assert_eq!(
+            b.blink_interval,
+            Duration::from_millis(CURSOR_BLINK_INTERVAL_MS)
+        );
         // No input has ever been recorded, so blinking is allowed immediately.
         assert!(b.should_blink(&Instant::now()));
     }
@@ -959,7 +985,10 @@ mod autotest_generated {
             assert_eq!(returned, expected);
             assert_eq!(b.is_visible, expected);
         }
-        assert!(!b.is_visible, "an even number of toggles restores the state");
+        assert!(
+            !b.is_visible,
+            "an even number of toggles restores the state"
+        );
     }
 
     #[test]
@@ -1492,13 +1521,13 @@ mod autotest_generated {
         let mut m = TextEditManager::new();
 
         for text in [
-            "こんにちは",                 // CJK — the common IME case
-            "👨‍👩‍👧‍👦",                        // ZWJ emoji family (one grapheme, many bytes)
-            "e\u{0301}\u{0327}",          // combining acute + cedilla
-            "مرحبا",                      // RTL
-            "a\u{0000}b",                 // interior NUL
-            "\u{FEFF}bom",                // byte-order mark
-            "🇩🇪🇯🇵",                        // regional-indicator flags
+            "こんにちは",        // CJK — the common IME case
+            "👨‍👩‍👧‍👦",                // ZWJ emoji family (one grapheme, many bytes)
+            "e\u{0301}\u{0327}", // combining acute + cedilla
+            "مرحبا",             // RTL
+            "a\u{0000}b",        // interior NUL
+            "\u{FEFF}bom",       // byte-order mark
+            "🇩🇪🇯🇵",              // regional-indicator flags
         ] {
             m.set_preedit(text.to_string(), 0, 1);
             assert_eq!(
@@ -1630,11 +1659,7 @@ mod autotest_generated {
             .collect();
 
         let mut m = TextEditManager::new();
-        m.multi_cursor = Some(multi_cursor_with(
-            dom_node(DOM0, Some(node)),
-            selections,
-            9,
-        ));
+        m.multi_cursor = Some(multi_cursor_with(dom_node(DOM0, Some(node)), selections, 9));
 
         let locations = m.build_cursor_locations();
         assert_eq!(locations.len(), 1000);
@@ -1648,7 +1673,9 @@ mod autotest_generated {
 
     #[test]
     fn autotest_build_text_selections_map_empty_without_session() {
-        assert!(TextEditManager::new().build_text_selections_map().is_empty());
+        assert!(TextEditManager::new()
+            .build_text_selections_map()
+            .is_empty());
     }
 
     #[test]
@@ -1707,7 +1734,10 @@ mod autotest_generated {
         assert_eq!(sel.focus.cursor, end);
         assert!(!sel.is_forward, "anchor is logically AFTER the focus");
         assert!(!range_is_forward(&range(start, end)));
-        assert!(range_is_forward(&range(end, start)), "the mirrored drag is forward");
+        assert!(
+            range_is_forward(&range(end, start)),
+            "the mirrored drag is forward"
+        );
         assert!(
             range_is_forward(&range(start, start)),
             "a degenerate range counts as forward, like TextSelection::new_collapsed"
@@ -1739,7 +1769,10 @@ mod autotest_generated {
         let map = m.build_text_selections_map();
         assert_eq!(map.len(), 1, "one entry per DomId, not per range");
         let sel = map.get(&DOM0).expect("keyed by the editing DomId");
-        assert_eq!(sel.anchor.cursor, last.start, "endpoints from the PRIMARY range");
+        assert_eq!(
+            sel.anchor.cursor, last.start,
+            "endpoints from the PRIMARY range"
+        );
         assert_eq!(sel.focus.cursor, last.end);
         assert_eq!(sel.affected_nodes.len(), 1, "one node key, several ranges");
         assert_eq!(
@@ -1776,7 +1809,9 @@ mod autotest_generated {
             9,
         ));
 
-        let session = m.session_selection_ranges().expect("one range is a session");
+        let session = m
+            .session_selection_ranges()
+            .expect("one range is a session");
         assert_eq!(session.ranges, vec![only]);
         assert_eq!(session.primary, only);
 
@@ -1833,7 +1868,10 @@ mod autotest_generated {
     #[test]
     fn autotest_remap_without_session_is_a_noop() {
         let mut m = TextEditManager::new();
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::ZERO, NodeId::new(1))]));
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::ZERO, NodeId::new(1))]),
+        );
 
         assert!(!m.has_active_editing());
         assert!(
@@ -1848,7 +1886,10 @@ mod autotest_generated {
         m.initialize_editing(cursor(0, 2), DOM0, NodeId::new(3), 55);
         m.set_preedit("ok".to_string(), 0, 2);
 
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(8))]));
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(8))]),
+        );
 
         assert!(m.has_active_editing());
         assert_eq!(m.get_editing_node_id(), Some(NodeId::new(8)));
@@ -1874,7 +1915,10 @@ mod autotest_generated {
         m.display_list_dirty = false;
 
         // The rebuilt DOM matched some *other* node — 3 is unmounted.
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(4), NodeId::new(4))]));
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(4), NodeId::new(4))]),
+        );
 
         assert!(!m.has_active_editing());
         assert!(m.multi_cursor.is_none());
@@ -1974,7 +2018,10 @@ mod autotest_generated {
         assert_eq!(m.tween.node, Some(dom_node(DOM0, Some(NodeId::new(3)))));
 
         // A sibling was inserted ahead of it: same node, new index.
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(4))]));
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(4))]),
+        );
 
         assert_eq!(
             m.tween.node,
@@ -1997,7 +2044,10 @@ mod autotest_generated {
         assert!(m.tween.tick_flag.load(AtomicOrdering::Acquire));
 
         // Node 3 is absent from the map => unmounted.
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(9), NodeId::new(9))]));
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(9), NodeId::new(9))]),
+        );
 
         assert!(m.tween.node.is_none());
         assert!(
@@ -2027,7 +2077,10 @@ mod autotest_generated {
         m.tween.last_caret = Some(rect(11.0, 0.0));
         assert!(m.tween.node.is_none());
 
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(5))]));
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(5))]),
+        );
 
         assert!(m.tween.last_caret.is_none());
         assert!(m.tween.node.is_none());
@@ -2055,7 +2108,10 @@ mod autotest_generated {
         assert_eq!(clone.last_caret, m.tween.last_caret);
         assert_eq!(clone.last_selection, m.tween.last_selection);
         let (a, b) = (
-            clone.caret.as_ref().expect("in-flight caret must be cloned"),
+            clone
+                .caret
+                .as_ref()
+                .expect("in-flight caret must be cloned"),
             m.tween.caret.as_ref().expect("original"),
         );
         assert_eq!(a.from, b.from);
@@ -2131,7 +2187,10 @@ mod autotest_generated {
 
         m.remap_node_ids(
             DOM0,
-            &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(3)), (NodeId::new(5), NodeId::new(6))]),
+            &NodeIdMap::from_pairs([
+                (NodeId::new(2), NodeId::new(3)),
+                (NodeId::new(5), NodeId::new(6)),
+            ]),
         );
 
         let cb = m.get_cross_block_selection().expect("both roots survived");
@@ -2150,7 +2209,10 @@ mod autotest_generated {
         let mut m = TextEditManager::new();
         m.set_cross_block_selection(cross_block_selection(NodeId::new(2), NodeId::new(5)));
 
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(2))]));
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(2))]),
+        );
 
         assert!(
             m.get_cross_block_selection().is_none(),
@@ -2167,7 +2229,9 @@ mod autotest_generated {
 
         m.remap_node_ids(DOM0, &NodeIdMap::default());
 
-        let cb = m.get_cross_block_selection().expect("other DOM is untouched");
+        let cb = m
+            .get_cross_block_selection()
+            .expect("other DOM is untouched");
         assert_eq!(cb.anchor.ifc_root_node_id, NodeId::new(2));
         assert_eq!(cb.focus.ifc_root_node_id, NodeId::new(5));
     }
@@ -2180,7 +2244,10 @@ mod autotest_generated {
 
         m.remap_node_ids(
             DOM0,
-            &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(2)), (NodeId::new(5), NodeId::new(5))]),
+            &NodeIdMap::from_pairs([
+                (NodeId::new(2), NodeId::new(2)),
+                (NodeId::new(5), NodeId::new(5)),
+            ]),
         );
 
         assert!(m.get_cross_block_selection().is_some());
@@ -2199,7 +2266,10 @@ mod autotest_generated {
             dom_node(DOM1, Some(NodeId::new(4))),
         ];
 
-        m.remap_node_ids(DOM0, &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(0))]));
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(0))]),
+        );
 
         assert_eq!(
             m.pending_edit_notifications,

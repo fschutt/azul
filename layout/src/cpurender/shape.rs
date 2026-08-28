@@ -39,7 +39,12 @@ pub fn alpha_shape_rects(pixmap: &AzulPixmap, threshold: u8) -> Vec<ShapeRect> {
 /// [`alpha_shape_rects`] over raw RGBA8 (premultiplied or not - only the
 /// alpha byte is read), `width * height * 4` bytes.
 #[must_use]
-pub fn alpha_shape_rects_raw(rgba: &[u8], width: u32, height: u32, threshold: u8) -> Vec<ShapeRect> {
+pub fn alpha_shape_rects_raw(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    threshold: u8,
+) -> Vec<ShapeRect> {
     let w = width as usize;
     let h = height as usize;
     if w == 0 || h == 0 || rgba.len() < w * h * 4 {
@@ -75,7 +80,12 @@ pub fn alpha_shape_rects_raw(rgba: &[u8], width: u32, height: u32, threshold: u8
         }
         prev_start = out.len();
         #[allow(clippy::cast_possible_truncation)] // within `height`
-        out.extend(runs.iter().map(|&(x, width)| ShapeRect { x, y: y as u32, width, height: 1 }));
+        out.extend(runs.iter().map(|&(x, width)| ShapeRect {
+            x,
+            y: y as u32,
+            width,
+            height: 1,
+        }));
         core::mem::swap(&mut prev_runs, &mut runs);
         if out.len() == prev_start {
             // An empty row breaks vertical merging.
@@ -106,7 +116,12 @@ mod tests {
         let full = frame(5, 3, |_, _| true);
         assert_eq!(
             alpha_shape_rects_raw(&full, 5, 3, SHAPE_ALPHA_THRESHOLD),
-            vec![ShapeRect { x: 0, y: 0, width: 5, height: 3 }]
+            vec![ShapeRect {
+                x: 0,
+                y: 0,
+                width: 5,
+                height: 3
+            }]
         );
         let empty = frame(5, 3, |_, _| false);
         assert!(alpha_shape_rects_raw(&empty, 5, 3, SHAPE_ALPHA_THRESHOLD).is_empty());
@@ -120,8 +135,18 @@ mod tests {
         assert_eq!(
             alpha_shape_rects_raw(&f, 6, 4, SHAPE_ALPHA_THRESHOLD),
             vec![
-                ShapeRect { x: 1, y: 0, width: 4, height: 1 },
-                ShapeRect { x: 0, y: 1, width: 6, height: 3 },
+                ShapeRect {
+                    x: 1,
+                    y: 0,
+                    width: 4,
+                    height: 1
+                },
+                ShapeRect {
+                    x: 0,
+                    y: 1,
+                    width: 6,
+                    height: 3
+                },
             ]
         );
     }
@@ -137,9 +162,24 @@ mod tests {
         assert_eq!(
             alpha_shape_rects_raw(&f, 5, 3, SHAPE_ALPHA_THRESHOLD),
             vec![
-                ShapeRect { x: 0, y: 0, width: 2, height: 1 },
-                ShapeRect { x: 4, y: 0, width: 1, height: 1 },
-                ShapeRect { x: 0, y: 2, width: 2, height: 1 },
+                ShapeRect {
+                    x: 0,
+                    y: 0,
+                    width: 2,
+                    height: 1
+                },
+                ShapeRect {
+                    x: 4,
+                    y: 0,
+                    width: 1,
+                    height: 1
+                },
+                ShapeRect {
+                    x: 0,
+                    y: 2,
+                    width: 2,
+                    height: 1
+                },
             ]
         );
     }
@@ -152,7 +192,12 @@ mod tests {
         f[11] = 255;
         assert_eq!(
             alpha_shape_rects_raw(&f, 3, 1, SHAPE_ALPHA_THRESHOLD),
-            vec![ShapeRect { x: 1, y: 0, width: 2, height: 1 }]
+            vec![ShapeRect {
+                x: 1,
+                y: 0,
+                width: 2,
+                height: 1
+            }]
         );
     }
 }

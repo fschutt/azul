@@ -67,7 +67,8 @@ pub mod decode {
     ///
     /// The image format is guessed from the byte contents. Returns the decoded
     /// pixel data along with dimensions and format information.
-    #[must_use] pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
+    #[must_use]
+    pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
         use azul_core::resources::RawImageData;
 
         let image_format = match image::guess_format(image_bytes) {
@@ -188,7 +189,11 @@ pub mod decode {
                 );
             }
             let unique = rendered.iter().collect::<BTreeSet<_>>();
-            assert_eq!(unique.len(), ALL_ERRORS.len(), "Display collides: {rendered:?}");
+            assert_eq!(
+                unique.len(),
+                ALL_ERRORS.len(),
+                "Display collides: {rendered:?}"
+            );
         }
 
         #[test]
@@ -354,7 +359,12 @@ pub mod decode {
             let bmp_magic = b"BM";
             let jpeg_magic = b"\xFF\xD8\xFF";
 
-            for magic in [&png_magic[..], &gif_magic[..], &bmp_magic[..], &jpeg_magic[..]] {
+            for magic in [
+                &png_magic[..],
+                &gif_magic[..],
+                &bmp_magic[..],
+                &jpeg_magic[..],
+            ] {
                 let mut bytes = magic.to_vec();
                 let r = decode_raw_image_from_any_bytes(&bytes);
                 assert!(r.is_err(), "header-only input decoded: {magic:?}");
@@ -428,7 +438,10 @@ pub mod decode {
                 // Ok is acceptable in principle (e.g. a flipped byte in a padding field),
                 // the invariant under test is "no panic, and dimensions stay sane".
                 if let Ok(img) = r.as_result() {
-                    assert!(img.width <= 2 && img.height <= 2, "corrupt byte {i} grew the image");
+                    assert!(
+                        img.width <= 2 && img.height <= 2,
+                        "corrupt byte {i} grew the image"
+                    );
                 }
             }
         }
@@ -446,7 +459,7 @@ pub mod encode {
     use image::codecs::bmp::BmpEncoder;
     #[cfg(feature = "gif")]
     use image::codecs::gif::GifEncoder;
-#[cfg(feature = "jpeg")]
+    #[cfg(feature = "jpeg")]
     use image::codecs::jpeg::JpegEncoder;
     #[cfg(feature = "png")]
     use image::codecs::png::PngEncoder;
@@ -472,7 +485,9 @@ pub mod encode {
 
     impl fmt::Display for EncodeImageError {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            use self::EncodeImageError::{EncoderNotAvailable, InsufficientMemory, DimensionError, InvalidData, Unknown};
+            use self::EncodeImageError::{
+                DimensionError, EncoderNotAvailable, InsufficientMemory, InvalidData, Unknown,
+            };
             match self {
                 EncoderNotAvailable => write!(
                     f,
@@ -550,11 +565,15 @@ pub mod encode {
             pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
                 let width = match u32::try_from(image.width) {
                     Ok(w) => w,
-                    Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
+                    Err(_) => {
+                        return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError)
+                    }
                 };
                 let height = match u32::try_from(image.height) {
                     Ok(h) => h,
-                    Err(_) => return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError),
+                    Err(_) => {
+                        return ResultU8VecEncodeImageError::Err(EncodeImageError::DimensionError)
+                    }
                 };
                 let mut result = Vec::<u8>::new();
 
@@ -585,7 +604,8 @@ pub mod encode {
             }
 
             #[cfg(not(feature = $feature))]
-            #[must_use] pub const fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
+            #[must_use]
+            pub const fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
                 ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
             }
         };
@@ -642,7 +662,8 @@ pub mod encode {
     }
 
     #[cfg(not(feature = "png"))]
-    #[must_use] pub const fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
+    #[must_use]
+    pub const fn encode_png(image: &RawImage) -> ResultU8VecEncodeImageError {
         ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
     }
 
@@ -685,7 +706,8 @@ pub mod encode {
     }
 
     #[cfg(not(feature = "jpeg"))]
-    #[must_use] pub const fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
+    #[must_use]
+    pub const fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
         ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
     }
 
@@ -757,7 +779,11 @@ pub mod encode {
                 assert!(!s.is_empty(), "empty Display for {e:?}");
             }
             let unique = rendered.iter().collect::<BTreeSet<_>>();
-            assert_eq!(unique.len(), ALL_ERRORS.len(), "Display collides: {rendered:?}");
+            assert_eq!(
+                unique.len(),
+                ALL_ERRORS.len(),
+                "Display collides: {rendered:?}"
+            );
         }
 
         #[test]
@@ -809,7 +835,9 @@ pub mod encode {
 
         #[test]
         fn colortype_mapping_is_exhaustive_and_stable() {
-            use image::ColorType::{L16, L8, La16, La8, Rgb16, Rgb32F, Rgb8, Rgba16, Rgba32F, Rgba8};
+            use image::ColorType::{
+                La16, La8, Rgb16, Rgb32F, Rgb8, Rgba16, Rgba32F, Rgba8, L16, L8,
+            };
 
             let expected = [
                 (RawImageFormat::R8, L8),
@@ -825,7 +853,11 @@ pub mod encode {
                 (RawImageFormat::RGBF32, Rgb32F),
                 (RawImageFormat::RGBAF32, Rgba32F),
             ];
-            assert_eq!(expected.len(), ALL_FORMATS.len(), "a RawImageFormat variant is untested");
+            assert_eq!(
+                expected.len(),
+                ALL_FORMATS.len(),
+                "a RawImageFormat variant is untested"
+            );
             for (format, want) in expected {
                 assert_eq!(
                     translate_rawimage_colortype(format),
@@ -883,8 +915,16 @@ pub mod encode {
                 if matches!(f, RawImageFormat::BGR8 | RawImageFormat::BGRA8) {
                     continue;
                 }
-                assert_eq!(bgr_to_rgb_swap(&[1, 2, 3, 4, 5, 6], f), None, "{f:?} should not swap");
-                assert_eq!(bgr_to_rgb_swap(&[], f), None, "{f:?} should not swap (empty)");
+                assert_eq!(
+                    bgr_to_rgb_swap(&[1, 2, 3, 4, 5, 6], f),
+                    None,
+                    "{f:?} should not swap"
+                );
+                assert_eq!(
+                    bgr_to_rgb_swap(&[], f),
+                    None,
+                    "{f:?} should not swap (empty)"
+                );
             }
         }
 
@@ -892,7 +932,10 @@ pub mod encode {
         fn swap_of_empty_input_is_some_empty_not_none() {
             // Empty input is *not* an error here: the format decides Some/None.
             assert_eq!(bgr_to_rgb_swap(&[], RawImageFormat::BGR8), Some(Vec::new()));
-            assert_eq!(bgr_to_rgb_swap(&[], RawImageFormat::BGRA8), Some(Vec::new()));
+            assert_eq!(
+                bgr_to_rgb_swap(&[], RawImageFormat::BGRA8),
+                Some(Vec::new())
+            );
         }
 
         #[test]
@@ -916,7 +959,10 @@ pub mod encode {
         #[test]
         fn swap_leaves_a_trailing_partial_pixel_untouched() {
             assert_eq!(bgr_to_rgb_swap(&[1], RawImageFormat::BGR8), Some(vec![1]));
-            assert_eq!(bgr_to_rgb_swap(&[1, 2], RawImageFormat::BGR8), Some(vec![1, 2]));
+            assert_eq!(
+                bgr_to_rgb_swap(&[1, 2], RawImageFormat::BGR8),
+                Some(vec![1, 2])
+            );
             assert_eq!(
                 bgr_to_rgb_swap(&[1, 2, 3, 4], RawImageFormat::BGR8),
                 Some(vec![3, 2, 1, 4])
@@ -941,9 +987,16 @@ pub mod encode {
                 for len in 0..64usize {
                     let input = (0..len).map(|i| (i % 251) as u8).collect::<Vec<_>>();
                     let once = bgr_to_rgb_swap(&input, format).expect("BGR format must swap");
-                    assert_eq!(once.len(), input.len(), "length changed for {format:?}, len {len}");
+                    assert_eq!(
+                        once.len(),
+                        input.len(),
+                        "length changed for {format:?}, len {len}"
+                    );
                     let twice = bgr_to_rgb_swap(&once, format).expect("BGR format must swap");
-                    assert_eq!(twice, input, "swap is not an involution for {format:?}, len {len}");
+                    assert_eq!(
+                        twice, input,
+                        "swap is not an involution for {format:?}, len {len}"
+                    );
                     // Only whole pixels move; the tail is untouched.
                     let tail = len - (len / stride) * stride;
                     assert_eq!(once[len - tail..], input[len - tail..]);
@@ -1050,7 +1103,9 @@ pub mod encode {
                 (RawImageFormat::RGB8, 3),
                 (RawImageFormat::RGBA8, 4),
             ] {
-                let pixels = (0..(2 * 2 * bpp)).map(|i| (i * 7 + 1) as u8).collect::<Vec<_>>();
+                let pixels = (0..(2 * 2 * bpp))
+                    .map(|i| (i * 7 + 1) as u8)
+                    .collect::<Vec<_>>();
                 let encoded = encode_png(&raw_u8(2, 2, format, pixels.clone()))
                     .into_result()
                     .unwrap_or_else(|e| panic!("encode_png({format:?}) failed: {e}"));
@@ -1062,10 +1117,17 @@ pub mod encode {
                     .unwrap_or_else(|e| panic!("decode of our own PNG ({format:?}) failed: {e}"));
                 assert_eq!(decoded.width, 2);
                 assert_eq!(decoded.height, 2);
-                assert_eq!(decoded.data_format, format, "format changed across the round trip");
+                assert_eq!(
+                    decoded.data_format, format,
+                    "format changed across the round trip"
+                );
                 assert!(!decoded.premultiplied_alpha);
                 assert_eq!(
-                    decoded.pixels.get_u8_vec_ref().expect("8-bit data").as_slice(),
+                    decoded
+                        .pixels
+                        .get_u8_vec_ref()
+                        .expect("8-bit data")
+                        .as_slice(),
                     pixels.as_slice(),
                     "pixels changed across the round trip ({format:?})"
                 );
@@ -1079,7 +1141,9 @@ pub mod encode {
         fn encode_png_swaps_bgr_channels_before_writing() {
             use crate::image::decode::decode_raw_image_from_any_bytes;
 
-            let bgra = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160];
+            let bgra = vec![
+                10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160,
+            ];
             let encoded = encode_png(&raw_u8(2, 2, RawImageFormat::BGRA8, bgra.clone()))
                 .into_result()
                 .expect("encode_png(BGRA8) failed");
@@ -1089,7 +1153,11 @@ pub mod encode {
             assert_eq!(decoded.data_format, RawImageFormat::RGBA8);
             let want = bgr_to_rgb_swap(&bgra, RawImageFormat::BGRA8).expect("BGRA8 must swap");
             assert_eq!(
-                decoded.pixels.get_u8_vec_ref().expect("8-bit data").as_slice(),
+                decoded
+                    .pixels
+                    .get_u8_vec_ref()
+                    .expect("8-bit data")
+                    .as_slice(),
                 want.as_slice()
             );
 
@@ -1103,7 +1171,11 @@ pub mod encode {
             assert_eq!(decoded.data_format, RawImageFormat::RGB8);
             let want = bgr_to_rgb_swap(&bgr, RawImageFormat::BGR8).expect("BGR8 must swap");
             assert_eq!(
-                decoded.pixels.get_u8_vec_ref().expect("8-bit data").as_slice(),
+                decoded
+                    .pixels
+                    .get_u8_vec_ref()
+                    .expect("8-bit data")
+                    .as_slice(),
                 want.as_slice()
             );
         }
@@ -1138,10 +1210,21 @@ pub mod encode {
         #[test]
         fn encode_png_rejects_dimensions_that_overflow_u32() {
             let too_wide = raw_u8(usize::MAX, 1, RawImageFormat::RGBA8, vec![0; 4]);
-            assert_eq!(err_of(&encode_png(&too_wide)), EncodeImageError::DimensionError);
+            assert_eq!(
+                err_of(&encode_png(&too_wide)),
+                EncodeImageError::DimensionError
+            );
 
-            let too_tall = raw_u8(1, (u32::MAX as usize) + 1, RawImageFormat::RGBA8, vec![0; 4]);
-            assert_eq!(err_of(&encode_png(&too_tall)), EncodeImageError::DimensionError);
+            let too_tall = raw_u8(
+                1,
+                (u32::MAX as usize) + 1,
+                RawImageFormat::RGBA8,
+                vec![0; 4],
+            );
+            assert_eq!(
+                err_of(&encode_png(&too_tall)),
+                EncodeImageError::DimensionError
+            );
         }
 
         #[cfg(feature = "png")]
@@ -1186,7 +1269,10 @@ pub mod encode {
                 raw_u8(0, 0, RawImageFormat::RGBA8, Vec::new()),
                 raw_u8(usize::MAX, usize::MAX, RawImageFormat::BGRA8, vec![0; 3]),
             ] {
-                assert_eq!(err_of(&encode_png(&img)), EncodeImageError::EncoderNotAvailable);
+                assert_eq!(
+                    err_of(&encode_png(&img)),
+                    EncodeImageError::EncoderNotAvailable
+                );
             }
         }
 
@@ -1212,7 +1298,11 @@ pub mod encode {
 
             for q in [0u8, 1, 50, 100, 101, 254, 255] {
                 let bytes = at(q);
-                assert_eq!(&bytes[..2], &[0xFF, 0xD8], "missing JPEG SOI marker (quality {q})");
+                assert_eq!(
+                    &bytes[..2],
+                    &[0xFF, 0xD8],
+                    "missing JPEG SOI marker (quality {q})"
+                );
                 assert_eq!(
                     &bytes[bytes.len() - 2..],
                     &[0xFF, 0xD9],
@@ -1226,7 +1316,9 @@ pub mod encode {
         fn encode_jpeg_round_trips_dimensions_through_the_decoder() {
             use crate::image::decode::decode_raw_image_from_any_bytes;
 
-            let pixels = (0..(8 * 8 * 3)).map(|i| (i % 256) as u8).collect::<Vec<_>>();
+            let pixels = (0..(8 * 8 * 3))
+                .map(|i| (i % 256) as u8)
+                .collect::<Vec<_>>();
             let encoded = encode_jpeg(&raw_u8(8, 8, RawImageFormat::RGB8, pixels), 90)
                 .into_result()
                 .expect("encode_jpeg(RGB8) failed");
@@ -1237,7 +1329,10 @@ pub mod encode {
             assert_eq!(decoded.width, 8);
             assert_eq!(decoded.height, 8);
             assert_eq!(decoded.data_format, RawImageFormat::RGB8);
-            assert_eq!(decoded.pixels.get_u8_vec_ref().expect("8-bit data").len(), 8 * 8 * 3);
+            assert_eq!(
+                decoded.pixels.get_u8_vec_ref().expect("8-bit data").len(),
+                8 * 8 * 3
+            );
         }
 
         /// The JPEG encoder only supports L8 and Rgb8. Everything else comes back as an
@@ -1273,17 +1368,26 @@ pub mod encode {
             let too_wide = raw_u8(65_536, 1, RawImageFormat::RGB8, vec![0u8; 65_536 * 3]);
             // NOTE: reported as `Unknown`, not `DimensionError` -- the wrapper only maps
             // `ImageError::Limits`, and the JPEG encoder raises an encoding error instead.
-            assert_eq!(err_of(&encode_jpeg(&too_wide, 75)), EncodeImageError::Unknown);
+            assert_eq!(
+                err_of(&encode_jpeg(&too_wide, 75)),
+                EncodeImageError::Unknown
+            );
         }
 
         #[cfg(all(feature = "jpeg", target_pointer_width = "64"))]
         #[test]
         fn encode_jpeg_rejects_dimensions_that_overflow_u32() {
             let too_wide = raw_u8(usize::MAX, 1, RawImageFormat::RGB8, vec![0; 3]);
-            assert_eq!(err_of(&encode_jpeg(&too_wide, 75)), EncodeImageError::DimensionError);
+            assert_eq!(
+                err_of(&encode_jpeg(&too_wide, 75)),
+                EncodeImageError::DimensionError
+            );
 
             let too_tall = raw_u8(1, (u32::MAX as usize) + 1, RawImageFormat::RGB8, vec![0; 3]);
-            assert_eq!(err_of(&encode_jpeg(&too_tall, 0)), EncodeImageError::DimensionError);
+            assert_eq!(
+                err_of(&encode_jpeg(&too_tall, 0)),
+                EncodeImageError::DimensionError
+            );
         }
 
         #[cfg(feature = "jpeg")]
@@ -1298,7 +1402,10 @@ pub mod encode {
                 tag: Vec::<u8>::new().into(),
             };
             for q in [0u8, 50, 255] {
-                assert_eq!(err_of(&encode_jpeg(&u16_img, q)), EncodeImageError::InvalidData);
+                assert_eq!(
+                    err_of(&encode_jpeg(&u16_img, q)),
+                    EncodeImageError::InvalidData
+                );
             }
         }
 
@@ -1325,11 +1432,17 @@ pub mod encode {
             // Every quality boundary, including the ones the real encoder would clamp.
             for q in [u8::MIN, 1, 50, 100, 101, 254, u8::MAX] {
                 let img = raw_u8(2, 2, RawImageFormat::RGB8, vec![0; 12]);
-                assert_eq!(err_of(&encode_jpeg(&img, q)), EncodeImageError::EncoderNotAvailable);
+                assert_eq!(
+                    err_of(&encode_jpeg(&img, q)),
+                    EncodeImageError::EncoderNotAvailable
+                );
             }
             // ... and for images that the real encoder would reject outright.
             let broken = raw_u8(usize::MAX, 0, RawImageFormat::RGBAF32, Vec::new());
-            assert_eq!(err_of(&encode_jpeg(&broken, 0)), EncodeImageError::EncoderNotAvailable);
+            assert_eq!(
+                err_of(&encode_jpeg(&broken, 0)),
+                EncodeImageError::EncoderNotAvailable
+            );
         }
     }
 }

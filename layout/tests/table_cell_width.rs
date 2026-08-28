@@ -62,18 +62,15 @@ fn test_table_percentage_width_cells_expand() {
         .with_ids_and_classes(vec![IdOrClass::Id("main".into())].into())
         .with_child(
             Dom::create_node(NodeType::Tr)
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Left"))
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Middle content here"))
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Right"))
-                )
+                .with_child(Dom::create_node(NodeType::Td).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("Left"),
+                ))
+                .with_child(Dom::create_node(NodeType::Td).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("Middle content here"),
+                ))
+                .with_child(Dom::create_node(NodeType::Td).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("Right"),
+                )),
         );
 
     let css = r#"
@@ -110,26 +107,25 @@ fn test_table_percentage_width_cells_expand() {
     eprintln!("  Total cell width: {total_cell_width:.1}, cell_count: {cell_count}");
 
     // The cells should approximately fill the table
-    assert!(total_cell_width > 600.0,
-        "Cells should fill most of the 680px table, total cell width = {total_cell_width}");
+    assert!(
+        total_cell_width > 600.0,
+        "Cells should fill most of the 680px table, total cell width = {total_cell_width}"
+    );
 }
 
 /// Table WITHOUT explicit width — auto width should still expand to fill containing block.
 /// This is the case that matters for HN: <table> without width should be auto (shrink-to-fit).
 #[test]
 fn test_table_auto_width_fills_parent() {
-    let dom = Dom::create_node(NodeType::Table)
-        .with_child(
-            Dom::create_node(NodeType::Tr)
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Left"))
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Right"))
-                )
-        );
+    let dom = Dom::create_node(NodeType::Table).with_child(
+        Dom::create_node(NodeType::Tr)
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("Left"),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("Right"),
+            )),
+    );
 
     // No CSS at all — pure UA defaults
     let layout_window = layout_dom(dom, "", 800.0, 600.0);
@@ -151,18 +147,15 @@ fn test_table_auto_width_fills_parent() {
 #[test]
 fn test_table_two_cells_have_nonzero_width() {
     // Build DOM using NodeType directly (like the XML parser does)
-    let dom = Dom::create_node(NodeType::Table)
-        .with_child(
-            Dom::create_node(NodeType::Tr)
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CellA"))
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CellB"))
-                )
-        );
+    let dom = Dom::create_node(NodeType::Table).with_child(
+        Dom::create_node(NodeType::Tr)
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("CellA"),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("CellB"),
+            )),
+    );
 
     // No author CSS — only UA defaults
     let layout_window = layout_dom(dom, "", 800.0, 600.0);
@@ -187,37 +180,55 @@ fn test_table_two_cells_have_nonzero_width() {
     // node[6] = text "CellB"
 
     // Find the table — should have non-zero width
-    let table_rect = layout_window.get_node_layout_rect(node_id(1))
+    let table_rect = layout_window
+        .get_node_layout_rect(node_id(1))
         .expect("table rect");
-    eprintln!("\nTable: w={:.1} h={:.1}", table_rect.size.width, table_rect.size.height);
-    assert!(table_rect.size.width > 10.0,
-        "Table should have non-zero width, got {}", table_rect.size.width);
+    eprintln!(
+        "\nTable: w={:.1} h={:.1}",
+        table_rect.size.width, table_rect.size.height
+    );
+    assert!(
+        table_rect.size.width > 10.0,
+        "Table should have non-zero width, got {}",
+        table_rect.size.width
+    );
 
     // Find td cells — both should have non-zero width
-    let td_a = layout_window.get_node_layout_rect(node_id(3))
+    let td_a = layout_window
+        .get_node_layout_rect(node_id(3))
         .expect("td CellA rect");
-    let td_b = layout_window.get_node_layout_rect(node_id(5))
+    let td_b = layout_window
+        .get_node_layout_rect(node_id(5))
         .expect("td CellB rect");
-    eprintln!("TD(CellA): w={:.1} h={:.1}", td_a.size.width, td_a.size.height);
-    eprintln!("TD(CellB): w={:.1} h={:.1}", td_b.size.width, td_b.size.height);
+    eprintln!(
+        "TD(CellA): w={:.1} h={:.1}",
+        td_a.size.width, td_a.size.height
+    );
+    eprintln!(
+        "TD(CellB): w={:.1} h={:.1}",
+        td_b.size.width, td_b.size.height
+    );
 
-    assert!(td_a.size.width > 5.0,
-        "TD CellA should have non-zero width, got {}", td_a.size.width);
-    assert!(td_b.size.width > 5.0,
-        "TD CellB should have non-zero width, got {}", td_b.size.width);
+    assert!(
+        td_a.size.width > 5.0,
+        "TD CellA should have non-zero width, got {}",
+        td_a.size.width
+    );
+    assert!(
+        td_b.size.width > 5.0,
+        "TD CellB should have non-zero width, got {}",
+        td_b.size.width
+    );
 }
 
 /// Simpler test: single table cell with text should have non-zero width.
 #[test]
 fn test_single_table_cell_nonzero_width() {
-    let dom = Dom::create_node(NodeType::Table)
-        .with_child(
-            Dom::create_node(NodeType::Tr)
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"))
-                )
-        );
+    let dom = Dom::create_node(NodeType::Table).with_child(
+        Dom::create_node(NodeType::Tr).with_child(Dom::create_node(NodeType::Td).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Hello"),
+        )),
+    );
 
     let layout_window = layout_dom(dom, "", 800.0, 600.0);
 
@@ -231,37 +242,45 @@ fn test_single_table_cell_nonzero_width() {
         }
     }
 
-    let td_rect = layout_window.get_node_layout_rect(node_id(3))
+    let td_rect = layout_window
+        .get_node_layout_rect(node_id(3))
         .expect("td rect");
-    eprintln!("\nTD: w={:.1} h={:.1}", td_rect.size.width, td_rect.size.height);
-    assert!(td_rect.size.width > 5.0,
-        "Single TD should have non-zero width, got {}", td_rect.size.width);
+    eprintln!(
+        "\nTD: w={:.1} h={:.1}",
+        td_rect.size.width, td_rect.size.height
+    );
+    assert!(
+        td_rect.size.width > 5.0,
+        "Single TD should have non-zero width, got {}",
+        td_rect.size.width
+    );
 }
 
 /// Even simpler: just a div with display:table > div with display:table-row > div with display:table-cell
 /// No text at all — pure block sizing.
 #[test]
 fn test_table_cell_with_explicit_css_gets_width() {
-    let dom = Dom::create_div()
-        .with_ids_and_classes(vec![IdOrClass::Class("table".into())].into())
-        .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("row".into())].into())
-                .with_child(
-                    Dom::create_div()
-                        .with_ids_and_classes(vec![IdOrClass::Class("cell-a".into())].into())
-                        .with_child(Dom::create_div()
-                            .with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into())
-                        )
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_ids_and_classes(vec![IdOrClass::Class("cell-b".into())].into())
-                        .with_child(Dom::create_div()
-                            .with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into())
-                        )
-                )
-        );
+    let dom =
+        Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("table".into())].into())
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("row".into())].into())
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(vec![IdOrClass::Class("cell-a".into())].into())
+                            .with_child(Dom::create_div().with_ids_and_classes(
+                                vec![IdOrClass::Class("inner".into())].into(),
+                            )),
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(vec![IdOrClass::Class("cell-b".into())].into())
+                            .with_child(Dom::create_div().with_ids_and_classes(
+                                vec![IdOrClass::Class("inner".into())].into(),
+                            )),
+                    ),
+            );
 
     let css = r#"
         .table { display: table; width: 400px; }
@@ -295,13 +314,20 @@ fn test_table_cell_with_explicit_css_gets_width() {
         }
     }
     eprintln!("\nNodes with ~200px width (expected cells): {cell_widths:?}");
-    assert!(cell_widths.len() >= 2,
-        "Should have at least 2 nodes with 200px width (the cells), got {cell_widths:?}");
+    assert!(
+        cell_widths.len() >= 2,
+        "Should have at least 2 nodes with 200px width (the cells), got {cell_widths:?}"
+    );
 
     // The table itself should be 400px
-    let table_rect = layout_window.get_node_layout_rect(node_id(1)).expect("table rect");
-    assert!((table_rect.size.width - 400.0).abs() < 1.0,
-        "Table should be 400px, got {}", table_rect.size.width);
+    let table_rect = layout_window
+        .get_node_layout_rect(node_id(1))
+        .expect("table rect");
+    assert!(
+        (table_rect.size.width - 400.0).abs() < 1.0,
+        "Table should be 400px, got {}",
+        table_rect.size.width
+    );
 }
 
 /// HN header reproduction: 3-cell row where cell 1 has long text, cell 2 has
@@ -313,37 +339,30 @@ fn test_hn_header_three_cells_all_nonzero() {
     //   <td><span>new | past | comments | ask | show</span></td>
     //   <td><span><a>login</a></span></td>
     // </tr></table>
-    let dom = Dom::create_node(NodeType::Table)
-        .with_child(
-            Dom::create_node(NodeType::Tr)
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::Span)
-                                .with_child(
-                                    Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hacker News"))
-                                )
-                        )
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("new | past | comments | ask | show"))
-                        )
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::Span)
-                                .with_child(
-                                    Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("login"))
-                                )
-                        )
-                )
-        );
+    let dom = Dom::create_node(NodeType::Table).with_child(
+        Dom::create_node(NodeType::Tr)
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::Span).with_child(
+                    Dom::create_node(NodeType::A).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("Hacker News"),
+                    ),
+                ),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::Span).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "new | past | comments | ask | show",
+                    ),
+                ),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::Span).with_child(
+                    Dom::create_node(NodeType::A).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("login"),
+                    ),
+                ),
+            )),
+    );
 
     // No CSS — pure UA defaults
     let layout_window = layout_dom(dom, "", 800.0, 600.0);
@@ -366,72 +385,68 @@ fn test_hn_header_three_cells_all_nonzero() {
     for i in 0..25 {
         if let Some(rect) = layout_window.get_node_layout_rect(node_id(i)) {
             // Cells should be > 0 width and < total table width
-            if rect.size.width > 0.0 && rect.size.width < 400.0 && rect.size.height > 10.0
-                && rect.size.width < min_cell_width {
-                    min_cell_width = rect.size.width;
-                    min_cell_idx = i;
-                }
+            if rect.size.width > 0.0
+                && rect.size.width < 400.0
+                && rect.size.height > 10.0
+                && rect.size.width < min_cell_width
+            {
+                min_cell_width = rect.size.width;
+                min_cell_idx = i;
+            }
         }
     }
     eprintln!("\n  Narrowest cell-like node: node[{min_cell_idx}] w={min_cell_width:.1}");
 
     // Also test: simple cells with inline <a> children directly
     eprintln!("\n=== Simple: <td><a>login</a></td> vs <td>login</td> ===");
-    let dom2 = Dom::create_node(NodeType::Table)
-        .with_child(
-            Dom::create_node(NodeType::Tr)
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("direct text"))
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::A)
-                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("in anchor"))
-                        )
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::Span)
-                                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("in span"))
-                        )
-                )
-        );
+    let dom2 = Dom::create_node(NodeType::Table).with_child(
+        Dom::create_node(NodeType::Tr)
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("direct text"),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::A).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("in anchor"),
+                ),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::Span).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("in span"),
+                ),
+            )),
+    );
     let lw2 = layout_dom(dom2, "", 800.0, 600.0);
     for i in 0..20 {
         if let Some(rect) = lw2.get_node_layout_rect(node_id(i)) {
-            eprintln!("  node[{}]: x={:.1} y={:.1} w={:.1} h={:.1}",
-                i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+            eprintln!(
+                "  node[{}]: x={:.1} y={:.1} w={:.1} h={:.1}",
+                i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height
+            );
         }
     }
 
     // Now test nested inlines: <td><span><a>text</a></span></td>
     eprintln!("\n=== Nested: <td><span><a>text</a></span></td> ===");
-    let dom3 = Dom::create_node(NodeType::Table)
-        .with_child(
-            Dom::create_node(NodeType::Tr)
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("plain"))
-                )
-                .with_child(
-                    Dom::create_node(NodeType::Td)
-                        .with_child(
-                            Dom::create_node(NodeType::Span)
-                                .with_child(
-                                    Dom::create_node(NodeType::A)
-                                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("nested"))
-                                )
-                        )
-                )
-        );
+    let dom3 = Dom::create_node(NodeType::Table).with_child(
+        Dom::create_node(NodeType::Tr)
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("plain"),
+            ))
+            .with_child(Dom::create_node(NodeType::Td).with_child(
+                Dom::create_node(NodeType::Span).with_child(
+                    Dom::create_node(NodeType::A).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("nested"),
+                    ),
+                ),
+            )),
+    );
     let lw3 = layout_dom(dom3, "", 800.0, 600.0);
     for i in 0..15 {
         if let Some(rect) = lw3.get_node_layout_rect(node_id(i)) {
-            eprintln!("  node[{}]: x={:.1} y={:.1} w={:.1} h={:.1}",
-                i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+            eprintln!(
+                "  node[{}]: x={:.1} y={:.1} w={:.1} h={:.1}",
+                i, rect.origin.x, rect.origin.y, rect.size.width, rect.size.height
+            );
         }
     }
 

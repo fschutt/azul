@@ -8,8 +8,8 @@ use std::num::ParseFloatError;
 #[cfg(feature = "parser")]
 use crate::macros::*;
 use crate::{
-    corety::AzString,
     codegen::format::FormatAsRustCode,
+    corety::AzString,
     props::{
         basic::{length::parse_float_value, FloatValue},
         formatter::{FormatAsCssValue, PrintAsCssValue},
@@ -42,7 +42,8 @@ impl Default for StyleExclusionMargin {
 }
 
 impl StyleExclusionMargin {
-    #[must_use] pub const fn is_initial(&self) -> bool {
+    #[must_use]
+    pub const fn is_initial(&self) -> bool {
         self.inner.number == 0
     }
 }
@@ -94,7 +95,8 @@ pub enum StyleExclusionMarginParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleExclusionMarginParseError {
-    #[must_use] pub fn to_contained(&self) -> StyleExclusionMarginParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleExclusionMarginParseErrorOwned {
         match self {
             Self::FloatValue(e) => {
                 StyleExclusionMarginParseErrorOwned::FloatValue(format!("{e}").into())
@@ -105,7 +107,8 @@ impl StyleExclusionMarginParseError {
 
 #[cfg(feature = "parser")]
 impl StyleExclusionMarginParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleExclusionMarginParseError {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleExclusionMarginParseError {
         match self {
             Self::FloatValue(_) => {
                 // ParseFloatError can't be reconstructed from its display string,
@@ -154,7 +157,8 @@ impl Default for StyleHyphenationLanguage {
 }
 
 impl StyleHyphenationLanguage {
-    #[must_use] pub fn is_initial(&self) -> bool {
+    #[must_use]
+    pub fn is_initial(&self) -> bool {
         self.inner.as_str() == "en-US"
     }
 }
@@ -203,7 +207,8 @@ pub enum StyleHyphenationLanguageParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleHyphenationLanguageParseError {
-    #[must_use] pub fn to_contained(&self) -> StyleHyphenationLanguageParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleHyphenationLanguageParseErrorOwned {
         match self {
             Self::InvalidString(e) => {
                 StyleHyphenationLanguageParseErrorOwned::InvalidString(e.clone().into())
@@ -214,9 +219,12 @@ impl StyleHyphenationLanguageParseError {
 
 #[cfg(feature = "parser")]
 impl StyleHyphenationLanguageParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleHyphenationLanguageParseError {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleHyphenationLanguageParseError {
         match self {
-            Self::InvalidString(e) => StyleHyphenationLanguageParseError::InvalidString(e.to_string()),
+            Self::InvalidString(e) => {
+                StyleHyphenationLanguageParseError::InvalidString(e.to_string())
+            }
         }
     }
 }
@@ -243,7 +251,9 @@ pub fn parse_style_hyphenation_language(
 
     // Basic BCP 47 validation: non-empty, ASCII alphanumeric + hyphens, no leading/trailing hyphens
     if unquoted.is_empty()
-        || !unquoted.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || !unquoted
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         || unquoted.starts_with('-')
         || unquoted.ends_with('-')
     {
@@ -413,7 +423,16 @@ mod autotest_generated {
         .is_initial());
 
         // The comparison is exact and case-sensitive.
-        for not_initial in ["", " ", "en-us", "EN-US", "en-US ", "en", "de-DE", "en\u{0}US"] {
+        for not_initial in [
+            "",
+            " ",
+            "en-us",
+            "EN-US",
+            "en-US ",
+            "en",
+            "de-DE",
+            "en\u{0}US",
+        ] {
             assert!(
                 !StyleHyphenationLanguage {
                     inner: AzString::from_string(not_initial.to_string()),
@@ -535,8 +554,29 @@ mod autotest_generated {
     #[test]
     fn parse_exclusion_margin_garbage_is_rejected() {
         for input in [
-            "abc", "px", "10px", "1,5", "1_000", "0x10", "--5", "5-", "+-1", ".", "-", "+", "e5",
-            "1e", "1.2.3", "null", "None", "{}", "()", "/*10*/", "10 20", "\0", "\u{7}\u{1b}[0m",
+            "abc",
+            "px",
+            "10px",
+            "1,5",
+            "1_000",
+            "0x10",
+            "--5",
+            "5-",
+            "+-1",
+            ".",
+            "-",
+            "+",
+            "e5",
+            "1e",
+            "1.2.3",
+            "null",
+            "None",
+            "{}",
+            "()",
+            "/*10*/",
+            "10 20",
+            "\0",
+            "\u{7}\u{1b}[0m",
         ] {
             assert!(
                 parse_style_exclusion_margin(input).is_err(),
@@ -550,7 +590,10 @@ mod autotest_generated {
     fn parse_exclusion_margin_leading_trailing_junk() {
         // Surrounding ASCII whitespace is trimmed...
         assert_eq!(
-            parse_style_exclusion_margin("  10.5  ").unwrap().inner.get(),
+            parse_style_exclusion_margin("  10.5  ")
+                .unwrap()
+                .inner
+                .get(),
             10.5
         );
         assert_eq!(
@@ -561,7 +604,13 @@ mod autotest_generated {
             -3.25
         );
         // ...but any trailing non-numeric junk is fatal, never silently dropped.
-        for input in ["10.5px", "10.5;garbage", "10.5 !important", "10.5;", "10.5%"] {
+        for input in [
+            "10.5px",
+            "10.5;garbage",
+            "10.5 !important",
+            "10.5;",
+            "10.5%",
+        ] {
             assert!(
                 parse_style_exclusion_margin(input).is_err(),
                 "{input:?} must be rejected, not truncated to a number"
@@ -629,7 +678,10 @@ mod autotest_generated {
         assert!(!nan.inner.get().is_nan());
         assert!(nan.is_initial());
         assert_eq!(parse_style_exclusion_margin("nan").unwrap().inner.number, 0);
-        assert_eq!(parse_style_exclusion_margin("-NaN").unwrap().inner.number, 0);
+        assert_eq!(
+            parse_style_exclusion_margin("-NaN").unwrap().inner.number,
+            0
+        );
 
         for input in ["inf", "infinity", "+inf", "INF", "Infinity", "1e400"] {
             let m = parse_style_exclusion_margin(input).unwrap();
@@ -648,13 +700,13 @@ mod autotest_generated {
     fn parse_exclusion_margin_unicode_input() {
         // Non-ASCII digits/letters are not numbers.
         for input in [
-            "\u{1F600}",         // emoji
-            "\u{FF15}",          // fullwidth digit five
-            "1\u{0301}",         // combining acute after a digit
-            "\u{202E}10.5",      // right-to-left override
-            "\u{FEFF}10.5",      // BOM
-            "١٢٣",               // arabic-indic digits
-            "10.5\u{1F4A9}",     // trailing emoji
+            "\u{1F600}",     // emoji
+            "\u{FF15}",      // fullwidth digit five
+            "1\u{0301}",     // combining acute after a digit
+            "\u{202E}10.5",  // right-to-left override
+            "\u{FEFF}10.5",  // BOM
+            "١٢٣",           // arabic-indic digits
+            "10.5\u{1F4A9}", // trailing emoji
         ] {
             assert!(
                 parse_style_exclusion_margin(input).is_err(),
@@ -680,7 +732,10 @@ mod autotest_generated {
         // 1M fractional digits are a legal (if silly) float.
         let long_fraction = format!("1.{}", "0".repeat(1_000_000));
         assert_eq!(
-            parse_style_exclusion_margin(&long_fraction).unwrap().inner.get(),
+            parse_style_exclusion_margin(&long_fraction)
+                .unwrap()
+                .inner
+                .get(),
             1.0
         );
 
@@ -704,7 +759,9 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn parse_exclusion_margin_round_trips_through_css_and_rust_code() {
-        for input in ["0", "1", "10.5", "-3.25", "0.001", "123.456", "-0.5", "1000"] {
+        for input in [
+            "0", "1", "10.5", "-3.25", "0.001", "123.456", "-0.5", "1000",
+        ] {
             let parsed = parse_style_exclusion_margin(input).unwrap();
 
             // encode == decode: printing and re-parsing is a fixed point.
@@ -767,7 +824,10 @@ mod autotest_generated {
         // fixed point.
         let empty = parse_style_exclusion_margin("").unwrap_err();
         assert_eq!(empty.to_contained().to_shared(), empty);
-        assert_eq!(empty.to_contained().to_shared().to_contained(), empty.to_contained());
+        assert_eq!(
+            empty.to_contained().to_shared().to_contained(),
+            empty.to_contained()
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -780,7 +840,13 @@ mod autotest_generated {
         let lang = parse_style_hyphenation_language("en-US").unwrap();
         assert_eq!(lang.inner.as_str(), "en-US");
         assert!(lang.is_initial());
-        assert_eq!(parse_style_hyphenation_language("a").unwrap().inner.as_str(), "a");
+        assert_eq!(
+            parse_style_hyphenation_language("a")
+                .unwrap()
+                .inner
+                .as_str(),
+            "a"
+        );
     }
 
     #[cfg(feature = "parser")]
@@ -798,21 +864,21 @@ mod autotest_generated {
     #[test]
     fn parse_hyphenation_language_garbage_is_rejected() {
         for input in [
-            "en_US",     // underscore is not BCP 47
-            "-en",       // leading hyphen
-            "en-",       // trailing hyphen
-            "en US",     // interior space
+            "en_US",       // underscore is not BCP 47
+            "-en",         // leading hyphen
+            "en-",         // trailing hyphen
+            "en US",       // interior space
             "\" en-US \"", // interior space after unquoting
             "en;US",
             "en/US",
             "en.US",
             "en*",
             "<script>",
-            "en\0US",    // interior NUL
+            "en\0US", // interior NUL
             "en\nUS",
-            "'en-US\"",  // mismatched quotes: quotes survive into the tag
+            "'en-US\"", // mismatched quotes: quotes survive into the tag
             "\"en-US'",
-            "\"en-US",   // unterminated
+            "\"en-US", // unterminated
             "en-US\"",
         ] {
             assert!(
@@ -830,11 +896,17 @@ mod autotest_generated {
     fn parse_hyphenation_language_leading_trailing_junk() {
         // Surrounding whitespace is trimmed, inside and outside of quotes.
         assert_eq!(
-            parse_style_hyphenation_language("  en-US  ").unwrap().inner.as_str(),
+            parse_style_hyphenation_language("  en-US  ")
+                .unwrap()
+                .inner
+                .as_str(),
             "en-US"
         );
         assert_eq!(
-            parse_style_hyphenation_language("\t\"de-DE\"\n").unwrap().inner.as_str(),
+            parse_style_hyphenation_language("\t\"de-DE\"\n")
+                .unwrap()
+                .inner
+                .as_str(),
             "de-DE"
         );
         // Trailing junk is fatal, never silently dropped.
@@ -853,10 +925,10 @@ mod autotest_generated {
             "日本語",
             "\u{1F600}",
             "\"\u{1F600}\"",
-            "e\u{0301}n-US",   // combining acute
-            "en-US\u{200B}",   // zero-width space
-            "\u{FEFF}en-US",   // BOM
-            "ｅｎ-ＵＳ",        // fullwidth latin
+            "e\u{0301}n-US", // combining acute
+            "en-US\u{200B}", // zero-width space
+            "\u{FEFF}en-US", // BOM
+            "ｅｎ-ＵＳ",     // fullwidth latin
             "ру-RU",
         ] {
             assert!(
@@ -879,7 +951,15 @@ mod autotest_generated {
         // The validation is "ASCII alphanumeric + interior hyphens", so purely
         // numeric and nonsense-but-ASCII tags are accepted today. Characterises
         // the current (lax) behaviour so a future tightening is a visible change.
-        for input in ["0", "123", "NaN", "inf", "zzzzzz", "sr-Latn-RS", "x-private"] {
+        for input in [
+            "0",
+            "123",
+            "NaN",
+            "inf",
+            "zzzzzz",
+            "sr-Latn-RS",
+            "x-private",
+        ] {
             let lang = parse_style_hyphenation_language(input).unwrap();
             assert_eq!(lang.inner.as_str(), input);
         }
@@ -900,7 +980,10 @@ mod autotest_generated {
     fn parse_hyphenation_language_extremely_long_input() {
         let huge = "a".repeat(1_000_000);
         assert_eq!(
-            parse_style_hyphenation_language(&huge).unwrap().inner.as_str(),
+            parse_style_hyphenation_language(&huge)
+                .unwrap()
+                .inner
+                .as_str(),
             huge
         );
 
@@ -932,7 +1015,15 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn parse_hyphenation_language_round_trips_through_css_and_rust_code() {
-        for input in ["en-US", "de-DE", "zh", "sr-Latn-RS", "en--US", "x-private", "0"] {
+        for input in [
+            "en-US",
+            "de-DE",
+            "zh",
+            "sr-Latn-RS",
+            "en--US",
+            "x-private",
+            "0",
+        ] {
             let parsed = parse_style_hyphenation_language(input).unwrap();
 
             // print_as_css_value() re-quotes; re-parsing must strip the quotes

@@ -117,7 +117,10 @@ fn check_link(
     problems: &mut Vec<Problem>,
 ) {
     // The network stays out of the build; `mailto:` has nothing to resolve.
-    if target.starts_with("http://") || target.starts_with("https://") || target.starts_with("mailto:") {
+    if target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("mailto:")
+    {
         return;
     }
 

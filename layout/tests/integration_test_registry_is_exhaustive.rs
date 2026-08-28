@@ -93,8 +93,8 @@ fn declared_paths() -> BTreeSet<String> {
 /// The `.rs` files directly inside `layout/tests/`, excluding the harness root.
 fn top_level_sources() -> BTreeSet<String> {
     let dir = tests_dir();
-    let entries = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("cannot read {} — {e}", dir.display()));
+    let entries =
+        std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("cannot read {} — {e}", dir.display()));
     entries
         .filter_map(|e| {
             let name = e.ok()?.file_name().into_string().ok()?;
@@ -108,8 +108,8 @@ fn top_level_sources() -> BTreeSet<String> {
 fn subdir_sources() -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let dir = tests_dir();
-    let entries = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("cannot read {} — {e}", dir.display()));
+    let entries =
+        std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("cannot read {} — {e}", dir.display()));
     for entry in entries.flatten() {
         if !entry.file_type().is_ok_and(|t| t.is_dir()) {
             continue;

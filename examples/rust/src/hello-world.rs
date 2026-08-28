@@ -22,9 +22,7 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let mut button = button.dom();
     button.set_css("flex-grow: 1");
 
-    Dom::create_body()
-        .with_child(label)
-        .with_child(button)
+    Dom::create_body().with_child(label).with_child(button)
 }
 
 extern "C" fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {

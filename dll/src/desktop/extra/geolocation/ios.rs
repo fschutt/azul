@@ -17,9 +17,7 @@
 //! delegate (routing status into the PermissionManager) is a follow-up;
 //! the permission backend already probes location status synchronously.
 
-use azul_layout::managers::geolocation::{
-    push_location_fix, GeolocationDiffEvent, LocationFix,
-};
+use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
 #[cfg(target_os = "ios")]
 use azul_layout::managers::permission::{
     push_async_result, Capability, PermissionQuality, PermissionState,
@@ -163,8 +161,7 @@ fn get_or_create_delegate_class() -> &'static Class {
             );
             decl.add_method(
                 sel!(locationManagerDidChangeAuthorization:),
-                location_manager_did_change_auth
-                    as extern "C" fn(&Object, Sel, *mut Object),
+                location_manager_did_change_auth as extern "C" fn(&Object, Sel, *mut Object),
             );
             CLS = decl.register();
         });
@@ -205,7 +202,11 @@ extern "C" fn location_manager_did_update(
             accuracy_m: if h_acc >= 0.0 { h_acc as f32 } else { f32::NAN },
             altitude_m: if valid_alt { altitude as f32 } else { f32::NAN },
             altitude_accuracy_m: if valid_alt { v_acc as f32 } else { f32::NAN },
-            heading_deg: if course >= 0.0 { course as f32 } else { f32::NAN },
+            heading_deg: if course >= 0.0 {
+                course as f32
+            } else {
+                f32::NAN
+            },
             speed_mps: if speed >= 0.0 { speed as f32 } else { f32::NAN },
             timestamp_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -222,11 +223,7 @@ extern "C" fn location_manager_did_update(
 /// `onRequestPermissionsResult`. (The location *session* is unaffected;
 /// this only updates the permission view of `Capability::Geolocation`.)
 #[cfg(target_os = "ios")]
-extern "C" fn location_manager_did_change_auth(
-    _this: &Object,
-    _cmd: Sel,
-    manager: *mut Object,
-) {
+extern "C" fn location_manager_did_change_auth(_this: &Object, _cmd: Sel, manager: *mut Object) {
     unsafe {
         if manager.is_null() {
             return;

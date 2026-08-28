@@ -49,9 +49,7 @@ use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory,
-};
+use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
 use super::types::ptr_type_for_arg;
 use super::{
     ffi_type_name, map_type_to_pascal, record_type_name, sanitize_identifier, to_pascal_case,
@@ -115,10 +113,7 @@ pub fn generate_wrapper_implementation(
 
 /// All structs that own native memory (`<Name>_delete` exists) and pass
 /// the inclusion filter.
-fn collect_wrapper_targets<'a>(
-    ir: &'a CodegenIR,
-    config: &CodegenConfig,
-) -> Vec<&'a StructDef> {
+fn collect_wrapper_targets<'a>(ir: &'a CodegenIR, config: &CodegenConfig) -> Vec<&'a StructDef> {
     let delete_set: BTreeSet<&str> = ir
         .functions
         .iter()
@@ -620,10 +615,7 @@ fn visible_user_args(func: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> 
 /// Only BY-VALUE (owned) args qualify: pointer args may be buffer/base
 /// pointers (`CopyFromPtr(ptr, len)`) where a single-object wrapper
 /// would be semantically wrong.
-fn is_owned_wrapper_arg(
-    a: &super::super::ir::FunctionArg,
-    targets: &BTreeSet<String>,
-) -> bool {
+fn is_owned_wrapper_arg(a: &super::super::ir::FunctionArg, targets: &BTreeSet<String>) -> bool {
     matches!(a.ref_kind, ArgRefKind::Owned) && targets.contains(a.type_name.trim())
 }
 
@@ -671,10 +663,9 @@ fn format_arg_list(
             } else {
                 match a.ref_kind {
                     ArgRefKind::Owned => map_type_to_pascal(&a.type_name, ir),
-                    ArgRefKind::Ref
-                    | ArgRefKind::RefMut
-                    | ArgRefKind::Ptr
-                    | ArgRefKind::PtrMut => ptr_type_for_arg(&a.type_name, ir),
+                    ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                        ptr_type_for_arg(&a.type_name, ir)
+                    }
                 }
             };
             format!("{}: {}", sanitize_identifier(&a.name), pas_ty)
@@ -726,10 +717,7 @@ fn constructor_pascal_names(ir: &CodegenIR, class_name: &str) -> Vec<String> {
     let mut used: BTreeSet<String> = BTreeSet::new();
     let mut out: Vec<String> = Vec::with_capacity(ctors.len());
     for (i, func) in ctors.iter().enumerate() {
-        let candidate = format!(
-            "Create{}",
-            stripped_constructor_suffix(&func.method_name)
-        );
+        let candidate = format!("Create{}", stripped_constructor_suffix(&func.method_name));
         let cand_lower = candidate.to_ascii_lowercase();
         let collides_with_sibling = unstripped
             .iter()
@@ -788,8 +776,8 @@ fn idiomatic_method_name(method_name: &str) -> String {
     // errors — append "_X" (a valid Pascal identifier) so the wrapper
     // method is uniquely named while still recognisable.
     match pascal.as_str() {
-        "ToString" | "Equals" | "GetHashCode" | "Free" | "Destroy"
-        | "ClassName" | "ClassType" | "Dispatch" => format!("{}_X", pascal),
+        "ToString" | "Equals" | "GetHashCode" | "Free" | "Destroy" | "ClassName" | "ClassType"
+        | "Dispatch" => format!("{}_X", pascal),
         _ => pascal,
     }
 }

@@ -32,29 +32,24 @@ use azul_layout::{
 use webrender::{
     api::{
         units::{
-            DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform,
-            LayoutVector2D,
+            DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D,
         },
         AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
-        BoxShadowClipMode as WrBoxShadowClipMode,
-        BuiltDisplayList as WrBuiltDisplayList, ClipChainId as WrClipChainId,
-        ClipMode as WrClipMode, ColorF, CommonItemProperties,
+        BoxShadowClipMode as WrBoxShadowClipMode, BuiltDisplayList as WrBuiltDisplayList,
+        ClipChainId as WrClipChainId, ClipMode as WrClipMode, ColorF, CommonItemProperties,
         ComplexClipRegion as WrComplexClipRegion, ConicGradient as WrConicGradient,
-        DisplayListBuilder as WrDisplayListBuilder, ExtendMode as WrExtendMode,
-        ExternalScrollId, FilterOp as WrFilterOp, Gradient as WrGradient,
-        GradientStop as WrGradientStop,
+        DisplayListBuilder as WrDisplayListBuilder, ExtendMode as WrExtendMode, ExternalScrollId,
+        FilterOp as WrFilterOp, Gradient as WrGradient, GradientStop as WrGradientStop,
         HasScrollLinkedEffect, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
         PropertyBinding, RadialGradient as WrRadialGradient, ReferenceFrameKind,
-        Shadow as WrShadow, SpaceAndClipInfo,
-        SpatialId, SpatialTreeItemKey, TransformStyle,
+        Shadow as WrShadow, SpaceAndClipInfo, SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     render_api::ResourceUpdate as WrResourceUpdate,
 };
 
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::wr_translate2::{
-    translate_image_key, wr_translate_border_radius, wr_translate_color_f,
-    wr_translate_pipeline_id,
+    translate_image_key, wr_translate_border_radius, wr_translate_color_f, wr_translate_pipeline_id,
 };
 use crate::log_debug;
 
@@ -168,9 +163,7 @@ fn push_text_decoration_rect(
 /// `getenv` per item would be a real cost in a large DOM.
 fn show_hit_test_overlay() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        azul_core::window::DebugState::from_az_overlay_env().show_hit_test_areas
-    })
+    *ON.get_or_init(|| azul_core::window::DebugState::from_az_overlay_env().show_hit_test_areas)
 }
 
 pub fn translate_displaylist_to_wr(
@@ -289,9 +282,12 @@ pub fn translate_displaylist_to_wr(
 
                 let current_clip_chain = current_clip!();
                 let current_spatial = current_spatial!();
-                log_debug!(LogCategory::DisplayList,
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[CLIP DEBUG] Rect: adjusted={:?}, clip_chain={:?}, spatial={:?}",
-                    rect, current_clip_chain, current_spatial
+                    rect,
+                    current_clip_chain,
+                    current_spatial
                 );
 
                 log_debug!(
@@ -656,11 +652,22 @@ pub fn translate_displaylist_to_wr(
                     // Convert initial transform to WR LayoutTransform with DPI scaling on translation
                     let t = &info.thumb_initial_transform;
                     let wr_transform = LayoutTransform::new(
-                        t.m[0][0], t.m[0][1], t.m[0][2], t.m[0][3],
-                        t.m[1][0], t.m[1][1], t.m[1][2], t.m[1][3],
-                        t.m[2][0], t.m[2][1], t.m[2][2], t.m[2][3],
-                        t.m[3][0] * dpi_scale, t.m[3][1] * dpi_scale,
-                        t.m[3][2] * dpi_scale, t.m[3][3],
+                        t.m[0][0],
+                        t.m[0][1],
+                        t.m[0][2],
+                        t.m[0][3],
+                        t.m[1][0],
+                        t.m[1][1],
+                        t.m[1][2],
+                        t.m[1][3],
+                        t.m[2][0],
+                        t.m[2][1],
+                        t.m[2][2],
+                        t.m[2][3],
+                        t.m[3][0] * dpi_scale,
+                        t.m[3][1] * dpi_scale,
+                        t.m[3][2] * dpi_scale,
+                        t.m[3][3],
                     );
 
                     let binding = PropertyBinding::Binding(
@@ -716,8 +723,10 @@ pub fn translate_displaylist_to_wr(
                         // Create clip for rounded thumb (with offset applied)
                         let scaled_thumb_bounds = azul_core::geom::LogicalRect::new(
                             azul_core::geom::LogicalPosition::new(
-                                scale_px(info.thumb_bounds.0.origin.x, dpi_scale) - current_offset.0,
-                                scale_px(info.thumb_bounds.0.origin.y, dpi_scale) - current_offset.1,
+                                scale_px(info.thumb_bounds.0.origin.x, dpi_scale)
+                                    - current_offset.0,
+                                scale_px(info.thumb_bounds.0.origin.y, dpi_scale)
+                                    - current_offset.1,
                             ),
                             azul_core::geom::LogicalSize::new(
                                 scale_px(info.thumb_bounds.0.size.width, dpi_scale),
@@ -1018,7 +1027,7 @@ pub fn translate_displaylist_to_wr(
                 builder.push_hit_test(
                     adjusted_frame_rect,
                     scroll_clip_chain, // Use the scroll clip chain we just created
-                    parent_space,       // Push in parent space (stationary viewport)
+                    parent_space,      // Push in parent space (stationary viewport)
                     WrPrimitiveFlags::default(),
                     scroll_container_tag,
                 );
@@ -1046,12 +1055,16 @@ pub fn translate_displaylist_to_wr(
                 let popped_clip = clip_stack.pop();
                 let popped_spatial = spatial_stack.pop();
 
-                log_debug!(LogCategory::DisplayList,
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] PopScrollFrame: popped_clip={:?}, popped_spatial={:?}, \
                      spatial_stack {} -> {}, clip_stack {} -> {}",
-                    popped_clip, popped_spatial,
-                    spatial_before, spatial_stack.len(),
-                    clip_before, clip_stack.len()
+                    popped_clip,
+                    popped_spatial,
+                    spatial_before,
+                    spatial_stack.len(),
+                    clip_before,
+                    clip_stack.len()
                 );
 
                 if spatial_stack.is_empty() || clip_stack.is_empty() {
@@ -1208,12 +1221,16 @@ pub fn translate_displaylist_to_wr(
                     renderer_resources,
                     dpi,
                     font_size_au,
-                    scaled_origin, // Pass offset-corrected origin to position glyphs
+                    scaled_origin,  // Pass offset-corrected origin to position glyphs
                     current_offset, // Pass scroll frame offset for glyph position correction
                 );
             }
 
-            DisplayListItem::Image { bounds, image, border_radius } => {
+            DisplayListItem::Image {
+                bounds,
+                image,
+                border_radius,
+            } => {
                 // Get the ImageRefHash from the ImageRef
                 let image_ref_hash = image.get_hash();
 
@@ -1354,14 +1371,22 @@ pub fn translate_displaylist_to_wr(
                 // because the transform operates in the same coordinate space as display list
                 // items, which are all scaled from CSS (logical) pixels to physical pixels.
                 let wr_transform = LayoutTransform::new(
-                    initial_transform.m[0][0], initial_transform.m[0][1],
-                    initial_transform.m[0][2], initial_transform.m[0][3],
-                    initial_transform.m[1][0], initial_transform.m[1][1],
-                    initial_transform.m[1][2], initial_transform.m[1][3],
-                    initial_transform.m[2][0], initial_transform.m[2][1],
-                    initial_transform.m[2][2], initial_transform.m[2][3],
-                    initial_transform.m[3][0] * dpi_scale, initial_transform.m[3][1] * dpi_scale,
-                    initial_transform.m[3][2] * dpi_scale, initial_transform.m[3][3],
+                    initial_transform.m[0][0],
+                    initial_transform.m[0][1],
+                    initial_transform.m[0][2],
+                    initial_transform.m[0][3],
+                    initial_transform.m[1][0],
+                    initial_transform.m[1][1],
+                    initial_transform.m[1][2],
+                    initial_transform.m[1][3],
+                    initial_transform.m[2][0],
+                    initial_transform.m[2][1],
+                    initial_transform.m[2][2],
+                    initial_transform.m[2][3],
+                    initial_transform.m[3][0] * dpi_scale,
+                    initial_transform.m[3][1] * dpi_scale,
+                    initial_transform.m[3][2] * dpi_scale,
+                    initial_transform.m[3][3],
                 );
 
                 // Use PropertyBinding::Binding so we can update this transform
@@ -1394,7 +1419,6 @@ pub fn translate_displaylist_to_wr(
                 // Push the new spatial ID so all children use this transform space.
                 // NO offset push - origin is (0,0), items keep absolute coordinates.
                 spatial_stack.push(new_spatial_id);
-
             }
 
             DisplayListItem::PopReferenceFrame => {
@@ -1471,7 +1495,8 @@ pub fn translate_displaylist_to_wr(
                             };
 
                             let wr_bounds = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                            let wr_clip_rect = scale_bounds_to_layout_rect(clip_rect.inner(), dpi_scale);
+                            let wr_clip_rect =
+                                scale_bounds_to_layout_rect(clip_rect.inner(), dpi_scale);
 
                             builder.push_iframe(
                                 wr_bounds,
@@ -1574,7 +1599,9 @@ pub fn translate_displaylist_to_wr(
                         WrGradientStop {
                             offset: stop.offset.normalized(), // normalized() returns 0-1 range
                             color: wr_translate_color_f(
-                                azul_css::props::basic::color::ColorF::from(stop.color.to_color_u_default()),
+                                azul_css::props::basic::color::ColorF::from(
+                                    stop.color.to_color_u_default(),
+                                ),
                             ),
                         }
                     })
@@ -1656,17 +1683,19 @@ pub fn translate_displaylist_to_wr(
                     BackgroundPositionHorizontal::Left => 0.0,
                     BackgroundPositionHorizontal::Center => scaled_width / 2.0,
                     BackgroundPositionHorizontal::Right => scaled_width,
-                    BackgroundPositionHorizontal::Exact(px) => {
-                        scale_px(px.to_pixels_internal(bounds.0.size.width, 16.0, 16.0), dpi_scale)
-                    }
+                    BackgroundPositionHorizontal::Exact(px) => scale_px(
+                        px.to_pixels_internal(bounds.0.size.width, 16.0, 16.0),
+                        dpi_scale,
+                    ),
                 };
                 let center_y = match &gradient.position.vertical {
                     BackgroundPositionVertical::Top => 0.0,
                     BackgroundPositionVertical::Center => scaled_height / 2.0,
                     BackgroundPositionVertical::Bottom => scaled_height,
-                    BackgroundPositionVertical::Exact(px) => {
-                        scale_px(px.to_pixels_internal(bounds.0.size.height, 16.0, 16.0), dpi_scale)
-                    }
+                    BackgroundPositionVertical::Exact(px) => scale_px(
+                        px.to_pixels_internal(bounds.0.size.height, 16.0, 16.0),
+                        dpi_scale,
+                    ),
                 };
                 let center = LayoutPoint::new(center_x, center_y);
 
@@ -1843,17 +1872,19 @@ pub fn translate_displaylist_to_wr(
                     BackgroundPositionHorizontal::Left => 0.0,
                     BackgroundPositionHorizontal::Center => scaled_width / 2.0,
                     BackgroundPositionHorizontal::Right => scaled_width,
-                    BackgroundPositionHorizontal::Exact(px) => {
-                        scale_px(px.to_pixels_internal(bounds.0.size.width, 16.0, 16.0), dpi_scale)
-                    }
+                    BackgroundPositionHorizontal::Exact(px) => scale_px(
+                        px.to_pixels_internal(bounds.0.size.width, 16.0, 16.0),
+                        dpi_scale,
+                    ),
                 };
                 let center_y = match &gradient.center.vertical {
                     BackgroundPositionVertical::Top => 0.0,
                     BackgroundPositionVertical::Center => scaled_height / 2.0,
                     BackgroundPositionVertical::Bottom => scaled_height,
-                    BackgroundPositionVertical::Exact(px) => {
-                        scale_px(px.to_pixels_internal(bounds.0.size.height, 16.0, 16.0), dpi_scale)
-                    }
+                    BackgroundPositionVertical::Exact(px) => scale_px(
+                        px.to_pixels_internal(bounds.0.size.height, 16.0, 16.0),
+                        dpi_scale,
+                    ),
                 };
                 let center = LayoutPoint::new(center_x, center_y);
 
@@ -1878,7 +1909,9 @@ pub fn translate_displaylist_to_wr(
                             offset: stop.angle.to_degrees_raw() / 360.0, /* Convert angle to 0-1
                                                                           * range */
                             color: wr_translate_color_f(
-                                azul_css::props::basic::color::ColorF::from(stop.color.to_color_u_default()),
+                                azul_css::props::basic::color::ColorF::from(
+                                    stop.color.to_color_u_default(),
+                                ),
                             ),
                         }
                     })
@@ -1956,17 +1989,39 @@ pub fn translate_displaylist_to_wr(
                 let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
 
                 let offset = LayoutVector2D::new(
-                    scale_px(shadow.offset_x.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale),
-                    scale_px(shadow.offset_y.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale),
+                    scale_px(
+                        shadow.offset_x.inner.to_pixels_internal(
+                            0.0,
+                            DEFAULT_ROOT_FONT_SIZE_PX,
+                            DEFAULT_ROOT_FONT_SIZE_PX,
+                        ),
+                        dpi_scale,
+                    ),
+                    scale_px(
+                        shadow.offset_y.inner.to_pixels_internal(
+                            0.0,
+                            DEFAULT_ROOT_FONT_SIZE_PX,
+                            DEFAULT_ROOT_FONT_SIZE_PX,
+                        ),
+                        dpi_scale,
+                    ),
                 );
                 let color_f =
                     wr_translate_color_f(azul_css::props::basic::color::ColorF::from(shadow.color));
                 let blur_radius = scale_px(
-                    shadow.blur_radius.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX),
+                    shadow.blur_radius.inner.to_pixels_internal(
+                        0.0,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                    ),
                     dpi_scale,
                 );
                 let spread_radius = scale_px(
-                    shadow.spread_radius.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX),
+                    shadow.spread_radius.inner.to_pixels_internal(
+                        0.0,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                    ),
                     dpi_scale,
                 );
 
@@ -1989,17 +2044,11 @@ pub fn translate_displaylist_to_wr(
                 // extending beyond element bounds (offset + blur + spread).
                 // Inset shadows are contained within the element, so no expansion needed.
                 let shadow_clip_rect = if clip_mode == WrBoxShadowClipMode::Outset {
-                    let extent = blur_radius + spread_radius.max(0.0)
-                        + offset.x.abs().max(offset.y.abs());
+                    let extent =
+                        blur_radius + spread_radius.max(0.0) + offset.x.abs().max(offset.y.abs());
                     LayoutRect::from_origin_and_size(
-                        LayoutPoint::new(
-                            rect.min.x - extent,
-                            rect.min.y - extent,
-                        ),
-                        LayoutSize::new(
-                            rect.width() + 2.0 * extent,
-                            rect.height() + 2.0 * extent,
-                        ),
+                        LayoutPoint::new(rect.min.x - extent, rect.min.y - extent),
+                        LayoutSize::new(rect.width() + 2.0 * extent, rect.height() + 2.0 * extent),
                     )
                 } else {
                     rect
@@ -2070,7 +2119,11 @@ pub fn translate_displaylist_to_wr(
                 // backdrop_filter doesn't push a stacking context, no pop needed
             }
 
-            DisplayListItem::PushOpacity { bounds, opacity, opacity_key } => {
+            DisplayListItem::PushOpacity {
+                bounds,
+                opacity,
+                opacity_key,
+            } => {
                 log_debug!(
                     LogCategory::DisplayList,
                     "[compositor2] PushOpacity: bounds={:?}, opacity={}, key={:?}",
@@ -2090,10 +2143,7 @@ pub fn translate_displaylist_to_wr(
                         ),
                         *opacity,
                     ),
-                    None => WrFilterOp::Opacity(
-                        PropertyBinding::Value(*opacity),
-                        *opacity,
-                    ),
+                    None => WrFilterOp::Opacity(PropertyBinding::Value(*opacity), *opacity),
                 };
                 // Use zero origin: children use absolute coordinates.
                 builder.push_simple_stacking_context_with_filters(
@@ -2110,12 +2160,28 @@ pub fn translate_displaylist_to_wr(
                 builder.pop_stacking_context();
             }
             DisplayListItem::PushTextShadow { shadow } => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PushTextShadow: {:?}", shadow);
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] PushTextShadow: {:?}",
+                    shadow
+                );
                 let current_spatial_id = current_spatial!();
                 let current_clip_chain = current_clip!();
-                let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX) * dpi_scale;
-                let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX) * dpi_scale;
-                let blur_radius = shadow.blur_radius.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX) * dpi_scale;
+                let offset_x = shadow.offset_x.inner.to_pixels_internal(
+                    0.0,
+                    DEFAULT_ROOT_FONT_SIZE_PX,
+                    DEFAULT_ROOT_FONT_SIZE_PX,
+                ) * dpi_scale;
+                let offset_y = shadow.offset_y.inner.to_pixels_internal(
+                    0.0,
+                    DEFAULT_ROOT_FONT_SIZE_PX,
+                    DEFAULT_ROOT_FONT_SIZE_PX,
+                ) * dpi_scale;
+                let blur_radius = shadow.blur_radius.inner.to_pixels_internal(
+                    0.0,
+                    DEFAULT_ROOT_FONT_SIZE_PX,
+                    DEFAULT_ROOT_FONT_SIZE_PX,
+                ) * dpi_scale;
                 let wr_shadow = WrShadow {
                     offset: LayoutVector2D::new(offset_x, offset_y),
                     color: color_u_to_wr(&shadow.color),
@@ -2307,8 +2373,22 @@ fn translate_style_filters_to_wr(
         .iter()
         .filter_map(|f| match f {
             StyleFilter::Blur(blur) => {
-                let w = scale_px(blur.width.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale);
-                let h = scale_px(blur.height.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale);
+                let w = scale_px(
+                    blur.width.to_pixels_internal(
+                        0.0,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                    ),
+                    dpi_scale,
+                );
+                let h = scale_px(
+                    blur.height.to_pixels_internal(
+                        0.0,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                    ),
+                    dpi_scale,
+                );
                 Some(WrFilterOp::Blur(w, h))
             }
             StyleFilter::Opacity(o) => {
@@ -2332,14 +2412,31 @@ fn translate_style_filters_to_wr(
             }
             StyleFilter::DropShadow(s) => {
                 let offset = LayoutVector2D::new(
-                    scale_px(s.offset_x.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale),
-                    scale_px(s.offset_y.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX), dpi_scale),
+                    scale_px(
+                        s.offset_x.inner.to_pixels_internal(
+                            0.0,
+                            DEFAULT_ROOT_FONT_SIZE_PX,
+                            DEFAULT_ROOT_FONT_SIZE_PX,
+                        ),
+                        dpi_scale,
+                    ),
+                    scale_px(
+                        s.offset_y.inner.to_pixels_internal(
+                            0.0,
+                            DEFAULT_ROOT_FONT_SIZE_PX,
+                            DEFAULT_ROOT_FONT_SIZE_PX,
+                        ),
+                        dpi_scale,
+                    ),
                 );
-                let color = wr_translate_color_f(
-                    azul_css::props::basic::color::ColorF::from(s.color),
-                );
+                let color =
+                    wr_translate_color_f(azul_css::props::basic::color::ColorF::from(s.color));
                 let blur_radius = scale_px(
-                    s.blur_radius.inner.to_pixels_internal(0.0, DEFAULT_ROOT_FONT_SIZE_PX, DEFAULT_ROOT_FONT_SIZE_PX),
+                    s.blur_radius.inner.to_pixels_internal(
+                        0.0,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                        DEFAULT_ROOT_FONT_SIZE_PX,
+                    ),
                     dpi_scale,
                 );
                 Some(WrFilterOp::DropShadow(WrShadow {
@@ -2349,13 +2446,13 @@ fn translate_style_filters_to_wr(
                 }))
             }
             StyleFilter::Flood(color) => {
-                let c = wr_translate_color_f(
-                    azul_css::props::basic::color::ColorF::from(*color),
-                );
+                let c = wr_translate_color_f(azul_css::props::basic::color::ColorF::from(*color));
                 Some(WrFilterOp::Flood(c))
             }
-            StyleFilter::Blend(_) | StyleFilter::ComponentTransfer
-            | StyleFilter::Offset(_) | StyleFilter::Composite(_) => {
+            StyleFilter::Blend(_)
+            | StyleFilter::ComponentTransfer
+            | StyleFilter::Offset(_)
+            | StyleFilter::Composite(_) => {
                 // These SVG-specific filters don't map directly to WR FilterOp
                 None
             }

@@ -14,10 +14,7 @@ pub use crate::css::PrintAsCssValue;
 #[allow(clippy::wildcard_imports)]
 use crate::props::{
     layout::{dimensions::*, spacing::*},
-    style::{
-        border::*,
-        border_radius::*,
-    },
+    style::{border::*, border_radius::*},
 };
 
 /// Zero-allocation CSS value formatting trait using `fmt::Formatter`.

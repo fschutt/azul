@@ -4,17 +4,16 @@
 //! look like the printouts it replaces, because that is the mental model that
 //! already works.
 
-use azul::prelude::*;
 use azul::callbacks::RenderImageCallbackInfo;
 use azul::dom::{AccessibilityInfo, IdOrClass, RenderImageCallback};
-use azul::menu::{Menu, MenuItem, StringMenuItem};
-use azul::vec::{IdOrClassVec, MenuItemVec};
 use azul::image::{ImageRef, RawImageFormat};
-use azul::vec::U8VecRef;
 use azul::image::{RawImage, RawImageData};
+use azul::menu::{Menu, MenuItem, StringMenuItem};
+use azul::prelude::*;
+use azul::vec::U8VecRef;
+use azul::vec::{IdOrClassVec, MenuItemVec};
 
 use crate::{code, ink, model::Semantic, AppState};
-
 
 /// Line height in logical px. Shared by the renderer and by the code that
 /// infers WHICH LINES a stroke covers — if these two ever disagree, every
@@ -173,8 +172,7 @@ fn menu_bar(data: &RefAny) -> Menu {
     }
     ink = ink.with_child(MenuItem::Separator);
     ink = ink.with_child(MenuItem::String(
-        StringMenuItem::create("Cycle nib")
-            .with_callback(data.clone(), crate::on_cycle_tool),
+        StringMenuItem::create("Cycle nib").with_callback(data.clone(), crate::on_cycle_tool),
     ));
     ink = ink.with_child(MenuItem::String(
         StringMenuItem::create("Start / stop recording")
@@ -220,13 +218,10 @@ fn sidebar(s: &AppState, data: &RefAny) -> Dom {
          min-height: 0px; height: 100%; background: #f7f6f3; \
          border-right: 1px solid #cfcbc4;",
     );
-    col.add_child(
-        Dom::create_div_with_text("Name")
-            .with_css(
-                "font-size: 11px; padding: 7px 10px; color: #6b665e; flex-shrink: 0; \
+    col.add_child(Dom::create_div_with_text("Name").with_css(
+        "font-size: 11px; padding: 7px 10px; color: #6b665e; flex-shrink: 0; \
                  border-bottom: 1px solid #d8d4cd; background: #efede8;",
-            ),
-    );
+    ));
 
     let mut list = Dom::create_div()
         .with_css("flex-grow: 1; min-height: 0px; overflow-y: auto; overflow-x: hidden;");
@@ -242,7 +237,9 @@ fn sidebar(s: &AppState, data: &RefAny) -> Dom {
             if prev.get(depth).map(String::as_str) == Some(*comp) {
                 continue;
             }
-            list.add_child(finder_row(comp, depth, "folder", "#4a90d9", false, None, data));
+            list.add_child(finder_row(
+                comp, depth, "folder", "#4a90d9", false, None, data,
+            ));
         }
         prev = dirs.iter().map(|c| (*c).to_string()).collect();
         let leaf = name.first().copied().unwrap_or(f.display.as_str());
@@ -347,7 +344,11 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
                 c.b,
                 if selected { "1.0" } else { "0.18" },
                 if selected { "#ffffff" } else { "#2b2b2b" },
-                if selected { "2px solid #2b2b2b" } else { "1px solid #cfcbc4" },
+                if selected {
+                    "2px solid #2b2b2b"
+                } else {
+                    "1px solid #cfcbc4"
+                },
             )
             .as_str(),
         );
@@ -401,7 +402,11 @@ fn toolbar(s: &AppState, data: &RefAny) -> Dom {
         Dom::create_icon(if rec { "fiber_manual_record" } else { "mic" })
             .with_css("font-size: 15px;"),
     );
-    record.add_child(Dom::create_div_with_text(if rec { "recording" } else { "record" }));
+    record.add_child(Dom::create_div_with_text(if rec {
+        "recording"
+    } else {
+        "record"
+    }));
     bar.add_child(
         record
             .with_accessibility_info(named(if rec {
@@ -634,51 +639,62 @@ extern "C" fn sheets_virtual_view(
 
 fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize) -> Dom {
     let (first_line, lines) = file.page(page);
-    let mut sheet = Dom::create_div().with_css(format!(
-        "position: relative; width: {}px; height: {}px; background: #ffffff; \
+    let mut sheet = Dom::create_div().with_css(
+        format!(
+            "position: relative; width: {}px; height: {}px; background: #ffffff; \
          border: 1px solid #b9b4ab; box-shadow: 0px 1px 4px #00000030; \
          margin-right: {}px; flex-shrink: 0; box-sizing: border-box; \
          padding: {}px; overflow: hidden;",
-        PAGE_W as isize,
-        page_h() as isize,
-        PAGE_GAP as isize,
-        PAGE_PAD as isize,
-    ).as_str());
+            PAGE_W as isize,
+            page_h() as isize,
+            PAGE_GAP as isize,
+            PAGE_PAD as isize,
+        )
+        .as_str(),
+    );
 
     // A faint rule where the code stops and the margin begins. Printouts have
     // no such line, but on screen there is no paper texture to tell you the
     // right-hand third is writeable — without it the margin reads as padding
     // and never gets used.
-    sheet.add_child(Dom::create_div().with_css(format!(
-        "position: absolute; top: {}px; bottom: {}px; left: {}px; width: 1px; \
+    sheet.add_child(
+        Dom::create_div().with_css(
+            format!(
+                "position: absolute; top: {}px; bottom: {}px; left: {}px; width: 1px; \
          background: #ece8e1;",
-        PAGE_PAD as isize / 2,
-        PAGE_PAD as isize / 2,
-        (PAGE_W - MARGIN_GUTTER_W) as isize,
-    ).as_str()));
+                PAGE_PAD as isize / 2,
+                PAGE_PAD as isize / 2,
+                (PAGE_W - MARGIN_GUTTER_W) as isize,
+            )
+            .as_str(),
+        ),
+    );
 
     // Code, one row per line, gutter then text. Clipped to the width left of
     // the margin so a long line runs under the rule instead of through it.
-    let mut col = Dom::create_div().with_css(format!(
-        "display: flex; flex-direction: column; width: {}px; overflow: hidden;",
-        (PAGE_W - MARGIN_GUTTER_W - PAGE_PAD) as isize,
-    ).as_str());
+    let mut col = Dom::create_div().with_css(
+        format!(
+            "display: flex; flex-direction: column; width: {}px; overflow: hidden;",
+            (PAGE_W - MARGIN_GUTTER_W - PAGE_PAD) as isize,
+        )
+        .as_str(),
+    );
     for (i, line) in lines.iter().enumerate() {
-        let mut row = Dom::create_div().with_css(format!(
-            "display: flex; flex-direction: row; height: {LINE_H}px;"
-        ).as_str());
+        let mut row = Dom::create_div()
+            .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
         row.add_child(
-            Dom::create_div_with_text(format!("{}", first_line + i).as_str()).with_css(format!(
-                "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
+            Dom::create_div_with_text(format!("{}", first_line + i).as_str()).with_css(
+                format!(
+                    "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; \
                  font-family: monospace; font-size: 11px; color: #b0aaa0;",
-                GUTTER_W as isize - 10,
-            ).as_str()),
-        );
-        row.add_child(
-            Dom::create_div_with_text(line.as_str()).with_css(
-                "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
+                    GUTTER_W as isize - 10,
+                )
+                .as_str(),
             ),
         );
+        row.add_child(Dom::create_div_with_text(line.as_str()).with_css(
+            "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
+        ));
         col.add_child(row);
     }
     sheet.add_child(col);
@@ -698,11 +714,14 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
             cache,
         ))
         .with_dataset(OptionRefAny::Some(RefAny::new(PageTag { page })))
-        .with_css(format!(
-            "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
-            PAGE_W as isize,
-            page_h() as isize,
-        ).as_str())
+        .with_css(
+            format!(
+                "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
+                PAGE_W as isize,
+                page_h() as isize,
+            )
+            .as_str(),
+        )
         .with_callback(
             EventFilter::Hover(HoverEventFilter::MouseDown),
             data.clone(),
@@ -735,7 +754,12 @@ extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> Ima
     let size = info.get_bounds().get_logical_size();
     let (w, h) = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
     let Some(layer) = data.downcast_ref::<InkLayer>() else {
-        return ImageRef::null_image(w as usize, h as usize, RawImageFormat::RGBA8, U8VecRef::from(&[][..]));
+        return ImageRef::null_image(
+            w as usize,
+            h as usize,
+            RawImageFormat::RGBA8,
+            U8VecRef::from(&[][..]),
+        );
     };
     let mut all: Vec<&crate::model::Stroke> = layer.strokes.iter().collect();
     if let Some(l) = layer.live.as_ref() {
@@ -752,9 +776,16 @@ extern "C" fn render_ink(mut data: RefAny, info: RenderImageCallbackInfo) -> Ima
         data_format: RawImageFormat::RGBA8,
         tag: Vec::new().into(),
     };
-    ImageRef::new_rawimage(img).into_option().unwrap_or_else(|| {
-        ImageRef::null_image(w as usize, h as usize, RawImageFormat::RGBA8, U8VecRef::from(&[][..]))
-    })
+    ImageRef::new_rawimage(img)
+        .into_option()
+        .unwrap_or_else(|| {
+            ImageRef::null_image(
+                w as usize,
+                h as usize,
+                RawImageFormat::RGBA8,
+                U8VecRef::from(&[][..]),
+            )
+        })
 }
 
 fn status_bar(s: &AppState) -> Dom {
@@ -766,7 +797,11 @@ fn status_bar(s: &AppState) -> Dom {
          border-top: 1px solid #cfcbc4;",
     );
     bar.add_child(Dom::create_div_with_text(
-        format!("{pages} sheets  ·  {} strokes  ·  {clips} clips", s.strokes.len()).as_str(),
+        format!(
+            "{pages} sheets  ·  {} strokes  ·  {clips} clips",
+            s.strokes.len()
+        )
+        .as_str(),
     ));
     bar.add_child(Dom::create_div_with_text(s.status.as_str()).with_css("margin-left: auto;"));
     bar

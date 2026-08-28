@@ -34,11 +34,10 @@ use azul_core::task::{ThreadId, ThreadReceiver, ThreadSendMsg};
 use azul_core::video::{FrameConsumer, FrameConsumerVec};
 
 use super::capture_common::{
-    camera_backend, frame_resampler, present_captured, preview_size_for_node,
-    run_capture_loop, send_capture_targets, test_pattern_vtable, CaptureRequest,
-    CaptureSession, CaptureTargets, CapturedFrames, OnConsumerFrame, OnConsumerFrameCallback,
-    OnVideoFrame, OnVideoFrameCallback, OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern,
-    REOPEN_COOLDOWN_MS,
+    camera_backend, frame_resampler, present_captured, preview_size_for_node, run_capture_loop,
+    send_capture_targets, test_pattern_vtable, CaptureRequest, CaptureSession, CaptureTargets,
+    CapturedFrames, OnConsumerFrame, OnConsumerFrameCallback, OnVideoFrame, OnVideoFrameCallback,
+    OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern, REOPEN_COOLDOWN_MS,
 };
 use crate::callbacks::{Callback, CallbackInfo, CallbackType};
 use crate::thread::{Thread, ThreadCallback, ThreadSender};
@@ -136,7 +135,8 @@ pub struct CameraWidget {
 
 impl CameraWidget {
     /// Create a camera widget for the given capture config.
-    #[must_use] pub const fn create(config: CameraConfig) -> Self {
+    #[must_use]
+    pub const fn create(config: CameraConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -169,7 +169,11 @@ impl CameraWidget {
 
     /// Set the hook that receives every consumer's cut of every captured
     /// frame (route on `frame.consumer.id`; send Bob his, record the other).
-    pub fn set_on_consumer_frame<C: Into<OnConsumerFrameCallback>>(&mut self, data: RefAny, on_consumer_frame: C) {
+    pub fn set_on_consumer_frame<C: Into<OnConsumerFrameCallback>>(
+        &mut self,
+        data: RefAny,
+        on_consumer_frame: C,
+    ) {
         self.on_consumer_frame = Some(OnConsumerFrame {
             refany: data,
             callback: on_consumer_frame.into(),
@@ -212,7 +216,8 @@ impl CameraWidget {
 
     /// Build the widget's DOM: a single `<img>` node, fed by a background
     /// capture thread started on mount.
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         let state = CameraWidgetState {
             config: self.config,
             started: false,
@@ -255,7 +260,11 @@ impl CameraWidget {
 /// Frame dimensions for a config (0 -> a sane default).
 const fn frame_dims(config: &CameraConfig) -> (u32, u32) {
     let w = if config.width > 0 { config.width } else { 640 };
-    let h = if config.height > 0 { config.height } else { 480 };
+    let h = if config.height > 0 {
+        config.height
+    } else {
+        480
+    };
     (w, h)
 }
 
@@ -296,7 +305,11 @@ extern "C" fn camera_on_after_mount(mut data: RefAny, mut info: CallbackInfo) ->
     };
 
     let tid = ThreadId::unique();
-    let thread = Thread::create(RefAny::new(init), data.clone(), ThreadCallback::new(camera_worker));
+    let thread = Thread::create(
+        RefAny::new(init),
+        data.clone(),
+        ThreadCallback::new(camera_worker),
+    );
     // Grab the main->worker sender BEFORE add_thread moves the Thread, so the
     // merge callback can push a changed consumer list without a CallbackInfo.
     let control = thread.clone_sender();
@@ -336,20 +349,27 @@ extern "C" fn camera_on_resize(mut data: RefAny, info: CallbackInfo) -> Update {
 /// Background worker: the shared capture loop over the registered camera
 /// backend (v4l2 / `AVFoundation` / Media Foundation / Camera2), else the
 /// colour-cycle test pattern — see `capture_common::run_capture_loop`.
-extern "C" fn camera_worker(
-    mut init: RefAny,
-    mut sender: ThreadSender,
-    mut recv: ThreadReceiver,
-) {
+extern "C" fn camera_worker(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadReceiver) {
     let (targets, session) = match init.downcast_ref::<CameraThreadInit>() {
-        Some(i) => (i.targets.clone(), camera_session(i.index, i.fps, (i.width, i.height), i.floor)),
-        None => (CaptureTargets::default(), camera_session(0, 0, (640, 480), None)),
+        Some(i) => (
+            i.targets.clone(),
+            camera_session(i.index, i.fps, (i.width, i.height), i.floor),
+        ),
+        None => (
+            CaptureTargets::default(),
+            camera_session(0, 0, (640, 480), None),
+        ),
     };
     run_capture_loop(session, targets, &mut sender, &mut recv);
 }
 
 /// The camera's capture session: platform backend + colour-cycle fallback.
-fn camera_session(index: u32, fps: u32, fallback: (u32, u32), floor: Option<(u32, u32)>) -> CaptureSession {
+fn camera_session(
+    index: u32,
+    fps: u32,
+    fallback: (u32, u32),
+    floor: Option<(u32, u32)>,
+) -> CaptureSession {
     CaptureSession {
         backend: camera_backend(),
         test_pattern: test_pattern_vtable(TestPattern::ColourCycle),
@@ -385,7 +405,13 @@ extern "C" fn camera_writeback(
     let Some(mut captured) = frame_data.downcast_mut::<CapturedFrames>() else {
         return Update::DoNothing;
     };
-    present_captured(&mut info, writeback_data.clone(), &on_frame, &on_consumer_frame, &mut captured)
+    present_captured(
+        &mut info,
+        writeback_data.clone(),
+        &on_frame,
+        &on_consumer_frame,
+        &mut captured,
+    )
 }
 
 /// Carry live state forward across relayout (config from the fresh build,
@@ -472,7 +498,9 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
-        thread::{ThreadReceiveMsg, ThreadSendCallback, ThreadSenderDestructorCallback, ThreadSenderInner},
+        thread::{
+            ThreadReceiveMsg, ThreadSendCallback, ThreadSenderDestructorCallback, ThreadSenderInner,
+        },
         widgets::capture_common::{OnConsumerFrameCallbackType, OnVideoFrameCallbackType},
         window::LayoutWindow,
         window_state::FullWindowState,
@@ -564,7 +592,8 @@ mod autotest_generated {
 
     extern "C" fn record_frame(mut data: RefAny, _: CallbackInfo, frame: VideoFrame) -> Update {
         if let Some(mut log) = data.downcast_mut::<FrameLog>() {
-            log.seen.push((frame.width, frame.height, frame.bytes.as_ref().len()));
+            log.seen
+                .push((frame.width, frame.height, frame.bytes.as_ref().len()));
         }
         Update::RefreshDom
     }
@@ -672,16 +701,17 @@ mod autotest_generated {
     /// Records the frame, then reports the send as *failed* - i.e. "the main thread is
     /// gone", the only signal `camera_worker` has to stop. A worker that ignores it
     /// would hang this test forever.
-    extern "C" fn record_and_stop(_sender: *const core::ffi::c_void, msg: ThreadReceiveMsg) -> bool {
+    extern "C" fn record_and_stop(
+        _sender: *const core::ffi::c_void,
+        msg: ThreadReceiveMsg,
+    ) -> bool {
         if let ThreadReceiveMsg::WriteBack(mut wb) = msg {
             if let Some(c) = wb.refany.downcast_ref::<CapturedFrames>() {
                 let Some(f) = c.preview.as_ref().or(c.source.as_ref()) else {
                     return false;
                 };
                 let bytes = f.bytes.as_ref();
-                let tick0 = bytes
-                    .chunks_exact(4)
-                    .all(|px| px == &[0u8, 0, 0, 255][..]);
+                let tick0 = bytes.chunks_exact(4).all(|px| px == &[0u8, 0, 0, 255][..]);
                 WORKER_LOG
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -702,7 +732,9 @@ mod autotest_generated {
         let (tx, rx) = channel::<ThreadReceiveMsg>();
         let sender = ThreadSender::new(ThreadSenderInner {
             ptr: Box::new(tx),
-            send_fn: ThreadSendCallback { cb: record_and_stop },
+            send_fn: ThreadSendCallback {
+                cb: record_and_stop,
+            },
             destructor: ThreadSenderDestructorCallback {
                 cb: sender_drop_noop,
             },
@@ -758,7 +790,11 @@ mod autotest_generated {
     fn frame_dims_substitutes_the_default_for_a_zero_dimension() {
         assert_eq!(frame_dims(&cfg(0, 0)), (640, 480));
         assert_eq!(frame_dims(&cfg(0, 720)), (640, 720), "only width defaults");
-        assert_eq!(frame_dims(&cfg(1280, 0)), (1280, 480), "only height defaults");
+        assert_eq!(
+            frame_dims(&cfg(1280, 0)),
+            (1280, 480),
+            "only height defaults"
+        );
         assert_eq!(frame_dims(&CameraConfig::default()), (640, 480));
     }
 
@@ -814,7 +850,10 @@ mod autotest_generated {
                     output_format: RawImageFormat::RGBA8,
                 };
                 let widget = CameraWidget::create(config);
-                assert_eq!(widget.config, config, "create must not normalise the config");
+                assert_eq!(
+                    widget.config, config,
+                    "create must not normalise the config"
+                );
                 assert!(
                     matches!(widget.on_frame, OptionOnVideoFrame::None),
                     "a fresh widget has no frame hook"
@@ -831,7 +870,10 @@ mod autotest_generated {
             record_frame as OnVideoFrameCallbackType,
         );
 
-        assert_eq!(widget.config, config, "the builder must not touch the config");
+        assert_eq!(
+            widget.config, config,
+            "the builder must not touch the config"
+        );
         let OptionOnVideoFrame::Some(hook) = &widget.on_frame else {
             panic!("with_on_frame must install a hook");
         };
@@ -857,8 +899,7 @@ mod autotest_generated {
             panic!("hook must still be set");
         };
         assert_eq!(
-            hook.callback.cb as usize,
-            frame_do_nothing as OnVideoFrameCallbackType as usize,
+            hook.callback.cb as usize, frame_do_nothing as OnVideoFrameCallbackType as usize,
             "the second set_on_frame must replace the first"
         );
     }
@@ -889,7 +930,8 @@ mod autotest_generated {
     fn dom_with_extreme_dims_builds_a_null_image_without_allocating() {
         // u32::MAX x u32::MAX pixels is ~7e19 bytes - a NullImage reserves no memory,
         // so this must stay a cheap, panic-free descriptor.
-        let (w, h, format, _) = placeholder_of(&CameraWidget::create(cfg(u32::MAX, u32::MAX)).dom());
+        let (w, h, format, _) =
+            placeholder_of(&CameraWidget::create(cfg(u32::MAX, u32::MAX)).dom());
         assert_eq!((w, h), (u32::MAX as usize, u32::MAX as usize));
         assert_eq!(format, RawImageFormat::BGRA8);
     }
@@ -898,7 +940,11 @@ mod autotest_generated {
     fn dom_wires_exactly_one_after_mount_callback_a_dataset_and_a_merge_callback() {
         let dom = CameraWidget::create(cfg(64, 48)).dom();
 
-        assert_eq!(dom.children.as_ref().len(), 0, "the widget is a single node");
+        assert_eq!(
+            dom.children.as_ref().len(),
+            0,
+            "the widget is a single node"
+        );
 
         let callbacks = dom.root.get_callbacks();
         assert_eq!(
@@ -965,7 +1011,8 @@ mod autotest_generated {
     #[test]
     fn after_mount_is_a_no_op_once_the_thread_has_started() {
         let mut data = state(cfg(0, 0), true, Some(3));
-        let (update, changes) = with_callback_info(|info| camera_on_after_mount(data.clone(), info));
+        let (update, changes) =
+            with_callback_info(|info| camera_on_after_mount(data.clone(), info));
 
         assert_eq!(update, Update::DoNothing);
         assert!(
@@ -1007,7 +1054,11 @@ mod autotest_generated {
 
         assert_eq!(sent.len(), 1);
         let (w, h, bytes, _) = sent[0];
-        assert_eq!((w, h), (640, 480), "a bad init must not panic - it defaults");
+        assert_eq!(
+            (w, h),
+            (640, 480),
+            "a bad init must not panic - it defaults"
+        );
         assert_eq!(bytes, 640 * 480 * 4);
     }
 
@@ -1027,9 +1078,17 @@ mod autotest_generated {
     // One capture, many consumers (widget side)
     // ------------------------------------------------------------------
 
-    extern "C" fn record_consumer_frame(mut data: RefAny, _: CallbackInfo, cut: ConsumerFrame) -> Update {
+    extern "C" fn record_consumer_frame(
+        mut data: RefAny,
+        _: CallbackInfo,
+        cut: ConsumerFrame,
+    ) -> Update {
         if let Some(mut log) = data.downcast_mut::<FrameLog>() {
-            log.seen.push((cut.consumer.id, cut.frame.width, cut.frame.bytes.as_ref().len()));
+            log.seen.push((
+                cut.consumer.id,
+                cut.frame.width,
+                cut.frame.bytes.as_ref().len(),
+            ));
         }
         Update::RefreshDom
     }
@@ -1044,16 +1103,24 @@ mod autotest_generated {
             .with_on_consumer_frame(log, record_consumer_frame as OnConsumerFrameCallbackType)
             .dom();
         let mut dataset = dom.root.get_dataset().cloned().expect("dataset");
-        let s = dataset.downcast_ref::<CameraWidgetState>().expect("camera state");
+        let s = dataset
+            .downcast_ref::<CameraWidgetState>()
+            .expect("camera state");
         assert_eq!(
             s.consumers.as_ref(),
-            &[FrameConsumer::new(7, 640, 360), FrameConsumer::new(8, 1280, 720)],
+            &[
+                FrameConsumer::new(7, 640, 360),
+                FrameConsumer::new(8, 1280, 720)
+            ],
             "a same-id consumer replaces the earlier one"
         );
         assert!(s.on_consumer_frame.is_some());
         let t = s.targets();
         assert_eq!(t.consumers.len(), 2);
-        assert!(!t.wants_source, "no on_frame hook: the captured frame stays on the worker");
+        assert!(
+            !t.wants_source,
+            "no on_frame hook: the captured frame stays on the worker"
+        );
         assert_eq!(t.preview, None, "not laid out yet");
     }
 
@@ -1094,7 +1161,11 @@ mod autotest_generated {
         let (update, changes) =
             with_callback_info(|info| camera_writeback(data.clone(), payload.clone(), info));
 
-        assert_eq!(update, Update::RefreshDom, "the consumer hook's Update wins");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the consumer hook's Update wins"
+        );
         assert_eq!(
             logged_frames(&mut log),
             vec![(7, 2, 2 * 4), (8, 3, 3 * 3 * 4)],
@@ -1114,7 +1185,11 @@ mod autotest_generated {
     fn resize_without_a_laid_out_node_sends_nothing_and_stores_nothing() {
         let mut data = state(cfg(0, 0), true, None);
         let (update, changes) = with_callback_info(|info| camera_on_resize(data.clone(), info));
-        assert_eq!(update, Update::DoNothing, "a resize is a message, never a relayout");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "a resize is a message, never a relayout"
+        );
         assert!(changes.is_empty());
         let s = data.downcast_ref::<CameraWidgetState>().expect("state");
         assert_eq!(s.preview, None, "no node size -> no preview size");
@@ -1139,13 +1214,18 @@ mod autotest_generated {
         let mut merged = merge_camera_state(new_data, old_data);
         let s = merged.downcast_ref::<CameraWidgetState>().expect("state");
         assert_eq!(s.consumers.as_ref(), &[FrameConsumer::new(7, 500, 200)]);
-        assert!(s.started && s.gl_texture_id == Some(9), "thread state carries forward");
+        assert!(
+            s.started && s.gl_texture_id == Some(9),
+            "thread state carries forward"
+        );
         drop(s);
         let msg = rx.try_recv().expect("the running worker is told about Bob");
         let ThreadSendMsg::Custom(mut payload) = msg else {
             panic!("a consumer change is a Custom(CaptureTargets) message");
         };
-        let t = payload.downcast_ref::<CaptureTargets>().expect("CaptureTargets");
+        let t = payload
+            .downcast_ref::<CaptureTargets>()
+            .expect("CaptureTargets");
         assert_eq!(t.consumers, vec![FrameConsumer::new(7, 500, 200)]);
 
         // An unchanged rebuild sends nothing (hundreds of relayouts must not
@@ -1188,9 +1268,8 @@ mod autotest_generated {
         let mut log = RefAny::new(FrameLog { seen: Vec::new() });
         let mut data = state_with_hook(cfg(2, 2), &log);
 
-        let (update, changes) = with_callback_info(|info| {
-            camera_writeback(data.clone(), RefAny::new(0_u32), info)
-        });
+        let (update, changes) =
+            with_callback_info(|info| camera_writeback(data.clone(), RefAny::new(0_u32), info));
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "no frame -> no image change");
@@ -1241,7 +1320,10 @@ mod autotest_generated {
             with_callback_info(|info| camera_writeback(data.clone(), bogus.clone(), info));
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a rejected frame must not touch the DOM");
+        assert!(
+            changes.is_empty(),
+            "a rejected frame must not touch the DOM"
+        );
         let (_, _, texture, _) = read_state(&mut data);
         assert_eq!(texture, None);
     }

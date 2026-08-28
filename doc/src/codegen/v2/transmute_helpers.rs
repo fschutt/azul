@@ -146,10 +146,10 @@ pub fn generate_transmuted_fn_body(
     // since we generate an alias `let classname = _self;` below
     fn_body = fn_body.replace("self.", &format!("{}.", transmuted_self_var));
     fn_body = fn_body.replace("object.", &format!("{}.", transmuted_self_var));
-    
+
     // Replace legacy lowercase classname with proper snake_case variable
     // e.g., "textinput.set_text()" -> "text_input.set_text()" (when parameter is text_input)
-    // e.g., "encode_bmp(rawimage)" -> "encode_bmp(raw_image)" 
+    // e.g., "encode_bmp(rawimage)" -> "encode_bmp(raw_image)"
     // Only if the legacy form differs from snake_case form
     if legacy_lowercase_var != self_var {
         // Replace method call form: "classname.method()"
@@ -241,7 +241,7 @@ pub fn generate_transmuted_fn_body(
         // Find all occurrences of "SomeType::" patterns and replace with full path
         // We need to handle both start of expression and after delimiters like { or (
         let delimiters = ["{ ", "( ", " "];
-        
+
         for delimiter in delimiters {
             let mut search_pos = 0;
             while let Some(delimiter_pos) = fn_body[search_pos..].find(delimiter) {
@@ -249,16 +249,20 @@ pub fn generate_transmuted_fn_body(
                 if abs_pos >= fn_body.len() {
                     break;
                 }
-                
+
                 // Find :: after this position
                 if let Some(colon_offset) = fn_body[abs_pos..].find("::") {
                     let potential_type = &fn_body[abs_pos..abs_pos + colon_offset];
-                    
+
                     // Check if it's a simple type name (no special chars, starts with uppercase)
                     if !potential_type.contains("::")
                         && !potential_type.contains(" ")
                         && !potential_type.is_empty()
-                        && potential_type.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                        && potential_type
+                            .chars()
+                            .next()
+                            .map(|c| c.is_uppercase())
+                            .unwrap_or(false)
                     {
                         // Look up the type in type_to_external
                         let prefixed_type = format!("{}{}", prefix, potential_type);
@@ -277,14 +281,18 @@ pub fn generate_transmuted_fn_body(
                 search_pos = abs_pos;
             }
         }
-        
+
         // Also check for type at the very start of fn_body
         if let Some(colon_pos) = fn_body.find("::") {
             let potential_type = &fn_body[..colon_pos];
             if !potential_type.contains("::")
                 && !potential_type.contains(" ")
                 && !potential_type.is_empty()
-                && potential_type.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                && potential_type
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
             {
                 let prefixed_type = format!("{}{}", prefix, potential_type);
                 if let Some(external_path) = type_to_external.get(&prefixed_type) {
@@ -488,7 +496,7 @@ pub fn generate_transmuted_fn_body(
 }
 
 /// Convert CamelCase to snake_case
-/// 
+///
 /// Examples:
 /// - "DomVec" -> "dom_vec"
 /// - "AccessibilityActionVec" -> "accessibility_action_vec"

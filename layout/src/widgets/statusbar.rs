@@ -32,11 +32,16 @@ use azul_core::{
     dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec},
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            *,
+        },
         layout::*,
         property::CssProperty as P,
         style::*,
@@ -57,11 +62,12 @@ use super::{
 
 /// Callback signature invoked when a view-switcher button is clicked
 /// (receives the view index).
-pub type StatusBarOnViewSelectCallbackType =
-    extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
+pub type StatusBarOnViewSelectCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_widget_callback!(
-    StatusBarOnViewSelect, OptionStatusBarOnViewSelect,
-    StatusBarOnViewSelectCallback, StatusBarOnViewSelectCallbackType
+    StatusBarOnViewSelect,
+    OptionStatusBarOnViewSelect,
+    StatusBarOnViewSelectCallback,
+    StatusBarOnViewSelectCallbackType
 );
 
 azul_core::impl_managed_callback! {
@@ -86,18 +92,53 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 
 // -- the Office-2013-era look palette (seeds StatusBarTheme::office_2013) --
 
-const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+const WHITE: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+const TRANSPARENT: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 0,
+};
 /// Office 2013 accent blue (#2B579A): the bar fill.
-const W13_BLUE: ColorU = ColorU { r: 43, g: 87, b: 154, a: 255 };
+const W13_BLUE: ColorU = ColorU {
+    r: 43,
+    g: 87,
+    b: 154,
+    a: 255,
+};
 /// Hover fill on bar controls (lighter blue, #3E6DB5).
-const W13_BAR_HOVER: ColorU = ColorU { r: 62, g: 109, b: 181, a: 255 };
+const W13_BAR_HOVER: ColorU = ColorU {
+    r: 62,
+    g: 109,
+    b: 181,
+    a: 255,
+};
 /// Pressed / active-view fill (darker blue, #1E3E6F).
-const W13_BAR_PRESSED: ColorU = ColorU { r: 30, g: 62, b: 111, a: 255 };
+const W13_BAR_PRESSED: ColorU = ColorU {
+    r: 30,
+    g: 62,
+    b: 111,
+    a: 255,
+};
 /// Zoom slider rail (semi-light blue-gray, #A5BDDE).
-const W13_RAIL: ColorU = ColorU { r: 165, g: 189, b: 222, a: 255 };
+const W13_RAIL: ColorU = ColorU {
+    r: 165,
+    g: 189,
+    b: 222,
+    a: 255,
+};
 /// Zoom slider thumb border (#8E9BB3).
-const W13_THUMB_BORDER: ColorU = ColorU { r: 142, g: 155, b: 179, a: 255 };
+const W13_THUMB_BORDER: ColorU = ColorU {
+    r: 142,
+    g: 155,
+    b: 179,
+    a: 255,
+};
 
 // -- Metrics (the Office-2013-era look, logical px) --
 
@@ -202,10 +243,16 @@ const fn cond_border_box() -> Cond {
 
 fn push_row_center(v: &mut Vec<Cond>) {
     v.push(Cond::simple(P::const_display(LayoutDisplay::Flex)));
-    v.push(Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)));
+    v.push(Cond::simple(P::const_flex_direction(
+        LayoutFlexDirection::Row,
+    )));
     v.push(Cond::simple(P::const_align_items(LayoutAlignItems::Center)));
-    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))));
-    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })));
 }
 
 /// Transparent, hover-highlighted flat button chassis shared by every
@@ -223,31 +270,71 @@ fn push_flat_button(v: &mut Vec<Cond>, t: &StatusBarTheme) {
 
 /// 1px solid border on all four sides in the given color.
 fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
-    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_top_color(StyleBorderTopColor { inner: c })));
-    v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: c })));
-    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: c })));
-    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
+    v.push(Cond::simple(P::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_top_style(
+        StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_left_style(
+        StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_top_color(
+        StyleBorderTopColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_left_color(
+        StyleBorderLeftColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_right_color(
+        StyleBorderRightColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: c },
+    )));
 }
 
 fn theme_bar(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
     v.push(cond_border_box());
-    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(BAR_HEIGHT))));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
+        BAR_HEIGHT,
+    ))));
     v.push(Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)));
-    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(TEXT_PX))));
+    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        TEXT_PX,
+    ))));
     v.push(cond_bg(t.bar_bg));
     v.push(cond_text_color(t.text));
-    v.push(Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(6))));
-    v.push(Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(4))));
+    v.push(Cond::simple(P::const_padding_left(
+        LayoutPaddingLeft::const_px(6),
+    )));
+    v.push(Cond::simple(P::const_padding_right(
+        LayoutPaddingRight::const_px(4),
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -255,9 +342,15 @@ fn theme_segment(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
     push_flat_button(&mut v, t);
-    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(BAR_HEIGHT))));
-    v.push(Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(7))));
-    v.push(Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(7))));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
+        BAR_HEIGHT,
+    ))));
+    v.push(Cond::simple(P::const_padding_left(
+        LayoutPaddingLeft::const_px(7),
+    )));
+    v.push(Cond::simple(P::const_padding_right(
+        LayoutPaddingRight::const_px(7),
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -276,15 +369,17 @@ fn theme_segment_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_filler(_t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    ])
+    CssPropertyWithConditionsVec::from_vec(vec![Cond::simple(P::const_flex_grow(
+        LayoutFlexGrow::const_new(1),
+    ))])
 }
 
 fn theme_views(_t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
-    v.push(Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(6))));
+    v.push(Cond::simple(P::const_margin_right(
+        LayoutMarginRight::const_px(6),
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -292,9 +387,15 @@ fn theme_view_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
     push_flat_button(&mut v, t);
-    v.push(Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)));
-    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(VIEW_BUTTON_W))));
-    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(BAR_HEIGHT))));
+    v.push(Cond::simple(P::const_justify_content(
+        LayoutJustifyContent::Center,
+    )));
+    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(
+        VIEW_BUTTON_W,
+    ))));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
+        BAR_HEIGHT,
+    ))));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -320,9 +421,15 @@ fn theme_zoom_button(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
     push_flat_button(&mut v, t);
-    v.push(Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)));
-    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(ZOOM_BUTTON_W))));
-    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(BAR_HEIGHT))));
+    v.push(Cond::simple(P::const_justify_content(
+        LayoutJustifyContent::Center,
+    )));
+    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(
+        ZOOM_BUTTON_W,
+    ))));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
+        BAR_HEIGHT,
+    ))));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -398,18 +505,58 @@ fn theme_slider_thumb(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
         cond_bg(t.thumb),
     ];
-    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_top_color(StyleBorderTopColor { inner: t.thumb_border })));
-    v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: t.thumb_border })));
-    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: t.thumb_border })));
-    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: t.thumb_border })));
+    v.push(Cond::simple(P::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_top_style(
+        StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_left_style(
+        StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_top_color(
+        StyleBorderTopColor {
+            inner: t.thumb_border,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: t.thumb_border,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_right_color(
+        StyleBorderRightColor {
+            inner: t.thumb_border,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: t.thumb_border,
+        },
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -417,11 +564,21 @@ fn theme_zoom_label(t: &StatusBarTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
     push_flat_button(&mut v, t);
-    v.push(Cond::simple(P::const_justify_content(LayoutJustifyContent::End)));
-    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(ZOOM_LABEL_W))));
-    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(BAR_HEIGHT))));
-    v.push(Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(6))));
-    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(TEXT_PX))));
+    v.push(Cond::simple(P::const_justify_content(
+        LayoutJustifyContent::End,
+    )));
+    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(
+        ZOOM_LABEL_W,
+    ))));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
+        BAR_HEIGHT,
+    ))));
+    v.push(Cond::simple(P::const_padding_right(
+        LayoutPaddingRight::const_px(6),
+    )));
+    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        TEXT_PX,
+    ))));
     v.push(cond_text_color(t.text));
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -593,7 +750,11 @@ impl_vec!(
     StatusBarSegmentVecSlice,
     OptionStatusBarSegment
 );
-impl_vec_clone!(StatusBarSegment, StatusBarSegmentVec, StatusBarSegmentVecDestructor);
+impl_vec_clone!(
+    StatusBarSegment,
+    StatusBarSegmentVec,
+    StatusBarSegmentVecDestructor
+);
 impl_vec_debug!(StatusBarSegment, StatusBarSegmentVec);
 impl_vec_mut!(StatusBarSegment, StatusBarSegmentVec);
 
@@ -647,7 +808,11 @@ impl StatusBarViewSwitcher {
     /// Creates a view switcher with the given views; view 0 is active.
     #[must_use]
     pub fn new(views: StatusBarViewVec) -> Self {
-        Self { views, active_view: 0, on_select: None.into() }
+        Self {
+            views,
+            active_view: 0,
+            on_select: None.into(),
+        }
     }
 
     /// The the Office-2013-era look trio: read mode, print layout (active), web layout.
@@ -658,7 +823,11 @@ impl StatusBarViewSwitcher {
             StatusBarView::new(AzString::from_const_str("description")),
             StatusBarView::new(AzString::from_const_str("public")),
         ]);
-        Self { views, active_view: 1, on_select: None.into() }
+        Self {
+            views,
+            active_view: 1,
+            on_select: None.into(),
+        }
     }
 
     /// Builder method: sets the active view index.
@@ -779,24 +948,31 @@ pub struct StatusBar {
 
 // -- CSS classes --
 
-static CLS_STATUSBAR: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar"))];
-static CLS_SEGMENT: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar-segment"))];
-static CLS_FILLER: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar-filler"))];
-static CLS_VIEWS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar-views"))];
-static CLS_ZOOM: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar-zoom"))];
-static CLS_ZOOM_TRACK: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar-zoom-track"))];
-static CLS_ZOOM_RAIL: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar-zoom-rail"))];
-static CLS_ZOOM_TICK: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar-zoom-tick"))];
-static CLS_ZOOM_LABEL: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-statusbar-zoom-label"))];
+static CLS_STATUSBAR: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-statusbar"))];
+static CLS_SEGMENT: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-segment",
+))];
+static CLS_FILLER: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-filler",
+))];
+static CLS_VIEWS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-views",
+))];
+static CLS_ZOOM: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-zoom",
+))];
+static CLS_ZOOM_TRACK: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-zoom-track",
+))];
+static CLS_ZOOM_RAIL: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-zoom-rail",
+))];
+static CLS_ZOOM_TICK: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-zoom-tick",
+))];
+static CLS_ZOOM_LABEL: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-statusbar-zoom-label",
+))];
 
 // -- Constructors / builders --
 
@@ -847,7 +1023,12 @@ impl StatusBar {
     /// Renders the status bar.
     #[must_use]
     pub fn dom(self) -> Dom {
-        let Self { segments, views, zoom, style } = self;
+        let Self {
+            segments,
+            views,
+            zoom,
+            style,
+        } = self;
         let mut children: Vec<Dom> = Vec::with_capacity(segments.len() + 3);
 
         for seg in segments.into_library_owned_vec() {
@@ -918,7 +1099,11 @@ fn merged_style(
 }
 
 fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
-    let StatusBarSegment { icon, label, on_click } = seg;
+    let StatusBarSegment {
+        icon,
+        label,
+        on_click,
+    } = seg;
     if !icon.as_str().is_empty() || on_click.is_some() {
         // Icon and/or clickable: expand to a Button (flat chassis).
         let mut b = Button::create(label);
@@ -938,12 +1123,17 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         .with_children(DomVec::from_vec(vec![
             // `<p>` so the inert segment has the same `div > p > text` shape as
             // the clickable one (Button puts `label_style` on a `<p>` too).
-            crate::widgets::widget_p_with_text(label).with_css_props(style.segment_label_style.clone()),
+            crate::widgets::widget_p_with_text(label)
+                .with_css_props(style.segment_label_style.clone()),
         ]))
 }
 
 fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
-    let StatusBarViewSwitcher { views, active_view, on_select } = switcher;
+    let StatusBarViewSwitcher {
+        views,
+        active_view,
+        on_select,
+    } = switcher;
     let mut children: Vec<Dom> = Vec::with_capacity(views.len());
     for (idx, view) in views.into_library_owned_vec().into_iter().enumerate() {
         let container = if idx == active_view {
@@ -953,7 +1143,10 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
         };
         let on_click: OptionButtonOnClick = match on_select.as_ref() {
             Some(cb) => Some(super::button::ButtonOnClick {
-                refany: RefAny::new(ViewClickData { view_idx: idx, on_select: cb.clone() }),
+                refany: RefAny::new(ViewClickData {
+                    view_idx: idx,
+                    on_select: cb.clone(),
+                }),
                 callback: super::button::ButtonOnClickCallback {
                     cb: on_status_bar_view_click,
                     ctx: azul_core::refany::OptionRefAny::None,
@@ -977,8 +1170,15 @@ fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout numeric cast
 fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
-    let StatusBarZoom { percent, min, max, on_zoom_out, on_zoom_in, on_slider_change, show_label } =
-        zoom;
+    let StatusBarZoom {
+        percent,
+        min,
+        max,
+        on_zoom_out,
+        on_zoom_in,
+        on_slider_change,
+        show_label,
+    } = zoom;
 
     let mut children: Vec<Dom> = Vec::with_capacity(4);
 
@@ -1035,9 +1235,9 @@ fn zoom_dom(zoom: StatusBarZoom, style: &StatusBarStyle) -> Dom {
             Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_ZOOM_LABEL))
                 .with_css_props(style.zoom_label_style.clone())
-                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(AzString::from(
-                    label,
-                ))])),
+                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
+                    AzString::from(label),
+                )])),
         );
     }
 
@@ -1150,7 +1350,9 @@ mod tests {
 
     #[test]
     fn zoom_track_host_layers_rail_tick_and_slider() {
-        let dom = StatusBar::new(segs(0)).with_zoom(StatusBarZoom::office_2013()).dom();
+        let dom = StatusBar::new(segs(0))
+            .with_zoom(StatusBarZoom::office_2013())
+            .dom();
         let zoom_dom = &dom.children.as_ref()[1];
         let track_host = &zoom_dom.children.as_ref()[1];
         assert_eq!(track_host.children.as_ref().len(), 3);
@@ -1162,14 +1364,19 @@ mod tests {
             Update::DoNothing
         }
         // Without a handler: no callbacks on the buttons.
-        let dom = StatusBar::new(segs(0)).with_views(StatusBarViewSwitcher::office_2013()).dom();
+        let dom = StatusBar::new(segs(0))
+            .with_views(StatusBarViewSwitcher::office_2013())
+            .dom();
         let views = &dom.children.as_ref()[1];
         for btn in views.children.as_ref() {
             assert!(btn.root.callbacks.as_ref().is_empty());
         }
         // With a handler: every button carries one.
         let mut switcher = StatusBarViewSwitcher::office_2013();
-        switcher.set_on_select(RefAny::new(()), on_select as StatusBarOnViewSelectCallbackType);
+        switcher.set_on_select(
+            RefAny::new(()),
+            on_select as StatusBarOnViewSelectCallbackType,
+        );
         let dom = StatusBar::new(segs(0)).with_views(switcher).dom();
         let views = &dom.children.as_ref()[1];
         for btn in views.children.as_ref() {

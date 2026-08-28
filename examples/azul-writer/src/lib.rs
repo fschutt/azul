@@ -44,7 +44,9 @@ use azul_layout::{
     window_state::WindowCreateOptions,
 };
 
-use azul_layout::managers::changeset::{DocumentChangeset, DocumentOperation, EditResumePoint, NodePosition};
+use azul_layout::managers::changeset::{
+    DocumentChangeset, DocumentOperation, EditResumePoint, NodePosition,
+};
 
 use crate::document::DocumentModel;
 
@@ -230,10 +232,8 @@ extern "C" fn pagination_worker(
             return;
         }
 
-        let (chunk, tail) = azul_layout::document_edit::split_dom_at_path(
-            &remaining,
-            &[PAGINATION_CHUNK_BLOCKS],
-        );
+        let (chunk, tail) =
+            azul_layout::document_edit::split_dom_at_path(&remaining, &[PAGINATION_CHUNK_BLOCKS]);
         let rel = document::break_paths_for(&chunk, fonts.clone());
         for p in &rel {
             let mut abs = p.clone();
@@ -472,7 +472,9 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
         current_path
     };
 
-    let Some(path) = target else { return Update::DoNothing };
+    let Some(path) = target else {
+        return Update::DoNothing;
+    };
 
     // Save writes the format the FILENAME asks for. Before this, Save always
     // wrote markdown and forced a .md extension, so typing "report.pdf" in the
@@ -555,8 +557,7 @@ pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> 
     // canvas renders one sheet per page in order, so the page index is the
     // edit's position among the rendered pages. Re-derive the offsets from
     // the same pagination the canvas used.
-    let pages =
-        document::paginate_cached(&state.document.content, state.document.generation);
+    let pages = document::paginate_cached(&state.document.content, state.document.generation);
     let offsets = document::page_block_offsets(&pages);
     let page_index = state.editing_page.min(offsets.len().saturating_sub(1));
     let page_offset = offsets.get(page_index).copied().unwrap_or(0);
@@ -613,7 +614,8 @@ fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
 
     let mut doc = Dom::create_body().with_css(&format!(
         "margin: 0; padding: {}px; background: white; {}",
-        96, fonts::UI_FONT_CSS
+        96,
+        fonts::UI_FONT_CSS
     ));
     doc.add_child(content.clone());
     let styled = azul_core::styled_dom::StyledDom::create_from_dom(doc);
@@ -643,7 +645,10 @@ pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Upd
         let Some(state) = data.downcast_ref::<AppState>() else {
             return Update::DoNothing;
         };
-        (state.document.display_name(), state.document.content.clone())
+        (
+            state.document.display_name(),
+            state.document.content.clone(),
+        )
     };
 
     let picked = FileDialog::save_file(
@@ -696,7 +701,10 @@ fn replay(
         EditResumePoint {
             anchor_key: 0,
             node_path: resume_path.to_vec().into(),
-            position: NodePosition { child_index: 0, text_byte: Some(0).into() },
+            position: NodePosition {
+                child_index: 0,
+                text_byte: Some(0).into(),
+            },
         },
         azul_core::task::Instant::from(std::time::Instant::now()),
     );
@@ -814,8 +822,11 @@ pub extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, idx
 
 /// Backstage Open -> Browse: native *.md dialog, then the load seam.
 pub extern "C" fn on_browse_clicked(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let picked =
-        FileDialog::open_file(AzString::from("Open"), OptionString::None, markdown_filter());
+    let picked = FileDialog::open_file(
+        AzString::from("Open"),
+        OptionString::None,
+        markdown_filter(),
+    );
     let Some(path_str) = picked.into_option() else {
         return Update::DoNothing; // user cancelled
     };
@@ -908,9 +919,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let max_monitor: Option<azul_css::props::basic::LayoutSize> =
         info.get_max_monitor_size().into();
     let screen = match state.screen {
-        Screen::Editor => {
-            editor_ui::editor_screen(&state, &data, font_cache, max_monitor)
-        }
+        Screen::Editor => editor_ui::editor_screen(&state, &data, font_cache, max_monitor),
         Screen::Backstage => backstage_ui::backstage_screen(&state, &data),
     };
 
@@ -938,7 +947,10 @@ extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallb
             should_terminate: TerminateTimer::Terminate,
         };
     };
-    match info.callback_info.take_screenshot_to_file(DomId::ROOT_ID, &cfg.path) {
+    match info
+        .callback_info
+        .take_screenshot_to_file(DomId::ROOT_ID, &cfg.path)
+    {
         Ok(()) => {
             eprintln!("[azwriter] screenshot written: {}", cfg.path);
             std::process::exit(0);
@@ -957,7 +969,10 @@ extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallb
 /// NOTE: `create_callback` only fires on the real platform backends —
 /// the headless backend ignores it (see ENGINE-ISSUES.md), so screenshots
 /// are taken through a short-lived real window.
-extern "C" fn startup_focus_tick(_data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+extern "C" fn startup_focus_tick(
+    _data: RefAny,
+    mut info: TimerCallbackInfo,
+) -> TimerCallbackReturn {
     use azul_css::css::{CssPath, CssPathSelector};
     info.callback_info.set_focus_to_path(
         azul_core::dom::DomId::ROOT_ID,
@@ -1069,10 +1084,7 @@ pub fn start() {
     // "the first pagination is slow".
     if std::env::var_os("AZWRITER_PAGINATE_TWICE").is_some() {
         let t = std::time::Instant::now();
-        let _ = document::paginate_cached(
-            &state.document.content,
-            document::next_generation(),
-        );
+        let _ = document::paginate_cached(&state.document.content, document::next_generation());
         eprintln!("[primer] SECOND pagination (warm) took {:?}", t.elapsed());
     }
 
@@ -1112,8 +1124,10 @@ pub fn start() {
             }
         }
     }
-    window.create_callback =
-        Some(Callback::create(on_window_created as azul_layout::callbacks::CallbackType)).into();
+    window.create_callback = Some(Callback::create(
+        on_window_created as azul_layout::callbacks::CallbackType,
+    ))
+    .into();
 
     app.run(window);
 }

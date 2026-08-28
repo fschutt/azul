@@ -41,24 +41,29 @@ fn layout_three_paragraphs() -> LayoutWindow {
         body { font-size: 14px; width: 600px; }
         .p { display: block; }
     "#;
-    let class = |name: &str| -> azul_core::dom::IdOrClassVec {
-        vec![IdOrClass::Class(name.into())].into()
-    };
+    let class =
+        |name: &str| -> azul_core::dom::IdOrClassVec { vec![IdOrClass::Class(name.into())].into() };
     let mut dom = Dom::create_body()
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("first paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "first paragraph",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("second paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "second paragraph",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("third paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "third paragraph",
+                )),
         );
     let (css, _) = azul_css::parser2::new_from_str(CSS);
     let styled_dom = StyledDom::create(&mut dom, css);
@@ -99,7 +104,9 @@ fn cross_block_selection_builds_ranges_for_every_spanned_block() {
     assert!(ok, "sibling blocks must accept a cross-block selection");
 
     let map = lw.text_edit_manager.build_text_selections_map();
-    let sel = map.get(&DomId::ROOT_ID).expect("selection for the root DOM");
+    let sel = map
+        .get(&DomId::ROOT_ID)
+        .expect("selection for the root DOM");
     assert!(sel.is_forward);
     assert_eq!(
         sel.affected_nodes.len(),
@@ -110,7 +117,11 @@ fn cross_block_selection_builds_ranges_for_every_spanned_block() {
     // One range per spanned block: a cross-block selection never multi-selects
     // inside a block (that is the Ctrl+D session's job).
     for (node, ranges) in &sel.affected_nodes {
-        assert_eq!(ranges.len(), 1, "node {node:?} contributes exactly one range");
+        assert_eq!(
+            ranges.len(),
+            1,
+            "node {node:?} contributes exactly one range"
+        );
     }
     let r1 = sel.get_range_for_node(&node_id(P1)).expect("anchor range");
     assert_eq!(r1.start.cluster_id.start_byte_in_run, 6);
@@ -150,11 +161,19 @@ fn backward_cross_block_selection_normalizes_to_document_order() {
     assert_eq!(sel.affected_nodes.len(), 3);
     // Ranges are stored in DOCUMENT order regardless of drag direction.
     assert_eq!(
-        sel.get_range_for_node(&node_id(P1)).unwrap().start.cluster_id.start_byte_in_run,
+        sel.get_range_for_node(&node_id(P1))
+            .unwrap()
+            .start
+            .cluster_id
+            .start_byte_in_run,
         6
     );
     assert_eq!(
-        sel.get_range_for_node(&node_id(P3)).unwrap().end.cluster_id.start_byte_in_run,
+        sel.get_range_for_node(&node_id(P3))
+            .unwrap()
+            .end
+            .cluster_id
+            .start_byte_in_run,
         5
     );
 }
@@ -236,7 +255,6 @@ fn selection_spanning_delete_merges_into_one_replace_changeset() {
     assert_eq!(mc.node_id.node.into_crate_internal(), Some(node_id(P1)));
 }
 
-
 #[test]
 fn drag_across_blocks_extends_the_selection_and_back_collapses_it() {
     let mut lw = layout_three_paragraphs();
@@ -266,10 +284,8 @@ fn drag_across_blocks_extends_the_selection_and_back_collapses_it() {
         p3_rect.origin.x + 10.0,
         p3_rect.origin.y + p3_rect.size.height * 0.5,
     );
-    let res = lw.process_mouse_drag_for_selection(
-        azul_core::geom::LogicalPosition::zero(),
-        inside_p3,
-    );
+    let res =
+        lw.process_mouse_drag_for_selection(azul_core::geom::LogicalPosition::zero(), inside_p3);
     assert!(res.is_some(), "drag into another block must be handled");
     let cb = lw
         .text_edit_manager
@@ -289,8 +305,7 @@ fn drag_across_blocks_extends_the_selection_and_back_collapses_it() {
         .iter()
         .filter_map(|item| match item {
             azul_layout::solver3::display_list::DisplayListItem::SelectionRect {
-                bounds,
-                ..
+                bounds, ..
             } => Some(bounds.origin().y),
             _ => None,
         })
@@ -315,10 +330,8 @@ fn drag_across_blocks_extends_the_selection_and_back_collapses_it() {
         p1_rect.origin.x + 20.0,
         p1_rect.origin.y + p1_rect.size.height * 0.5,
     );
-    let res = lw.process_mouse_drag_for_selection(
-        azul_core::geom::LogicalPosition::zero(),
-        inside_p1,
-    );
+    let res =
+        lw.process_mouse_drag_for_selection(azul_core::geom::LogicalPosition::zero(), inside_p1);
     assert!(res.is_some());
     assert!(
         lw.text_edit_manager.get_cross_block_selection().is_none(),

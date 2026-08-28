@@ -27,15 +27,15 @@ pub mod debug_server;
 pub mod e2e_test;
 pub mod event;
 pub mod layout;
-pub mod transient;
 /// The runtime gate for every `log_*!` macro, plus RAII enter/exit spans.
 /// Logging is gated here by atomics — never by a cargo feature.
 pub mod log_gate;
+pub mod transient;
 
 // Re-exports for convenience
 pub use compositor::{
-    AzBackend, Compositor, CompositorMode, GpuCheckResult, GpuInfo,
-    RenderContext, check_gpu_blacklist,
+    check_gpu_blacklist, AzBackend, Compositor, CompositorMode, GpuCheckResult, GpuInfo,
+    RenderContext,
 };
 pub use cpu_compositor::CpuCompositor;
 pub use dlopen::DynamicLibrary;

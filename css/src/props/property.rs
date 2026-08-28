@@ -52,7 +52,10 @@ use crate::{
 const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 28] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
-    (CombinedCssPropertyType::OverscrollBehavior, "overscroll-behavior"),
+    (
+        CombinedCssPropertyType::OverscrollBehavior,
+        "overscroll-behavior",
+    ),
     (CombinedCssPropertyType::Padding, "padding"),
     (CombinedCssPropertyType::Margin, "margin"),
     (CombinedCssPropertyType::Border, "border"),
@@ -242,8 +245,14 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 194] = [
     (CssPropertyType::SelectionColor, "-azul-selection-color"),
     (CssPropertyType::SelectionRadius, "-azul-selection-radius"),
     (CssPropertyType::ScrollbarWidth, "scrollbar-width"),
-    (CssPropertyType::OverscrollBehaviorX, "overscroll-behavior-x"),
-    (CssPropertyType::OverscrollBehaviorY, "overscroll-behavior-y"),
+    (
+        CssPropertyType::OverscrollBehaviorX,
+        "overscroll-behavior-x",
+    ),
+    (
+        CssPropertyType::OverscrollBehaviorY,
+        "overscroll-behavior-y",
+    ),
     (CssPropertyType::ScrollbarColor, "scrollbar-color"),
     (
         CssPropertyType::ScrollbarVisibility,
@@ -459,8 +468,7 @@ pub type LayoutGridAutoColumnsValue = CssPropertyValue<GridAutoTracks>;
 pub type LayoutGridAutoRowsValue = CssPropertyValue<GridAutoTracks>;
 pub type LayoutGridColumnValue = CssPropertyValue<GridPlacement>;
 pub type LayoutGridRowValue = CssPropertyValue<GridPlacement>;
-pub type LayoutGridTemplateAreasValue =
-    CssPropertyValue<GridTemplateAreas>;
+pub type LayoutGridTemplateAreasValue = CssPropertyValue<GridTemplateAreas>;
 pub type LayoutWritingModeValue = CssPropertyValue<LayoutWritingMode>;
 pub type LayoutClearValue = CssPropertyValue<LayoutClear>;
 pub type LayoutGridAutoFlowValue = CssPropertyValue<LayoutGridAutoFlow>;
@@ -509,13 +517,15 @@ pub struct CssKeyMap {
 }
 
 impl CssKeyMap {
-    #[must_use] pub fn get() -> Self {
+    #[must_use]
+    pub fn get() -> Self {
         get_css_key_map()
     }
 }
 
 /// Returns a map useful for parsing the keys of CSS stylesheets
-#[must_use] pub fn get_css_key_map() -> CssKeyMap {
+#[must_use]
+pub fn get_css_key_map() -> CssKeyMap {
     CssKeyMap {
         non_shorthands: CSS_PROPERTY_KEY_MAP.iter().map(|(v, k)| (*k, *v)).collect(),
         shorthands: COMBINED_CSS_PROPERTIES_KEY_MAP
@@ -589,7 +599,8 @@ impl CombinedCssPropertyType {
     ///     CombinedCssPropertyType::from_str("border", &map)
     /// );
     /// ```
-    #[must_use] pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
+    #[must_use]
+    pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
         let input = input.trim();
         map.shorthands.get(input).copied()
     }
@@ -600,7 +611,8 @@ impl CombinedCssPropertyType {
     ///
     /// Panics if `self` is not present in `map` (i.e. `map` is not the
     /// `CssKeyMap` this property type was constructed from).
-    #[must_use] pub fn to_str(&self, map: &CssKeyMap) -> &'static str {
+    #[must_use]
+    pub fn to_str(&self, map: &CssKeyMap) -> &'static str {
         map.shorthands
             .iter()
             .find(|(_, v)| *v == self)
@@ -1304,14 +1316,17 @@ impl CssPropertyType {
     /// );
     /// assert_eq!(None, CssPropertyType::from_str("asdfasdfasdf", &map));
     /// ```
-    #[must_use] pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
+    #[must_use]
+    pub fn from_str(input: &str, map: &CssKeyMap) -> Option<Self> {
         let input = input.trim();
         map.non_shorthands.get(input).copied()
     }
 
     /// Returns the original string that was used to construct this `CssPropertyType`.
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-    #[must_use] pub const fn to_str(&self) -> &'static str {
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[must_use]
+    pub const fn to_str(&self) -> &'static str {
         match self {
             Self::CaretColor => "caret-color",
             Self::CaretAnimationDuration => "caret-animation-duration",
@@ -1510,8 +1525,16 @@ impl CssPropertyType {
     ///
     /// Reference: <https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Cascade/Inheritance>
     // +spec:display-property:b4cf6d - unicode-bidi does not inherit (removed from inheritable set)
-    #[must_use] pub const fn is_inheritable(&self) -> bool {
-        use self::CssPropertyType::{FontFamily, FontSize, FontWeight, FontStyle, LineHeight, LetterSpacing, WordSpacing, TextIndent, TextColor, TextAlign, TextJustify, TextDecoration, WhiteSpace, Direction, Hyphens, TabSize, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextTransform, TextOrientation, HangingPunctuation, TextCombineUpright, HyphenationLanguage, ListStyleType, ListStylePosition, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, Visibility, Cursor, Widows, Orphans, WritingMode, UserSelect};
+    #[must_use]
+    pub const fn is_inheritable(&self) -> bool {
+        use self::CssPropertyType::{
+            BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells, FontFamily,
+            FontSize, FontStyle, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
+            LetterSpacing, LineBreak, LineHeight, ListStylePosition, ListStyleType, Orphans,
+            OverflowWrap, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
+            TextDecoration, TextIndent, TextJustify, TextOrientation, TextTransform, UserSelect,
+            Visibility, WhiteSpace, Widows, WordBreak, WordSpacing, WritingMode,
+        };
         match self {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
@@ -1546,8 +1569,21 @@ impl CssPropertyType {
         }
     }
 
-    #[must_use] pub const fn has_compact_encoding(&self) -> bool {
-        use self::CssPropertyType::{Display, Position, Float, OverflowX, OverflowY, BoxSizing, FlexDirection, FlexWrap, JustifyContent, AlignItems, AlignContent, WritingMode, Clear, FontWeight, FontStyle, TextAlign, Visibility, WhiteSpace, Direction, VerticalAlign, BorderCollapse, Width, Height, MinWidth, MaxWidth, MinHeight, MaxHeight, FlexBasis, FontSize, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, MarginTop, MarginRight, MarginBottom, MarginLeft, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, Top, Right, Bottom, Left, FlexGrow, FlexShrink, ZIndex, BorderTopStyle, BorderRightStyle, BorderBottomStyle, BorderLeftStyle, BorderTopColor, BorderRightColor, BorderBottomColor, BorderLeftColor, BorderSpacing, TabSize, TextColor, FontFamily, LineHeight, LetterSpacing, WordSpacing, TextIndent, AlignSelf, JustifySelf, GridAutoFlow, JustifyItems, ColumnGap, RowGap, Gap, GridColumn, GridRow};
+    #[must_use]
+    pub const fn has_compact_encoding(&self) -> bool {
+        use self::CssPropertyType::{
+            AlignContent, AlignItems, AlignSelf, BorderBottomColor, BorderBottomStyle,
+            BorderBottomWidth, BorderCollapse, BorderLeftColor, BorderLeftStyle, BorderLeftWidth,
+            BorderRightColor, BorderRightStyle, BorderRightWidth, BorderSpacing, BorderTopColor,
+            BorderTopStyle, BorderTopWidth, Bottom, BoxSizing, Clear, ColumnGap, Direction,
+            Display, FlexBasis, FlexDirection, FlexGrow, FlexShrink, FlexWrap, Float, FontFamily,
+            FontSize, FontStyle, FontWeight, Gap, GridAutoFlow, GridColumn, GridRow, Height,
+            JustifyContent, JustifyItems, JustifySelf, Left, LetterSpacing, LineHeight,
+            MarginBottom, MarginLeft, MarginRight, MarginTop, MaxHeight, MaxWidth, MinHeight,
+            MinWidth, OverflowX, OverflowY, PaddingBottom, PaddingLeft, PaddingRight, PaddingTop,
+            Position, Right, RowGap, TabSize, TextAlign, TextColor, TextIndent, Top, VerticalAlign,
+            Visibility, WhiteSpace, Width, WordSpacing, WritingMode, ZIndex,
+        };
         matches!(
             self,
             // Tier 1 enums
@@ -1579,7 +1615,8 @@ impl CssPropertyType {
         )
     }
 
-    #[must_use] pub const fn get_category(&self) -> CssPropertyCategory {
+    #[must_use]
+    pub const fn get_category(&self) -> CssPropertyCategory {
         if self.is_gpu_only_property() {
             CssPropertyCategory::GpuOnly
         } else {
@@ -1596,8 +1633,19 @@ impl CssPropertyType {
 
     /// Returns whether this property can trigger a re-layout (important for incremental layout and
     /// caching layouted DOMs).
-    #[must_use] pub const fn can_trigger_relayout(&self) -> bool {
-        use self::CssPropertyType::{Animation, AnimationIn, AnimationOut, TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, AppRegion, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, Clip};
+    #[must_use]
+    pub const fn can_trigger_relayout(&self) -> bool {
+        use self::CssPropertyType::{
+            Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter, BackfaceVisibility,
+            BackgroundContent, BackgroundPosition, BackgroundRepeat, BackgroundSize,
+            BorderBottomColor, BorderBottomLeftRadius, BorderBottomRightRadius, BorderBottomStyle,
+            BorderLeftColor, BorderLeftStyle, BorderRightColor, BorderRightStyle, BorderTopColor,
+            BorderTopLeftRadius, BorderTopRightRadius, BorderTopStyle, BoxDecorationBreak,
+            BoxShadowBottom, BoxShadowLeft, BoxShadowRight, BoxShadowTop, Clip, ColumnRuleColor,
+            ColumnRuleStyle, Cursor, Filter, MixBlendMode, Opacity, PerspectiveOrigin,
+            ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarThumb, ScrollbarTrack,
+            TextColor, TextShadow, Transform, TransformOrigin,
+        };
 
         // Since the border can be larger than the content,
         // in which case the content needs to be re-layouted, assume true for Border
@@ -1657,7 +1705,8 @@ impl CssPropertyType {
     }
 
     /// Returns whether the property is a GPU property (currently only opacity and transforms)
-    #[must_use] pub const fn is_gpu_only_property(&self) -> bool {
+    #[must_use]
+    pub const fn is_gpu_only_property(&self) -> bool {
         match self {
             Self::Opacity |
             Self::Transform /* | CssPropertyType::Color */ => true,
@@ -1678,8 +1727,31 @@ impl CssPropertyType {
     /// `node_is_ifc_member`: whether this node participates in an IFC
     /// (has inline formatting context membership). When true, font/text
     /// property changes trigger IFC-only relayout instead of being ignored.
-    #[must_use] pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
-        use CssPropertyType::{Animation, AnimationIn, AnimationOut, TextColor, Cursor, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, ColumnRuleColor, ColumnRuleStyle, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, BoxDecorationBreak, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, Opacity, Transform, TransformOrigin, PerspectiveOrigin, AppRegion, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, SelectionBackgroundColor, SelectionColor, SelectionRadius, CaretColor, CaretAnimationDuration, CaretWidth, TextOverflow, ObjectFit, ObjectPosition, Clip, FontFamily, FontSize, FontWeight, FontStyle, LetterSpacing, WordSpacing, LineHeight, TextAlign, TextJustify, TextIndent, WhiteSpace, TabSize, Hyphens, WordBreak, OverflowWrap, LineBreak, TextAlignLast, TextOrientation, HyphenationLanguage, TextCombineUpright, TextDecoration, HangingPunctuation, InitialLetter, LineClamp, Direction, VerticalAlign, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, PaddingTop, PaddingRight, PaddingBottom, PaddingLeft, PaddingInlineStart, PaddingInlineEnd, BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth, BoxSizing, ScrollbarWidth, ScrollbarVisibility, ScrollbarGutter, OverflowClipMargin};
+    #[must_use]
+    pub const fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
+        use CssPropertyType::{
+            AlignmentBaseline, Animation, AnimationIn, AnimationOut, AppRegion, BackdropFilter,
+            BackfaceVisibility, BackgroundContent, BackgroundPosition, BackgroundRepeat,
+            BackgroundSize, BaselineSource, BorderBottomColor, BorderBottomLeftRadius,
+            BorderBottomRightRadius, BorderBottomStyle, BorderBottomWidth, BorderLeftColor,
+            BorderLeftStyle, BorderLeftWidth, BorderRightColor, BorderRightStyle, BorderRightWidth,
+            BorderTopColor, BorderTopLeftRadius, BorderTopRightRadius, BorderTopStyle,
+            BorderTopWidth, BoxDecorationBreak, BoxShadowBottom, BoxShadowLeft, BoxShadowRight,
+            BoxShadowTop, BoxSizing, CaretAnimationDuration, CaretColor, CaretWidth, Clip,
+            ColumnRuleColor, ColumnRuleStyle, Cursor, Direction, DominantBaseline, Filter,
+            FontFamily, FontSize, FontStyle, FontWeight, HangingPunctuation, Height,
+            HyphenationLanguage, Hyphens, InitialLetter, InitialLetterAlign, InitialLetterWrap,
+            LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight, MaxHeight, MaxWidth,
+            MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition, Opacity,
+            OverflowClipMargin, OverflowWrap, PaddingBottom, PaddingInlineEnd, PaddingInlineStart,
+            PaddingLeft, PaddingRight, PaddingTop, PerspectiveOrigin, ScrollbarButton,
+            ScrollbarCorner, ScrollbarGutter, ScrollbarResizer, ScrollbarThumb, ScrollbarTrack,
+            ScrollbarVisibility, ScrollbarWidth, SelectionBackgroundColor, SelectionColor,
+            SelectionRadius, TabSize, TextAlign, TextAlignLast, TextBoxEdge, TextBoxTrim,
+            TextColor, TextCombineUpright, TextDecoration, TextIndent, TextJustify,
+            TextOrientation, TextOverflow, TextShadow, Transform, TransformOrigin, UnicodeBidi,
+            VerticalAlign, WhiteSpace, Width, WordBreak, WordSpacing,
+        };
         match self {
             // Pure paint — never triggers relayout
             TextColor
@@ -2323,10 +2395,7 @@ impl_from!(
     StyleBaselineSourceParseError<'a>,
     CssParsingError::BaselineSource
 );
-impl_from!(
-    StyleLineFitEdgeParseError<'a>,
-    CssParsingError::LineFitEdge
-);
+impl_from!(StyleLineFitEdgeParseError<'a>, CssParsingError::LineFitEdge);
 impl_from!(
     StyleInitialLetterAlignParseError<'a>,
     CssParsingError::InitialLetterAlign
@@ -2519,7 +2588,10 @@ impl_from!(
     CssParsingError::OverflowWrap
 );
 impl_from!(StyleLineBreakParseError<'a>, CssParsingError::LineBreak);
-impl_from!(StyleTextOverflowParseError<'a>, CssParsingError::TextOverflow);
+impl_from!(
+    StyleTextOverflowParseError<'a>,
+    CssParsingError::TextOverflow
+);
 impl_from!(StyleObjectFitParseError<'a>, CssParsingError::ObjectFit);
 impl_from!(
     StyleObjectPositionParseError<'a>,
@@ -2613,17 +2685,17 @@ impl<'a> From<StyleVerticalAlignParseError<'a>> for CssParsingError<'a> {
 }
 
 impl CssParsingError<'_> {
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-    #[must_use] pub fn to_contained(&self) -> CssParsingErrorOwned {
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[must_use]
+    pub fn to_contained(&self) -> CssParsingErrorOwned {
         match self {
             CssParsingError::CaretColor(e) => CssParsingErrorOwned::CaretColor(e.to_contained()),
             CssParsingError::CaretWidth(e) => CssParsingErrorOwned::CaretWidth(e.to_contained()),
             CssParsingError::CaretAnimationDuration(e) => {
                 CssParsingErrorOwned::CaretAnimationDuration(e.to_contained())
             }
-            CssParsingError::Animation(e) => {
-                CssParsingErrorOwned::Animation(e.to_contained())
-            }
+            CssParsingError::Animation(e) => CssParsingErrorOwned::Animation(e.to_contained()),
             CssParsingError::SelectionBackgroundColor(e) => {
                 CssParsingErrorOwned::SelectionBackgroundColor(e.to_contained())
             }
@@ -2751,9 +2823,7 @@ impl CssParsingError<'_> {
                 CssParsingErrorOwned::BorderBottomRightRadius(e.to_contained())
             }
             CssParsingError::BorderStyle(e) => CssParsingErrorOwned::BorderStyle(e.to_contained()),
-            CssParsingError::AppRegion(e) => {
-                CssParsingErrorOwned::AppRegion(e.to_contained())
-            }
+            CssParsingError::AppRegion(e) => CssParsingErrorOwned::AppRegion(e.to_contained()),
             CssParsingError::BackfaceVisibility(e) => {
                 CssParsingErrorOwned::BackfaceVisibility(e.to_contained())
             }
@@ -2793,9 +2863,7 @@ impl CssParsingError<'_> {
             CssParsingError::BaselineSource(e) => {
                 CssParsingErrorOwned::BaselineSource(e.to_contained())
             }
-            CssParsingError::LineFitEdge(e) => {
-                CssParsingErrorOwned::LineFitEdge(e.to_contained())
-            }
+            CssParsingError::LineFitEdge(e) => CssParsingErrorOwned::LineFitEdge(e.to_contained()),
             CssParsingError::InitialLetterAlign(e) => {
                 CssParsingErrorOwned::InitialLetterAlign(e.to_contained())
             }
@@ -2825,7 +2893,9 @@ impl CssParsingError<'_> {
                 CssParsingErrorOwned::OverflowWrap(e.to_contained())
             }
             CssParsingError::LineBreak(e) => CssParsingErrorOwned::LineBreak(e.to_contained()),
-            CssParsingError::TextOverflow(e) => CssParsingErrorOwned::TextOverflow(e.to_contained()),
+            CssParsingError::TextOverflow(e) => {
+                CssParsingErrorOwned::TextOverflow(e.to_contained())
+            }
             CssParsingError::ObjectFit(e) => CssParsingErrorOwned::ObjectFit(e.to_contained()),
             CssParsingError::ObjectPosition(e) => {
                 CssParsingErrorOwned::ObjectPosition(e.to_contained())
@@ -2893,30 +2963,24 @@ impl CssParsingError<'_> {
 }
 
 impl CssParsingErrorOwned {
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-    #[must_use] pub fn to_shared(&self) -> CssParsingError<'_> {
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[must_use]
+    pub fn to_shared(&self) -> CssParsingError<'_> {
         match self {
             Self::CaretColor(e) => CssParsingError::CaretColor(e.to_shared()),
             Self::CaretWidth(e) => CssParsingError::CaretWidth(e.to_shared()),
             Self::CaretAnimationDuration(e) => {
                 CssParsingError::CaretAnimationDuration(e.to_shared())
             }
-            Self::Animation(e) => {
-                CssParsingError::Animation(e.to_shared())
-            }
+            Self::Animation(e) => CssParsingError::Animation(e.to_shared()),
             Self::SelectionBackgroundColor(e) => {
                 CssParsingError::SelectionBackgroundColor(e.to_shared())
             }
-            Self::SelectionColor(e) => {
-                CssParsingError::SelectionColor(e.to_shared())
-            }
-            Self::SelectionRadius(e) => {
-                CssParsingError::SelectionRadius(e.to_shared())
-            }
+            Self::SelectionColor(e) => CssParsingError::SelectionColor(e.to_shared()),
+            Self::SelectionRadius(e) => CssParsingError::SelectionRadius(e.to_shared()),
             Self::Border(e) => CssParsingError::Border(e.inner.to_shared()),
-            Self::BorderRadius(e) => {
-                CssParsingError::BorderRadius(e.inner.to_shared())
-            }
+            Self::BorderRadius(e) => CssParsingError::BorderRadius(e.inner.to_shared()),
             Self::Padding(e) => CssParsingError::Padding(e.to_shared()),
             Self::Margin(e) => CssParsingError::Margin(e.to_shared()),
             Self::Overflow(e) => CssParsingError::Overflow(e.to_shared()),
@@ -2929,67 +2993,37 @@ impl CssParsingErrorOwned {
             Self::FlexGrow(e) => CssParsingError::FlexGrow(e.to_shared()),
             Self::FlexShrink(e) => CssParsingError::FlexShrink(e.to_shared()),
             Self::Background(e) => CssParsingError::Background(e.to_shared()),
-            Self::BackgroundPosition(e) => {
-                CssParsingError::BackgroundPosition(e.to_shared())
-            }
+            Self::BackgroundPosition(e) => CssParsingError::BackgroundPosition(e.to_shared()),
             Self::Opacity(e) => CssParsingError::Opacity(e.to_shared()),
             Self::Visibility(e) => CssParsingError::Visibility(e.to_shared()),
-            Self::OverscrollBehavior(e) => {
-                CssParsingError::OverscrollBehavior(e.to_shared())
-            }
-            Self::LayoutScrollbarWidth(e) => {
-                CssParsingError::LayoutScrollbarWidth(e.to_shared())
-            }
-            Self::StyleScrollbarColor(e) => {
-                CssParsingError::StyleScrollbarColor(e.to_shared())
-            }
+            Self::OverscrollBehavior(e) => CssParsingError::OverscrollBehavior(e.to_shared()),
+            Self::LayoutScrollbarWidth(e) => CssParsingError::LayoutScrollbarWidth(e.to_shared()),
+            Self::StyleScrollbarColor(e) => CssParsingError::StyleScrollbarColor(e.to_shared()),
             Self::ScrollbarVisibilityMode(e) => {
                 CssParsingError::ScrollbarVisibilityMode(e.to_shared())
             }
-            Self::ScrollbarFadeDelay(e) => {
-                CssParsingError::ScrollbarFadeDelay(e.to_shared())
-            }
-            Self::ScrollbarFadeDuration(e) => {
-                CssParsingError::ScrollbarFadeDuration(e.to_shared())
-            }
+            Self::ScrollbarFadeDelay(e) => CssParsingError::ScrollbarFadeDelay(e.to_shared()),
+            Self::ScrollbarFadeDuration(e) => CssParsingError::ScrollbarFadeDuration(e.to_shared()),
             Self::Transform(e) => CssParsingError::Transform(e.to_shared()),
-            Self::TransformOrigin(e) => {
-                CssParsingError::TransformOrigin(e.to_shared())
-            }
-            Self::PerspectiveOrigin(e) => {
-                CssParsingError::PerspectiveOrigin(e.to_shared())
-            }
+            Self::TransformOrigin(e) => CssParsingError::TransformOrigin(e.to_shared()),
+            Self::PerspectiveOrigin(e) => CssParsingError::PerspectiveOrigin(e.to_shared()),
             Self::Filter(e) => CssParsingError::Filter(e.to_shared()),
             Self::LayoutWidth(e) => CssParsingError::LayoutWidth(e.to_shared()),
             Self::LayoutHeight(e) => CssParsingError::LayoutHeight(e.to_shared()),
-            Self::LayoutMinWidth(e) => {
-                CssParsingError::LayoutMinWidth(e.to_shared())
-            }
-            Self::LayoutMinHeight(e) => {
-                CssParsingError::LayoutMinHeight(e.to_shared())
-            }
-            Self::LayoutMaxWidth(e) => {
-                CssParsingError::LayoutMaxWidth(e.to_shared())
-            }
-            Self::LayoutMaxHeight(e) => {
-                CssParsingError::LayoutMaxHeight(e.to_shared())
-            }
-            Self::LayoutPosition(e) => {
-                CssParsingError::LayoutPosition(e.to_shared())
-            }
+            Self::LayoutMinWidth(e) => CssParsingError::LayoutMinWidth(e.to_shared()),
+            Self::LayoutMinHeight(e) => CssParsingError::LayoutMinHeight(e.to_shared()),
+            Self::LayoutMaxWidth(e) => CssParsingError::LayoutMaxWidth(e.to_shared()),
+            Self::LayoutMaxHeight(e) => CssParsingError::LayoutMaxHeight(e.to_shared()),
+            Self::LayoutPosition(e) => CssParsingError::LayoutPosition(e.to_shared()),
             Self::LayoutTop(e) => CssParsingError::LayoutTop(e.to_shared()),
             Self::LayoutRight(e) => CssParsingError::LayoutRight(e.to_shared()),
             Self::LayoutLeft(e) => CssParsingError::LayoutLeft(e.to_shared()),
-            Self::LayoutInsetBottom(e) => {
-                CssParsingError::LayoutInsetBottom(e.to_shared())
-            }
+            Self::LayoutInsetBottom(e) => CssParsingError::LayoutInsetBottom(e.to_shared()),
             Self::LayoutZIndex(e) => CssParsingError::LayoutZIndex(e.to_shared()),
             Self::FlexWrap(e) => CssParsingError::FlexWrap(e.to_shared()),
             Self::FlexDirection(e) => CssParsingError::FlexDirection(e.to_shared()),
             Self::FlexBasis(e) => CssParsingError::FlexBasis(e.to_shared()),
-            Self::JustifyContent(e) => {
-                CssParsingError::JustifyContent(e.to_shared())
-            }
+            Self::JustifyContent(e) => CssParsingError::JustifyContent(e.to_shared()),
             Self::AlignItems(e) => CssParsingError::AlignItems(e.to_shared()),
             Self::AlignContent(e) => CssParsingError::AlignContent(e.to_shared()),
             Self::Grid(e) => CssParsingError::Grid(e.to_shared()),
@@ -2997,19 +3031,11 @@ impl CssParsingErrorOwned {
             Self::JustifySelf(e) => CssParsingError::JustifySelf(e.to_shared()),
             Self::JustifyItems(e) => CssParsingError::JustifyItems(e.to_shared()),
             Self::AlignSelf(e) => CssParsingError::AlignSelf(e.to_shared()),
-            Self::LayoutWritingMode(e) => {
-                CssParsingError::LayoutWritingMode(e.to_shared())
-            }
+            Self::LayoutWritingMode(e) => CssParsingError::LayoutWritingMode(e.to_shared()),
             Self::LayoutClear(e) => CssParsingError::LayoutClear(e.to_shared()),
-            Self::LayoutOverflow(e) => {
-                CssParsingError::LayoutOverflow(e.to_shared())
-            }
-            Self::BorderTopLeftRadius(e) => {
-                CssParsingError::BorderTopLeftRadius(e.to_shared())
-            }
-            Self::BorderTopRightRadius(e) => {
-                CssParsingError::BorderTopRightRadius(e.to_shared())
-            }
+            Self::LayoutOverflow(e) => CssParsingError::LayoutOverflow(e.to_shared()),
+            Self::BorderTopLeftRadius(e) => CssParsingError::BorderTopLeftRadius(e.to_shared()),
+            Self::BorderTopRightRadius(e) => CssParsingError::BorderTopRightRadius(e.to_shared()),
             Self::BorderBottomLeftRadius(e) => {
                 CssParsingError::BorderBottomLeftRadius(e.to_shared())
             }
@@ -3018,9 +3044,7 @@ impl CssParsingErrorOwned {
             }
             Self::BorderStyle(e) => CssParsingError::BorderStyle(e.to_shared()),
             Self::AppRegion(e) => CssParsingError::AppRegion(e.to_shared()),
-            Self::BackfaceVisibility(e) => {
-                CssParsingError::BackfaceVisibility(e.to_shared())
-            }
+            Self::BackfaceVisibility(e) => CssParsingError::BackfaceVisibility(e.to_shared()),
             Self::MixBlendMode(e) => CssParsingError::MixBlendMode(e.to_shared()),
             Self::TextColor(e) => CssParsingError::TextColor(e.to_shared()),
             Self::FontSize(e) => CssParsingError::FontSize(e.to_shared()),
@@ -3030,46 +3054,22 @@ impl CssParsingErrorOwned {
             Self::TextIndent(e) => CssParsingError::TextIndent(e.to_shared()),
             Self::InitialLetter(e) => CssParsingError::InitialLetter(e.to_shared()),
             Self::LineClamp(e) => CssParsingError::LineClamp(e.to_shared()),
-            Self::HangingPunctuation(e) => {
-                CssParsingError::HangingPunctuation(e.to_shared())
-            }
-            Self::TextCombineUpright(e) => {
-                CssParsingError::TextCombineUpright(e.to_shared())
-            }
+            Self::HangingPunctuation(e) => CssParsingError::HangingPunctuation(e.to_shared()),
+            Self::TextCombineUpright(e) => CssParsingError::TextCombineUpright(e.to_shared()),
             Self::UnicodeBidi(e) => CssParsingError::UnicodeBidi(e.to_shared()),
             Self::TextBoxTrim(e) => CssParsingError::TextBoxTrim(e.to_shared()),
             Self::TextBoxEdge(e) => CssParsingError::TextBoxEdge(e.to_shared()),
-            Self::DominantBaseline(e) => {
-                CssParsingError::DominantBaseline(e.to_shared())
-            }
-            Self::AlignmentBaseline(e) => {
-                CssParsingError::AlignmentBaseline(e.to_shared())
-            }
-            Self::BaselineSource(e) => {
-                CssParsingError::BaselineSource(e.to_shared())
-            }
-            Self::LineFitEdge(e) => {
-                CssParsingError::LineFitEdge(e.to_shared())
-            }
-            Self::InitialLetterAlign(e) => {
-                CssParsingError::InitialLetterAlign(e.to_shared())
-            }
-            Self::InitialLetterWrap(e) => {
-                CssParsingError::InitialLetterWrap(e.to_shared())
-            }
-            Self::ScrollbarGutter(e) => {
-                CssParsingError::ScrollbarGutter(e.to_shared())
-            }
-            Self::OverflowClipMargin(e) => {
-                CssParsingError::OverflowClipMargin(e.to_shared())
-            }
+            Self::DominantBaseline(e) => CssParsingError::DominantBaseline(e.to_shared()),
+            Self::AlignmentBaseline(e) => CssParsingError::AlignmentBaseline(e.to_shared()),
+            Self::BaselineSource(e) => CssParsingError::BaselineSource(e.to_shared()),
+            Self::LineFitEdge(e) => CssParsingError::LineFitEdge(e.to_shared()),
+            Self::InitialLetterAlign(e) => CssParsingError::InitialLetterAlign(e.to_shared()),
+            Self::InitialLetterWrap(e) => CssParsingError::InitialLetterWrap(e.to_shared()),
+            Self::ScrollbarGutter(e) => CssParsingError::ScrollbarGutter(e.to_shared()),
+            Self::OverflowClipMargin(e) => CssParsingError::OverflowClipMargin(e.to_shared()),
             Self::Clip(e) => CssParsingError::Clip(e.to_shared()),
-            Self::ExclusionMargin(e) => {
-                CssParsingError::ExclusionMargin(e.to_shared())
-            }
-            Self::HyphenationLanguage(e) => {
-                CssParsingError::HyphenationLanguage(e.to_shared())
-            }
+            Self::ExclusionMargin(e) => CssParsingError::ExclusionMargin(e.to_shared()),
+            Self::HyphenationLanguage(e) => CssParsingError::HyphenationLanguage(e.to_shared()),
             Self::LineHeight(e) => CssParsingError::LineHeight(e.clone()),
             Self::WordSpacing(e) => CssParsingError::WordSpacing(e.to_shared()),
             Self::TabSize(e) => CssParsingError::TabSize(e.to_shared()),
@@ -3080,56 +3080,38 @@ impl CssParsingErrorOwned {
             Self::LineBreak(e) => CssParsingError::LineBreak(e.to_shared()),
             Self::TextOverflow(e) => CssParsingError::TextOverflow(e.to_shared()),
             Self::ObjectFit(e) => CssParsingError::ObjectFit(e.to_shared()),
-            Self::ObjectPosition(e) => {
-                CssParsingError::ObjectPosition(e.to_shared())
-            }
+            Self::ObjectPosition(e) => CssParsingError::ObjectPosition(e.to_shared()),
             Self::AspectRatio(e) => CssParsingError::AspectRatio(e.to_shared()),
-            Self::TextOrientation(e) => {
-                CssParsingError::TextOrientation(e.to_shared())
-            }
+            Self::TextOrientation(e) => CssParsingError::TextOrientation(e.to_shared()),
             Self::TextAlignLast(e) => CssParsingError::TextAlignLast(e.to_shared()),
             Self::TextTransform(e) => CssParsingError::TextTransform(e.to_shared()),
             Self::Direction(e) => CssParsingError::Direction(e.to_shared()),
             Self::UserSelect(e) => CssParsingError::UserSelect(e.to_shared()),
-            Self::TextDecoration(e) => {
-                CssParsingError::TextDecoration(e.to_shared())
-            }
+            Self::TextDecoration(e) => CssParsingError::TextDecoration(e.to_shared()),
             Self::Cursor(e) => CssParsingError::Cursor(e.to_shared()),
             Self::LayoutDisplay(e) => CssParsingError::LayoutDisplay(e.to_shared()),
             Self::LayoutFloat(e) => CssParsingError::LayoutFloat(e.to_shared()),
-            Self::LayoutBoxSizing(e) => {
-                CssParsingError::LayoutBoxSizing(e.to_shared())
-            }
+            Self::LayoutBoxSizing(e) => CssParsingError::LayoutBoxSizing(e.to_shared()),
             // DTP properties...
             Self::PageBreak(e) => CssParsingError::PageBreak(e.to_shared()),
             Self::BreakInside(e) => CssParsingError::BreakInside(e.to_shared()),
             Self::Widows(e) => CssParsingError::Widows(e.to_shared()),
             Self::Orphans(e) => CssParsingError::Orphans(e.to_shared()),
-            Self::BoxDecorationBreak(e) => {
-                CssParsingError::BoxDecorationBreak(e.to_shared())
-            }
+            Self::BoxDecorationBreak(e) => CssParsingError::BoxDecorationBreak(e.to_shared()),
             Self::ColumnCount(e) => CssParsingError::ColumnCount(e.to_shared()),
             Self::ColumnWidth(e) => CssParsingError::ColumnWidth(e.to_shared()),
             Self::ColumnSpan(e) => CssParsingError::ColumnSpan(e.to_shared()),
             Self::ColumnFill(e) => CssParsingError::ColumnFill(e.to_shared()),
-            Self::ColumnRuleWidth(e) => {
-                CssParsingError::ColumnRuleWidth(e.to_shared())
-            }
-            Self::ColumnRuleStyle(e) => {
-                CssParsingError::ColumnRuleStyle(e.to_shared())
-            }
-            Self::ColumnRuleColor(e) => {
-                CssParsingError::ColumnRuleColor(e.to_shared())
-            }
+            Self::ColumnRuleWidth(e) => CssParsingError::ColumnRuleWidth(e.to_shared()),
+            Self::ColumnRuleStyle(e) => CssParsingError::ColumnRuleStyle(e.to_shared()),
+            Self::ColumnRuleColor(e) => CssParsingError::ColumnRuleColor(e.to_shared()),
             Self::FlowInto(e) => CssParsingError::FlowInto(e.to_shared()),
             Self::FlowFrom(e) => CssParsingError::FlowFrom(e.to_shared()),
             Self::GenericParseError => CssParsingError::GenericParseError,
             Self::Content => CssParsingError::Content,
             Self::Counter => CssParsingError::Counter,
             Self::ListStyleType(e) => CssParsingError::ListStyleType(e.to_shared()),
-            Self::ListStylePosition(e) => {
-                CssParsingError::ListStylePosition(e.to_shared())
-            }
+            Self::ListStylePosition(e) => CssParsingError::ListStylePosition(e.to_shared()),
             Self::StringSet => CssParsingError::StringSet,
             Self::FontWeight(e) => CssParsingError::FontWeight(e.to_shared()),
             Self::FontStyle(e) => CssParsingError::FontStyle(e.to_shared()),
@@ -3139,7 +3121,8 @@ impl CssParsingErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+#[allow(clippy::too_many_lines)]
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `css-property` value.
@@ -3436,16 +3419,12 @@ pub fn parse_css_property(
                 CssPropertyValue::Exact(parse_style_background_content(value)?),
             ),
             CssPropertyType::ScrollbarWidth => parse_layout_scrollbar_width(value)?.into(),
-            CssPropertyType::OverscrollBehaviorX => {
-                CssProperty::OverscrollBehaviorX(CssPropertyValue::Exact(
-                    parse_overscroll_behavior(value)?,
-                ))
-            }
-            CssPropertyType::OverscrollBehaviorY => {
-                CssProperty::OverscrollBehaviorY(CssPropertyValue::Exact(
-                    parse_overscroll_behavior(value)?,
-                ))
-            }
+            CssPropertyType::OverscrollBehaviorX => CssProperty::OverscrollBehaviorX(
+                CssPropertyValue::Exact(parse_overscroll_behavior(value)?),
+            ),
+            CssPropertyType::OverscrollBehaviorY => CssProperty::OverscrollBehaviorY(
+                CssPropertyValue::Exact(parse_overscroll_behavior(value)?),
+            ),
             CssPropertyType::ScrollbarColor => parse_style_scrollbar_color(value)?.into(),
             CssPropertyType::ScrollbarVisibility => parse_scrollbar_visibility_mode(value)?.into(),
             CssPropertyType::ScrollbarFadeDelay => parse_scrollbar_fade_delay(value)?.into(),
@@ -3608,7 +3587,8 @@ pub fn parse_css_property(
 /// )
 /// ```
 #[cfg(feature = "parser")]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+#[allow(clippy::too_many_lines)]
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `combined-css-property` value.
@@ -3616,7 +3596,12 @@ pub fn parse_combined_css_property(
     key: CombinedCssPropertyType,
     value: &str,
 ) -> Result<Vec<CssProperty>, CssParsingError<'_>> {
-    use self::CombinedCssPropertyType::{BorderRadius, Overflow, OverscrollBehavior, Padding, Margin, Border, BorderLeft, BorderRight, BorderTop, BorderBottom, BorderColor, BorderStyle, BorderWidth, BoxShadow, BackgroundColor, BackgroundImage, Background, Flex, Grid, Gap, GridGap, Font, Columns, GridArea, ColumnRule, TextBox, InsetBlock, InsetInline};
+    use self::CombinedCssPropertyType::{
+        Background, BackgroundColor, BackgroundImage, Border, BorderBottom, BorderColor,
+        BorderLeft, BorderRadius, BorderRight, BorderStyle, BorderTop, BorderWidth, BoxShadow,
+        ColumnRule, Columns, Flex, Font, Gap, Grid, GridArea, GridGap, InsetBlock, InsetInline,
+        Margin, Overflow, OverscrollBehavior, Padding, TextBox,
+    };
 
     macro_rules! convert_value {
         ($thing:expr, $prop_type:ident, $wrapper:ident) => {
@@ -4191,10 +4176,7 @@ pub fn parse_combined_css_property(
                             }
                             .into(),
                         ),
-                        CssProperty::FlexBasis(
-                            LayoutFlexBasis::Exact(PixelValue::px(0.0))
-                                .into(),
-                        ),
+                        CssProperty::FlexBasis(LayoutFlexBasis::Exact(PixelValue::px(0.0)).into()),
                     ]);
                 }
                 if let Ok(b) = parse_layout_flex_basis(parts[0]) {
@@ -4211,10 +4193,7 @@ pub fn parse_combined_css_property(
                     return Ok(vec![
                         CssProperty::FlexGrow(g.into()),
                         CssProperty::FlexShrink(s.into()),
-                        CssProperty::FlexBasis(
-                            LayoutFlexBasis::Exact(PixelValue::px(0.0))
-                                .into(),
-                        ),
+                        CssProperty::FlexBasis(LayoutFlexBasis::Exact(PixelValue::px(0.0)).into()),
                     ]);
                 }
                 // CSS spec: flex: <number> <width> => grow, shrink: 1, basis: <width>
@@ -4617,7 +4596,8 @@ impl_from_css_prop!(StyleCaptionSide, CssProperty::CaptionSide);
 impl_from_css_prop!(StyleEmptyCells, CssProperty::EmptyCells);
 
 impl CssProperty {
-    #[must_use] pub const fn key(&self) -> &'static str {
+    #[must_use]
+    pub const fn key(&self) -> &'static str {
         self.get_type().to_str()
     }
 
@@ -4625,8 +4605,10 @@ impl CssProperty {
     // `CssPropertyValue<T>` — the identical bodies cannot merge into one or-pattern
     // (mismatched binding types), so clippy::match_same_arms is a false positive here.
     #[allow(clippy::match_same_arms)]
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-    #[must_use] pub fn value(&self) -> String {
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[must_use]
+    pub fn value(&self) -> String {
         match self {
             Self::CaretColor(v) => v.get_css_value_fmt(),
             Self::CaretWidth(v) => v.get_css_value_fmt(),
@@ -4819,12 +4801,15 @@ impl CssProperty {
         }
     }
 
-    #[must_use] pub fn format_css(&self) -> String {
+    #[must_use]
+    pub fn format_css(&self) -> String {
         format!("{}: {};", self.key(), self.value())
     }
 
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-    #[must_use] pub fn interpolate(
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[must_use]
+    pub fn interpolate(
         &self,
         other: &Self,
         t: f32,
@@ -4992,36 +4977,22 @@ impl CssProperty {
             (Self::BorderTopLeftRadius(start), Self::BorderTopLeftRadius(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderTopLeftRadius(CssPropertyValue::Exact(
-                    start.interpolate(&end, t),
-                ))
+                Self::BorderTopLeftRadius(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
             (Self::BorderTopRightRadius(start), Self::BorderTopRightRadius(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderTopRightRadius(CssPropertyValue::Exact(
-                    start.interpolate(&end, t),
-                ))
+                Self::BorderTopRightRadius(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
-            (
-                Self::BorderBottomLeftRadius(start),
-                Self::BorderBottomLeftRadius(end),
-            ) => {
+            (Self::BorderBottomLeftRadius(start), Self::BorderBottomLeftRadius(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderBottomLeftRadius(CssPropertyValue::Exact(
-                    start.interpolate(&end, t),
-                ))
+                Self::BorderBottomLeftRadius(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
-            (
-                Self::BorderBottomRightRadius(start),
-                Self::BorderBottomRightRadius(end),
-            ) => {
+            (Self::BorderBottomRightRadius(start), Self::BorderBottomRightRadius(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
                 let end = end.get_property().copied().unwrap_or_default();
-                Self::BorderBottomRightRadius(CssPropertyValue::Exact(
-                    start.interpolate(&end, t),
-                ))
+                Self::BorderBottomRightRadius(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
             (Self::BorderTopColor(start), Self::BorderTopColor(end)) => {
                 let start = start.get_property().copied().unwrap_or_default();
@@ -5105,8 +5076,10 @@ impl CssProperty {
     }
 
     /// Return the type (key) of this property as a statically typed enum
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-    #[must_use] pub const fn get_type(&self) -> CssPropertyType {
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[must_use]
+    pub const fn get_type(&self) -> CssPropertyType {
         match &self {
             Self::CaretColor(_) => CssPropertyType::CaretColor,
             Self::CaretWidth(_) => CssPropertyType::CaretWidth,
@@ -5303,900 +5276,1109 @@ impl CssProperty {
 
     // const constructors for easier API access
 
-    #[must_use] pub const fn none(prop_type: CssPropertyType) -> Self {
+    #[must_use]
+    pub const fn none(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, None)
     }
-    #[must_use] pub const fn auto(prop_type: CssPropertyType) -> Self {
+    #[must_use]
+    pub const fn auto(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Auto)
     }
-    #[must_use] pub const fn initial(prop_type: CssPropertyType) -> Self {
+    #[must_use]
+    pub const fn initial(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Initial)
     }
-    #[must_use] pub const fn inherit(prop_type: CssPropertyType) -> Self {
+    #[must_use]
+    pub const fn inherit(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Inherit)
     }
 
-    #[must_use] pub const fn text_color(input: StyleTextColor) -> Self {
+    #[must_use]
+    pub const fn text_color(input: StyleTextColor) -> Self {
         Self::TextColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn font_size(input: StyleFontSize) -> Self {
+    #[must_use]
+    pub const fn font_size(input: StyleFontSize) -> Self {
         Self::FontSize(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn font_family(input: StyleFontFamilyVec) -> Self {
+    #[must_use]
+    pub const fn font_family(input: StyleFontFamilyVec) -> Self {
         Self::FontFamily(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn font_weight(input: StyleFontWeight) -> Self {
+    #[must_use]
+    pub const fn font_weight(input: StyleFontWeight) -> Self {
         Self::FontWeight(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn font_style(input: StyleFontStyle) -> Self {
+    #[must_use]
+    pub const fn font_style(input: StyleFontStyle) -> Self {
         Self::FontStyle(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn text_align(input: StyleTextAlign) -> Self {
+    #[must_use]
+    pub const fn text_align(input: StyleTextAlign) -> Self {
         Self::TextAlign(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn text_justify(input: LayoutTextJustify) -> Self {
+    #[must_use]
+    pub const fn text_justify(input: LayoutTextJustify) -> Self {
         Self::TextJustify(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn vertical_align(input: StyleVerticalAlign) -> Self {
+    #[must_use]
+    pub const fn vertical_align(input: StyleVerticalAlign) -> Self {
         Self::VerticalAlign(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn letter_spacing(input: StyleLetterSpacing) -> Self {
+    #[must_use]
+    pub const fn letter_spacing(input: StyleLetterSpacing) -> Self {
         Self::LetterSpacing(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn text_indent(input: StyleTextIndent) -> Self {
+    #[must_use]
+    pub const fn text_indent(input: StyleTextIndent) -> Self {
         Self::TextIndent(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn line_height(input: StyleLineHeight) -> Self {
+    #[must_use]
+    pub const fn line_height(input: StyleLineHeight) -> Self {
         Self::LineHeight(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn word_spacing(input: StyleWordSpacing) -> Self {
+    #[must_use]
+    pub const fn word_spacing(input: StyleWordSpacing) -> Self {
         Self::WordSpacing(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn tab_size(input: StyleTabSize) -> Self {
+    #[must_use]
+    pub const fn tab_size(input: StyleTabSize) -> Self {
         Self::TabSize(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn cursor(input: StyleCursor) -> Self {
+    #[must_use]
+    pub const fn cursor(input: StyleCursor) -> Self {
         Self::Cursor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn user_select(input: StyleUserSelect) -> Self {
+    #[must_use]
+    pub const fn user_select(input: StyleUserSelect) -> Self {
         Self::UserSelect(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn text_decoration(input: StyleTextDecoration) -> Self {
+    #[must_use]
+    pub const fn text_decoration(input: StyleTextDecoration) -> Self {
         Self::TextDecoration(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn display(input: LayoutDisplay) -> Self {
+    #[must_use]
+    pub const fn display(input: LayoutDisplay) -> Self {
         Self::Display(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn box_sizing(input: LayoutBoxSizing) -> Self {
+    #[must_use]
+    pub const fn box_sizing(input: LayoutBoxSizing) -> Self {
         Self::BoxSizing(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn width(input: LayoutWidth) -> Self {
+    #[must_use]
+    pub const fn width(input: LayoutWidth) -> Self {
         Self::Width(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn height(input: LayoutHeight) -> Self {
+    #[must_use]
+    pub const fn height(input: LayoutHeight) -> Self {
         Self::Height(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn min_width(input: LayoutMinWidth) -> Self {
+    #[must_use]
+    pub const fn min_width(input: LayoutMinWidth) -> Self {
         Self::MinWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn caret_color(input: CaretColor) -> Self {
+    #[must_use]
+    pub const fn caret_color(input: CaretColor) -> Self {
         Self::CaretColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn caret_width(input: CaretWidth) -> Self {
+    #[must_use]
+    pub const fn caret_width(input: CaretWidth) -> Self {
         Self::CaretWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn caret_animation_duration(input: CaretAnimationDuration) -> Self {
+    #[must_use]
+    pub const fn caret_animation_duration(input: CaretAnimationDuration) -> Self {
         Self::CaretAnimationDuration(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn selection_background_color(input: SelectionBackgroundColor) -> Self {
+    #[must_use]
+    pub const fn selection_background_color(input: SelectionBackgroundColor) -> Self {
         Self::SelectionBackgroundColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn selection_color(input: SelectionColor) -> Self {
+    #[must_use]
+    pub const fn selection_color(input: SelectionColor) -> Self {
         Self::SelectionColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn min_height(input: LayoutMinHeight) -> Self {
+    #[must_use]
+    pub const fn min_height(input: LayoutMinHeight) -> Self {
         Self::MinHeight(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn max_width(input: LayoutMaxWidth) -> Self {
+    #[must_use]
+    pub const fn max_width(input: LayoutMaxWidth) -> Self {
         Self::MaxWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn max_height(input: LayoutMaxHeight) -> Self {
+    #[must_use]
+    pub const fn max_height(input: LayoutMaxHeight) -> Self {
         Self::MaxHeight(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn position(input: LayoutPosition) -> Self {
+    #[must_use]
+    pub const fn position(input: LayoutPosition) -> Self {
         Self::Position(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn top(input: LayoutTop) -> Self {
+    #[must_use]
+    pub const fn top(input: LayoutTop) -> Self {
         Self::Top(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn right(input: LayoutRight) -> Self {
+    #[must_use]
+    pub const fn right(input: LayoutRight) -> Self {
         Self::Right(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn left(input: LayoutLeft) -> Self {
+    #[must_use]
+    pub const fn left(input: LayoutLeft) -> Self {
         Self::Left(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn bottom(input: LayoutInsetBottom) -> Self {
+    #[must_use]
+    pub const fn bottom(input: LayoutInsetBottom) -> Self {
         Self::Bottom(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn z_index(input: LayoutZIndex) -> Self {
+    #[must_use]
+    pub const fn z_index(input: LayoutZIndex) -> Self {
         Self::ZIndex(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn flex_wrap(input: LayoutFlexWrap) -> Self {
+    #[must_use]
+    pub const fn flex_wrap(input: LayoutFlexWrap) -> Self {
         Self::FlexWrap(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn flex_direction(input: LayoutFlexDirection) -> Self {
+    #[must_use]
+    pub const fn flex_direction(input: LayoutFlexDirection) -> Self {
         Self::FlexDirection(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn flex_grow(input: LayoutFlexGrow) -> Self {
+    #[must_use]
+    pub const fn flex_grow(input: LayoutFlexGrow) -> Self {
         Self::FlexGrow(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn flex_shrink(input: LayoutFlexShrink) -> Self {
+    #[must_use]
+    pub const fn flex_shrink(input: LayoutFlexShrink) -> Self {
         Self::FlexShrink(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn justify_content(input: LayoutJustifyContent) -> Self {
+    #[must_use]
+    pub const fn justify_content(input: LayoutJustifyContent) -> Self {
         Self::JustifyContent(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn grid_auto_flow(input: LayoutGridAutoFlow) -> Self {
+    #[must_use]
+    pub const fn grid_auto_flow(input: LayoutGridAutoFlow) -> Self {
         Self::GridAutoFlow(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn justify_self(input: LayoutJustifySelf) -> Self {
+    #[must_use]
+    pub const fn justify_self(input: LayoutJustifySelf) -> Self {
         Self::JustifySelf(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn justify_items(input: LayoutJustifyItems) -> Self {
+    #[must_use]
+    pub const fn justify_items(input: LayoutJustifyItems) -> Self {
         Self::JustifyItems(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn gap(input: LayoutGap) -> Self {
+    #[must_use]
+    pub const fn gap(input: LayoutGap) -> Self {
         Self::Gap(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn grid_gap(input: LayoutGap) -> Self {
+    #[must_use]
+    pub const fn grid_gap(input: LayoutGap) -> Self {
         Self::GridGap(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn align_self(input: LayoutAlignSelf) -> Self {
+    #[must_use]
+    pub const fn align_self(input: LayoutAlignSelf) -> Self {
         Self::AlignSelf(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn font(input: StyleFontFamilyVec) -> Self {
+    #[must_use]
+    pub const fn font(input: StyleFontFamilyVec) -> Self {
         Self::Font(StyleFontValue::Exact(input))
     }
-    #[must_use] pub const fn align_items(input: LayoutAlignItems) -> Self {
+    #[must_use]
+    pub const fn align_items(input: LayoutAlignItems) -> Self {
         Self::AlignItems(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn align_content(input: LayoutAlignContent) -> Self {
+    #[must_use]
+    pub const fn align_content(input: LayoutAlignContent) -> Self {
         Self::AlignContent(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn background_content(input: StyleBackgroundContentVec) -> Self {
+    #[must_use]
+    pub const fn background_content(input: StyleBackgroundContentVec) -> Self {
         Self::BackgroundContent(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn background_position(input: StyleBackgroundPositionVec) -> Self {
+    #[must_use]
+    pub const fn background_position(input: StyleBackgroundPositionVec) -> Self {
         Self::BackgroundPosition(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn background_size(input: StyleBackgroundSizeVec) -> Self {
+    #[must_use]
+    pub const fn background_size(input: StyleBackgroundSizeVec) -> Self {
         Self::BackgroundSize(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn background_repeat(input: StyleBackgroundRepeatVec) -> Self {
+    #[must_use]
+    pub const fn background_repeat(input: StyleBackgroundRepeatVec) -> Self {
         Self::BackgroundRepeat(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn overflow_x(input: LayoutOverflow) -> Self {
+    #[must_use]
+    pub const fn overflow_x(input: LayoutOverflow) -> Self {
         Self::OverflowX(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn overflow_y(input: LayoutOverflow) -> Self {
+    #[must_use]
+    pub const fn overflow_y(input: LayoutOverflow) -> Self {
         Self::OverflowY(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn overflow_block(input: LayoutOverflow) -> Self {
+    #[must_use]
+    pub const fn overflow_block(input: LayoutOverflow) -> Self {
         Self::OverflowBlock(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn overflow_inline(input: LayoutOverflow) -> Self {
+    #[must_use]
+    pub const fn overflow_inline(input: LayoutOverflow) -> Self {
         Self::OverflowInline(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn padding_top(input: LayoutPaddingTop) -> Self {
+    #[must_use]
+    pub const fn padding_top(input: LayoutPaddingTop) -> Self {
         Self::PaddingTop(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn padding_left(input: LayoutPaddingLeft) -> Self {
+    #[must_use]
+    pub const fn padding_left(input: LayoutPaddingLeft) -> Self {
         Self::PaddingLeft(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn padding_right(input: LayoutPaddingRight) -> Self {
+    #[must_use]
+    pub const fn padding_right(input: LayoutPaddingRight) -> Self {
         Self::PaddingRight(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn padding_bottom(input: LayoutPaddingBottom) -> Self {
+    #[must_use]
+    pub const fn padding_bottom(input: LayoutPaddingBottom) -> Self {
         Self::PaddingBottom(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn margin_top(input: LayoutMarginTop) -> Self {
+    #[must_use]
+    pub const fn margin_top(input: LayoutMarginTop) -> Self {
         Self::MarginTop(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn margin_left(input: LayoutMarginLeft) -> Self {
+    #[must_use]
+    pub const fn margin_left(input: LayoutMarginLeft) -> Self {
         Self::MarginLeft(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn margin_right(input: LayoutMarginRight) -> Self {
+    #[must_use]
+    pub const fn margin_right(input: LayoutMarginRight) -> Self {
         Self::MarginRight(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn margin_bottom(input: LayoutMarginBottom) -> Self {
+    #[must_use]
+    pub const fn margin_bottom(input: LayoutMarginBottom) -> Self {
         Self::MarginBottom(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_top_left_radius(input: StyleBorderTopLeftRadius) -> Self {
+    #[must_use]
+    pub const fn border_top_left_radius(input: StyleBorderTopLeftRadius) -> Self {
         Self::BorderTopLeftRadius(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_top_right_radius(input: StyleBorderTopRightRadius) -> Self {
+    #[must_use]
+    pub const fn border_top_right_radius(input: StyleBorderTopRightRadius) -> Self {
         Self::BorderTopRightRadius(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_bottom_left_radius(input: StyleBorderBottomLeftRadius) -> Self {
+    #[must_use]
+    pub const fn border_bottom_left_radius(input: StyleBorderBottomLeftRadius) -> Self {
         Self::BorderBottomLeftRadius(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_bottom_right_radius(input: StyleBorderBottomRightRadius) -> Self {
+    #[must_use]
+    pub const fn border_bottom_right_radius(input: StyleBorderBottomRightRadius) -> Self {
         Self::BorderBottomRightRadius(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_top_color(input: StyleBorderTopColor) -> Self {
+    #[must_use]
+    pub const fn border_top_color(input: StyleBorderTopColor) -> Self {
         Self::BorderTopColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_right_color(input: StyleBorderRightColor) -> Self {
+    #[must_use]
+    pub const fn border_right_color(input: StyleBorderRightColor) -> Self {
         Self::BorderRightColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_left_color(input: StyleBorderLeftColor) -> Self {
+    #[must_use]
+    pub const fn border_left_color(input: StyleBorderLeftColor) -> Self {
         Self::BorderLeftColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_bottom_color(input: StyleBorderBottomColor) -> Self {
+    #[must_use]
+    pub const fn border_bottom_color(input: StyleBorderBottomColor) -> Self {
         Self::BorderBottomColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_top_style(input: StyleBorderTopStyle) -> Self {
+    #[must_use]
+    pub const fn border_top_style(input: StyleBorderTopStyle) -> Self {
         Self::BorderTopStyle(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_right_style(input: StyleBorderRightStyle) -> Self {
+    #[must_use]
+    pub const fn border_right_style(input: StyleBorderRightStyle) -> Self {
         Self::BorderRightStyle(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_left_style(input: StyleBorderLeftStyle) -> Self {
+    #[must_use]
+    pub const fn border_left_style(input: StyleBorderLeftStyle) -> Self {
         Self::BorderLeftStyle(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_bottom_style(input: StyleBorderBottomStyle) -> Self {
+    #[must_use]
+    pub const fn border_bottom_style(input: StyleBorderBottomStyle) -> Self {
         Self::BorderBottomStyle(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_top_width(input: LayoutBorderTopWidth) -> Self {
+    #[must_use]
+    pub const fn border_top_width(input: LayoutBorderTopWidth) -> Self {
         Self::BorderTopWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_right_width(input: LayoutBorderRightWidth) -> Self {
+    #[must_use]
+    pub const fn border_right_width(input: LayoutBorderRightWidth) -> Self {
         Self::BorderRightWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_left_width(input: LayoutBorderLeftWidth) -> Self {
+    #[must_use]
+    pub const fn border_left_width(input: LayoutBorderLeftWidth) -> Self {
         Self::BorderLeftWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_bottom_width(input: LayoutBorderBottomWidth) -> Self {
+    #[must_use]
+    pub const fn border_bottom_width(input: LayoutBorderBottomWidth) -> Self {
         Self::BorderBottomWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub fn box_shadow_left(input: StyleBoxShadow) -> Self {
+    #[must_use]
+    pub fn box_shadow_left(input: StyleBoxShadow) -> Self {
         Self::BoxShadowLeft(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
-    #[must_use] pub fn box_shadow_right(input: StyleBoxShadow) -> Self {
+    #[must_use]
+    pub fn box_shadow_right(input: StyleBoxShadow) -> Self {
         Self::BoxShadowRight(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
-    #[must_use] pub fn box_shadow_top(input: StyleBoxShadow) -> Self {
+    #[must_use]
+    pub fn box_shadow_top(input: StyleBoxShadow) -> Self {
         Self::BoxShadowTop(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
-    #[must_use] pub fn box_shadow_bottom(input: StyleBoxShadow) -> Self {
+    #[must_use]
+    pub fn box_shadow_bottom(input: StyleBoxShadow) -> Self {
         Self::BoxShadowBottom(CssPropertyValue::Exact(BoxOrStatic::heap(input)))
     }
-    #[must_use] pub const fn opacity(input: StyleOpacity) -> Self {
+    #[must_use]
+    pub const fn opacity(input: StyleOpacity) -> Self {
         Self::Opacity(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn visibility(input: StyleVisibility) -> Self {
+    #[must_use]
+    pub const fn visibility(input: StyleVisibility) -> Self {
         Self::Visibility(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn transform(input: StyleTransformVec) -> Self {
+    #[must_use]
+    pub const fn transform(input: StyleTransformVec) -> Self {
         Self::Transform(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn transform_origin(input: StyleTransformOrigin) -> Self {
+    #[must_use]
+    pub const fn transform_origin(input: StyleTransformOrigin) -> Self {
         Self::TransformOrigin(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn perspective_origin(input: StylePerspectiveOrigin) -> Self {
+    #[must_use]
+    pub const fn perspective_origin(input: StylePerspectiveOrigin) -> Self {
         Self::PerspectiveOrigin(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn backface_visibility(input: StyleBackfaceVisibility) -> Self {
+    #[must_use]
+    pub const fn backface_visibility(input: StyleBackfaceVisibility) -> Self {
         Self::BackfaceVisibility(CssPropertyValue::Exact(input))
     }
 
     // New DTP const fn constructors
-    #[must_use] pub const fn break_before(input: PageBreak) -> Self {
+    #[must_use]
+    pub const fn break_before(input: PageBreak) -> Self {
         Self::BreakBefore(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn break_after(input: PageBreak) -> Self {
+    #[must_use]
+    pub const fn break_after(input: PageBreak) -> Self {
         Self::BreakAfter(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn break_inside(input: BreakInside) -> Self {
+    #[must_use]
+    pub const fn break_inside(input: BreakInside) -> Self {
         Self::BreakInside(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn orphans(input: Orphans) -> Self {
+    #[must_use]
+    pub const fn orphans(input: Orphans) -> Self {
         Self::Orphans(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn widows(input: Widows) -> Self {
+    #[must_use]
+    pub const fn widows(input: Widows) -> Self {
         Self::Widows(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn box_decoration_break(input: BoxDecorationBreak) -> Self {
+    #[must_use]
+    pub const fn box_decoration_break(input: BoxDecorationBreak) -> Self {
         Self::BoxDecorationBreak(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn column_count(input: ColumnCount) -> Self {
+    #[must_use]
+    pub const fn column_count(input: ColumnCount) -> Self {
         Self::ColumnCount(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn column_width(input: ColumnWidth) -> Self {
+    #[must_use]
+    pub const fn column_width(input: ColumnWidth) -> Self {
         Self::ColumnWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn column_span(input: ColumnSpan) -> Self {
+    #[must_use]
+    pub const fn column_span(input: ColumnSpan) -> Self {
         Self::ColumnSpan(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn column_fill(input: ColumnFill) -> Self {
+    #[must_use]
+    pub const fn column_fill(input: ColumnFill) -> Self {
         Self::ColumnFill(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn column_rule_width(input: ColumnRuleWidth) -> Self {
+    #[must_use]
+    pub const fn column_rule_width(input: ColumnRuleWidth) -> Self {
         Self::ColumnRuleWidth(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn column_rule_style(input: ColumnRuleStyle) -> Self {
+    #[must_use]
+    pub const fn column_rule_style(input: ColumnRuleStyle) -> Self {
         Self::ColumnRuleStyle(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn column_rule_color(input: ColumnRuleColor) -> Self {
+    #[must_use]
+    pub const fn column_rule_color(input: ColumnRuleColor) -> Self {
         Self::ColumnRuleColor(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn flow_into(input: FlowInto) -> Self {
+    #[must_use]
+    pub const fn flow_into(input: FlowInto) -> Self {
         Self::FlowInto(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn flow_from(input: FlowFrom) -> Self {
+    #[must_use]
+    pub const fn flow_from(input: FlowFrom) -> Self {
         Self::FlowFrom(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn shape_outside(input: ShapeOutside) -> Self {
+    #[must_use]
+    pub const fn shape_outside(input: ShapeOutside) -> Self {
         Self::ShapeOutside(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn shape_inside(input: ShapeInside) -> Self {
+    #[must_use]
+    pub const fn shape_inside(input: ShapeInside) -> Self {
         Self::ShapeInside(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn clip_path(input: ClipPath) -> Self {
+    #[must_use]
+    pub const fn clip_path(input: ClipPath) -> Self {
         Self::ClipPath(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn shape_margin(input: ShapeMargin) -> Self {
+    #[must_use]
+    pub const fn shape_margin(input: ShapeMargin) -> Self {
         Self::ShapeMargin(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn shape_image_threshold(input: ShapeImageThreshold) -> Self {
+    #[must_use]
+    pub const fn shape_image_threshold(input: ShapeImageThreshold) -> Self {
         Self::ShapeImageThreshold(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn content(input: Content) -> Self {
+    #[must_use]
+    pub const fn content(input: Content) -> Self {
         Self::Content(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn counter_reset(input: CounterReset) -> Self {
+    #[must_use]
+    pub const fn counter_reset(input: CounterReset) -> Self {
         Self::CounterReset(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn counter_increment(input: CounterIncrement) -> Self {
+    #[must_use]
+    pub const fn counter_increment(input: CounterIncrement) -> Self {
         Self::CounterIncrement(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn list_style_type(input: StyleListStyleType) -> Self {
+    #[must_use]
+    pub const fn list_style_type(input: StyleListStyleType) -> Self {
         Self::ListStyleType(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn list_style_position(input: StyleListStylePosition) -> Self {
+    #[must_use]
+    pub const fn list_style_position(input: StyleListStylePosition) -> Self {
         Self::ListStylePosition(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn string_set(input: StringSet) -> Self {
+    #[must_use]
+    pub const fn string_set(input: StringSet) -> Self {
         Self::StringSet(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn table_layout(input: LayoutTableLayout) -> Self {
+    #[must_use]
+    pub const fn table_layout(input: LayoutTableLayout) -> Self {
         Self::TableLayout(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_collapse(input: StyleBorderCollapse) -> Self {
+    #[must_use]
+    pub const fn border_collapse(input: StyleBorderCollapse) -> Self {
         Self::BorderCollapse(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn border_spacing(input: LayoutBorderSpacing) -> Self {
+    #[must_use]
+    pub const fn border_spacing(input: LayoutBorderSpacing) -> Self {
         Self::BorderSpacing(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn caption_side(input: StyleCaptionSide) -> Self {
+    #[must_use]
+    pub const fn caption_side(input: StyleCaptionSide) -> Self {
         Self::CaptionSide(CssPropertyValue::Exact(input))
     }
-    #[must_use] pub const fn empty_cells(input: StyleEmptyCells) -> Self {
+    #[must_use]
+    pub const fn empty_cells(input: StyleEmptyCells) -> Self {
         Self::EmptyCells(CssPropertyValue::Exact(input))
     }
 
-    #[must_use] pub const fn as_z_index(&self) -> Option<&LayoutZIndexValue> {
+    #[must_use]
+    pub const fn as_z_index(&self) -> Option<&LayoutZIndexValue> {
         match self {
             Self::ZIndex(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_flex_basis(&self) -> Option<&LayoutFlexBasisValue> {
+    #[must_use]
+    pub const fn as_flex_basis(&self) -> Option<&LayoutFlexBasisValue> {
         match self {
             Self::FlexBasis(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_column_gap(&self) -> Option<&LayoutColumnGapValue> {
+    #[must_use]
+    pub const fn as_column_gap(&self) -> Option<&LayoutColumnGapValue> {
         match self {
             Self::ColumnGap(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_row_gap(&self) -> Option<&LayoutRowGapValue> {
+    #[must_use]
+    pub const fn as_row_gap(&self) -> Option<&LayoutRowGapValue> {
         match self {
             Self::RowGap(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_grid_template_columns(&self) -> Option<&LayoutGridTemplateColumnsValue> {
+    #[must_use]
+    pub const fn as_grid_template_columns(&self) -> Option<&LayoutGridTemplateColumnsValue> {
         match self {
             Self::GridTemplateColumns(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_grid_template_rows(&self) -> Option<&LayoutGridTemplateRowsValue> {
+    #[must_use]
+    pub const fn as_grid_template_rows(&self) -> Option<&LayoutGridTemplateRowsValue> {
         match self {
             Self::GridTemplateRows(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_grid_auto_columns(&self) -> Option<&LayoutGridAutoColumnsValue> {
+    #[must_use]
+    pub const fn as_grid_auto_columns(&self) -> Option<&LayoutGridAutoColumnsValue> {
         match self {
             Self::GridAutoColumns(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_grid_auto_rows(&self) -> Option<&LayoutGridAutoRowsValue> {
+    #[must_use]
+    pub const fn as_grid_auto_rows(&self) -> Option<&LayoutGridAutoRowsValue> {
         match self {
             Self::GridAutoRows(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_grid_column(&self) -> Option<&LayoutGridColumnValue> {
+    #[must_use]
+    pub const fn as_grid_column(&self) -> Option<&LayoutGridColumnValue> {
         match self {
             Self::GridColumn(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_grid_row(&self) -> Option<&LayoutGridRowValue> {
+    #[must_use]
+    pub const fn as_grid_row(&self) -> Option<&LayoutGridRowValue> {
         match self {
             Self::GridRow(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_writing_mode(&self) -> Option<&LayoutWritingModeValue> {
+    #[must_use]
+    pub const fn as_writing_mode(&self) -> Option<&LayoutWritingModeValue> {
         match self {
             Self::WritingMode(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_clear(&self) -> Option<&LayoutClearValue> {
+    #[must_use]
+    pub const fn as_clear(&self) -> Option<&LayoutClearValue> {
         match self {
             Self::Clear(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_scrollbar_track(&self) -> Option<&StyleBackgroundContentValue> {
+    #[must_use]
+    pub const fn as_scrollbar_track(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             Self::ScrollbarTrack(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_scrollbar_thumb(&self) -> Option<&StyleBackgroundContentValue> {
+    #[must_use]
+    pub const fn as_scrollbar_thumb(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             Self::ScrollbarThumb(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_scrollbar_button(&self) -> Option<&StyleBackgroundContentValue> {
+    #[must_use]
+    pub const fn as_scrollbar_button(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             Self::ScrollbarButton(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_scrollbar_corner(&self) -> Option<&StyleBackgroundContentValue> {
+    #[must_use]
+    pub const fn as_scrollbar_corner(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             Self::ScrollbarCorner(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_scrollbar_resizer(&self) -> Option<&StyleBackgroundContentValue> {
+    #[must_use]
+    pub const fn as_scrollbar_resizer(&self) -> Option<&StyleBackgroundContentValue> {
         match self {
             Self::ScrollbarResizer(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_visibility(&self) -> Option<&StyleVisibilityValue> {
+    #[must_use]
+    pub const fn as_visibility(&self) -> Option<&StyleVisibilityValue> {
         match self {
             Self::Visibility(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_background_content(&self) -> Option<&StyleBackgroundContentVecValue> {
+    #[must_use]
+    pub const fn as_background_content(&self) -> Option<&StyleBackgroundContentVecValue> {
         match self {
             Self::BackgroundContent(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_justify(&self) -> Option<&LayoutTextJustifyValue> {
+    #[must_use]
+    pub const fn as_text_justify(&self) -> Option<&LayoutTextJustifyValue> {
         match self {
             Self::TextJustify(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_caret_color(&self) -> Option<&CaretColorValue> {
+    #[must_use]
+    pub const fn as_caret_color(&self) -> Option<&CaretColorValue> {
         match self {
             Self::CaretColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_caret_width(&self) -> Option<&CaretWidthValue> {
+    #[must_use]
+    pub const fn as_caret_width(&self) -> Option<&CaretWidthValue> {
         match self {
             Self::CaretWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_caret_animation_duration(&self) -> Option<&CaretAnimationDurationValue> {
+    #[must_use]
+    pub const fn as_caret_animation_duration(&self) -> Option<&CaretAnimationDurationValue> {
         match self {
             Self::CaretAnimationDuration(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_selection_background_color(&self) -> Option<&SelectionBackgroundColorValue> {
+    #[must_use]
+    pub const fn as_selection_background_color(&self) -> Option<&SelectionBackgroundColorValue> {
         match self {
             Self::SelectionBackgroundColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_selection_color(&self) -> Option<&SelectionColorValue> {
+    #[must_use]
+    pub const fn as_selection_color(&self) -> Option<&SelectionColorValue> {
         match self {
             Self::SelectionColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_selection_radius(&self) -> Option<&SelectionRadiusValue> {
+    #[must_use]
+    pub const fn as_selection_radius(&self) -> Option<&SelectionRadiusValue> {
         match self {
             Self::SelectionRadius(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_background_position(&self) -> Option<&StyleBackgroundPositionVecValue> {
+    #[must_use]
+    pub const fn as_background_position(&self) -> Option<&StyleBackgroundPositionVecValue> {
         match self {
             Self::BackgroundPosition(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_background_size(&self) -> Option<&StyleBackgroundSizeVecValue> {
+    #[must_use]
+    pub const fn as_background_size(&self) -> Option<&StyleBackgroundSizeVecValue> {
         match self {
             Self::BackgroundSize(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_background_repeat(&self) -> Option<&StyleBackgroundRepeatVecValue> {
+    #[must_use]
+    pub const fn as_background_repeat(&self) -> Option<&StyleBackgroundRepeatVecValue> {
         match self {
             Self::BackgroundRepeat(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_grid_auto_flow(&self) -> Option<&LayoutGridAutoFlowValue> {
+    #[must_use]
+    pub const fn as_grid_auto_flow(&self) -> Option<&LayoutGridAutoFlowValue> {
         match self {
             Self::GridAutoFlow(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_justify_self(&self) -> Option<&LayoutJustifySelfValue> {
+    #[must_use]
+    pub const fn as_justify_self(&self) -> Option<&LayoutJustifySelfValue> {
         match self {
             Self::JustifySelf(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_justify_items(&self) -> Option<&LayoutJustifyItemsValue> {
+    #[must_use]
+    pub const fn as_justify_items(&self) -> Option<&LayoutJustifyItemsValue> {
         match self {
             Self::JustifyItems(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_gap(&self) -> Option<&LayoutGapValue> {
+    #[must_use]
+    pub const fn as_gap(&self) -> Option<&LayoutGapValue> {
         match self {
             Self::Gap(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_grid_gap(&self) -> Option<&LayoutGapValue> {
+    #[must_use]
+    pub const fn as_grid_gap(&self) -> Option<&LayoutGapValue> {
         match self {
             Self::GridGap(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_align_self(&self) -> Option<&LayoutAlignSelfValue> {
+    #[must_use]
+    pub const fn as_align_self(&self) -> Option<&LayoutAlignSelfValue> {
         match self {
             Self::AlignSelf(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_font(&self) -> Option<&StyleFontValue> {
+    #[must_use]
+    pub const fn as_font(&self) -> Option<&StyleFontValue> {
         match self {
             Self::Font(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_font_size(&self) -> Option<&StyleFontSizeValue> {
+    #[must_use]
+    pub const fn as_font_size(&self) -> Option<&StyleFontSizeValue> {
         match self {
             Self::FontSize(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_font_family(&self) -> Option<&StyleFontFamilyVecValue> {
+    #[must_use]
+    pub const fn as_font_family(&self) -> Option<&StyleFontFamilyVecValue> {
         match self {
             Self::FontFamily(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_font_weight(&self) -> Option<&StyleFontWeightValue> {
+    #[must_use]
+    pub const fn as_font_weight(&self) -> Option<&StyleFontWeightValue> {
         match self {
             Self::FontWeight(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_font_style(&self) -> Option<&StyleFontStyleValue> {
+    #[must_use]
+    pub const fn as_font_style(&self) -> Option<&StyleFontStyleValue> {
         match self {
             Self::FontStyle(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_color(&self) -> Option<&StyleTextColorValue> {
+    #[must_use]
+    pub const fn as_text_color(&self) -> Option<&StyleTextColorValue> {
         match self {
             Self::TextColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_align(&self) -> Option<&StyleTextAlignValue> {
+    #[must_use]
+    pub const fn as_text_align(&self) -> Option<&StyleTextAlignValue> {
         match self {
             Self::TextAlign(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_vertical_align(&self) -> Option<&StyleVerticalAlignValue> {
+    #[must_use]
+    pub const fn as_vertical_align(&self) -> Option<&StyleVerticalAlignValue> {
         match self {
             Self::VerticalAlign(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_line_height(&self) -> Option<&StyleLineHeightValue> {
+    #[must_use]
+    pub const fn as_line_height(&self) -> Option<&StyleLineHeightValue> {
         match self {
             Self::LineHeight(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_indent(&self) -> Option<&StyleTextIndentValue> {
+    #[must_use]
+    pub const fn as_text_indent(&self) -> Option<&StyleTextIndentValue> {
         match self {
             Self::TextIndent(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_initial_letter(&self) -> Option<&StyleInitialLetterValue> {
+    #[must_use]
+    pub const fn as_initial_letter(&self) -> Option<&StyleInitialLetterValue> {
         match self {
             Self::InitialLetter(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_line_clamp(&self) -> Option<&StyleLineClampValue> {
+    #[must_use]
+    pub const fn as_line_clamp(&self) -> Option<&StyleLineClampValue> {
         match self {
             Self::LineClamp(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_hanging_punctuation(&self) -> Option<&StyleHangingPunctuationValue> {
+    #[must_use]
+    pub const fn as_hanging_punctuation(&self) -> Option<&StyleHangingPunctuationValue> {
         match self {
             Self::HangingPunctuation(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_combine_upright(&self) -> Option<&StyleTextCombineUprightValue> {
+    #[must_use]
+    pub const fn as_text_combine_upright(&self) -> Option<&StyleTextCombineUprightValue> {
         match self {
             Self::TextCombineUpright(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_unicode_bidi(&self) -> Option<&StyleUnicodeBidiValue> {
+    #[must_use]
+    pub const fn as_unicode_bidi(&self) -> Option<&StyleUnicodeBidiValue> {
         match self {
             Self::UnicodeBidi(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_box_trim(&self) -> Option<&StyleTextBoxTrimValue> {
+    #[must_use]
+    pub const fn as_text_box_trim(&self) -> Option<&StyleTextBoxTrimValue> {
         match self {
             Self::TextBoxTrim(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_box_edge(&self) -> Option<&StyleTextBoxEdgeValue> {
+    #[must_use]
+    pub const fn as_text_box_edge(&self) -> Option<&StyleTextBoxEdgeValue> {
         match self {
             Self::TextBoxEdge(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_dominant_baseline(&self) -> Option<&StyleDominantBaselineValue> {
+    #[must_use]
+    pub const fn as_dominant_baseline(&self) -> Option<&StyleDominantBaselineValue> {
         match self {
             Self::DominantBaseline(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_alignment_baseline(&self) -> Option<&StyleAlignmentBaselineValue> {
+    #[must_use]
+    pub const fn as_alignment_baseline(&self) -> Option<&StyleAlignmentBaselineValue> {
         match self {
             Self::AlignmentBaseline(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_baseline_source(&self) -> Option<&StyleBaselineSourceValue> {
+    #[must_use]
+    pub const fn as_baseline_source(&self) -> Option<&StyleBaselineSourceValue> {
         match self {
             Self::BaselineSource(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_line_fit_edge(&self) -> Option<&StyleLineFitEdgeValue> {
+    #[must_use]
+    pub const fn as_line_fit_edge(&self) -> Option<&StyleLineFitEdgeValue> {
         match self {
             Self::LineFitEdge(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_initial_letter_align(&self) -> Option<&StyleInitialLetterAlignValue> {
+    #[must_use]
+    pub const fn as_initial_letter_align(&self) -> Option<&StyleInitialLetterAlignValue> {
         match self {
             Self::InitialLetterAlign(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_initial_letter_wrap(&self) -> Option<&StyleInitialLetterWrapValue> {
+    #[must_use]
+    pub const fn as_initial_letter_wrap(&self) -> Option<&StyleInitialLetterWrapValue> {
         match self {
             Self::InitialLetterWrap(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_scrollbar_gutter(&self) -> Option<&StyleScrollbarGutterValue> {
+    #[must_use]
+    pub const fn as_scrollbar_gutter(&self) -> Option<&StyleScrollbarGutterValue> {
         match self {
             Self::ScrollbarGutter(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_overflow_clip_margin(&self) -> Option<&StyleOverflowClipMarginValue> {
+    #[must_use]
+    pub const fn as_overflow_clip_margin(&self) -> Option<&StyleOverflowClipMarginValue> {
         match self {
             Self::OverflowClipMargin(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_clip(&self) -> Option<&StyleClipRectValue> {
+    #[must_use]
+    pub const fn as_clip(&self) -> Option<&StyleClipRectValue> {
         match self {
             Self::Clip(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_exclusion_margin(&self) -> Option<&StyleExclusionMarginValue> {
+    #[must_use]
+    pub const fn as_exclusion_margin(&self) -> Option<&StyleExclusionMarginValue> {
         match self {
             Self::ExclusionMargin(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_hyphenation_language(&self) -> Option<&StyleHyphenationLanguageValue> {
+    #[must_use]
+    pub const fn as_hyphenation_language(&self) -> Option<&StyleHyphenationLanguageValue> {
         match self {
             Self::HyphenationLanguage(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_letter_spacing(&self) -> Option<&StyleLetterSpacingValue> {
+    #[must_use]
+    pub const fn as_letter_spacing(&self) -> Option<&StyleLetterSpacingValue> {
         match self {
             Self::LetterSpacing(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_word_spacing(&self) -> Option<&StyleWordSpacingValue> {
+    #[must_use]
+    pub const fn as_word_spacing(&self) -> Option<&StyleWordSpacingValue> {
         match self {
             Self::WordSpacing(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_tab_size(&self) -> Option<&StyleTabSizeValue> {
+    #[must_use]
+    pub const fn as_tab_size(&self) -> Option<&StyleTabSizeValue> {
         match self {
             Self::TabSize(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_cursor(&self) -> Option<&StyleCursorValue> {
+    #[must_use]
+    pub const fn as_cursor(&self) -> Option<&StyleCursorValue> {
         match self {
             Self::Cursor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_box_shadow_left(&self) -> Option<&StyleBoxShadowValue> {
+    #[must_use]
+    pub const fn as_box_shadow_left(&self) -> Option<&StyleBoxShadowValue> {
         match self {
             Self::BoxShadowLeft(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_box_shadow_right(&self) -> Option<&StyleBoxShadowValue> {
+    #[must_use]
+    pub const fn as_box_shadow_right(&self) -> Option<&StyleBoxShadowValue> {
         match self {
             Self::BoxShadowRight(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_box_shadow_top(&self) -> Option<&StyleBoxShadowValue> {
+    #[must_use]
+    pub const fn as_box_shadow_top(&self) -> Option<&StyleBoxShadowValue> {
         match self {
             Self::BoxShadowTop(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_box_shadow_bottom(&self) -> Option<&StyleBoxShadowValue> {
+    #[must_use]
+    pub const fn as_box_shadow_bottom(&self) -> Option<&StyleBoxShadowValue> {
         match self {
             Self::BoxShadowBottom(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_top_color(&self) -> Option<&StyleBorderTopColorValue> {
+    #[must_use]
+    pub const fn as_border_top_color(&self) -> Option<&StyleBorderTopColorValue> {
         match self {
             Self::BorderTopColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_left_color(&self) -> Option<&StyleBorderLeftColorValue> {
+    #[must_use]
+    pub const fn as_border_left_color(&self) -> Option<&StyleBorderLeftColorValue> {
         match self {
             Self::BorderLeftColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_right_color(&self) -> Option<&StyleBorderRightColorValue> {
+    #[must_use]
+    pub const fn as_border_right_color(&self) -> Option<&StyleBorderRightColorValue> {
         match self {
             Self::BorderRightColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_bottom_color(&self) -> Option<&StyleBorderBottomColorValue> {
+    #[must_use]
+    pub const fn as_border_bottom_color(&self) -> Option<&StyleBorderBottomColorValue> {
         match self {
             Self::BorderBottomColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_top_style(&self) -> Option<&StyleBorderTopStyleValue> {
+    #[must_use]
+    pub const fn as_border_top_style(&self) -> Option<&StyleBorderTopStyleValue> {
         match self {
             Self::BorderTopStyle(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_left_style(&self) -> Option<&StyleBorderLeftStyleValue> {
+    #[must_use]
+    pub const fn as_border_left_style(&self) -> Option<&StyleBorderLeftStyleValue> {
         match self {
             Self::BorderLeftStyle(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_right_style(&self) -> Option<&StyleBorderRightStyleValue> {
+    #[must_use]
+    pub const fn as_border_right_style(&self) -> Option<&StyleBorderRightStyleValue> {
         match self {
             Self::BorderRightStyle(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_bottom_style(&self) -> Option<&StyleBorderBottomStyleValue> {
+    #[must_use]
+    pub const fn as_border_bottom_style(&self) -> Option<&StyleBorderBottomStyleValue> {
         match self {
             Self::BorderBottomStyle(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_top_left_radius(&self) -> Option<&StyleBorderTopLeftRadiusValue> {
+    #[must_use]
+    pub const fn as_border_top_left_radius(&self) -> Option<&StyleBorderTopLeftRadiusValue> {
         match self {
             Self::BorderTopLeftRadius(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_top_right_radius(&self) -> Option<&StyleBorderTopRightRadiusValue> {
+    #[must_use]
+    pub const fn as_border_top_right_radius(&self) -> Option<&StyleBorderTopRightRadiusValue> {
         match self {
             Self::BorderTopRightRadius(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_bottom_left_radius(&self) -> Option<&StyleBorderBottomLeftRadiusValue> {
+    #[must_use]
+    pub const fn as_border_bottom_left_radius(&self) -> Option<&StyleBorderBottomLeftRadiusValue> {
         match self {
             Self::BorderBottomLeftRadius(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_bottom_right_radius(
+    #[must_use]
+    pub const fn as_border_bottom_right_radius(
         &self,
     ) -> Option<&StyleBorderBottomRightRadiusValue> {
         match self {
@@ -6204,62 +6386,72 @@ impl CssProperty {
             _ => None,
         }
     }
-    #[must_use] pub const fn as_opacity(&self) -> Option<&StyleOpacityValue> {
+    #[must_use]
+    pub const fn as_opacity(&self) -> Option<&StyleOpacityValue> {
         match self {
             Self::Opacity(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_transform(&self) -> Option<&StyleTransformVecValue> {
+    #[must_use]
+    pub const fn as_transform(&self) -> Option<&StyleTransformVecValue> {
         match self {
             Self::Transform(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_transform_origin(&self) -> Option<&StyleTransformOriginValue> {
+    #[must_use]
+    pub const fn as_transform_origin(&self) -> Option<&StyleTransformOriginValue> {
         match self {
             Self::TransformOrigin(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_perspective_origin(&self) -> Option<&StylePerspectiveOriginValue> {
+    #[must_use]
+    pub const fn as_perspective_origin(&self) -> Option<&StylePerspectiveOriginValue> {
         match self {
             Self::PerspectiveOrigin(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_backface_visibility(&self) -> Option<&StyleBackfaceVisibilityValue> {
+    #[must_use]
+    pub const fn as_backface_visibility(&self) -> Option<&StyleBackfaceVisibilityValue> {
         match self {
             Self::BackfaceVisibility(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_app_region(&self) -> Option<&StyleAppRegionValue> {
+    #[must_use]
+    pub const fn as_app_region(&self) -> Option<&StyleAppRegionValue> {
         match self {
             Self::AppRegion(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_mix_blend_mode(&self) -> Option<&StyleMixBlendModeValue> {
+    #[must_use]
+    pub const fn as_mix_blend_mode(&self) -> Option<&StyleMixBlendModeValue> {
         match self {
             Self::MixBlendMode(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_filter(&self) -> Option<&StyleFilterVecValue> {
+    #[must_use]
+    pub const fn as_filter(&self) -> Option<&StyleFilterVecValue> {
         match self {
             Self::Filter(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_backdrop_filter(&self) -> Option<&StyleFilterVecValue> {
+    #[must_use]
+    pub const fn as_backdrop_filter(&self) -> Option<&StyleFilterVecValue> {
         match self {
             Self::BackdropFilter(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_shadow(&self) -> Option<&StyleBoxShadowValue> {
+    #[must_use]
+    pub const fn as_text_shadow(&self) -> Option<&StyleBoxShadowValue> {
         match self {
             Self::TextShadow(f) => Some(f),
             _ => None,
@@ -6268,545 +6460,635 @@ impl CssProperty {
 
     // functions that downcast to the concrete CSS type (layout)
 
-    #[must_use] pub const fn as_display(&self) -> Option<&LayoutDisplayValue> {
+    #[must_use]
+    pub const fn as_display(&self) -> Option<&LayoutDisplayValue> {
         match self {
             Self::Display(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_float(&self) -> Option<&LayoutFloatValue> {
+    #[must_use]
+    pub const fn as_float(&self) -> Option<&LayoutFloatValue> {
         match self {
             Self::Float(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_box_sizing(&self) -> Option<&LayoutBoxSizingValue> {
+    #[must_use]
+    pub const fn as_box_sizing(&self) -> Option<&LayoutBoxSizingValue> {
         match self {
             Self::BoxSizing(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_width(&self) -> Option<&LayoutWidthValue> {
+    #[must_use]
+    pub const fn as_width(&self) -> Option<&LayoutWidthValue> {
         match self {
             Self::Width(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_height(&self) -> Option<&LayoutHeightValue> {
+    #[must_use]
+    pub const fn as_height(&self) -> Option<&LayoutHeightValue> {
         match self {
             Self::Height(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_min_width(&self) -> Option<&LayoutMinWidthValue> {
+    #[must_use]
+    pub const fn as_min_width(&self) -> Option<&LayoutMinWidthValue> {
         match self {
             Self::MinWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_min_height(&self) -> Option<&LayoutMinHeightValue> {
+    #[must_use]
+    pub const fn as_min_height(&self) -> Option<&LayoutMinHeightValue> {
         match self {
             Self::MinHeight(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_max_width(&self) -> Option<&LayoutMaxWidthValue> {
+    #[must_use]
+    pub const fn as_max_width(&self) -> Option<&LayoutMaxWidthValue> {
         match self {
             Self::MaxWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_max_height(&self) -> Option<&LayoutMaxHeightValue> {
+    #[must_use]
+    pub const fn as_max_height(&self) -> Option<&LayoutMaxHeightValue> {
         match self {
             Self::MaxHeight(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_position(&self) -> Option<&LayoutPositionValue> {
+    #[must_use]
+    pub const fn as_position(&self) -> Option<&LayoutPositionValue> {
         match self {
             Self::Position(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_top(&self) -> Option<&LayoutTopValue> {
+    #[must_use]
+    pub const fn as_top(&self) -> Option<&LayoutTopValue> {
         match self {
             Self::Top(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_bottom(&self) -> Option<&LayoutInsetBottomValue> {
+    #[must_use]
+    pub const fn as_bottom(&self) -> Option<&LayoutInsetBottomValue> {
         match self {
             Self::Bottom(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_right(&self) -> Option<&LayoutRightValue> {
+    #[must_use]
+    pub const fn as_right(&self) -> Option<&LayoutRightValue> {
         match self {
             Self::Right(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_left(&self) -> Option<&LayoutLeftValue> {
+    #[must_use]
+    pub const fn as_left(&self) -> Option<&LayoutLeftValue> {
         match self {
             Self::Left(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_padding_top(&self) -> Option<&LayoutPaddingTopValue> {
+    #[must_use]
+    pub const fn as_padding_top(&self) -> Option<&LayoutPaddingTopValue> {
         match self {
             Self::PaddingTop(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_padding_bottom(&self) -> Option<&LayoutPaddingBottomValue> {
+    #[must_use]
+    pub const fn as_padding_bottom(&self) -> Option<&LayoutPaddingBottomValue> {
         match self {
             Self::PaddingBottom(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_padding_left(&self) -> Option<&LayoutPaddingLeftValue> {
+    #[must_use]
+    pub const fn as_padding_left(&self) -> Option<&LayoutPaddingLeftValue> {
         match self {
             Self::PaddingLeft(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_padding_right(&self) -> Option<&LayoutPaddingRightValue> {
+    #[must_use]
+    pub const fn as_padding_right(&self) -> Option<&LayoutPaddingRightValue> {
         match self {
             Self::PaddingRight(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_margin_top(&self) -> Option<&LayoutMarginTopValue> {
+    #[must_use]
+    pub const fn as_margin_top(&self) -> Option<&LayoutMarginTopValue> {
         match self {
             Self::MarginTop(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_margin_bottom(&self) -> Option<&LayoutMarginBottomValue> {
+    #[must_use]
+    pub const fn as_margin_bottom(&self) -> Option<&LayoutMarginBottomValue> {
         match self {
             Self::MarginBottom(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_margin_left(&self) -> Option<&LayoutMarginLeftValue> {
+    #[must_use]
+    pub const fn as_margin_left(&self) -> Option<&LayoutMarginLeftValue> {
         match self {
             Self::MarginLeft(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_margin_right(&self) -> Option<&LayoutMarginRightValue> {
+    #[must_use]
+    pub const fn as_margin_right(&self) -> Option<&LayoutMarginRightValue> {
         match self {
             Self::MarginRight(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_top_width(&self) -> Option<&LayoutBorderTopWidthValue> {
+    #[must_use]
+    pub const fn as_border_top_width(&self) -> Option<&LayoutBorderTopWidthValue> {
         match self {
             Self::BorderTopWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_left_width(&self) -> Option<&LayoutBorderLeftWidthValue> {
+    #[must_use]
+    pub const fn as_border_left_width(&self) -> Option<&LayoutBorderLeftWidthValue> {
         match self {
             Self::BorderLeftWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_right_width(&self) -> Option<&LayoutBorderRightWidthValue> {
+    #[must_use]
+    pub const fn as_border_right_width(&self) -> Option<&LayoutBorderRightWidthValue> {
         match self {
             Self::BorderRightWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_bottom_width(&self) -> Option<&LayoutBorderBottomWidthValue> {
+    #[must_use]
+    pub const fn as_border_bottom_width(&self) -> Option<&LayoutBorderBottomWidthValue> {
         match self {
             Self::BorderBottomWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_overflow_x(&self) -> Option<&LayoutOverflowValue> {
+    #[must_use]
+    pub const fn as_overflow_x(&self) -> Option<&LayoutOverflowValue> {
         match self {
             Self::OverflowX(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_overflow_y(&self) -> Option<&LayoutOverflowValue> {
+    #[must_use]
+    pub const fn as_overflow_y(&self) -> Option<&LayoutOverflowValue> {
         match self {
             Self::OverflowY(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_overflow_block(&self) -> Option<&LayoutOverflowValue> {
+    #[must_use]
+    pub const fn as_overflow_block(&self) -> Option<&LayoutOverflowValue> {
         match self {
             Self::OverflowBlock(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_overflow_inline(&self) -> Option<&LayoutOverflowValue> {
+    #[must_use]
+    pub const fn as_overflow_inline(&self) -> Option<&LayoutOverflowValue> {
         match self {
             Self::OverflowInline(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_flex_direction(&self) -> Option<&LayoutFlexDirectionValue> {
+    #[must_use]
+    pub const fn as_flex_direction(&self) -> Option<&LayoutFlexDirectionValue> {
         match self {
             Self::FlexDirection(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_direction(&self) -> Option<&StyleDirectionValue> {
+    #[must_use]
+    pub const fn as_direction(&self) -> Option<&StyleDirectionValue> {
         match self {
             Self::Direction(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_user_select(&self) -> Option<&StyleUserSelectValue> {
+    #[must_use]
+    pub const fn as_user_select(&self) -> Option<&StyleUserSelectValue> {
         match self {
             Self::UserSelect(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_decoration(&self) -> Option<&StyleTextDecorationValue> {
+    #[must_use]
+    pub const fn as_text_decoration(&self) -> Option<&StyleTextDecorationValue> {
         match self {
             Self::TextDecoration(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_hyphens(&self) -> Option<&StyleHyphensValue> {
+    #[must_use]
+    pub const fn as_hyphens(&self) -> Option<&StyleHyphensValue> {
         match self {
             Self::Hyphens(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_word_break(&self) -> Option<&StyleWordBreakValue> {
+    #[must_use]
+    pub const fn as_word_break(&self) -> Option<&StyleWordBreakValue> {
         match self {
             Self::WordBreak(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_overflow_wrap(&self) -> Option<&StyleOverflowWrapValue> {
+    #[must_use]
+    pub const fn as_overflow_wrap(&self) -> Option<&StyleOverflowWrapValue> {
         match self {
             Self::OverflowWrap(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_line_break(&self) -> Option<&StyleLineBreakValue> {
+    #[must_use]
+    pub const fn as_line_break(&self) -> Option<&StyleLineBreakValue> {
         match self {
             Self::LineBreak(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_object_fit(&self) -> Option<&StyleObjectFitValue> {
+    #[must_use]
+    pub const fn as_object_fit(&self) -> Option<&StyleObjectFitValue> {
         match self {
             Self::ObjectFit(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_overflow(&self) -> Option<&StyleTextOverflowValue> {
+    #[must_use]
+    pub const fn as_text_overflow(&self) -> Option<&StyleTextOverflowValue> {
         match self {
             Self::TextOverflow(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_object_position(&self) -> Option<&StyleObjectPositionValue> {
+    #[must_use]
+    pub const fn as_object_position(&self) -> Option<&StyleObjectPositionValue> {
         match self {
             Self::ObjectPosition(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_aspect_ratio(&self) -> Option<&StyleAspectRatioValue> {
+    #[must_use]
+    pub const fn as_aspect_ratio(&self) -> Option<&StyleAspectRatioValue> {
         match self {
             Self::AspectRatio(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_orientation(&self) -> Option<&StyleTextOrientationValue> {
+    #[must_use]
+    pub const fn as_text_orientation(&self) -> Option<&StyleTextOrientationValue> {
         match self {
             Self::TextOrientation(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_transform(&self) -> Option<&StyleTextTransformValue> {
+    #[must_use]
+    pub const fn as_text_transform(&self) -> Option<&StyleTextTransformValue> {
         match self {
             Self::TextTransform(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_text_align_last(&self) -> Option<&StyleTextAlignLastValue> {
+    #[must_use]
+    pub const fn as_text_align_last(&self) -> Option<&StyleTextAlignLastValue> {
         match self {
             Self::TextAlignLast(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_white_space(&self) -> Option<&StyleWhiteSpaceValue> {
+    #[must_use]
+    pub const fn as_white_space(&self) -> Option<&StyleWhiteSpaceValue> {
         match self {
             Self::WhiteSpace(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_flex_wrap(&self) -> Option<&LayoutFlexWrapValue> {
+    #[must_use]
+    pub const fn as_flex_wrap(&self) -> Option<&LayoutFlexWrapValue> {
         match self {
             Self::FlexWrap(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_flex_grow(&self) -> Option<&LayoutFlexGrowValue> {
+    #[must_use]
+    pub const fn as_flex_grow(&self) -> Option<&LayoutFlexGrowValue> {
         match self {
             Self::FlexGrow(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_flex_shrink(&self) -> Option<&LayoutFlexShrinkValue> {
+    #[must_use]
+    pub const fn as_flex_shrink(&self) -> Option<&LayoutFlexShrinkValue> {
         match self {
             Self::FlexShrink(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_justify_content(&self) -> Option<&LayoutJustifyContentValue> {
+    #[must_use]
+    pub const fn as_justify_content(&self) -> Option<&LayoutJustifyContentValue> {
         match self {
             Self::JustifyContent(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_align_items(&self) -> Option<&LayoutAlignItemsValue> {
+    #[must_use]
+    pub const fn as_align_items(&self) -> Option<&LayoutAlignItemsValue> {
         match self {
             Self::AlignItems(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_align_content(&self) -> Option<&LayoutAlignContentValue> {
+    #[must_use]
+    pub const fn as_align_content(&self) -> Option<&LayoutAlignContentValue> {
         match self {
             Self::AlignContent(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_break_before(&self) -> Option<&PageBreakValue> {
+    #[must_use]
+    pub const fn as_break_before(&self) -> Option<&PageBreakValue> {
         match self {
             Self::BreakBefore(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_break_after(&self) -> Option<&PageBreakValue> {
+    #[must_use]
+    pub const fn as_break_after(&self) -> Option<&PageBreakValue> {
         match self {
             Self::BreakAfter(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_break_inside(&self) -> Option<&BreakInsideValue> {
+    #[must_use]
+    pub const fn as_break_inside(&self) -> Option<&BreakInsideValue> {
         match self {
             Self::BreakInside(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_orphans(&self) -> Option<&OrphansValue> {
+    #[must_use]
+    pub const fn as_orphans(&self) -> Option<&OrphansValue> {
         match self {
             Self::Orphans(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_widows(&self) -> Option<&WidowsValue> {
+    #[must_use]
+    pub const fn as_widows(&self) -> Option<&WidowsValue> {
         match self {
             Self::Widows(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_box_decoration_break(&self) -> Option<&BoxDecorationBreakValue> {
+    #[must_use]
+    pub const fn as_box_decoration_break(&self) -> Option<&BoxDecorationBreakValue> {
         match self {
             Self::BoxDecorationBreak(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_column_count(&self) -> Option<&ColumnCountValue> {
+    #[must_use]
+    pub const fn as_column_count(&self) -> Option<&ColumnCountValue> {
         match self {
             Self::ColumnCount(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_column_width(&self) -> Option<&ColumnWidthValue> {
+    #[must_use]
+    pub const fn as_column_width(&self) -> Option<&ColumnWidthValue> {
         match self {
             Self::ColumnWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_column_span(&self) -> Option<&ColumnSpanValue> {
+    #[must_use]
+    pub const fn as_column_span(&self) -> Option<&ColumnSpanValue> {
         match self {
             Self::ColumnSpan(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_column_fill(&self) -> Option<&ColumnFillValue> {
+    #[must_use]
+    pub const fn as_column_fill(&self) -> Option<&ColumnFillValue> {
         match self {
             Self::ColumnFill(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_column_rule_width(&self) -> Option<&ColumnRuleWidthValue> {
+    #[must_use]
+    pub const fn as_column_rule_width(&self) -> Option<&ColumnRuleWidthValue> {
         match self {
             Self::ColumnRuleWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_column_rule_style(&self) -> Option<&ColumnRuleStyleValue> {
+    #[must_use]
+    pub const fn as_column_rule_style(&self) -> Option<&ColumnRuleStyleValue> {
         match self {
             Self::ColumnRuleStyle(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_column_rule_color(&self) -> Option<&ColumnRuleColorValue> {
+    #[must_use]
+    pub const fn as_column_rule_color(&self) -> Option<&ColumnRuleColorValue> {
         match self {
             Self::ColumnRuleColor(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_flow_into(&self) -> Option<&FlowIntoValue> {
+    #[must_use]
+    pub const fn as_flow_into(&self) -> Option<&FlowIntoValue> {
         match self {
             Self::FlowInto(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_flow_from(&self) -> Option<&FlowFromValue> {
+    #[must_use]
+    pub const fn as_flow_from(&self) -> Option<&FlowFromValue> {
         match self {
             Self::FlowFrom(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_shape_outside(&self) -> Option<&ShapeOutsideValue> {
+    #[must_use]
+    pub const fn as_shape_outside(&self) -> Option<&ShapeOutsideValue> {
         match self {
             Self::ShapeOutside(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_shape_inside(&self) -> Option<&ShapeInsideValue> {
+    #[must_use]
+    pub const fn as_shape_inside(&self) -> Option<&ShapeInsideValue> {
         match self {
             Self::ShapeInside(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_clip_path(&self) -> Option<&ClipPathValue> {
+    #[must_use]
+    pub const fn as_clip_path(&self) -> Option<&ClipPathValue> {
         match self {
             Self::ClipPath(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_shape_margin(&self) -> Option<&ShapeMarginValue> {
+    #[must_use]
+    pub const fn as_shape_margin(&self) -> Option<&ShapeMarginValue> {
         match self {
             Self::ShapeMargin(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_shape_image_threshold(&self) -> Option<&ShapeImageThresholdValue> {
+    #[must_use]
+    pub const fn as_shape_image_threshold(&self) -> Option<&ShapeImageThresholdValue> {
         match self {
             Self::ShapeImageThreshold(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_content(&self) -> Option<&ContentValue> {
+    #[must_use]
+    pub const fn as_content(&self) -> Option<&ContentValue> {
         match self {
             Self::Content(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_counter_reset(&self) -> Option<&CounterResetValue> {
+    #[must_use]
+    pub const fn as_counter_reset(&self) -> Option<&CounterResetValue> {
         match self {
             Self::CounterReset(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_counter_increment(&self) -> Option<&CounterIncrementValue> {
+    #[must_use]
+    pub const fn as_counter_increment(&self) -> Option<&CounterIncrementValue> {
         match self {
             Self::CounterIncrement(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_list_style_type(&self) -> Option<&StyleListStyleTypeValue> {
+    #[must_use]
+    pub const fn as_list_style_type(&self) -> Option<&StyleListStyleTypeValue> {
         match self {
             Self::ListStyleType(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_list_style_position(&self) -> Option<&StyleListStylePositionValue> {
+    #[must_use]
+    pub const fn as_list_style_position(&self) -> Option<&StyleListStylePositionValue> {
         match self {
             Self::ListStylePosition(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_string_set(&self) -> Option<&StringSetValue> {
+    #[must_use]
+    pub const fn as_string_set(&self) -> Option<&StringSetValue> {
         match self {
             Self::StringSet(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_table_layout(&self) -> Option<&LayoutTableLayoutValue> {
+    #[must_use]
+    pub const fn as_table_layout(&self) -> Option<&LayoutTableLayoutValue> {
         match self {
             Self::TableLayout(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_collapse(&self) -> Option<&StyleBorderCollapseValue> {
+    #[must_use]
+    pub const fn as_border_collapse(&self) -> Option<&StyleBorderCollapseValue> {
         match self {
             Self::BorderCollapse(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_border_spacing(&self) -> Option<&LayoutBorderSpacingValue> {
+    #[must_use]
+    pub const fn as_border_spacing(&self) -> Option<&LayoutBorderSpacingValue> {
         match self {
             Self::BorderSpacing(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_caption_side(&self) -> Option<&StyleCaptionSideValue> {
+    #[must_use]
+    pub const fn as_caption_side(&self) -> Option<&StyleCaptionSideValue> {
         match self {
             Self::CaptionSide(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_empty_cells(&self) -> Option<&StyleEmptyCellsValue> {
+    #[must_use]
+    pub const fn as_empty_cells(&self) -> Option<&StyleEmptyCellsValue> {
         match self {
             Self::EmptyCells(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_overscroll_behavior_x(&self) -> Option<&OverscrollBehaviorValue> {
+    #[must_use]
+    pub const fn as_overscroll_behavior_x(&self) -> Option<&OverscrollBehaviorValue> {
         match self {
             Self::OverscrollBehaviorX(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_overscroll_behavior_y(&self) -> Option<&OverscrollBehaviorValue> {
+    #[must_use]
+    pub const fn as_overscroll_behavior_y(&self) -> Option<&OverscrollBehaviorValue> {
         match self {
             Self::OverscrollBehaviorY(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_scrollbar_width(&self) -> Option<&LayoutScrollbarWidthValue> {
+    #[must_use]
+    pub const fn as_scrollbar_width(&self) -> Option<&LayoutScrollbarWidthValue> {
         match self {
             Self::ScrollbarWidth(f) => Some(f),
             _ => None,
         }
     }
-    #[must_use] pub const fn as_scrollbar_color(&self) -> Option<&StyleScrollbarColorValue> {
+    #[must_use]
+    pub const fn as_scrollbar_color(&self) -> Option<&StyleScrollbarColorValue> {
         match self {
             Self::ScrollbarColor(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_scrollbar_visibility(&self) -> Option<&ScrollbarVisibilityModeValue> {
+    #[must_use]
+    pub const fn as_scrollbar_visibility(&self) -> Option<&ScrollbarVisibilityModeValue> {
         match self {
             Self::ScrollbarVisibility(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_scrollbar_fade_delay(&self) -> Option<&ScrollbarFadeDelayValue> {
+    #[must_use]
+    pub const fn as_scrollbar_fade_delay(&self) -> Option<&ScrollbarFadeDelayValue> {
         match self {
             Self::ScrollbarFadeDelay(f) => Some(f),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn as_scrollbar_fade_duration(&self) -> Option<&ScrollbarFadeDurationValue> {
+    #[must_use]
+    pub const fn as_scrollbar_fade_duration(&self) -> Option<&ScrollbarFadeDurationValue> {
         match self {
             Self::ScrollbarFadeDuration(f) => Some(f),
             _ => None,
@@ -6816,9 +7098,45 @@ impl CssProperty {
     // Cross-type dispatch: each `c` is a different `CssPropertyValue<T>`, so the
     // identical `c.is_initial()` bodies can't merge (clippy::match_same_arms FP).
     #[allow(clippy::match_same_arms)]
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-    #[must_use] pub const fn is_initial(&self) -> bool {
-        use self::CssProperty::{Animation, AnimationIn, AnimationOut, CaretColor, CaretWidth, CaretAnimationDuration, SelectionBackgroundColor, SelectionColor, SelectionRadius, TextJustify, TextColor, FontSize, FontFamily, TextAlign, LetterSpacing, TextIndent, InitialLetter, LineClamp, HangingPunctuation, TextCombineUpright, UnicodeBidi, TextBoxTrim, TextBoxEdge, DominantBaseline, AlignmentBaseline, BaselineSource, LineFitEdge, InitialLetterAlign, InitialLetterWrap, ScrollbarGutter, OverflowClipMargin, Clip, ExclusionMargin, HyphenationLanguage, LineHeight, WordSpacing, TabSize, Cursor, Display, Float, BoxSizing, Width, Height, MinWidth, MinHeight, MaxWidth, MaxHeight, Position, Top, Right, Left, Bottom, ZIndex, FlexWrap, FlexDirection, FlexGrow, FlexShrink, FlexBasis, JustifyContent, AlignItems, AlignContent, ColumnGap, RowGap, GridTemplateColumns, GridTemplateRows, GridAutoFlow, JustifySelf, JustifyItems, Gap, GridGap, AlignSelf, Font, GridAutoColumns, GridAutoRows, GridColumn, GridRow, GridTemplateAreas, WritingMode, Clear, BackgroundContent, BackgroundPosition, BackgroundSize, BackgroundRepeat, OverflowX, OverflowY, OverflowBlock, OverflowInline, PaddingTop, PaddingLeft, PaddingRight, PaddingBottom, PaddingInlineStart, PaddingInlineEnd, MarginTop, MarginLeft, MarginRight, MarginBottom, BorderTopLeftRadius, BorderTopRightRadius, BorderBottomLeftRadius, BorderBottomRightRadius, BorderTopColor, BorderRightColor, BorderLeftColor, BorderBottomColor, BorderTopStyle, BorderRightStyle, BorderLeftStyle, BorderBottomStyle, BorderTopWidth, BorderRightWidth, BorderLeftWidth, BorderBottomWidth, BoxShadowLeft, BoxShadowRight, BoxShadowTop, BoxShadowBottom, ScrollbarTrack, ScrollbarThumb, ScrollbarButton, ScrollbarCorner, ScrollbarResizer, ScrollbarWidth, OverscrollBehaviorX, OverscrollBehaviorY, ScrollbarColor, ScrollbarVisibility, ScrollbarFadeDelay, ScrollbarFadeDuration, Opacity, Visibility, Transform, TransformOrigin, PerspectiveOrigin, AppRegion, BackfaceVisibility, MixBlendMode, Filter, BackdropFilter, TextShadow, WhiteSpace, Direction, UserSelect, TextDecoration, Hyphens, WordBreak, OverflowWrap, LineBreak, TextOverflow, ObjectFit, ObjectPosition, AspectRatio, TextOrientation, TextAlignLast, TextTransform, BreakBefore, BreakAfter, BreakInside, Orphans, Widows, BoxDecorationBreak, ColumnCount, ColumnWidth, ColumnSpan, ColumnFill, ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor, FlowInto, FlowFrom, ShapeOutside, ShapeInside, ClipPath, ShapeMargin, ShapeImageThreshold, Content, CounterReset, CounterIncrement, ListStyleType, ListStylePosition, StringSet, TableLayout, BorderCollapse, BorderSpacing, CaptionSide, EmptyCells, FontWeight, FontStyle, VerticalAlign};
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[must_use]
+    pub const fn is_initial(&self) -> bool {
+        use self::CssProperty::{
+            AlignContent, AlignItems, AlignSelf, AlignmentBaseline, Animation, AnimationIn,
+            AnimationOut, AppRegion, AspectRatio, BackdropFilter, BackfaceVisibility,
+            BackgroundContent, BackgroundPosition, BackgroundRepeat, BackgroundSize,
+            BaselineSource, BorderBottomColor, BorderBottomLeftRadius, BorderBottomRightRadius,
+            BorderBottomStyle, BorderBottomWidth, BorderCollapse, BorderLeftColor, BorderLeftStyle,
+            BorderLeftWidth, BorderRightColor, BorderRightStyle, BorderRightWidth, BorderSpacing,
+            BorderTopColor, BorderTopLeftRadius, BorderTopRightRadius, BorderTopStyle,
+            BorderTopWidth, Bottom, BoxDecorationBreak, BoxShadowBottom, BoxShadowLeft,
+            BoxShadowRight, BoxShadowTop, BoxSizing, BreakAfter, BreakBefore, BreakInside,
+            CaptionSide, CaretAnimationDuration, CaretColor, CaretWidth, Clear, Clip, ClipPath,
+            ColumnCount, ColumnFill, ColumnGap, ColumnRuleColor, ColumnRuleStyle, ColumnRuleWidth,
+            ColumnSpan, ColumnWidth, Content, CounterIncrement, CounterReset, Cursor, Direction,
+            Display, DominantBaseline, EmptyCells, ExclusionMargin, Filter, FlexBasis,
+            FlexDirection, FlexGrow, FlexShrink, FlexWrap, Float, FlowFrom, FlowInto, Font,
+            FontFamily, FontSize, FontStyle, FontWeight, Gap, GridAutoColumns, GridAutoFlow,
+            GridAutoRows, GridColumn, GridGap, GridRow, GridTemplateAreas, GridTemplateColumns,
+            GridTemplateRows, HangingPunctuation, Height, HyphenationLanguage, Hyphens,
+            InitialLetter, InitialLetterAlign, InitialLetterWrap, JustifyContent, JustifyItems,
+            JustifySelf, Left, LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight,
+            ListStylePosition, ListStyleType, MarginBottom, MarginLeft, MarginRight, MarginTop,
+            MaxHeight, MaxWidth, MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition,
+            Opacity, Orphans, OverflowBlock, OverflowClipMargin, OverflowInline, OverflowWrap,
+            OverflowX, OverflowY, OverscrollBehaviorX, OverscrollBehaviorY, PaddingBottom,
+            PaddingInlineEnd, PaddingInlineStart, PaddingLeft, PaddingRight, PaddingTop,
+            PerspectiveOrigin, Position, Right, RowGap, ScrollbarButton, ScrollbarColor,
+            ScrollbarCorner, ScrollbarFadeDelay, ScrollbarFadeDuration, ScrollbarGutter,
+            ScrollbarResizer, ScrollbarThumb, ScrollbarTrack, ScrollbarVisibility, ScrollbarWidth,
+            SelectionBackgroundColor, SelectionColor, SelectionRadius, ShapeImageThreshold,
+            ShapeInside, ShapeMargin, ShapeOutside, StringSet, TabSize, TableLayout, TextAlign,
+            TextAlignLast, TextBoxEdge, TextBoxTrim, TextColor, TextCombineUpright, TextDecoration,
+            TextIndent, TextJustify, TextOrientation, TextOverflow, TextShadow, TextTransform, Top,
+            Transform, TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility,
+            WhiteSpace, Widows, Width, WordBreak, WordSpacing, WritingMode, ZIndex,
+        };
         match self {
             CaretColor(c) => c.is_initial(),
             CaretWidth(c) => c.is_initial(),
@@ -7011,329 +7329,437 @@ impl CssProperty {
         }
     }
 
-    #[must_use] pub const fn const_none(prop_type: CssPropertyType) -> Self {
+    #[must_use]
+    pub const fn const_none(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, None)
     }
-    #[must_use] pub const fn const_auto(prop_type: CssPropertyType) -> Self {
+    #[must_use]
+    pub const fn const_auto(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Auto)
     }
-    #[must_use] pub const fn const_initial(prop_type: CssPropertyType) -> Self {
+    #[must_use]
+    pub const fn const_initial(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Initial)
     }
-    #[must_use] pub const fn const_inherit(prop_type: CssPropertyType) -> Self {
+    #[must_use]
+    pub const fn const_inherit(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Inherit)
     }
 
-    #[must_use] pub const fn const_text_color(input: StyleTextColor) -> Self {
+    #[must_use]
+    pub const fn const_text_color(input: StyleTextColor) -> Self {
         Self::TextColor(StyleTextColorValue::Exact(input))
     }
-    #[must_use] pub const fn const_font_size(input: StyleFontSize) -> Self {
+    #[must_use]
+    pub const fn const_font_size(input: StyleFontSize) -> Self {
         Self::FontSize(StyleFontSizeValue::Exact(input))
     }
-    #[must_use] pub const fn const_font_family(input: StyleFontFamilyVec) -> Self {
+    #[must_use]
+    pub const fn const_font_family(input: StyleFontFamilyVec) -> Self {
         Self::FontFamily(StyleFontFamilyVecValue::Exact(input))
     }
-    #[must_use] pub const fn const_text_align(input: StyleTextAlign) -> Self {
+    #[must_use]
+    pub const fn const_text_align(input: StyleTextAlign) -> Self {
         Self::TextAlign(StyleTextAlignValue::Exact(input))
     }
-    #[must_use] pub const fn const_vertical_align(input: StyleVerticalAlign) -> Self {
+    #[must_use]
+    pub const fn const_vertical_align(input: StyleVerticalAlign) -> Self {
         Self::VerticalAlign(StyleVerticalAlignValue::Exact(input))
     }
-    #[must_use] pub const fn const_letter_spacing(input: StyleLetterSpacing) -> Self {
+    #[must_use]
+    pub const fn const_letter_spacing(input: StyleLetterSpacing) -> Self {
         Self::LetterSpacing(StyleLetterSpacingValue::Exact(input))
     }
-    #[must_use] pub const fn const_text_indent(input: StyleTextIndent) -> Self {
+    #[must_use]
+    pub const fn const_text_indent(input: StyleTextIndent) -> Self {
         Self::TextIndent(StyleTextIndentValue::Exact(input))
     }
-    #[must_use] pub const fn const_line_height(input: StyleLineHeight) -> Self {
+    #[must_use]
+    pub const fn const_line_height(input: StyleLineHeight) -> Self {
         Self::LineHeight(StyleLineHeightValue::Exact(input))
     }
-    #[must_use] pub const fn const_word_spacing(input: StyleWordSpacing) -> Self {
+    #[must_use]
+    pub const fn const_word_spacing(input: StyleWordSpacing) -> Self {
         Self::WordSpacing(StyleWordSpacingValue::Exact(input))
     }
-    #[must_use] pub const fn const_tab_size(input: StyleTabSize) -> Self {
+    #[must_use]
+    pub const fn const_tab_size(input: StyleTabSize) -> Self {
         Self::TabSize(StyleTabSizeValue::Exact(input))
     }
-    #[must_use] pub const fn const_cursor(input: StyleCursor) -> Self {
+    #[must_use]
+    pub const fn const_cursor(input: StyleCursor) -> Self {
         Self::Cursor(StyleCursorValue::Exact(input))
     }
-    #[must_use] pub const fn const_display(input: LayoutDisplay) -> Self {
+    #[must_use]
+    pub const fn const_display(input: LayoutDisplay) -> Self {
         Self::Display(LayoutDisplayValue::Exact(input))
     }
-    #[must_use] pub const fn const_float(input: LayoutFloat) -> Self {
+    #[must_use]
+    pub const fn const_float(input: LayoutFloat) -> Self {
         Self::Float(LayoutFloatValue::Exact(input))
     }
-    #[must_use] pub const fn const_box_sizing(input: LayoutBoxSizing) -> Self {
+    #[must_use]
+    pub const fn const_box_sizing(input: LayoutBoxSizing) -> Self {
         Self::BoxSizing(LayoutBoxSizingValue::Exact(input))
     }
-    #[must_use] pub const fn const_width(input: LayoutWidth) -> Self {
+    #[must_use]
+    pub const fn const_width(input: LayoutWidth) -> Self {
         Self::Width(LayoutWidthValue::Exact(input))
     }
-    #[must_use] pub const fn const_height(input: LayoutHeight) -> Self {
+    #[must_use]
+    pub const fn const_height(input: LayoutHeight) -> Self {
         Self::Height(LayoutHeightValue::Exact(input))
     }
-    #[must_use] pub const fn const_min_width(input: LayoutMinWidth) -> Self {
+    #[must_use]
+    pub const fn const_min_width(input: LayoutMinWidth) -> Self {
         Self::MinWidth(LayoutMinWidthValue::Exact(input))
     }
-    #[must_use] pub const fn const_min_height(input: LayoutMinHeight) -> Self {
+    #[must_use]
+    pub const fn const_min_height(input: LayoutMinHeight) -> Self {
         Self::MinHeight(LayoutMinHeightValue::Exact(input))
     }
-    #[must_use] pub const fn const_max_width(input: LayoutMaxWidth) -> Self {
+    #[must_use]
+    pub const fn const_max_width(input: LayoutMaxWidth) -> Self {
         Self::MaxWidth(LayoutMaxWidthValue::Exact(input))
     }
-    #[must_use] pub const fn const_max_height(input: LayoutMaxHeight) -> Self {
+    #[must_use]
+    pub const fn const_max_height(input: LayoutMaxHeight) -> Self {
         Self::MaxHeight(LayoutMaxHeightValue::Exact(input))
     }
-    #[must_use] pub const fn const_position(input: LayoutPosition) -> Self {
+    #[must_use]
+    pub const fn const_position(input: LayoutPosition) -> Self {
         Self::Position(LayoutPositionValue::Exact(input))
     }
-    #[must_use] pub const fn const_top(input: LayoutTop) -> Self {
+    #[must_use]
+    pub const fn const_top(input: LayoutTop) -> Self {
         Self::Top(LayoutTopValue::Exact(input))
     }
-    #[must_use] pub const fn const_right(input: LayoutRight) -> Self {
+    #[must_use]
+    pub const fn const_right(input: LayoutRight) -> Self {
         Self::Right(LayoutRightValue::Exact(input))
     }
-    #[must_use] pub const fn const_left(input: LayoutLeft) -> Self {
+    #[must_use]
+    pub const fn const_left(input: LayoutLeft) -> Self {
         Self::Left(LayoutLeftValue::Exact(input))
     }
-    #[must_use] pub const fn const_bottom(input: LayoutInsetBottom) -> Self {
+    #[must_use]
+    pub const fn const_bottom(input: LayoutInsetBottom) -> Self {
         Self::Bottom(LayoutInsetBottomValue::Exact(input))
     }
-    #[must_use] pub const fn const_flex_wrap(input: LayoutFlexWrap) -> Self {
+    #[must_use]
+    pub const fn const_flex_wrap(input: LayoutFlexWrap) -> Self {
         Self::FlexWrap(LayoutFlexWrapValue::Exact(input))
     }
-    #[must_use] pub const fn const_flex_direction(input: LayoutFlexDirection) -> Self {
+    #[must_use]
+    pub const fn const_flex_direction(input: LayoutFlexDirection) -> Self {
         Self::FlexDirection(LayoutFlexDirectionValue::Exact(input))
     }
-    #[must_use] pub const fn const_flex_grow(input: LayoutFlexGrow) -> Self {
+    #[must_use]
+    pub const fn const_flex_grow(input: LayoutFlexGrow) -> Self {
         Self::FlexGrow(LayoutFlexGrowValue::Exact(input))
     }
-    #[must_use] pub const fn const_flex_shrink(input: LayoutFlexShrink) -> Self {
+    #[must_use]
+    pub const fn const_flex_shrink(input: LayoutFlexShrink) -> Self {
         Self::FlexShrink(LayoutFlexShrinkValue::Exact(input))
     }
-    #[must_use] pub const fn const_justify_content(input: LayoutJustifyContent) -> Self {
+    #[must_use]
+    pub const fn const_justify_content(input: LayoutJustifyContent) -> Self {
         Self::JustifyContent(LayoutJustifyContentValue::Exact(input))
     }
-    #[must_use] pub const fn const_align_items(input: LayoutAlignItems) -> Self {
+    #[must_use]
+    pub const fn const_align_items(input: LayoutAlignItems) -> Self {
         Self::AlignItems(LayoutAlignItemsValue::Exact(input))
     }
-    #[must_use] pub const fn const_align_content(input: LayoutAlignContent) -> Self {
+    #[must_use]
+    pub const fn const_align_content(input: LayoutAlignContent) -> Self {
         Self::AlignContent(LayoutAlignContentValue::Exact(input))
     }
-    #[must_use] pub const fn const_background_content(input: StyleBackgroundContentVec) -> Self {
+    #[must_use]
+    pub const fn const_background_content(input: StyleBackgroundContentVec) -> Self {
         Self::BackgroundContent(StyleBackgroundContentVecValue::Exact(input))
     }
-    #[must_use] pub const fn const_background_position(input: StyleBackgroundPositionVec) -> Self {
+    #[must_use]
+    pub const fn const_background_position(input: StyleBackgroundPositionVec) -> Self {
         Self::BackgroundPosition(StyleBackgroundPositionVecValue::Exact(input))
     }
-    #[must_use] pub const fn const_background_size(input: StyleBackgroundSizeVec) -> Self {
+    #[must_use]
+    pub const fn const_background_size(input: StyleBackgroundSizeVec) -> Self {
         Self::BackgroundSize(StyleBackgroundSizeVecValue::Exact(input))
     }
-    #[must_use] pub const fn const_background_repeat(input: StyleBackgroundRepeatVec) -> Self {
+    #[must_use]
+    pub const fn const_background_repeat(input: StyleBackgroundRepeatVec) -> Self {
         Self::BackgroundRepeat(StyleBackgroundRepeatVecValue::Exact(input))
     }
-    #[must_use] pub const fn const_overflow_x(input: LayoutOverflow) -> Self {
+    #[must_use]
+    pub const fn const_overflow_x(input: LayoutOverflow) -> Self {
         Self::OverflowX(LayoutOverflowValue::Exact(input))
     }
-    #[must_use] pub const fn const_overflow_y(input: LayoutOverflow) -> Self {
+    #[must_use]
+    pub const fn const_overflow_y(input: LayoutOverflow) -> Self {
         Self::OverflowY(LayoutOverflowValue::Exact(input))
     }
-    #[must_use] pub const fn const_overflow_block(input: LayoutOverflow) -> Self {
+    #[must_use]
+    pub const fn const_overflow_block(input: LayoutOverflow) -> Self {
         Self::OverflowBlock(LayoutOverflowValue::Exact(input))
     }
-    #[must_use] pub const fn const_overflow_inline(input: LayoutOverflow) -> Self {
+    #[must_use]
+    pub const fn const_overflow_inline(input: LayoutOverflow) -> Self {
         Self::OverflowInline(LayoutOverflowValue::Exact(input))
     }
-    #[must_use] pub const fn const_padding_top(input: LayoutPaddingTop) -> Self {
+    #[must_use]
+    pub const fn const_padding_top(input: LayoutPaddingTop) -> Self {
         Self::PaddingTop(LayoutPaddingTopValue::Exact(input))
     }
-    #[must_use] pub const fn const_padding_left(input: LayoutPaddingLeft) -> Self {
+    #[must_use]
+    pub const fn const_padding_left(input: LayoutPaddingLeft) -> Self {
         Self::PaddingLeft(LayoutPaddingLeftValue::Exact(input))
     }
-    #[must_use] pub const fn const_padding_right(input: LayoutPaddingRight) -> Self {
+    #[must_use]
+    pub const fn const_padding_right(input: LayoutPaddingRight) -> Self {
         Self::PaddingRight(LayoutPaddingRightValue::Exact(input))
     }
-    #[must_use] pub const fn const_padding_bottom(input: LayoutPaddingBottom) -> Self {
+    #[must_use]
+    pub const fn const_padding_bottom(input: LayoutPaddingBottom) -> Self {
         Self::PaddingBottom(LayoutPaddingBottomValue::Exact(input))
     }
-    #[must_use] pub const fn const_margin_top(input: LayoutMarginTop) -> Self {
+    #[must_use]
+    pub const fn const_margin_top(input: LayoutMarginTop) -> Self {
         Self::MarginTop(LayoutMarginTopValue::Exact(input))
     }
-    #[must_use] pub const fn const_margin_left(input: LayoutMarginLeft) -> Self {
+    #[must_use]
+    pub const fn const_margin_left(input: LayoutMarginLeft) -> Self {
         Self::MarginLeft(LayoutMarginLeftValue::Exact(input))
     }
-    #[must_use] pub const fn const_margin_right(input: LayoutMarginRight) -> Self {
+    #[must_use]
+    pub const fn const_margin_right(input: LayoutMarginRight) -> Self {
         Self::MarginRight(LayoutMarginRightValue::Exact(input))
     }
-    #[must_use] pub const fn const_margin_bottom(input: LayoutMarginBottom) -> Self {
+    #[must_use]
+    pub const fn const_margin_bottom(input: LayoutMarginBottom) -> Self {
         Self::MarginBottom(LayoutMarginBottomValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_top_left_radius(input: StyleBorderTopLeftRadius) -> Self {
+    #[must_use]
+    pub const fn const_border_top_left_radius(input: StyleBorderTopLeftRadius) -> Self {
         Self::BorderTopLeftRadius(StyleBorderTopLeftRadiusValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_top_right_radius(input: StyleBorderTopRightRadius) -> Self {
+    #[must_use]
+    pub const fn const_border_top_right_radius(input: StyleBorderTopRightRadius) -> Self {
         Self::BorderTopRightRadius(StyleBorderTopRightRadiusValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_bottom_left_radius(input: StyleBorderBottomLeftRadius) -> Self {
+    #[must_use]
+    pub const fn const_border_bottom_left_radius(input: StyleBorderBottomLeftRadius) -> Self {
         Self::BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_bottom_right_radius(input: StyleBorderBottomRightRadius) -> Self {
+    #[must_use]
+    pub const fn const_border_bottom_right_radius(input: StyleBorderBottomRightRadius) -> Self {
         Self::BorderBottomRightRadius(StyleBorderBottomRightRadiusValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_top_color(input: StyleBorderTopColor) -> Self {
+    #[must_use]
+    pub const fn const_border_top_color(input: StyleBorderTopColor) -> Self {
         Self::BorderTopColor(StyleBorderTopColorValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_right_color(input: StyleBorderRightColor) -> Self {
+    #[must_use]
+    pub const fn const_border_right_color(input: StyleBorderRightColor) -> Self {
         Self::BorderRightColor(StyleBorderRightColorValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_left_color(input: StyleBorderLeftColor) -> Self {
+    #[must_use]
+    pub const fn const_border_left_color(input: StyleBorderLeftColor) -> Self {
         Self::BorderLeftColor(StyleBorderLeftColorValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_bottom_color(input: StyleBorderBottomColor) -> Self {
+    #[must_use]
+    pub const fn const_border_bottom_color(input: StyleBorderBottomColor) -> Self {
         Self::BorderBottomColor(StyleBorderBottomColorValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_top_style(input: StyleBorderTopStyle) -> Self {
+    #[must_use]
+    pub const fn const_border_top_style(input: StyleBorderTopStyle) -> Self {
         Self::BorderTopStyle(StyleBorderTopStyleValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_right_style(input: StyleBorderRightStyle) -> Self {
+    #[must_use]
+    pub const fn const_border_right_style(input: StyleBorderRightStyle) -> Self {
         Self::BorderRightStyle(StyleBorderRightStyleValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_left_style(input: StyleBorderLeftStyle) -> Self {
+    #[must_use]
+    pub const fn const_border_left_style(input: StyleBorderLeftStyle) -> Self {
         Self::BorderLeftStyle(StyleBorderLeftStyleValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_bottom_style(input: StyleBorderBottomStyle) -> Self {
+    #[must_use]
+    pub const fn const_border_bottom_style(input: StyleBorderBottomStyle) -> Self {
         Self::BorderBottomStyle(StyleBorderBottomStyleValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_top_width(input: LayoutBorderTopWidth) -> Self {
+    #[must_use]
+    pub const fn const_border_top_width(input: LayoutBorderTopWidth) -> Self {
         Self::BorderTopWidth(LayoutBorderTopWidthValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_right_width(input: LayoutBorderRightWidth) -> Self {
+    #[must_use]
+    pub const fn const_border_right_width(input: LayoutBorderRightWidth) -> Self {
         Self::BorderRightWidth(LayoutBorderRightWidthValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_left_width(input: LayoutBorderLeftWidth) -> Self {
+    #[must_use]
+    pub const fn const_border_left_width(input: LayoutBorderLeftWidth) -> Self {
         Self::BorderLeftWidth(LayoutBorderLeftWidthValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_bottom_width(input: LayoutBorderBottomWidth) -> Self {
+    #[must_use]
+    pub const fn const_border_bottom_width(input: LayoutBorderBottomWidth) -> Self {
         Self::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(input))
     }
-    #[must_use] pub fn const_box_shadow_left(input: StyleBoxShadow) -> Self {
+    #[must_use]
+    pub fn const_box_shadow_left(input: StyleBoxShadow) -> Self {
         Self::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::heap(input)))
     }
-    #[must_use] pub fn const_box_shadow_right(input: StyleBoxShadow) -> Self {
+    #[must_use]
+    pub fn const_box_shadow_right(input: StyleBoxShadow) -> Self {
         Self::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::heap(input)))
     }
-    #[must_use] pub fn const_box_shadow_top(input: StyleBoxShadow) -> Self {
+    #[must_use]
+    pub fn const_box_shadow_top(input: StyleBoxShadow) -> Self {
         Self::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::heap(input)))
     }
-    #[must_use] pub fn const_box_shadow_bottom(input: StyleBoxShadow) -> Self {
+    #[must_use]
+    pub fn const_box_shadow_bottom(input: StyleBoxShadow) -> Self {
         Self::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::heap(input)))
     }
-    #[must_use] pub const fn const_opacity(input: StyleOpacity) -> Self {
+    #[must_use]
+    pub const fn const_opacity(input: StyleOpacity) -> Self {
         Self::Opacity(StyleOpacityValue::Exact(input))
     }
-    #[must_use] pub const fn const_transform(input: StyleTransformVec) -> Self {
+    #[must_use]
+    pub const fn const_transform(input: StyleTransformVec) -> Self {
         Self::Transform(StyleTransformVecValue::Exact(input))
     }
-    #[must_use] pub const fn const_transform_origin(input: StyleTransformOrigin) -> Self {
+    #[must_use]
+    pub const fn const_transform_origin(input: StyleTransformOrigin) -> Self {
         Self::TransformOrigin(StyleTransformOriginValue::Exact(input))
     }
-    #[must_use] pub const fn const_perspective_origin(input: StylePerspectiveOrigin) -> Self {
+    #[must_use]
+    pub const fn const_perspective_origin(input: StylePerspectiveOrigin) -> Self {
         Self::PerspectiveOrigin(StylePerspectiveOriginValue::Exact(input))
     }
-    #[must_use] pub const fn const_backface_visibility(input: StyleBackfaceVisibility) -> Self {
+    #[must_use]
+    pub const fn const_backface_visibility(input: StyleBackfaceVisibility) -> Self {
         Self::BackfaceVisibility(StyleBackfaceVisibilityValue::Exact(input))
     }
-    #[must_use] pub const fn const_break_before(input: PageBreak) -> Self {
+    #[must_use]
+    pub const fn const_break_before(input: PageBreak) -> Self {
         Self::BreakBefore(PageBreakValue::Exact(input))
     }
-    #[must_use] pub const fn const_break_after(input: PageBreak) -> Self {
+    #[must_use]
+    pub const fn const_break_after(input: PageBreak) -> Self {
         Self::BreakAfter(PageBreakValue::Exact(input))
     }
-    #[must_use] pub const fn const_break_inside(input: BreakInside) -> Self {
+    #[must_use]
+    pub const fn const_break_inside(input: BreakInside) -> Self {
         Self::BreakInside(BreakInsideValue::Exact(input))
     }
-    #[must_use] pub const fn const_orphans(input: Orphans) -> Self {
+    #[must_use]
+    pub const fn const_orphans(input: Orphans) -> Self {
         Self::Orphans(OrphansValue::Exact(input))
     }
-    #[must_use] pub const fn const_widows(input: Widows) -> Self {
+    #[must_use]
+    pub const fn const_widows(input: Widows) -> Self {
         Self::Widows(WidowsValue::Exact(input))
     }
-    #[must_use] pub const fn const_box_decoration_break(input: BoxDecorationBreak) -> Self {
+    #[must_use]
+    pub const fn const_box_decoration_break(input: BoxDecorationBreak) -> Self {
         Self::BoxDecorationBreak(BoxDecorationBreakValue::Exact(input))
     }
-    #[must_use] pub const fn const_column_count(input: ColumnCount) -> Self {
+    #[must_use]
+    pub const fn const_column_count(input: ColumnCount) -> Self {
         Self::ColumnCount(ColumnCountValue::Exact(input))
     }
-    #[must_use] pub const fn const_column_width(input: ColumnWidth) -> Self {
+    #[must_use]
+    pub const fn const_column_width(input: ColumnWidth) -> Self {
         Self::ColumnWidth(ColumnWidthValue::Exact(input))
     }
-    #[must_use] pub const fn const_column_span(input: ColumnSpan) -> Self {
+    #[must_use]
+    pub const fn const_column_span(input: ColumnSpan) -> Self {
         Self::ColumnSpan(ColumnSpanValue::Exact(input))
     }
-    #[must_use] pub const fn const_column_fill(input: ColumnFill) -> Self {
+    #[must_use]
+    pub const fn const_column_fill(input: ColumnFill) -> Self {
         Self::ColumnFill(ColumnFillValue::Exact(input))
     }
-    #[must_use] pub const fn const_column_rule_width(input: ColumnRuleWidth) -> Self {
+    #[must_use]
+    pub const fn const_column_rule_width(input: ColumnRuleWidth) -> Self {
         Self::ColumnRuleWidth(ColumnRuleWidthValue::Exact(input))
     }
-    #[must_use] pub const fn const_column_rule_style(input: ColumnRuleStyle) -> Self {
+    #[must_use]
+    pub const fn const_column_rule_style(input: ColumnRuleStyle) -> Self {
         Self::ColumnRuleStyle(ColumnRuleStyleValue::Exact(input))
     }
-    #[must_use] pub const fn const_column_rule_color(input: ColumnRuleColor) -> Self {
+    #[must_use]
+    pub const fn const_column_rule_color(input: ColumnRuleColor) -> Self {
         Self::ColumnRuleColor(ColumnRuleColorValue::Exact(input))
     }
-    #[must_use] pub const fn const_flow_into(input: FlowInto) -> Self {
+    #[must_use]
+    pub const fn const_flow_into(input: FlowInto) -> Self {
         Self::FlowInto(FlowIntoValue::Exact(input))
     }
-    #[must_use] pub const fn const_flow_from(input: FlowFrom) -> Self {
+    #[must_use]
+    pub const fn const_flow_from(input: FlowFrom) -> Self {
         Self::FlowFrom(FlowFromValue::Exact(input))
     }
-    #[must_use] pub const fn const_shape_outside(input: ShapeOutside) -> Self {
+    #[must_use]
+    pub const fn const_shape_outside(input: ShapeOutside) -> Self {
         Self::ShapeOutside(ShapeOutsideValue::Exact(input))
     }
-    #[must_use] pub const fn const_shape_inside(input: ShapeInside) -> Self {
+    #[must_use]
+    pub const fn const_shape_inside(input: ShapeInside) -> Self {
         Self::ShapeInside(ShapeInsideValue::Exact(input))
     }
-    #[must_use] pub const fn const_clip_path(input: ClipPath) -> Self {
+    #[must_use]
+    pub const fn const_clip_path(input: ClipPath) -> Self {
         Self::ClipPath(ClipPathValue::Exact(input))
     }
-    #[must_use] pub const fn const_shape_margin(input: ShapeMargin) -> Self {
+    #[must_use]
+    pub const fn const_shape_margin(input: ShapeMargin) -> Self {
         Self::ShapeMargin(ShapeMarginValue::Exact(input))
     }
-    #[must_use] pub const fn const_shape_image_threshold(input: ShapeImageThreshold) -> Self {
+    #[must_use]
+    pub const fn const_shape_image_threshold(input: ShapeImageThreshold) -> Self {
         Self::ShapeImageThreshold(ShapeImageThresholdValue::Exact(input))
     }
-    #[must_use] pub const fn const_content(input: Content) -> Self {
+    #[must_use]
+    pub const fn const_content(input: Content) -> Self {
         Self::Content(ContentValue::Exact(input))
     }
-    #[must_use] pub const fn const_counter_reset(input: CounterReset) -> Self {
+    #[must_use]
+    pub const fn const_counter_reset(input: CounterReset) -> Self {
         Self::CounterReset(CounterResetValue::Exact(input))
     }
-    #[must_use] pub const fn const_counter_increment(input: CounterIncrement) -> Self {
+    #[must_use]
+    pub const fn const_counter_increment(input: CounterIncrement) -> Self {
         Self::CounterIncrement(CounterIncrementValue::Exact(input))
     }
-    #[must_use] pub const fn const_list_style_type(input: StyleListStyleType) -> Self {
+    #[must_use]
+    pub const fn const_list_style_type(input: StyleListStyleType) -> Self {
         Self::ListStyleType(StyleListStyleTypeValue::Exact(input))
     }
-    #[must_use] pub const fn const_list_style_position(input: StyleListStylePosition) -> Self {
+    #[must_use]
+    pub const fn const_list_style_position(input: StyleListStylePosition) -> Self {
         Self::ListStylePosition(StyleListStylePositionValue::Exact(input))
     }
-    #[must_use] pub const fn const_string_set(input: StringSet) -> Self {
+    #[must_use]
+    pub const fn const_string_set(input: StringSet) -> Self {
         Self::StringSet(StringSetValue::Exact(input))
     }
-    #[must_use] pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
+    #[must_use]
+    pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
         Self::TableLayout(LayoutTableLayoutValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_collapse(input: StyleBorderCollapse) -> Self {
+    #[must_use]
+    pub const fn const_border_collapse(input: StyleBorderCollapse) -> Self {
         Self::BorderCollapse(StyleBorderCollapseValue::Exact(input))
     }
-    #[must_use] pub const fn const_border_spacing(input: LayoutBorderSpacing) -> Self {
+    #[must_use]
+    pub const fn const_border_spacing(input: LayoutBorderSpacing) -> Self {
         Self::BorderSpacing(LayoutBorderSpacingValue::Exact(input))
     }
-    #[must_use] pub const fn const_caption_side(input: StyleCaptionSide) -> Self {
+    #[must_use]
+    pub const fn const_caption_side(input: StyleCaptionSide) -> Self {
         Self::CaptionSide(StyleCaptionSideValue::Exact(input))
     }
-    #[must_use] pub const fn const_empty_cells(input: StyleEmptyCells) -> Self {
+    #[must_use]
+    pub const fn const_empty_cells(input: StyleEmptyCells) -> Self {
         Self::EmptyCells(StyleEmptyCellsValue::Exact(input))
     }
 }
@@ -7341,8 +7767,10 @@ impl CssProperty {
 // Cross-type dispatch over CssProperty variants; identical format! bodies bind
 // different value types and can't merge (clippy::match_same_arms false positive).
 #[allow(clippy::match_same_arms)]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-#[must_use] pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
+#[allow(clippy::too_many_lines)]
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+#[must_use]
+pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
     match prop {
         CssProperty::CaretColor(p) => format!(
             "CssProperty::CaretColor({})",
@@ -8272,10 +8700,10 @@ mod autotest_generated {
             "inf",
             "-inf",
             "Infinity",
-            "9223372036854775807",  // i64::MAX
-            "-9223372036854775808", // i64::MIN
+            "9223372036854775807",                     // i64::MAX
+            "-9223372036854775808",                    // i64::MIN
             "340282350000000000000000000000000000000", // ~f32::MAX
-            "1e309",                // overflows f64
+            "1e309",                                   // overflows f64
             "0.00000000000000000001",
         ] {
             assert_eq!(CssPropertyType::from_str(input, &map), None, "{input:?}");
@@ -8388,7 +8816,10 @@ mod autotest_generated {
         for t in CssPropertyType::iter() {
             let s = t.to_str();
             assert!(!s.is_empty(), "{t:?} has an empty to_str()");
-            assert!(!s.contains(' '), "{t:?} to_str() contains whitespace: {s:?}");
+            assert!(
+                !s.contains(' '),
+                "{t:?} to_str() contains whitespace: {s:?}"
+            );
             assert_eq!(s.trim(), s, "{t:?} to_str() is not trimmed: {s:?}");
             if let Some(prev) = seen.insert(s, t) {
                 panic!("to_str() collision: {prev:?} and {t:?} both return {s:?}");
@@ -8674,7 +9105,10 @@ mod autotest_generated {
     fn value_and_format_css_are_well_formed_for_every_keyword_variant() {
         for t in CssPropertyType::iter() {
             for (ctor, keyword) in [
-                (CssProperty::none as fn(CssPropertyType) -> CssProperty, "none"),
+                (
+                    CssProperty::none as fn(CssPropertyType) -> CssProperty,
+                    "none",
+                ),
                 (CssProperty::auto, "auto"),
                 (CssProperty::initial, "initial"),
                 (CssProperty::inherit, "inherit"),
@@ -9068,7 +9502,14 @@ mod autotest_generated {
     #[test]
     #[cfg(feature = "parser")]
     fn parse_combined_css_property_garbage_is_rejected_without_panicking() {
-        for value in ["!!!", "not-a-value", "10pxx", ";", "\0", "10px 20px 30px 40px 50px"] {
+        for value in [
+            "!!!",
+            "not-a-value",
+            "10pxx",
+            ";",
+            "\0",
+            "10px 20px 30px 40px 50px",
+        ] {
             assert!(
                 parse_combined_css_property(CombinedCssPropertyType::Margin, value).is_err(),
                 "margin: {value:?} should not parse"
@@ -9081,7 +9522,8 @@ mod autotest_generated {
     fn parse_combined_css_property_unicode_and_long_input_do_not_panic() {
         for value in ["\u{1F600}", "1\u{0301}0px", "１０ｐｘ", "红色"] {
             let _ = parse_combined_css_property(CombinedCssPropertyType::Margin, value).is_err();
-            let _ = parse_combined_css_property(CombinedCssPropertyType::Background, value).is_err();
+            let _ =
+                parse_combined_css_property(CombinedCssPropertyType::Background, value).is_err();
         }
         // The padding/margin parser parses every value before it counts them, so
         // 20k values already exercises the TooManyValues path without a long run.

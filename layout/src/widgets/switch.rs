@@ -12,14 +12,23 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{OptionString, 
+use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, *},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPaddingBottom, LayoutMarginLeft},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutHeight, LayoutMarginLeft, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop, LayoutWidth,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleCursor},
+        style::{
+            StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleCursor,
+        },
     },
-    impl_option_inner, AzString,
+    AzString, OptionString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -221,7 +230,8 @@ impl Switch {
         self
     }
 
-    #[must_use] pub fn create(checked: bool) -> Self {
+    #[must_use]
+    pub fn create(checked: bool) -> Self {
         Self {
             switch_state: SwitchStateWrapper {
                 inner: SwitchState { checked },
@@ -234,7 +244,8 @@ impl Switch {
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
         s
@@ -250,7 +261,8 @@ impl Switch {
     }
 
     #[inline]
-    #[must_use] pub fn with_on_toggle<C: Into<SwitchOnToggleCallback>>(
+    #[must_use]
+    pub fn with_on_toggle<C: Into<SwitchOnToggleCallback>>(
         mut self,
         data: RefAny,
         on_toggle: C,
@@ -260,13 +272,11 @@ impl Switch {
     }
 
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Read before the widget's fields are moved into the DOM below.
         let sw_name = self.accessibility_name.clone();
-        crate::widgets::warn_widget_needs_a_name(
-            "switch",
-            sw_name.is_some(),
-        );
+        crate::widgets::warn_widget_needs_a_name("switch", sw_name.is_some());
 
         // Read before the wrapper is moved into the callback below.
         let switch_checked = self.switch_state.inner.checked;
@@ -366,13 +376,11 @@ mod input {
         // was then, and a screen reader would keep reporting the old position.
         info.set_accessibility_state(
             info.get_hit_node(),
-            azul_core::a11y::AccessibilityStateVec::from_vec(vec![
-                if switch.inner.checked {
-                    azul_core::a11y::AccessibilityState::CheckedTrue
-                } else {
-                    azul_core::a11y::AccessibilityState::CheckedFalse
-                },
-            ]),
+            azul_core::a11y::AccessibilityStateVec::from_vec(vec![if switch.inner.checked {
+                azul_core::a11y::AccessibilityState::CheckedTrue
+            } else {
+                azul_core::a11y::AccessibilityState::CheckedFalse
+            }]),
         );
 
         // CallbackInfo is Copy, so `info` is still usable after the call above.
@@ -383,7 +391,10 @@ mod input {
                 CssProperty::const_margin_left(LayoutMarginLeft::const_px(KNOB_TRAVEL)),
             );
         } else {
-            info.set_css_property(track_id, CssProperty::const_background_content(TRACK_OFF_BG));
+            info.set_css_property(
+                track_id,
+                CssProperty::const_background_content(TRACK_OFF_BG),
+            );
             info.set_css_property(
                 knob_id,
                 CssProperty::const_margin_left(LayoutMarginLeft::const_px(0)),
@@ -401,7 +412,8 @@ impl From<Switch> for Dom {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp)] // every float here is an exact, integral px constant
+#[allow(clippy::float_cmp)]
+// every float here is an exact, integral px constant
 // `assertions_on_constants`: these are deliberate invariant guards over sibling
 // `const`s in this module. They are const-foldable *today*, which is exactly the
 // point — they must go red the moment someone edits one of those constants into an
@@ -594,7 +606,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => Some((*node_id, properties.as_ref().to_vec())),
                 _ => None,
             })
@@ -630,7 +644,10 @@ mod autotest_generated {
         v.as_ref().iter().map(|p| p.property.clone()).collect()
     }
 
-    fn find<T>(v: &CssPropertyWithConditionsVec, f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+    fn find<T>(
+        v: &CssPropertyWithConditionsVec,
+        f: impl Fn(&CssProperty) -> Option<T>,
+    ) -> Option<T> {
         v.as_ref().iter().find_map(|p| f(&p.property))
     }
 
@@ -678,7 +695,9 @@ mod autotest_generated {
     }
 
     /// `(top, right, bottom, left)` padding, each as an absolute px.
-    fn paddings_px(v: &CssPropertyWithConditionsVec) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
+    fn paddings_px(
+        v: &CssPropertyWithConditionsVec,
+    ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
         let get = |f: fn(&CssProperty) -> Option<f32>| find(v, f);
         (
             get(|p| match p {
@@ -802,7 +821,11 @@ mod autotest_generated {
         payload: u32,
     }
 
-    extern "C" fn record_toggle(mut data: RefAny, _info: CallbackInfo, state: SwitchState) -> Update {
+    extern "C" fn record_toggle(
+        mut data: RefAny,
+        _info: CallbackInfo,
+        state: SwitchState,
+    ) -> Update {
         if let Some(mut log) = data.downcast_mut::<ToggleLog>() {
             log.seen.push(state.checked);
         }
@@ -989,7 +1012,9 @@ mod autotest_generated {
             .collect();
         assert_eq!(
             differing,
-            vec![discriminant(&CssProperty::const_background_content(TRACK_ON_BG))],
+            vec![discriminant(&CssProperty::const_background_content(
+                TRACK_ON_BG
+            ))],
             "the on/off track styles differ in something other than the background",
         );
     }
@@ -1042,8 +1067,16 @@ mod autotest_generated {
             let v = build_track_style(checked);
             // `px()` asserts SizeMetric::Px — an em/% here would scale with the parent
             // and desynchronise the knob's (absolute px) travel from the track.
-            assert_eq!(width_px(&v), Some(TRACK_W), "checked={checked}: track width");
-            assert_eq!(height_px(&v), Some(TRACK_H), "checked={checked}: track height");
+            assert_eq!(
+                width_px(&v),
+                Some(TRACK_W),
+                "checked={checked}: track width"
+            );
+            assert_eq!(
+                height_px(&v),
+                Some(TRACK_H),
+                "checked={checked}: track height"
+            );
             assert_eq!(
                 paddings_px(&v),
                 (Some(PAD), Some(PAD), Some(PAD), Some(PAD)),
@@ -1231,7 +1264,11 @@ mod autotest_generated {
         // would disappear into the grey.
         for checked in [false, true] {
             let bg = background(&build_knob_style(checked)).expect("the knob has no background");
-            assert_eq!(bg.as_ref().len(), 1, "checked={checked}: the knob stacks layers");
+            assert_eq!(
+                bg.as_ref().len(),
+                1,
+                "checked={checked}: the knob stacks layers"
+            );
             assert_eq!(solid_colors(&bg), vec![KNOB_COLOR]);
             assert_eq!(
                 KNOB_COLOR.a, 255,
@@ -1259,7 +1296,10 @@ mod autotest_generated {
             let margin = margin_left_px(&build_knob_style(checked)).expect("no margin-left");
             let size = width_px(&build_knob_style(checked)).expect("no width");
 
-            assert!(margin >= 0.0, "checked={checked}: the knob is pushed off the left edge");
+            assert!(
+                margin >= 0.0,
+                "checked={checked}: the knob is pushed off the left edge"
+            );
             assert!(
                 margin + size <= content_w,
                 "checked={checked}: the knob overhangs the track ({margin} + {size} > {content_w})",
@@ -1345,7 +1385,10 @@ mod autotest_generated {
     fn default_is_an_off_switch() {
         assert_eq!(Switch::default(), Switch::create(false));
         assert!(!Switch::default().switch_state.inner.checked);
-        assert!(!SwitchState::default().checked, "the default SwitchState is not off");
+        assert!(
+            !SwitchState::default().checked,
+            "the default SwitchState is not off"
+        );
         assert!(!SwitchStateWrapper::default().inner.checked);
         assert!(SwitchStateWrapper::default().on_toggle.as_ref().is_none());
     }
@@ -1359,15 +1402,26 @@ mod autotest_generated {
         let mut s = Switch::create(true);
         let old = s.swap_with_default();
 
-        assert_eq!(old, Switch::create(true), "the old widget was not returned intact");
-        assert_eq!(s, Switch::create(false), "what was left behind is not a fresh off switch");
+        assert_eq!(
+            old,
+            Switch::create(true),
+            "the old widget was not returned intact"
+        );
+        assert_eq!(
+            s,
+            Switch::create(false),
+            "what was left behind is not a fresh off switch"
+        );
     }
 
     #[test]
     fn swap_with_default_on_an_already_default_widget_is_a_no_op() {
         let mut s = Switch::create(false);
         let old = s.swap_with_default();
-        assert_eq!(old, s, "swapping a default with a default produced two different widgets");
+        assert_eq!(
+            old, s,
+            "swapping a default with a default produced two different widgets"
+        );
         assert_eq!(old, Switch::create(false));
     }
 
@@ -1438,7 +1492,9 @@ mod autotest_generated {
 
         let mut data = t.refany.clone();
         assert_eq!(
-            *data.downcast_ref::<u32>().expect("the payload changed type"),
+            *data
+                .downcast_ref::<u32>()
+                .expect("the payload changed type"),
             0xDEAD_BEEF,
             "the payload was corrupted",
         );
@@ -1454,10 +1510,20 @@ mod autotest_generated {
         // callback installed (and must not leak or free the first one's RefAny).
         let first = log_refany();
         let mut s = Switch::create(false);
-        s.set_on_toggle(first.clone(), toggle_do_nothing as SwitchOnToggleCallbackType);
-        s.set_on_toggle(RefAny::new(1u8), toggle_refresh_all as SwitchOnToggleCallbackType);
+        s.set_on_toggle(
+            first.clone(),
+            toggle_do_nothing as SwitchOnToggleCallbackType,
+        );
+        s.set_on_toggle(
+            RefAny::new(1u8),
+            toggle_refresh_all as SwitchOnToggleCallbackType,
+        );
 
-        let t = s.switch_state.on_toggle.as_ref().expect("the callback vanished");
+        let t = s
+            .switch_state
+            .on_toggle
+            .as_ref()
+            .expect("the callback vanished");
         assert_eq!(
             t.callback.cb as *const () as usize,
             toggle_refresh_all as SwitchOnToggleCallbackType as *const () as usize,
@@ -1472,7 +1538,10 @@ mod autotest_generated {
         for checked in [false, true] {
             let pristine = Switch::create(checked);
             let mut s = Switch::create(checked);
-            s.set_on_toggle(RefAny::new(0u8), toggle_do_nothing as SwitchOnToggleCallbackType);
+            s.set_on_toggle(
+                RefAny::new(0u8),
+                toggle_do_nothing as SwitchOnToggleCallbackType,
+            );
 
             assert_eq!(
                 s.switch_state.inner.checked, checked,
@@ -1493,11 +1562,16 @@ mod autotest_generated {
 
     #[test]
     fn with_on_toggle_is_exactly_set_on_toggle_in_builder_form() {
-        let by_builder = Switch::create(true)
-            .with_on_toggle(RefAny::new(7u32), toggle_do_nothing as SwitchOnToggleCallbackType);
+        let by_builder = Switch::create(true).with_on_toggle(
+            RefAny::new(7u32),
+            toggle_do_nothing as SwitchOnToggleCallbackType,
+        );
 
         let mut by_setter = Switch::create(true);
-        by_setter.set_on_toggle(RefAny::new(7u32), toggle_do_nothing as SwitchOnToggleCallbackType);
+        by_setter.set_on_toggle(
+            RefAny::new(7u32),
+            toggle_do_nothing as SwitchOnToggleCallbackType,
+        );
 
         assert_eq!(by_builder.switch_state.inner, by_setter.switch_state.inner);
         assert_eq!(
@@ -1509,14 +1583,27 @@ mod autotest_generated {
             properties(&by_setter.knob_style),
         );
 
-        let a = by_builder.switch_state.on_toggle.as_ref().expect("builder lost the callback");
-        let b = by_setter.switch_state.on_toggle.as_ref().expect("setter lost the callback");
-        assert_eq!(a.callback.cb as *const () as usize, b.callback.cb as *const () as usize);
+        let a = by_builder
+            .switch_state
+            .on_toggle
+            .as_ref()
+            .expect("builder lost the callback");
+        let b = by_setter
+            .switch_state
+            .on_toggle
+            .as_ref()
+            .expect("setter lost the callback");
+        assert_eq!(
+            a.callback.cb as *const () as usize,
+            b.callback.cb as *const () as usize
+        );
 
         let (mut a, mut b) = (a.refany.clone(), b.refany.clone());
         assert_eq!(
-            *a.downcast_ref::<u32>().expect("builder payload changed type"),
-            *b.downcast_ref::<u32>().expect("setter payload changed type"),
+            *a.downcast_ref::<u32>()
+                .expect("builder payload changed type"),
+            *b.downcast_ref::<u32>()
+                .expect("setter payload changed type"),
         );
     }
 
@@ -1532,10 +1619,13 @@ mod autotest_generated {
         let expected = generic_shaped as *const () as usize;
 
         let s = Switch::create(false).with_on_toggle(RefAny::new(0u8), generic);
-        let t = s.switch_state.on_toggle.as_ref().expect("the generic callback was dropped");
+        let t = s
+            .switch_state
+            .on_toggle
+            .as_ref()
+            .expect("the generic callback was dropped");
         assert_eq!(
-            t.callback.cb as *const () as usize,
-            expected,
+            t.callback.cb as *const () as usize, expected,
             "the Callback -> SwitchOnToggleCallback transmute mangled the pointer",
         );
     }
@@ -1558,7 +1648,11 @@ mod autotest_generated {
             assert_eq!(classes(&dom), vec!["__azul-native-switch".to_string()]);
 
             let children = dom.children.as_ref();
-            assert_eq!(children.len(), 1, "checked={checked}: the switch must have exactly one knob");
+            assert_eq!(
+                children.len(),
+                1,
+                "checked={checked}: the switch must have exactly one knob"
+            );
             assert_eq!(
                 classes(&children[0]),
                 vec!["__azul-native-switch-knob".to_string()],
@@ -1605,7 +1699,11 @@ mod autotest_generated {
             let dom = Switch::create(checked).dom();
             let callbacks = dom.root.callbacks.as_ref();
 
-            assert_eq!(callbacks.len(), 1, "checked={checked}: expected exactly one callback");
+            assert_eq!(
+                callbacks.len(),
+                1,
+                "checked={checked}: expected exactly one callback"
+            );
             assert_eq!(
                 callbacks[0].event,
                 EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -1634,7 +1732,10 @@ mod autotest_generated {
         // silent no-op.
         for checked in [false, true] {
             let dom = Switch::create(checked)
-                .with_on_toggle(RefAny::new(9u32), toggle_do_nothing as SwitchOnToggleCallbackType)
+                .with_on_toggle(
+                    RefAny::new(9u32),
+                    toggle_do_nothing as SwitchOnToggleCallbackType,
+                )
                 .dom();
 
             let mut state = dom.root.callbacks.as_ref()[0].refany.clone();
@@ -1661,7 +1762,9 @@ mod autotest_generated {
         assert_eq!(dom.root.callbacks.as_ref().len(), 1);
 
         let mut state = dom.root.callbacks.as_ref()[0].refany.clone();
-        let wrapper = state.downcast_ref::<SwitchStateWrapper>().expect("wrong RefAny type");
+        let wrapper = state
+            .downcast_ref::<SwitchStateWrapper>()
+            .expect("wrong RefAny type");
         assert!(wrapper.on_toggle.as_ref().is_none());
     }
 
@@ -1673,7 +1776,10 @@ mod autotest_generated {
 
             assert_eq!(classes(&via_from), classes(&via_dom));
             assert_eq!(inline_properties(&via_from), inline_properties(&via_dom));
-            assert_eq!(via_from.children.as_ref().len(), via_dom.children.as_ref().len());
+            assert_eq!(
+                via_from.children.as_ref().len(),
+                via_dom.children.as_ref().len()
+            );
             assert_eq!(
                 inline_properties(&via_from.children.as_ref()[0]),
                 inline_properties(&via_dom.children.as_ref()[0]),
@@ -1682,7 +1788,10 @@ mod autotest_generated {
                 via_from.root.callbacks.as_ref().len(),
                 via_dom.root.callbacks.as_ref().len(),
             );
-            assert_eq!(via_from.root.flags.get_tab_index(), via_dom.root.flags.get_tab_index());
+            assert_eq!(
+                via_from.root.flags.get_tab_index(),
+                via_dom.root.flags.get_tab_index()
+            );
         }
     }
 
@@ -1744,7 +1853,10 @@ mod autotest_generated {
                 .collect::<Vec<_>>(),
             vec![(NodeId::new(TRACK), vec![TRACK_OFF_COLOR])],
         );
-        assert_eq!(pushed_margins(&changes), vec![(NodeId::new(KNOB_NODE), 0.0)]);
+        assert_eq!(
+            pushed_margins(&changes),
+            vec![(NodeId::new(KNOB_NODE), 0.0)]
+        );
     }
 
     #[test]
@@ -1759,12 +1871,18 @@ mod autotest_generated {
 
             let expected = Switch::create(!start);
             assert_eq!(
-                pushed_backgrounds(&changes).into_iter().map(|(_, b)| b).collect::<Vec<_>>(),
+                pushed_backgrounds(&changes)
+                    .into_iter()
+                    .map(|(_, b)| b)
+                    .collect::<Vec<_>>(),
                 vec![background(&expected.track_style).expect("no background")],
                 "start={start}: the clicked track colour differs from a freshly built one",
             );
             assert_eq!(
-                pushed_margins(&changes).into_iter().map(|(_, m)| m).collect::<Vec<_>>(),
+                pushed_margins(&changes)
+                    .into_iter()
+                    .map(|(_, m)| m)
+                    .collect::<Vec<_>>(),
                 vec![margin_left_px(&expected.knob_style).expect("no margin")],
                 "start={start}: the clicked knob offset differs from a freshly built one",
             );
@@ -1782,8 +1900,14 @@ mod autotest_generated {
         let (_, first) = click(styled, &state, node(TRACK));
         let (_, second) = click(styled2, &state, node(TRACK));
 
-        assert!(!is_checked(&state), "two clicks did not return the switch to its original state");
-        assert_eq!(pushed_margins(&first), vec![(NodeId::new(KNOB_NODE), TRAVEL)]);
+        assert!(
+            !is_checked(&state),
+            "two clicks did not return the switch to its original state"
+        );
+        assert_eq!(
+            pushed_margins(&first),
+            vec![(NodeId::new(KNOB_NODE), TRAVEL)]
+        );
         assert_eq!(pushed_margins(&second), vec![(NodeId::new(KNOB_NODE), 0.0)]);
     }
 
@@ -1797,11 +1921,16 @@ mod autotest_generated {
         let (update, changes) = click(styled, &foreign, node(TRACK));
 
         assert!(matches!(update, Update::DoNothing));
-        assert!(changes.is_empty(), "the handler wrote to the DOM through a foreign RefAny");
+        assert!(
+            changes.is_empty(),
+            "the handler wrote to the DOM through a foreign RefAny"
+        );
 
         let mut foreign = foreign;
         assert_eq!(
-            *foreign.downcast_ref::<u32>().expect("the foreign payload was reinterpreted"),
+            *foreign
+                .downcast_ref::<u32>()
+                .expect("the foreign payload was reinterpreted"),
             0xDEAD_BEEF,
             "the handler corrupted a RefAny it did not understand",
         );
@@ -1818,7 +1947,10 @@ mod autotest_generated {
         let (update, changes) = click(styled, &state, node(KNOB_NODE));
 
         assert!(matches!(update, Update::DoNothing));
-        assert!(changes.is_empty(), "a change was pushed for a node the handler could not resolve");
+        assert!(
+            changes.is_empty(),
+            "a change was pushed for a node the handler could not resolve"
+        );
         assert!(
             !is_checked(&state),
             "the flag was flipped even though the knob could not be moved",
@@ -1836,9 +1968,18 @@ mod autotest_generated {
             let (styled, state) = laid_out(Switch::create(true));
             let (update, changes) = click(styled, &state, hit);
 
-            assert!(matches!(update, Update::DoNothing), "{hit:?}: a stale hit was acted on");
-            assert!(changes.is_empty(), "{hit:?}: a stale hit pushed a DOM change");
-            assert!(is_checked(&state), "{hit:?}: a stale hit toggled the switch");
+            assert!(
+                matches!(update, Update::DoNothing),
+                "{hit:?}: a stale hit was acted on"
+            );
+            assert!(
+                changes.is_empty(),
+                "{hit:?}: a stale hit pushed a DOM change"
+            );
+            assert!(
+                is_checked(&state),
+                "{hit:?}: a stale hit toggled the switch"
+            );
         }
     }
 
@@ -1864,7 +2005,10 @@ mod autotest_generated {
             "the user callback's Update was swallowed instead of forwarded",
         );
         // ... and the visual sync still happens *after* the user callback returns.
-        assert_eq!(pushed_margins(&changes), vec![(NodeId::new(KNOB_NODE), TRAVEL)]);
+        assert_eq!(
+            pushed_margins(&changes),
+            vec![(NodeId::new(KNOB_NODE), TRAVEL)]
+        );
     }
 
     #[test]
@@ -1890,10 +2034,10 @@ mod autotest_generated {
     fn a_toggle_callback_that_declines_the_update_still_gets_the_visuals_synced() {
         // A user callback returning DoNothing must not suppress the widget's own visual
         // bookkeeping — otherwise the flag says "on" and the knob stays parked left.
-        let (styled, state) = laid_out(
-            Switch::create(false)
-                .with_on_toggle(RefAny::new(0u8), toggle_do_nothing as SwitchOnToggleCallbackType),
-        );
+        let (styled, state) = laid_out(Switch::create(false).with_on_toggle(
+            RefAny::new(0u8),
+            toggle_do_nothing as SwitchOnToggleCallbackType,
+        ));
 
         let (update, changes) = click(styled, &state, node(TRACK));
 
@@ -1958,10 +2102,17 @@ mod autotest_generated {
                 vec![(NodeId::new(KNOB_NODE), margin)],
                 "click #{i}: the pushed knob offset disagrees with the flag",
             );
-            assert_eq!(is_checked(&state), expected_on, "click #{i}: the flag drifted");
+            assert_eq!(
+                is_checked(&state),
+                expected_on,
+                "click #{i}: the flag drifted"
+            );
         }
 
-        assert!(is_checked(&state), "an odd number of clicks left the switch off");
+        assert!(
+            is_checked(&state),
+            "an odd number of clicks left the switch off"
+        );
     }
 
     #[test]
@@ -1971,8 +2122,14 @@ mod autotest_generated {
         let (styled, state) = laid_out(Switch::create(false));
         let (_, changes) = click(styled, &state, node(TRACK));
 
-        let bg_nodes: Vec<_> = pushed_backgrounds(&changes).into_iter().map(|(n, _)| n).collect();
-        let margin_nodes: Vec<_> = pushed_margins(&changes).into_iter().map(|(n, _)| n).collect();
+        let bg_nodes: Vec<_> = pushed_backgrounds(&changes)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        let margin_nodes: Vec<_> = pushed_margins(&changes)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
 
         assert_eq!(bg_nodes, vec![NodeId::new(TRACK)]);
         assert_eq!(margin_nodes, vec![NodeId::new(KNOB_NODE)]);

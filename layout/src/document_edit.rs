@@ -287,7 +287,8 @@ fn apply_merge(
             };
             match coalesced {
                 Some(joined) => {
-                    *first_children.last_mut().unwrap() = Dom::create_text_do_not_use_without_block_level_wrapper(joined);
+                    *first_children.last_mut().unwrap() =
+                        Dom::create_text_do_not_use_without_block_level_wrapper(joined);
                 }
                 None => first_children.push(second_first),
             }
@@ -453,8 +454,7 @@ fn apply_unwrap(
 ) -> Result<DocumentOperation, DocumentEditError> {
     let mut children = take_children(host);
     let index = unwrap.at.child_index as usize;
-    if index >= children.len()
-        || matches!(children[index].root.get_node_type(), NodeType::Text(_))
+    if index >= children.len() || matches!(children[index].root.get_node_type(), NodeType::Text(_))
     {
         host.children = children.into();
         return Err(DocumentEditError::TargetNotFound);
@@ -493,10 +493,8 @@ fn apply_unwrap(
                 _ => unreachable!("checked above"),
             };
             children[index - 1] = Dom::create_text_do_not_use_without_block_level_wrapper(joined);
-            start = NodePosition::in_text_child(
-                u32::try_from(index - 1).unwrap_or(u32::MAX),
-                prev_len,
-            );
+            start =
+                NodePosition::in_text_child(u32::try_from(index - 1).unwrap_or(u32::MAX), prev_len);
         }
     }
 
@@ -662,7 +660,9 @@ mod tests {
 
     fn p(text: &str) -> Dom {
         let mut p = Dom::create_p();
-        p.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(text));
+        p.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ));
         p
     }
 
@@ -672,7 +672,9 @@ mod tests {
 
     fn li(text: &str) -> Dom {
         let mut li = el("li");
-        li.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(text));
+        li.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ));
         li
     }
 
@@ -732,11 +734,17 @@ mod tests {
         // flattened, re-parsed, or byte-walked.
         let mut host = Dom::create_div();
         let mut para = Dom::create_p();
-        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("ab"));
+        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "ab",
+        ));
         let mut b = el("b");
-        b.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("bold"));
+        b.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "bold",
+        ));
         para.add_child(b);
-        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("cd"));
+        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "cd",
+        ));
         host.add_child(para);
 
         let cs = changeset(
@@ -971,11 +979,16 @@ mod tests {
         // Children now: ["hello ", <b>"world"</b>, " extra"].
         let kids = host.children.as_ref();
         assert_eq!(kids.len(), 3, "{:?}", texts(&host));
-        assert_eq!(texts(&host), ["hello ", "world", " extra"].map(String::from).to_vec());
-        assert!(matches!(
-            kids[1].root.get_node_type(),
-            NodeType::B | NodeType::Div | NodeType::Strong
-        ) || !matches!(kids[1].root.get_node_type(), NodeType::Text(_)));
+        assert_eq!(
+            texts(&host),
+            ["hello ", "world", " extra"].map(String::from).to_vec()
+        );
+        assert!(
+            matches!(
+                kids[1].root.get_node_type(),
+                NodeType::B | NodeType::Div | NodeType::Strong
+            ) || !matches!(kids[1].root.get_node_type(), NodeType::Text(_))
+        );
 
         // Unwrap (the inverse) restores ONE coalesced text child.
         let DocumentOperation::UnwrapRange(ref uw) = applied.inverse else {
@@ -1017,8 +1030,15 @@ mod tests {
         apply_document_operation(&mut host, &[], &cs).expect("wrap blocks");
         let kids = host.children.as_ref();
         assert_eq!(kids.len(), 3, "{:?}", texts(&host));
-        assert_eq!(kids[1].children.as_ref().len(), 2, "blockquote took [two, three]");
-        assert_eq!(texts(&host), ["one", "twothree", "four"].map(String::from).to_vec());
+        assert_eq!(
+            kids[1].children.as_ref().len(),
+            2,
+            "blockquote took [two, three]"
+        );
+        assert_eq!(
+            texts(&host),
+            ["one", "twothree", "four"].map(String::from).to_vec()
+        );
     }
 
     #[test]
@@ -1065,7 +1085,10 @@ mod tests {
         let (head, tail) = split_dom_at_path(&doc, &[1]);
         assert_eq!(head.children.as_ref().len(), 1, "a stays");
         assert_eq!(tail.children.as_ref().len(), 2, "b + c flow on");
-        assert_eq!(head.estimated_total_children, head.children.as_ref().len() + 1);
+        assert_eq!(
+            head.estimated_total_children,
+            head.children.as_ref().len() + 1
+        );
     }
 
     #[test]

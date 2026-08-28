@@ -5,11 +5,11 @@
 
 use std::{cell::RefCell, sync::Arc};
 
+use azul_core::icon::SharedIconProvider;
 use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_css::system::SystemStyle;
-use azul_core::icon::SharedIconProvider;
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 
 use super::super::common::debug_server::LogCategory;
 use super::super::common::event::SharedUndoManager;
@@ -39,7 +39,9 @@ pub struct AppResources {
     /// giving every window a private `embedded_fonts` pool - so a face
     /// registered while laying out one window was invisible to the next. See
     /// `layout_window_sharing_fonts`.
-    pub font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    pub font_manager: Option<
+        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
 
     /// Application data (user's global state)
     pub app_data: Arc<RefCell<RefAny>>,
@@ -60,7 +62,11 @@ impl AppResources {
     /// Create new shared resources
     ///
     /// This should be called once at application startup.
-    pub fn new(config: AppConfig, fc_cache: Arc<FcFontCache>, font_registry: Option<Arc<FcFontRegistry>>) -> Self {
+    pub fn new(
+        config: AppConfig,
+        fc_cache: Arc<FcFontCache>,
+        font_registry: Option<Arc<FcFontRegistry>>,
+    ) -> Self {
         Self::new_with_font_manager(config, fc_cache, font_registry, None)
     }
 
@@ -70,7 +76,9 @@ impl AppResources {
         config: AppConfig,
         fc_cache: Arc<FcFontCache>,
         font_registry: Option<Arc<FcFontRegistry>>,
-        font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+        font_manager: Option<
+            std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        >,
     ) -> Self {
         // Create empty app data (user can set this later)
         let app_data = Arc::new(RefCell::new(RefAny::new(())));

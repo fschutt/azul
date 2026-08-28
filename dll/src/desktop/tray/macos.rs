@@ -212,10 +212,7 @@ impl PlatformTray {
     /// The callback registered for a menu command, so the integration layer can
     /// invoke it against a window (a tray click has no window of its own, and a
     /// `CallbackInfo` needs one).
-    pub(super) fn menu_callback(
-        &self,
-        command: u32,
-    ) -> Option<&azul_core::menu::CoreMenuCallback> {
+    pub(super) fn menu_callback(&self, command: u32) -> Option<&azul_core::menu::CoreMenuCallback> {
         self.menu.get_callback_for_tag(command as isize)
     }
 }
@@ -235,7 +232,12 @@ fn rgba_for(
             (img.width, img.height, img.rgba.as_ref().to_vec())
         }
         TrayIconSource::Named(ref spec) => {
-            let rendered = crate::desktop::tray::render_named_icon(spec.as_str(), ICON_PIXELS, provider, font_manager)?;
+            let rendered = crate::desktop::tray::render_named_icon(
+                spec.as_str(),
+                ICON_PIXELS,
+                provider,
+                font_manager,
+            )?;
             (rendered.width, rendered.height, rendered.rgba)
         }
     };
@@ -264,7 +266,9 @@ pub(crate) fn nsimage_from_rgba(
     points: u32,
     _mtm: MainThreadMarker,
 ) -> Option<Retained<NSImage>> {
-    let expected = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
+    let expected = (width as usize)
+        .checked_mul(height as usize)?
+        .checked_mul(4)?;
     if rgba.len() != expected {
         return None;
     }

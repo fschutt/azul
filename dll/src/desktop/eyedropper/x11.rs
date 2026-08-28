@@ -37,7 +37,10 @@ pub fn capture(window: &X11Window) -> Option<Screenshot> {
             #[allow(clippy::cast_sign_loss)]
             let stride = img.bytes_per_line as usize;
             for y in 0..h as usize {
-                let row = core::slice::from_raw_parts(img.data.cast::<u8>().add(y * stride), w as usize * 4);
+                let row = core::slice::from_raw_parts(
+                    img.data.cast::<u8>().add(y * stride),
+                    w as usize * 4,
+                );
                 out.extend(super::bgra_to_rgba(row));
             }
             out

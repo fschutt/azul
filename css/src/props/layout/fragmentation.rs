@@ -30,7 +30,6 @@ pub enum PageBreak {
     AvoidColumn,
 }
 
-
 impl PrintAsCssValue for PageBreak {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -63,7 +62,6 @@ pub enum BreakInside {
     AvoidPage,
     AvoidColumn,
 }
-
 
 impl PrintAsCssValue for BreakInside {
     fn print_as_css_value(&self) -> String {
@@ -130,7 +128,6 @@ pub enum BoxDecorationBreak {
     Clone,
 }
 
-
 impl PrintAsCssValue for BoxDecorationBreak {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -196,11 +193,12 @@ impl crate::codegen::format::FormatAsRustCode for BoxDecorationBreak {
 
 #[cfg(feature = "parser")]
 pub mod parser {
-    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
+    #[allow(clippy::wildcard_imports)]
+    // parser submodule reuses the parent module's value types
     use super::*;
-    use core::num::ParseIntError;
     use crate::corety::AzString;
     use crate::props::layout::position::ParseIntErrorWithInput;
+    use core::num::ParseIntError;
 
     // -- PageBreak parser (`break-before`, `break-after`)
 
@@ -223,15 +221,19 @@ pub mod parser {
     }
 
     impl PageBreakParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> PageBreakParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> PageBreakParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => PageBreakParseErrorOwned::InvalidValue((*s).to_string().into()),
+                Self::InvalidValue(s) => {
+                    PageBreakParseErrorOwned::InvalidValue((*s).to_string().into())
+                }
             }
         }
     }
 
     impl PageBreakParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> PageBreakParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> PageBreakParseError<'_> {
             match self {
                 Self::InvalidValue(s) => PageBreakParseError::InvalidValue(s.as_str()),
             }
@@ -280,15 +282,19 @@ pub mod parser {
     }
 
     impl BreakInsideParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> BreakInsideParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> BreakInsideParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => BreakInsideParseErrorOwned::InvalidValue((*s).to_string().into()),
+                Self::InvalidValue(s) => {
+                    BreakInsideParseErrorOwned::InvalidValue((*s).to_string().into())
+                }
             }
         }
     }
 
     impl BreakInsideParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> BreakInsideParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> BreakInsideParseError<'_> {
             match self {
                 Self::InvalidValue(s) => BreakInsideParseError::InvalidValue(s.as_str()),
             }
@@ -298,9 +304,7 @@ pub mod parser {
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `break-inside` value.
-    pub fn parse_break_inside(
-        input: &str,
-    ) -> Result<BreakInside, BreakInsideParseError<'_>> {
+    pub fn parse_break_inside(input: &str) -> Result<BreakInside, BreakInsideParseError<'_>> {
         match input.trim() {
             "auto" => Ok(BreakInside::Auto),
             "avoid" => Ok(BreakInside::Avoid),
@@ -404,7 +408,8 @@ pub mod parser {
     }
 
     impl BoxDecorationBreakParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> BoxDecorationBreakParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> BoxDecorationBreakParseErrorOwned {
             match self {
                 Self::InvalidValue(s) => {
                     BoxDecorationBreakParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -414,7 +419,8 @@ pub mod parser {
     }
 
     impl BoxDecorationBreakParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> BoxDecorationBreakParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> BoxDecorationBreakParseError<'_> {
             match self {
                 Self::InvalidValue(s) => BoxDecorationBreakParseError::InvalidValue(s.as_str()),
             }
@@ -562,12 +568,12 @@ mod autotest_generated {
             "AVOID-PAGE",
             "\u{1F600}",
             "auto\u{1F600}",
-            "\u{0301}",       // lone combining acute accent
-            "auto\u{0301}",   // "auto" + combining mark
-            "\u{200B}auto",   // zero-width space (NOT Unicode whitespace)
+            "\u{0301}",     // lone combining acute accent
+            "auto\u{0301}", // "auto" + combining mark
+            "\u{200B}auto", // zero-width space (NOT Unicode whitespace)
             "auto\u{200B}",
-            "\u{FEFF}auto",   // BOM (NOT Unicode whitespace)
-            "аuto",           // Cyrillic 'а' (U+0430) homoglyph
+            "\u{FEFF}auto", // BOM (NOT Unicode whitespace)
+            "аuto",         // Cyrillic 'а' (U+0430) homoglyph
             "auto\u{0000}\u{FFFD}",
             "initial",
             "inherit",
@@ -609,7 +615,11 @@ mod autotest_generated {
             let once = expected.print_as_css_value();
             let decoded = parse_page_break(&once).expect("printed value must re-parse");
             assert_eq!(decoded, expected);
-            assert_eq!(decoded.print_as_css_value(), once, "encoding must be stable");
+            assert_eq!(
+                decoded.print_as_css_value(),
+                once,
+                "encoding must be stable"
+            );
         }
     }
 
@@ -653,7 +663,10 @@ mod autotest_generated {
     #[test]
     fn page_break_leading_trailing_junk() {
         assert_eq!(parse_page_break("  auto  "), Ok(PageBreak::Auto));
-        assert_eq!(parse_page_break("\n\tavoid-page\r\n"), Ok(PageBreak::AvoidPage));
+        assert_eq!(
+            parse_page_break("\n\tavoid-page\r\n"),
+            Ok(PageBreak::AvoidPage)
+        );
         assert!(parse_page_break("auto;").is_err());
         assert!(parse_page_break("auto garbage").is_err());
         assert!(parse_page_break("(auto)").is_err());
@@ -669,8 +682,14 @@ mod autotest_generated {
             Ok(PageBreak::Auto),
             "NBSP is Unicode whitespace, so trim() removes it (lenient vs. CSS)"
         );
-        assert!(parse_page_break("\u{200B}auto").is_err(), "ZWSP is not whitespace");
-        assert!(parse_page_break("\u{FEFF}auto").is_err(), "BOM is not whitespace");
+        assert!(
+            parse_page_break("\u{200B}auto").is_err(),
+            "ZWSP is not whitespace"
+        );
+        assert!(
+            parse_page_break("\u{FEFF}auto").is_err(),
+            "BOM is not whitespace"
+        );
     }
 
     /// Characterization: keyword matching is byte-exact, so CSS's ASCII

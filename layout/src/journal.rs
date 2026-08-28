@@ -160,18 +160,19 @@ fn escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use azul_core::id::NodeId;
     use azul_core::{
         dom::{DomId, DomNodeId},
         styled_dom::NodeHierarchyItemId,
     };
-    use azul_core::id::NodeId;
 
     /// The journal is process-global state, so its tests must not run
     /// concurrently with each other — without this they interleave
     /// enable/clear/record and fail at random.
     fn serial() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        LOCK.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn node(idx: usize) -> DomNodeId {
@@ -188,7 +189,10 @@ mod tests {
         let _serial = serial();
         set_enabled(false);
         record(node(1), 0);
-        assert!(recent(10).is_empty(), "a disabled journal must record nothing");
+        assert!(
+            recent(10).is_empty(),
+            "a disabled journal must record nothing"
+        );
         assert_eq!(recent_json(10), "[]");
     }
 

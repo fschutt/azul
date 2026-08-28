@@ -152,10 +152,7 @@ pub fn emit(builder: &mut CodeBuilder, ir: &CodegenIR) {
             w = wrapper
         ));
         builder.indent();
-        builder.line(&format!(
-            "fn.invoke({})",
-            forward_args.join(", ")
-        ));
+        builder.line(&format!("fn.invoke({})", forward_args.join(", ")));
         builder.dedent();
         builder.line("}");
         builder.dedent();
@@ -289,9 +286,11 @@ fn emit_kt_typed_invoker_sam(
     let Some(ret_struct) = ir.find_struct(ret_ty) else {
         return;
     };
-    if !ir.functions.iter().any(|f| {
-        f.class_name == ret_ty && matches!(f.kind, FunctionKind::Delete)
-    }) {
+    if !ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == ret_ty && matches!(f.kind, FunctionKind::Delete))
+    {
         return;
     }
     if matches!(
@@ -329,9 +328,7 @@ fn emit_kt_typed_invoker_sam(
         " * Typed {} SAM. Returns a `{}` wrapper directly; the host-invoker",
         wrapper, wrapper_class
     ));
-    builder.line(
-        " * bridge handles the struct-byte splice into outPtr internally.",
-    );
+    builder.line(" * bridge handles the struct-byte splice into outPtr internally.");
     builder.line(" */");
     builder.line(&format!("fun interface {} {{", wrapper));
     builder.indent();
@@ -359,10 +356,7 @@ fn emit_kt_typed_invoker_sam(
         wrapper, wrapper, cb_ffi
     ));
     builder.indent();
-    builder.line(&format!(
-        "val raw = {} {{",
-        raw_sam
-    ));
+    builder.line(&format!("val raw = {} {{", raw_sam));
     builder.indent();
     builder.line(&format!("{} ->", raw_lambda_args.join(", ")));
     builder.line(&format!(
@@ -414,7 +408,10 @@ fn emit_kt_data_typed_invoker_sam(
 
     // Probe #1: first arg = RefAny.
     let first = cb.args.first();
-    if first.map(|a| a.type_name.trim() != "RefAny").unwrap_or(true) {
+    if first
+        .map(|a| a.type_name.trim() != "RefAny")
+        .unwrap_or(true)
+    {
         return;
     }
 
@@ -590,10 +587,7 @@ fn emit_kt_data_typed_invoker_sam(
 
 /// Mirror of `lang_kotlin/wrappers.rs::has_kt_wrapper_class` kept
 /// local to managed.rs so the helper there can stay private.
-fn kt_managed_has_wrapper_class(
-    type_name: &str,
-    ir: &super::super::ir::CodegenIR,
-) -> bool {
+fn kt_managed_has_wrapper_class(type_name: &str, ir: &super::super::ir::CodegenIR) -> bool {
     use super::super::ir::{FunctionKind, TypeCategory};
     let Some(s) = ir.find_struct(type_name) else {
         return false;

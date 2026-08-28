@@ -13,9 +13,13 @@ use std::{
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalRect},
-    hit_test::{DocumentId, PipelineId, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE, TAG_TYPE_SCROLLBAR, TAG_TYPE_SCROLL_CONTAINER},
+    hit_test::{
+        DocumentId, PipelineId, TAG_TYPE_CURSOR, TAG_TYPE_DOM_NODE, TAG_TYPE_SCROLLBAR,
+        TAG_TYPE_SCROLL_CONTAINER,
+    },
     resources::{
-        AddImage, ImageData as AzImageData, ImageDirtyRect, ImageKey, ImageRef, SyntheticItalics, UpdateImage,
+        AddImage, ImageData as AzImageData, ImageDirtyRect, ImageKey, ImageRef, SyntheticItalics,
+        UpdateImage,
     },
     spaces::{BorderBoxLocal, ContentInset},
     window::{CursorPosition, DebugState},
@@ -77,7 +81,9 @@ impl AsyncHitTester {
                     AsyncHitTester::Resolved(_) => unreachable!(),
                 };
                 let ret = arc.clone();
-                unsafe { core::ptr::write(self, AsyncHitTester::Resolved(arc)); }
+                unsafe {
+                    core::ptr::write(self, AsyncHitTester::Resolved(arc));
+                }
                 ret
             }
         }
@@ -288,14 +294,25 @@ pub fn default_renderer_options(
     // Determine background color for WebRender clear
     // If a material effect is used (not Opaque), use fully transparent clear color
     // so the material effect shows through from behind
-    let bg = if !matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
+    let bg = if !matches!(
+        options.window_state.flags.background_material,
+        WindowBackgroundMaterial::Opaque
+    ) {
         // Material effect - need transparent background
         // Note: We use alpha=0 with non-zero RGB to avoid pre-multiplied alpha issues
         // Some OpenGL implementations render (0,0,0,0) as black
-        ColorU { r: 0, g: 0, b: 0, a: 0 }
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }
     } else {
         // Use background_color if specified, otherwise default to white
-        options.window_state.background_color.as_option()
+        options
+            .window_state
+            .background_color
+            .as_option()
             .copied()
             .unwrap_or(ColorU::WHITE)
     };
@@ -316,9 +333,7 @@ pub fn default_renderer_options(
         // primitives, ...) can be switched on from the environment exactly like
         // the hit-test overlay — without a rebuild, and in release builds too.
         // The window's own DebugState still wins where it asked for something.
-        debug_flags: wr_translate_debug_flags(&merge_overlay_env(
-            options.window_state.debug_state,
-        )),
+        debug_flags: wr_translate_debug_flags(&merge_overlay_env(options.window_state.debug_state)),
         // Shader precaching: use EMPTY to avoid blocking startup with full compilation.
         // Shaders will be compiled on-demand when first needed by the renderer.
         // When a disk cache is present, shaders are loaded via glProgramBinary
@@ -414,14 +429,33 @@ fn merge_overlay_env(mut state: DebugState) -> DebugState {
         ($($f:ident),* $(,)?) => { $( state.$f = state.$f || env.$f; )* };
     }
     or_in!(
-        profiler_dbg, render_target_dbg, texture_cache_dbg, gpu_time_queries,
-        gpu_sample_queries, disable_batching, epochs, echo_driver_messages,
-        show_overdraw, gpu_cache_dbg, texture_cache_dbg_clear_evicted,
-        picture_caching_dbg, primitive_dbg, zoom_dbg, small_screen,
-        disable_opaque_pass, disable_alpha_pass, disable_clip_masks,
-        disable_text_prims, disable_gradient_prims, obscure_images,
-        glyph_flashing, smart_profiler, invalidation_dbg,
-        tile_cache_logging_dbg, profiler_capture, force_picture_invalidation,
+        profiler_dbg,
+        render_target_dbg,
+        texture_cache_dbg,
+        gpu_time_queries,
+        gpu_sample_queries,
+        disable_batching,
+        epochs,
+        echo_driver_messages,
+        show_overdraw,
+        gpu_cache_dbg,
+        texture_cache_dbg_clear_evicted,
+        picture_caching_dbg,
+        primitive_dbg,
+        zoom_dbg,
+        small_screen,
+        disable_opaque_pass,
+        disable_alpha_pass,
+        disable_clip_masks,
+        disable_text_prims,
+        disable_gradient_prims,
+        obscure_images,
+        glyph_flashing,
+        smart_profiler,
+        invalidation_dbg,
+        tile_cache_logging_dbg,
+        profiler_capture,
+        force_picture_invalidation,
     );
     state
 }
@@ -580,7 +614,10 @@ fn content_inset_for(
 pub fn translate_hit_test_result(
     wr_result: webrender::api::HitTestResult,
     _focused_node: Option<azul_core::dom::DomNodeId>,
-    layout_results: &alloc::collections::BTreeMap<azul_core::dom::DomId, azul_layout::window::DomLayoutResult>,
+    layout_results: &alloc::collections::BTreeMap<
+        azul_core::dom::DomId,
+        azul_layout::window::DomLayoutResult,
+    >,
 ) -> azul_core::hit_test::FullHitTest {
     use alloc::collections::BTreeMap;
 
@@ -618,12 +655,16 @@ pub fn translate_hit_test_result(
             item.point_relative_to_item.x,
             item.point_relative_to_item.y,
         ));
-        let point_relative_to_item =
-            border_box_local.to_content_box_local(content_inset_for(layout_results, dom_id, node_id));
+        let point_relative_to_item = border_box_local.to_content_box_local(content_inset_for(
+            layout_results,
+            dom_id,
+            node_id,
+        ));
 
         let is_focusable = if let Some(lr) = layout_results.get(&dom_id) {
             let container = lr.styled_dom.node_data.as_container();
-            container.get(node_id)
+            container
+                .get(node_id)
                 .and_then(|nd| nd.get_tab_index())
                 .is_some()
         } else {
@@ -678,7 +719,10 @@ pub fn wr_translate_scrollbar_hit_id(
     let tag_type = TAG_TYPE_SCROLLBAR | component_type;
 
     // Return tag as (u64, u16) tuple
-    ((tag_value, tag_type), webrender::api::units::LayoutPoint::zero())
+    (
+        (tag_value, tag_type),
+        webrender::api::units::LayoutPoint::zero(),
+    )
 }
 
 /// Perform WebRender-based hit testing
@@ -699,10 +743,7 @@ pub fn convert_cpu_hit_test_to_full(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     cursor_position: azul_core::geom::LogicalPosition,
     resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<azul_core::geom::LogicalPosition>,
-    resolve_transform: &dyn Fn(
-        DomId,
-        NodeId,
-    ) -> Option<azul_core::transform::ComputedTransform3D>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
 ) -> FullHitTest {
     azul_layout::headless::convert_cpu_hit_test_to_full(
         tester,
@@ -780,7 +821,9 @@ pub fn fullhittest_new_webrender(
                 for i in &wr_result.items {
                     let item_dom_inner = i.pipeline.0 as usize;
                     if item_dom_inner != dom_id.inner && seen_foreign.insert(item_dom_inner) {
-                        let child_dom_id = DomId { inner: item_dom_inner };
+                        let child_dom_id = DomId {
+                            inner: item_dom_inner,
+                        };
                         foreign_child_dom_ids.push(child_dom_id);
                     }
                 }
@@ -816,7 +859,8 @@ pub fn fullhittest_new_webrender(
                         continue;
                     }
 
-                    let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                    let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&node_id)
+                    {
                         Some(i) => i,
                         None => continue,
                     };
@@ -860,17 +904,20 @@ pub fn fullhittest_new_webrender(
                         .entry(*dom_id)
                         .or_insert_with(azul_core::hit_test::HitTest::empty)
                         .scroll_hit_test_nodes
-                        .insert(node_id, ScrollHitTestItem {
-                            point_in_viewport: *cursor_relative_to_dom,
-                            // Synthetic VirtualView-parent entry: no WebRender
-                            // item to measure against, so the port-relative
-                            // point is unknown rather than zero-at-the-corner.
-                            // (No consumer reads it on this path.)
-                            point_relative_to_item: BorderBoxLocal::new(
-                                *cursor_relative_to_dom,
-                            ),
-                            scroll_node,
-                        });
+                        .insert(
+                            node_id,
+                            ScrollHitTestItem {
+                                point_in_viewport: *cursor_relative_to_dom,
+                                // Synthetic VirtualView-parent entry: no WebRender
+                                // item to measure against, so the port-relative
+                                // point is unknown rather than zero-at-the-corner.
+                                // (No consumer reads it on this path.)
+                                point_relative_to_item: BorderBoxLocal::new(
+                                    *cursor_relative_to_dom,
+                                ),
+                                scroll_node,
+                            },
+                        );
                 }
             }
 
@@ -893,8 +940,9 @@ pub fn fullhittest_new_webrender(
             // These are hit-test areas for scrollable containers, enabling trackpad/wheel scrolling
             // Only process items from this DOM's pipeline.
             for i in wr_result.items.iter() {
-                if i.pipeline != wr_translate_pipeline_id(PipelineId(
-                    dom_id.inner as u32, document_id.id)) {
+                if i.pipeline
+                    != wr_translate_pipeline_id(PipelineId(dom_id.inner as u32, document_id.id))
+                {
                     continue;
                 }
                 let tag_type_marker = i.tag.1 & 0xFF00;
@@ -904,7 +952,7 @@ pub fn fullhittest_new_webrender(
 
                 // Decode scroll container tag: tag.0 = scroll_id (used to find the NodeId)
                 let scroll_id = i.tag.0;
-                
+
                 // Look up the NodeId from the scroll_id_to_node_id mapping
                 let node_id = match layout_result.scroll_id_to_node_id.get(&scroll_id) {
                     Some(&nid) => nid,
@@ -968,18 +1016,22 @@ pub fn fullhittest_new_webrender(
                     .entry(*dom_id)
                     .or_insert_with(azul_core::hit_test::HitTest::empty)
                     .scroll_hit_test_nodes
-                    .insert(node_id, ScrollHitTestItem {
-                        point_in_viewport: *cursor_relative_to_dom,
-                        point_relative_to_item,
-                        scroll_node,
-                    });
+                    .insert(
+                        node_id,
+                        ScrollHitTestItem {
+                            point_in_viewport: *cursor_relative_to_dom,
+                            point_relative_to_item,
+                            scroll_node,
+                        },
+                    );
             }
 
             // Second pass: Process cursor tags (TAG_TYPE_CURSOR = 0x0400)
             // Only process items from this DOM's pipeline.
             for (depth, i) in wr_result.items.iter().enumerate() {
-                if i.pipeline != wr_translate_pipeline_id(PipelineId(
-                    dom_id.inner as u32, document_id.id)) {
+                if i.pipeline
+                    != wr_translate_pipeline_id(PipelineId(dom_id.inner as u32, document_id.id))
+                {
                     continue;
                 }
                 let tag_type_marker = i.tag.1 & 0xFF00;
@@ -990,7 +1042,7 @@ pub fn fullhittest_new_webrender(
                 // Decode cursor tag: tag.0 = DomId (upper 32) | NodeId (lower 32)
                 let node_id_value = (i.tag.0 & 0xFFFFFFFF) as usize;
                 let node_id = azul_core::id::NodeId::new(node_id_value);
-                
+
                 // Decode cursor type from lower byte of tag.1
                 let cursor_type_value = (i.tag.1 & 0x00FF) as u8;
                 let cursor_type = azul_core::hit_test::CursorType::from_u8(cursor_type_value);
@@ -999,11 +1051,14 @@ pub fn fullhittest_new_webrender(
                     .entry(*dom_id)
                     .or_insert_with(azul_core::hit_test::HitTest::empty)
                     .cursor_hit_test_nodes
-                    .insert(node_id, azul_core::hit_test::CursorHitTestItem {
-                        cursor_type,
-                        hit_depth: depth as u32,
-                        point_in_viewport: *cursor_relative_to_dom,
-                    });
+                    .insert(
+                        node_id,
+                        azul_core::hit_test::CursorHitTestItem {
+                            cursor_type,
+                            hit_depth: depth as u32,
+                            point_in_viewport: *cursor_relative_to_dom,
+                        },
+                    );
             }
 
             // Third pass: Convert regular DOM node hit test results.
@@ -1015,11 +1070,15 @@ pub fn fullhittest_new_webrender(
                 .styled_dom
                 .tag_ids_to_node_ids
                 .iter()
-                .filter_map(|m| m.node_id.into_crate_internal().map(|nid| (m.tag_id.inner, nid)))
+                .filter_map(|m| {
+                    m.node_id
+                        .into_crate_internal()
+                        .map(|nid| (m.tag_id.inner, nid))
+                })
                 .collect();
 
-            let wr_pipeline_for_dom = wr_translate_pipeline_id(PipelineId(
-                dom_id.inner as u32, document_id.id));
+            let wr_pipeline_for_dom =
+                wr_translate_pipeline_id(PipelineId(dom_id.inner as u32, document_id.id));
 
             let hit_items = wr_result
                 .items
@@ -1035,7 +1094,7 @@ pub fn fullhittest_new_webrender(
                     if tag_type_marker != TAG_TYPE_DOM_NODE {
                         return None;
                     }
-                    
+
                     // Map WebRender tag to DOM node ID via O(1) HashMap lookup
                     let node_id = *tag_to_node.get(&i.tag.0)?;
 
@@ -1230,10 +1289,7 @@ pub fn collect_image_resource_updates(
     // AddImage messages, which only cover *newly*-seen images).
     azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
 ) {
-    use azul_core::{
-        resources::build_add_image_resource_updates,
-        FastBTreeSet,
-    };
+    use azul_core::{resources::build_add_image_resource_updates, FastBTreeSet};
     use azul_layout::solver3::display_list::DisplayListItem;
 
     log_debug!(
@@ -1322,9 +1378,7 @@ pub fn collect_font_resource_updates(
                 ..
             } = item
             {
-                let font_sizes = font_hash_sizes
-                    .entry(font_hash.font_hash)
-                    .or_default();
+                let font_sizes = font_hash_sizes.entry(font_hash.font_hash).or_default();
                 let font_size_au = Au::from_px(*font_size_px);
                 font_sizes.insert(font_size_au);
             }
@@ -1352,7 +1406,7 @@ pub fn collect_font_resource_updates(
             // text, so both must be searched, and by ONE function so the GPU and
             // CPU paths cannot drift apart.
             let font_ref = layout_window.font_manager.resolve_font_by_hash(font_hash);
-            
+
             if let Some(font_ref) = font_ref {
                 log_debug!(
                     LogCategory::Rendering,
@@ -1654,7 +1708,9 @@ pub fn translate_image_key(key: ImageKey) -> WrImageKey {
 }
 
 /// Translate ImageDescriptor from azul-core to WebRender
-fn wr_translate_image_descriptor(descriptor: &azul_core::resources::ImageDescriptor) -> WrImageDescriptor {
+fn wr_translate_image_descriptor(
+    descriptor: &azul_core::resources::ImageDescriptor,
+) -> WrImageDescriptor {
     let mut flags = WrImageDescriptorFlags::empty();
     if descriptor.flags.is_opaque {
         flags |= WrImageDescriptorFlags::IS_OPAQUE;
@@ -1665,10 +1721,7 @@ fn wr_translate_image_descriptor(descriptor: &azul_core::resources::ImageDescrip
 
     WrImageDescriptor {
         format: translate_image_format(descriptor.format),
-        size: DeviceIntSize::new(
-            descriptor.width as i32,
-            descriptor.height as i32,
-        ),
+        size: DeviceIntSize::new(descriptor.width as i32, descriptor.height as i32),
         stride: descriptor.stride.into_option(),
         offset: descriptor.offset,
         flags,
@@ -1894,7 +1947,10 @@ pub fn collect_stale_image_deletes(
             LogCategory::Rendering,
             "[image-gc] DeleteImage x{} (registered now {})",
             deletes.len(),
-            layout_window.renderer_resources.currently_registered_images.len()
+            layout_window
+                .renderer_resources
+                .currently_registered_images
+                .len()
         );
     }
     deletes
@@ -2062,7 +2118,12 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
     // Get HiDPI factor for scaling scroll offsets
     // Display list coordinates are in physical pixels (scaled by DPI), so scroll
     // offsets must also be scaled to match.
-    let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+    let hidpi_factor = layout_window
+        .current_window_state
+        .size
+        .get_hidpi_factor()
+        .inner
+        .get();
 
     // Iterate through all DOMs
     for (dom_id, layout_result) in &layout_window.layout_results {
@@ -2116,7 +2177,12 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
     // Get DPI scale factor to match display list coordinate space.
     // Display list items are in logical CSS pixels scaled by DPI in compositor2.
     // Transform values must use the same scaling.
-    let dpi_scale = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+    let dpi_scale = layout_window
+        .current_window_state
+        .size
+        .get_hidpi_factor()
+        .inner
+        .get();
 
     // Collect all dynamic properties to update
     let mut properties = DynamicProperties {
@@ -2191,14 +2257,22 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                 // compositor2's coordinate space where all positions are logical × dpi_scale.
                 use webrender::api::units::LayoutTransform;
                 let wr_transform = LayoutTransform::new(
-                    transform.m[0][0], transform.m[0][1],
-                    transform.m[0][2], transform.m[0][3],
-                    transform.m[1][0], transform.m[1][1],
-                    transform.m[1][2], transform.m[1][3],
-                    transform.m[2][0], transform.m[2][1],
-                    transform.m[2][2], transform.m[2][3],
-                    transform.m[3][0] * dpi_scale, transform.m[3][1] * dpi_scale,
-                    transform.m[3][2] * dpi_scale, transform.m[3][3],
+                    transform.m[0][0],
+                    transform.m[0][1],
+                    transform.m[0][2],
+                    transform.m[0][3],
+                    transform.m[1][0],
+                    transform.m[1][1],
+                    transform.m[1][2],
+                    transform.m[1][3],
+                    transform.m[2][0],
+                    transform.m[2][1],
+                    transform.m[2][2],
+                    transform.m[2][3],
+                    transform.m[3][0] * dpi_scale,
+                    transform.m[3][1] * dpi_scale,
+                    transform.m[3][2] * dpi_scale,
+                    transform.m[3][3],
                 );
 
                 properties.transforms.push(PropertyValue {
@@ -2224,14 +2298,22 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
             if let Some(&transform_key) = gpu_cache.h_transform_keys.get(node_id) {
                 use webrender::api::units::LayoutTransform;
                 let wr_transform = LayoutTransform::new(
-                    transform.m[0][0], transform.m[0][1],
-                    transform.m[0][2], transform.m[0][3],
-                    transform.m[1][0], transform.m[1][1],
-                    transform.m[1][2], transform.m[1][3],
-                    transform.m[2][0], transform.m[2][1],
-                    transform.m[2][2], transform.m[2][3],
-                    transform.m[3][0] * dpi_scale, transform.m[3][1] * dpi_scale,
-                    transform.m[3][2] * dpi_scale, transform.m[3][3],
+                    transform.m[0][0],
+                    transform.m[0][1],
+                    transform.m[0][2],
+                    transform.m[0][3],
+                    transform.m[1][0],
+                    transform.m[1][1],
+                    transform.m[1][2],
+                    transform.m[1][3],
+                    transform.m[2][0],
+                    transform.m[2][1],
+                    transform.m[2][2],
+                    transform.m[2][3],
+                    transform.m[3][0] * dpi_scale,
+                    transform.m[3][1] * dpi_scale,
+                    transform.m[3][2] * dpi_scale,
+                    transform.m[3][3],
                 );
 
                 properties.transforms.push(PropertyValue {
@@ -2347,8 +2429,10 @@ pub fn wr_translate_border_radius(
     let bottom_left_px_h = bottom_left.to_pixels_internal(w, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
     let bottom_left_px_v = bottom_left.to_pixels_internal(h, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
 
-    let bottom_right_px_h = bottom_right.to_pixels_internal(w, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
-    let bottom_right_px_v = bottom_right.to_pixels_internal(h, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let bottom_right_px_h =
+        bottom_right.to_pixels_internal(w, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    let bottom_right_px_v =
+        bottom_right.to_pixels_internal(h, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
 
     WrBorderRadius {
         top_left: WrLayoutSize::new(top_left_px_h, top_left_px_v),
@@ -2525,22 +2609,26 @@ pub fn get_webrender_border(
         return None;
     }
 
-    let has_no_border_radius = radii
-        .top_left
-        .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-        == 0.0
-        && radii
-            .top_right
+    let has_no_border_radius =
+        radii
+            .top_left
             .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
             == 0.0
-        && radii
-            .bottom_left
-            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-            == 0.0
-        && radii
-            .bottom_right
-            .to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-            == 0.0;
+            && radii.top_right.to_pixels_internal(
+                rect_size.width,
+                DEFAULT_FONT_SIZE,
+                DEFAULT_FONT_SIZE,
+            ) == 0.0
+            && radii.bottom_left.to_pixels_internal(
+                rect_size.width,
+                DEFAULT_FONT_SIZE,
+                DEFAULT_FONT_SIZE,
+            ) == 0.0
+            && radii.bottom_right.to_pixels_internal(
+                rect_size.width,
+                DEFAULT_FONT_SIZE,
+                DEFAULT_FONT_SIZE,
+            ) == 0.0;
 
     let (color_top, color_right, color_bottom, color_left) = (
         colors
@@ -2591,22 +2679,34 @@ pub fn get_webrender_border(
     let border_widths = WrLayoutSideOffsets::new(
         width_top
             .map(|v| {
-                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                    * hidpi)
+                    .floor()
+                    / hidpi
             })
             .unwrap_or(0.0),
         width_right
             .map(|v| {
-                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                    * hidpi)
+                    .floor()
+                    / hidpi
             })
             .unwrap_or(0.0),
         width_bottom
             .map(|v| {
-                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+                (v.to_pixels_internal(rect_size.height, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                    * hidpi)
+                    .floor()
+                    / hidpi
             })
             .unwrap_or(0.0),
         width_left
             .map(|v| {
-                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE) * hidpi).floor() / hidpi
+                (v.to_pixels_internal(rect_size.width, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                    * hidpi)
+                    .floor()
+                    / hidpi
             })
             .unwrap_or(0.0),
     );
@@ -2700,8 +2800,12 @@ pub fn build_webrender_transaction(
                 *dom_id,
                 &layout_result.layout_tree,
                 &system_callbacks,
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)),
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    500,
+                )),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    200,
+                )),
             );
         }
     }
@@ -2831,8 +2935,12 @@ pub fn build_webrender_transaction(
                 *dom_id,
                 &layout_result.layout_tree,
                 &system_callbacks,
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)),
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    500,
+                )),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    200,
+                )),
             );
         }
     }
@@ -2926,8 +3034,12 @@ pub fn build_image_only_transaction(
                 *dom_id,
                 &layout_result.layout_tree,
                 &system_callbacks,
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(500)),
-                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(200)),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    500,
+                )),
+                azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                    200,
+                )),
             );
         }
     }
@@ -3032,19 +3144,27 @@ fn process_image_callback_updates(
             .image_key_map
             .contains_key(&image_key);
         if already_registered {
-            txn.update_image(wr_key, wr_descriptor, wr_data, &webrender::api::DirtyRect::All);
+            txn.update_image(
+                wr_key,
+                wr_descriptor,
+                wr_data,
+                &webrender::api::DirtyRect::All,
+            );
         } else {
             txn.add_image(wr_key, wr_descriptor, wr_data, None);
         }
 
         // Resolve the hash the display list carries to the stable key.
-        layout_window.renderer_resources.currently_registered_images.insert(
-            produced_hash,
-            azul_core::resources::ResolvedImage {
-                key: image_key,
-                descriptor,
-            },
-        );
+        layout_window
+            .renderer_resources
+            .currently_registered_images
+            .insert(
+                produced_hash,
+                azul_core::resources::ResolvedImage {
+                    key: image_key,
+                    descriptor,
+                },
+            );
         layout_window
             .renderer_resources
             .image_key_map
@@ -3114,18 +3234,17 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
     // For each VirtualView, rebuild and submit its display list
     for (child_dom_id, parent_dom_id, node_id) in child_dom_ids {
         // Get the layout result for the VirtualView's content
-        let layout_result =
-            match layout_window.layout_results.get(&child_dom_id) {
-                Some(lr) => lr,
-                None => {
-                    log_debug!(LogCategory::Rendering,
+        let layout_result = match layout_window.layout_results.get(&child_dom_id) {
+            Some(lr) => lr,
+            None => {
+                log_debug!(LogCategory::Rendering,
                     "[process_virtual_view_updates] No layout result for child DOM {:?} (parent {:?}, \
                      node {:?})",
                     child_dom_id, parent_dom_id, node_id
                 );
-                    continue;
-                }
-            };
+                continue;
+            }
+        };
 
         // Build the pipeline ID for this VirtualView
         let pipeline_id = wr_translate_pipeline_id(PipelineId(

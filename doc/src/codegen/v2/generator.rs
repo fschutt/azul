@@ -562,10 +562,7 @@ impl GenerationTargets {
         for line in combined.lines() {
             if let Some(rest) = line.trim_start().strip_prefix(file_marker) {
                 if let Some(path) = current_path.take() {
-                    Self::write_string(
-                        std::mem::take(&mut buffer),
-                        &base_dir.join(path),
-                    )?;
+                    Self::write_string(std::mem::take(&mut buffer), &base_dir.join(path))?;
                     wrote_any = true;
                 }
                 let path = match rest.rsplit_once(end_marker) {

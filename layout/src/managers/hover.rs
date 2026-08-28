@@ -78,7 +78,8 @@ pub struct HoverManager {
 
 impl HoverManager {
     /// Create a new empty `HoverManager`
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             hover_histories: BTreeMap::new(),
             press_targets: Vec::new(),
@@ -88,7 +89,10 @@ impl HoverManager {
     /// The node `button` is currently pressed on, if its release is still owed.
     #[must_use]
     pub fn press_target(&self, button: MouseButton) -> Option<DomNodeId> {
-        self.press_targets.iter().find(|(b, _)| *b == button).map(|(_, t)| *t)
+        self.press_targets
+            .iter()
+            .find(|(b, _)| *b == button)
+            .map(|(_, t)| *t)
     }
 
     /// Forget every press target (the owed releases will never come — e.g.
@@ -136,7 +140,10 @@ impl HoverManager {
                     self.press_targets.push((mouse.button, event.target));
                 }
                 EventType::MouseUp => {
-                    let Some(pos) = self.press_targets.iter().position(|(b, _)| *b == mouse.button)
+                    let Some(pos) = self
+                        .press_targets
+                        .iter()
+                        .position(|(b, _)| *b == mouse.button)
                     else {
                         continue;
                     };
@@ -163,7 +170,8 @@ impl HoverManager {
 
     /// (input points, total history entries across all points). Used by
     /// `AZ_E2E_TEST` to watch for unbounded growth.
-    #[must_use] pub fn debug_counts(&self) -> (usize, usize) {
+    #[must_use]
+    pub fn debug_counts(&self) -> (usize, usize) {
         let points = self.hover_histories.len();
         let total: usize = self.hover_histories.values().map(VecDeque::len).sum();
         (points, total)
@@ -196,14 +204,16 @@ impl HoverManager {
     /// Get the most recent hit test result for an input point
     ///
     /// Returns None if no hit tests have been recorded for this input point.
-    #[must_use] pub fn get_current(&self, input_id: &InputPointId) -> Option<&FullHitTest> {
+    #[must_use]
+    pub fn get_current(&self, input_id: &InputPointId) -> Option<&FullHitTest> {
         self.hover_histories
             .get(input_id)
             .and_then(|history| history.front())
     }
 
     /// Get the most recent mouse cursor hit test (convenience method)
-    #[must_use] pub fn get_current_mouse(&self) -> Option<&FullHitTest> {
+    #[must_use]
+    pub fn get_current_mouse(&self) -> Option<&FullHitTest> {
         self.get_current(&InputPointId::Mouse)
     }
 
@@ -211,27 +221,29 @@ impl HoverManager {
     /// (0 = current frame)
     ///
     /// Returns None if the requested frame is not in history.
-    #[must_use] pub fn get_frame(&self, input_id: &InputPointId, frames_ago: usize) -> Option<&FullHitTest> {
+    #[must_use]
+    pub fn get_frame(&self, input_id: &InputPointId, frames_ago: usize) -> Option<&FullHitTest> {
         self.hover_histories
             .get(input_id)
             .and_then(|history| history.get(frames_ago))
     }
 
     /// Get the entire hover history for an input point (most recent first)
-    #[must_use] pub fn get_history(&self, input_id: &InputPointId) -> Option<&VecDeque<FullHitTest>> {
+    #[must_use]
+    pub fn get_history(&self, input_id: &InputPointId) -> Option<&VecDeque<FullHitTest>> {
         self.hover_histories.get(input_id)
     }
 
     /// Get all currently tracked input points
-    #[must_use] pub fn get_active_input_points(&self) -> Vec<InputPointId> {
+    #[must_use]
+    pub fn get_active_input_points(&self) -> Vec<InputPointId> {
         self.hover_histories.keys().copied().collect()
     }
 
     /// Get the number of frames in history for an input point
-    #[must_use] pub fn frame_count(&self, input_id: &InputPointId) -> usize {
-        self.hover_histories
-            .get(input_id)
-            .map_or(0, VecDeque::len)
+    #[must_use]
+    pub fn frame_count(&self, input_id: &InputPointId) -> usize {
+        self.hover_histories.get(input_id).map_or(0, VecDeque::len)
     }
 
     /// Purge every recorded hit-test entry for `dom_id` across all input
@@ -273,12 +285,14 @@ impl HoverManager {
     ///
     /// `DragStart` detection requires analyzing movement over multiple frames.
     /// This returns true if we have at least 2 frames of history.
-    #[must_use] pub fn has_sufficient_history_for_gestures(&self, input_id: &InputPointId) -> bool {
+    #[must_use]
+    pub fn has_sufficient_history_for_gestures(&self, input_id: &InputPointId) -> bool {
         self.frame_count(input_id) >= 2
     }
 
     /// Check if any input point has enough history for gesture detection
-    #[must_use] pub fn any_has_sufficient_history_for_gestures(&self) -> bool {
+    #[must_use]
+    pub fn any_has_sufficient_history_for_gestures(&self) -> bool {
         self.hover_histories
             .iter()
             .any(|(_, history)| history.len() >= 2)
@@ -290,7 +304,8 @@ impl HoverManager {
     /// that the mouse cursor is currently over, or None if not hovering anything.
     ///
     /// NOTE: Assumes single-DOM architecture (uses `DomId { inner: 0 }`).
-    #[must_use] pub fn current_hover_node(&self) -> Option<azul_core::id::NodeId> {
+    #[must_use]
+    pub fn current_hover_node(&self) -> Option<azul_core::id::NodeId> {
         let current = self.get_current_mouse()?;
         let dom_id = azul_core::dom::DomId { inner: 0 };
         let ht = current.hovered_nodes.get(&dom_id)?;
@@ -303,7 +318,8 @@ impl HoverManager {
     /// or no previous frame exists.
     ///
     /// NOTE: Assumes single-DOM architecture (uses `DomId { inner: 0 }`).
-    #[must_use] pub fn previous_hover_node(&self) -> Option<azul_core::id::NodeId> {
+    #[must_use]
+    pub fn previous_hover_node(&self) -> Option<azul_core::id::NodeId> {
         let history = self.hover_histories.get(&InputPointId::Mouse)?;
         let previous = history.get(1)?; // index 1 = one frame ago
         let dom_id = azul_core::dom::DomId { inner: 0 };
@@ -323,12 +339,14 @@ impl HoverManager {
     ///
     /// For single-DOM apps only `DomId 0` is ever hit, so this is equivalent to
     /// [`current_hover_node`] wrapped in `DomId { inner: 0 }`.
-    #[must_use] pub fn current_hover_node_full(&self) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn current_hover_node_full(&self) -> Option<DomNodeId> {
         deepest_node_across_doms(self.get_current_mouse()?)
     }
 
     /// Multi-DOM aware counterpart of [`previous_hover_node`] (one frame ago).
-    #[must_use] pub fn previous_hover_node_full(&self) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn previous_hover_node_full(&self) -> Option<DomNodeId> {
         let history = self.hover_histories.get(&InputPointId::Mouse)?;
         deepest_node_across_doms(history.get(1)?)
     }
@@ -339,10 +357,8 @@ impl HoverManager {
     /// so a `TouchStart` must target the node under THAT finger. Every getter
     /// here was mouse-only, which is part of why nothing ever derived a touch
     /// event from `FullWindowState::touch_state`.
-    #[must_use] pub fn hover_node_full_for(
-        &self,
-        input_id: &InputPointId,
-    ) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn hover_node_full_for(&self, input_id: &InputPointId) -> Option<DomNodeId> {
         deepest_node_across_doms(self.get_current(input_id)?)
     }
 }
@@ -469,23 +485,46 @@ mod autotest_generated {
         let mut hm = HoverManager::new();
         let never_related = |_: DomNodeId, _: DomNodeId| false;
 
-        let mut events = vec![mouse_event(EventType::MouseDown, MouseButton::Left, press_dnid(3))];
+        let mut events = vec![mouse_event(
+            EventType::MouseDown,
+            MouseButton::Left,
+            press_dnid(3),
+        )];
         hm.apply_press_target_capture(&mut events, &never_related);
         assert_eq!(events.len(), 1, "a press adds nothing");
         assert_eq!(hm.press_target(MouseButton::Left), Some(press_dnid(3)));
 
-        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(9))];
+        let mut events = vec![mouse_event(
+            EventType::MouseUp,
+            MouseButton::Left,
+            press_dnid(9),
+        )];
         hm.apply_press_target_capture(&mut events, &never_related);
         assert_eq!(events.len(), 2, "the pressed node gets its own release");
         let captured = &events[1];
         assert_eq!(captured.event_type, EventType::MouseUp);
         assert_eq!(captured.target, press_dnid(3));
-        assert!(captured.at_target_only, "its ancestors already saw the real release");
-        assert_eq!(events[0].target, press_dnid(9), "the hovered node's release is untouched");
-        assert_eq!(hm.press_target(MouseButton::Left), None, "the owed release was delivered");
+        assert!(
+            captured.at_target_only,
+            "its ancestors already saw the real release"
+        );
+        assert_eq!(
+            events[0].target,
+            press_dnid(9),
+            "the hovered node's release is untouched"
+        );
+        assert_eq!(
+            hm.press_target(MouseButton::Left),
+            None,
+            "the owed release was delivered"
+        );
 
         // Nothing pending: a stray release adds nothing.
-        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(9))];
+        let mut events = vec![mouse_event(
+            EventType::MouseUp,
+            MouseButton::Left,
+            press_dnid(9),
+        )];
         hm.apply_press_target_capture(&mut events, &never_related);
         assert_eq!(events.len(), 1);
     }
@@ -495,17 +534,39 @@ mod autotest_generated {
         let mut hm = HoverManager::new();
         // The hovered node 5 is a descendant of the pressed node 3: the real
         // release bubbles through 3 already.
-        let descendant_of = |press: DomNodeId, release: DomNodeId| press == press_dnid(3) && release == press_dnid(5);
+        let descendant_of = |press: DomNodeId, release: DomNodeId| {
+            press == press_dnid(3) && release == press_dnid(5)
+        };
 
-        let mut events = vec![mouse_event(EventType::MouseDown, MouseButton::Left, press_dnid(3))];
+        let mut events = vec![mouse_event(
+            EventType::MouseDown,
+            MouseButton::Left,
+            press_dnid(3),
+        )];
         hm.apply_press_target_capture(&mut events, &descendant_of);
-        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(5))];
+        let mut events = vec![mouse_event(
+            EventType::MouseUp,
+            MouseButton::Left,
+            press_dnid(5),
+        )];
         hm.apply_press_target_capture(&mut events, &descendant_of);
-        assert_eq!(events.len(), 1, "no second release when the path already covers the press");
+        assert_eq!(
+            events.len(),
+            1,
+            "no second release when the path already covers the press"
+        );
 
-        let mut events = vec![mouse_event(EventType::MouseDown, MouseButton::Left, press_dnid(3))];
+        let mut events = vec![mouse_event(
+            EventType::MouseDown,
+            MouseButton::Left,
+            press_dnid(3),
+        )];
         hm.apply_press_target_capture(&mut events, &descendant_of);
-        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Left, press_dnid(3))];
+        let mut events = vec![mouse_event(
+            EventType::MouseUp,
+            MouseButton::Left,
+            press_dnid(3),
+        )];
         hm.apply_press_target_capture(&mut events, &descendant_of);
         assert_eq!(events.len(), 1, "same node: one release");
     }
@@ -520,7 +581,11 @@ mod autotest_generated {
         ];
         hm.apply_press_target_capture(&mut events, &never_related);
         // Releasing the right button elsewhere releases node 4 only.
-        let mut events = vec![mouse_event(EventType::MouseUp, MouseButton::Right, press_dnid(9))];
+        let mut events = vec![mouse_event(
+            EventType::MouseUp,
+            MouseButton::Right,
+            press_dnid(9),
+        )];
         hm.apply_press_target_capture(&mut events, &never_related);
         assert_eq!(events.len(), 2);
         assert_eq!(events[1].target, press_dnid(4));
@@ -628,10 +693,16 @@ mod autotest_generated {
         // A grafted subtree (an inline-docked transient window under a zone
         // with a HIGHER id): the grip (3) is in front of the zone (5).
         let mut full = FullHitTest::empty(None);
-        let ht = full.hovered_nodes.entry(dom(0)).or_insert_with(HitTest::empty);
-        ht.regular_hit_test_nodes.insert(NodeId::new(3), hit_item(0));
-        ht.regular_hit_test_nodes.insert(NodeId::new(5), hit_item(1));
-        ht.regular_hit_test_nodes.insert(NodeId::new(0), hit_item(2));
+        let ht = full
+            .hovered_nodes
+            .entry(dom(0))
+            .or_insert_with(HitTest::empty);
+        ht.regular_hit_test_nodes
+            .insert(NodeId::new(3), hit_item(0));
+        ht.regular_hit_test_nodes
+            .insert(NodeId::new(5), hit_item(1));
+        ht.regular_hit_test_nodes
+            .insert(NodeId::new(0), hit_item(2));
         assert_eq!(deepest_node_across_doms(&full), Some(dom_node(0, 3)));
     }
 
@@ -719,8 +790,14 @@ mod autotest_generated {
         let hm = mouse_history(vec![hits(&[(0, &[1])]), hits(&[(0, &[2])])]);
 
         assert_eq!(hm.frame_count(&InputPointId::Mouse), 2);
-        assert_eq!(hm.get_frame(&InputPointId::Mouse, 0), Some(&hits(&[(0, &[2])])));
-        assert_eq!(hm.get_frame(&InputPointId::Mouse, 1), Some(&hits(&[(0, &[1])])));
+        assert_eq!(
+            hm.get_frame(&InputPointId::Mouse, 0),
+            Some(&hits(&[(0, &[2])]))
+        );
+        assert_eq!(
+            hm.get_frame(&InputPointId::Mouse, 1),
+            Some(&hits(&[(0, &[1])]))
+        );
         assert_eq!(hm.get_current_mouse(), Some(&hits(&[(0, &[2])])));
     }
 
@@ -742,7 +819,9 @@ mod autotest_generated {
             );
         }
         // Anything older was dropped.
-        assert!(hm.get_frame(&InputPointId::Mouse, MAX_HOVER_HISTORY).is_none());
+        assert!(hm
+            .get_frame(&InputPointId::Mouse, MAX_HOVER_HISTORY)
+            .is_none());
     }
 
     #[test]
@@ -755,7 +834,9 @@ mod autotest_generated {
         assert!(hm.get_frame(&mouse, usize::MAX).is_none());
         assert!(hm.get_frame(&mouse, usize::MAX / 2).is_none());
         // Unknown input point at a huge index is still just None.
-        assert!(hm.get_frame(&InputPointId::Touch(u64::MAX), usize::MAX).is_none());
+        assert!(hm
+            .get_frame(&InputPointId::Touch(u64::MAX), usize::MAX)
+            .is_none());
     }
 
     #[test]
@@ -824,7 +905,9 @@ mod autotest_generated {
             hits(&[(0, &[2])]),
             hits(&[(0, &[3])]),
         ]);
-        let history = hm.get_history(&InputPointId::Mouse).expect("history exists");
+        let history = hm
+            .get_history(&InputPointId::Mouse)
+            .expect("history exists");
 
         assert_eq!(history.len(), 3);
         assert_eq!(history[0], hits(&[(0, &[3])]));
@@ -926,15 +1009,24 @@ mod autotest_generated {
         assert!(!hm.has_sufficient_history_for_gestures(&mouse));
 
         hm.push_hit_test(mouse, hits(&[(0, &[1])]));
-        assert!(!hm.has_sufficient_history_for_gestures(&mouse), "1 frame is not enough");
+        assert!(
+            !hm.has_sufficient_history_for_gestures(&mouse),
+            "1 frame is not enough"
+        );
 
         hm.push_hit_test(mouse, hits(&[(0, &[2])]));
-        assert!(hm.has_sufficient_history_for_gestures(&mouse), "2 frames is the threshold");
+        assert!(
+            hm.has_sufficient_history_for_gestures(&mouse),
+            "2 frames is the threshold"
+        );
 
         for i in 0..10 {
             hm.push_hit_test(mouse, hits(&[(0, &[i])]));
         }
-        assert!(hm.has_sufficient_history_for_gestures(&mouse), "stays true when saturated");
+        assert!(
+            hm.has_sufficient_history_for_gestures(&mouse),
+            "stays true when saturated"
+        );
     }
 
     #[test]
@@ -1201,11 +1293,17 @@ mod autotest_generated {
     fn remap_node_ids_rewrites_all_four_hit_maps() {
         let mut hm = mouse_history(vec![all_maps_hit(0, 3)]);
 
-        hm.remap_node_ids(dom(0), &NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(11))]));
+        hm.remap_node_ids(
+            dom(0),
+            &NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(11))]),
+        );
 
         let ht = &hm.get_current_mouse().expect("frame exists").hovered_nodes[&dom(0)];
         assert_eq!(
-            ht.regular_hit_test_nodes.keys().copied().collect::<Vec<_>>(),
+            ht.regular_hit_test_nodes
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
             vec![NodeId::new(11)]
         );
         assert_eq!(
@@ -1217,7 +1315,10 @@ mod autotest_generated {
             vec![NodeId::new(11)]
         );
         assert_eq!(
-            ht.scrollbar_hit_test_nodes.keys().copied().collect::<Vec<_>>(),
+            ht.scrollbar_hit_test_nodes
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
             vec![ScrollbarHitId::VerticalThumb(dom(0), NodeId::new(11))]
         );
         assert_eq!(hm.current_hover_node(), Some(NodeId::new(11)));
@@ -1249,11 +1350,17 @@ mod autotest_generated {
         // Nodes 1 and 4 hit; only 4 survives the rebuild (as node 0).
         let mut hm = mouse_history(vec![hits(&[(0, &[1, 4])])]);
 
-        hm.remap_node_ids(dom(0), &NodeIdMap::from_pairs([(NodeId::new(4), NodeId::ZERO)]));
+        hm.remap_node_ids(
+            dom(0),
+            &NodeIdMap::from_pairs([(NodeId::new(4), NodeId::ZERO)]),
+        );
 
         let ht = &hm.get_current_mouse().expect("frame exists").hovered_nodes[&dom(0)];
         assert_eq!(
-            ht.regular_hit_test_nodes.keys().copied().collect::<Vec<_>>(),
+            ht.regular_hit_test_nodes
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
             vec![NodeId::ZERO]
         );
         assert_eq!(hm.current_hover_node(), Some(NodeId::ZERO));
@@ -1309,7 +1416,10 @@ mod autotest_generated {
     fn remap_node_ids_leaves_other_doms_alone() {
         let mut hm = mouse_history(vec![hits(&[(0, &[1]), (1, &[1])])]);
 
-        hm.remap_node_ids(dom(0), &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(5))]));
+        hm.remap_node_ids(
+            dom(0),
+            &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(5))]),
+        );
 
         let frame = hm.get_current_mouse().expect("frame exists");
         assert_eq!(
@@ -1349,7 +1459,10 @@ mod autotest_generated {
         full.hovered_nodes.insert(dom(0), ht);
         let mut hm = mouse_history(vec![full]);
 
-        hm.remap_node_ids(dom(0), &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(8))]));
+        hm.remap_node_ids(
+            dom(0),
+            &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(8))]),
+        );
 
         let keys: Vec<_> = hm.get_current_mouse().expect("frame exists").hovered_nodes[&dom(0)]
             .scrollbar_hit_test_nodes
@@ -1375,7 +1488,10 @@ mod autotest_generated {
             hm.push_hit_test(id, hits(&[(0, &[2])]));
         }
 
-        hm.remap_node_ids(dom(0), &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(6))]));
+        hm.remap_node_ids(
+            dom(0),
+            &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(6))]),
+        );
 
         for id in [InputPointId::Mouse, InputPointId::Touch(1)] {
             for frame in hm.get_history(&id).expect("history exists") {
@@ -1401,7 +1517,10 @@ mod autotest_generated {
         let mut hm = mouse_history(vec![hits(&[(0, &[1])])]);
         let before = hm.clone();
         // Reconciliation for a DOM that was never hit changes nothing.
-        hm.remap_node_ids(dom(3), &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(2))]));
+        hm.remap_node_ids(
+            dom(3),
+            &NodeIdMap::from_pairs([(NodeId::new(1), NodeId::new(2))]),
+        );
         assert_eq!(hm, before);
     }
 

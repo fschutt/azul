@@ -786,8 +786,7 @@ mod linux {
                                 let h_total = mode.h_total as u64;
                                 let v_total = mode.v_total as u64;
                                 if h_total > 0 && v_total > 0 {
-                                    let refresh =
-                                        (mode.dot_clock as u64) / (h_total * v_total);
+                                    let refresh = (mode.dot_clock as u64) / (h_total * v_total);
                                     refresh as u16
                                 } else {
                                     60
@@ -878,7 +877,10 @@ mod linux {
                 // Approximate work area by subtracting common panel height (24px)
                 let work_area = LogicalRect::new(
                     LogicalPosition::zero(),
-                    LogicalSize::new(width_px as f32, (height_px as f32 - FALLBACK_PANEL_HEIGHT).max(0.0)),
+                    LogicalSize::new(
+                        width_px as f32,
+                        (height_px as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
+                    ),
                 );
 
                 vec![DisplayInfo {
@@ -1042,7 +1044,10 @@ mod linux {
 
             let work_area = LogicalRect::new(
                 LogicalPosition::zero(),
-                LogicalSize::new(width as f32, (height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0)),
+                LogicalSize::new(
+                    width as f32,
+                    (height as f32 - FALLBACK_PANEL_HEIGHT).max(0.0),
+                ),
             );
 
             vec![DisplayInfo {
@@ -1105,7 +1110,10 @@ mod linux {
                         ),
                         work_area: LogicalRect::new(
                             LogicalPosition::new(o.rect.x, o.rect.y),
-                            LogicalSize::new(o.rect.width, (o.rect.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
+                            LogicalSize::new(
+                                o.rect.width,
+                                (o.rect.height - FALLBACK_PANEL_HEIGHT).max(0.0),
+                            ),
                         ),
                         scale_factor: o.scale,
                         is_primary: o.primary,
@@ -1257,7 +1265,10 @@ mod linux {
                         ),
                         work_area: LogicalRect::new(
                             LogicalPosition::new(o.geometry.x, o.geometry.y),
-                            LogicalSize::new(o.geometry.width, (o.geometry.height - FALLBACK_PANEL_HEIGHT).max(0.0)),
+                            LogicalSize::new(
+                                o.geometry.width,
+                                (o.geometry.height - FALLBACK_PANEL_HEIGHT).max(0.0),
+                            ),
                         ),
                         scale_factor: o.scale,
                         is_primary: o.primary,
@@ -1315,9 +1326,8 @@ mod linux {
                     let line = lines[i];
 
                     // Check if this is an output header: non-indented, non-empty, contains '"'
-                    let is_header = !line.starts_with(' ')
-                        && !line.is_empty()
-                        && line.contains('"');
+                    let is_header =
+                        !line.starts_with(' ') && !line.is_empty() && line.contains('"');
 
                     if is_header {
                         // Extract output name (first whitespace-delimited token)
@@ -1379,7 +1389,10 @@ mod linux {
                                 ),
                                 work_area: LogicalRect::new(
                                     LogicalPosition::new(x, y),
-                                    LogicalSize::new(width, (height - FALLBACK_PANEL_HEIGHT).max(0.0)),
+                                    LogicalSize::new(
+                                        width,
+                                        (height - FALLBACK_PANEL_HEIGHT).max(0.0),
+                                    ),
                                 ),
                                 scale_factor: scale,
                                 is_primary: is_focused || (x == 0.0 && y == 0.0),

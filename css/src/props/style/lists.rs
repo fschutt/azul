@@ -1,8 +1,8 @@
 //! CSS list styling properties (`list-style-type` and `list-style-position`)
 
+use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
-use crate::corety::AzString;
 
 use crate::{codegen::format::FormatAsRustCode, props::formatter::PrintAsCssValue};
 
@@ -28,10 +28,12 @@ pub enum StyleListStyleType {
     UpperAlpha,
 }
 
-
 impl PrintAsCssValue for StyleListStyleType {
     fn print_as_css_value(&self) -> String {
-        use StyleListStyleType::{None, Disc, Circle, Square, Decimal, DecimalLeadingZero, LowerRoman, UpperRoman, LowerGreek, UpperGreek, LowerAlpha, UpperAlpha};
+        use StyleListStyleType::{
+            Circle, Decimal, DecimalLeadingZero, Disc, LowerAlpha, LowerGreek, LowerRoman, None,
+            Square, UpperAlpha, UpperGreek, UpperRoman,
+        };
         String::from(match self {
             None => "none",
             Disc => "disc",
@@ -51,7 +53,10 @@ impl PrintAsCssValue for StyleListStyleType {
 
 impl FormatAsRustCode for StyleListStyleType {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use StyleListStyleType::{None, Disc, Circle, Square, Decimal, DecimalLeadingZero, LowerRoman, UpperRoman, LowerGreek, UpperGreek, LowerAlpha, UpperAlpha};
+        use StyleListStyleType::{
+            Circle, Decimal, DecimalLeadingZero, Disc, LowerAlpha, LowerGreek, LowerRoman, None,
+            Square, UpperAlpha, UpperGreek, UpperRoman,
+        };
         format!(
             "StyleListStyleType::{}",
             match self {
@@ -89,7 +94,6 @@ pub enum StyleListStylePosition {
     #[default]
     Outside,
 }
-
 
 impl PrintAsCssValue for StyleListStylePosition {
     fn print_as_css_value(&self) -> String {
@@ -145,16 +149,20 @@ pub enum StyleListStyleTypeParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleListStyleTypeParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleListStyleTypeParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleListStyleTypeParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleListStyleTypeParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                StyleListStyleTypeParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleListStyleTypeParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleListStyleTypeParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleListStyleTypeParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleListStyleTypeParseError::InvalidValue(s.as_str()),
         }
@@ -210,7 +218,8 @@ pub enum StyleListStylePositionParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleListStylePositionParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleListStylePositionParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleListStylePositionParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
                 StyleListStylePositionParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -221,7 +230,8 @@ impl StyleListStylePositionParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleListStylePositionParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleListStylePositionParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleListStylePositionParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleListStylePositionParseError::InvalidValue(s.as_str()),
         }
@@ -276,8 +286,10 @@ mod autotest_generated {
         StyleListStyleType::UpperAlpha,
     ];
 
-    const ALL_POSITIONS: [StyleListStylePosition; 2] =
-        [StyleListStylePosition::Inside, StyleListStylePosition::Outside];
+    const ALL_POSITIONS: [StyleListStylePosition; 2] = [
+        StyleListStylePosition::Inside,
+        StyleListStylePosition::Outside,
+    ];
 
     /// Hostile inputs that must never be accepted, never panic and never hang.
     #[cfg(feature = "parser")]
@@ -325,7 +337,7 @@ mod autotest_generated {
             "\u{301}".to_string(),
             "\u{202E}disc".to_string(),
             "di\u{200B}sc".to_string(),
-            "DISС".to_string(), // trailing char is Cyrillic U+0421, not ASCII C
+            "DISС".to_string(),  // trailing char is Cyrillic U+0421, not ASCII C
             "diｓc".to_string(), // fullwidth s
             "круг".to_string(),
             "\u{FFFD}".to_string(),
@@ -347,8 +359,7 @@ mod autotest_generated {
             let s = v.print_as_css_value();
             assert!(!s.is_empty(), "{v:?} serialized to an empty CSS value");
             assert!(
-                s.chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '-'),
+                s.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{v:?} serialized to {s:?}, which is not a bare lowercase CSS keyword"
             );
             assert!(!s.starts_with('-') && !s.ends_with('-'), "{v:?} -> {s:?}");
@@ -366,21 +377,38 @@ mod autotest_generated {
 
     #[test]
     fn css_values_are_unique() {
-        let types: BTreeSet<String> = ALL_TYPES.iter().map(PrintAsCssValue::print_as_css_value).collect();
-        assert_eq!(types.len(), ALL_TYPES.len(), "two list-style-type variants share a CSS keyword");
+        let types: BTreeSet<String> = ALL_TYPES
+            .iter()
+            .map(PrintAsCssValue::print_as_css_value)
+            .collect();
+        assert_eq!(
+            types.len(),
+            ALL_TYPES.len(),
+            "two list-style-type variants share a CSS keyword"
+        );
 
-        let positions: BTreeSet<String> =
-            ALL_POSITIONS.iter().map(PrintAsCssValue::print_as_css_value).collect();
+        let positions: BTreeSet<String> = ALL_POSITIONS
+            .iter()
+            .map(PrintAsCssValue::print_as_css_value)
+            .collect();
         assert_eq!(positions.len(), ALL_POSITIONS.len());
     }
 
     #[test]
     fn display_agrees_with_print_as_css_value() {
         for v in ALL_TYPES {
-            assert_eq!(v.to_string(), v.print_as_css_value(), "Display diverged for {v:?}");
+            assert_eq!(
+                v.to_string(),
+                v.print_as_css_value(),
+                "Display diverged for {v:?}"
+            );
         }
         for v in ALL_POSITIONS {
-            assert_eq!(v.to_string(), v.print_as_css_value(), "Display diverged for {v:?}");
+            assert_eq!(
+                v.to_string(),
+                v.print_as_css_value(),
+                "Display diverged for {v:?}"
+            );
         }
     }
 
@@ -389,7 +417,10 @@ mod autotest_generated {
         // CSS initial values: list-style-type: disc, list-style-position: outside.
         assert_eq!(StyleListStyleType::default(), StyleListStyleType::Disc);
         assert_eq!(StyleListStyleType::default().to_string(), "disc");
-        assert_eq!(StyleListStylePosition::default(), StyleListStylePosition::Outside);
+        assert_eq!(
+            StyleListStylePosition::default(),
+            StyleListStylePosition::Outside
+        );
         assert_eq!(StyleListStylePosition::default().to_string(), "outside");
     }
 
@@ -429,7 +460,11 @@ mod autotest_generated {
     fn every_position_round_trips_through_its_css_value() {
         for v in ALL_POSITIONS {
             let printed = v.print_as_css_value();
-            assert_eq!(parse_style_list_style_position(&printed), Ok(v), "{v:?} -> {printed:?}");
+            assert_eq!(
+                parse_style_list_style_position(&printed),
+                Ok(v),
+                "{v:?} -> {printed:?}"
+            );
         }
     }
 
@@ -439,14 +474,29 @@ mod autotest_generated {
         // parse -> print -> parse must reach a fixed point, including for the
         // alias spellings that normalize onto a different keyword.
         for input in [
-            "disc", "none", "circle", "square", "decimal", "decimal-leading-zero", "lower-roman",
-            "upper-roman", "lower-greek", "upper-greek", "lower-alpha", "upper-alpha",
-            "lower-latin", "upper-latin",
+            "disc",
+            "none",
+            "circle",
+            "square",
+            "decimal",
+            "decimal-leading-zero",
+            "lower-roman",
+            "upper-roman",
+            "lower-greek",
+            "upper-greek",
+            "lower-alpha",
+            "upper-alpha",
+            "lower-latin",
+            "upper-latin",
         ] {
             let first = parse_style_list_style_type(input).expect("known-good keyword");
             let printed = first.print_as_css_value();
-            let second = parse_style_list_style_type(&printed).expect("reserialized value must reparse");
-            assert_eq!(first, second, "{input:?} was not idempotent (printed {printed:?})");
+            let second =
+                parse_style_list_style_type(&printed).expect("reserialized value must reparse");
+            assert_eq!(
+                first, second,
+                "{input:?} was not idempotent (printed {printed:?})"
+            );
         }
     }
 
@@ -461,7 +511,10 @@ mod autotest_generated {
             ("circle", StyleListStyleType::Circle),
             ("square", StyleListStyleType::Square),
             ("decimal", StyleListStyleType::Decimal),
-            ("decimal-leading-zero", StyleListStyleType::DecimalLeadingZero),
+            (
+                "decimal-leading-zero",
+                StyleListStyleType::DecimalLeadingZero,
+            ),
             ("lower-roman", StyleListStyleType::LowerRoman),
             ("upper-roman", StyleListStyleType::UpperRoman),
             ("lower-greek", StyleListStyleType::LowerGreek),
@@ -473,11 +526,21 @@ mod autotest_generated {
             ("upper-latin", StyleListStyleType::UpperAlpha),
         ];
         for (input, expected) in table {
-            assert_eq!(parse_style_list_style_type(input), Ok(expected), "input {input:?}");
+            assert_eq!(
+                parse_style_list_style_type(input),
+                Ok(expected),
+                "input {input:?}"
+            );
         }
 
-        assert_eq!(parse_style_list_style_position("inside"), Ok(StyleListStylePosition::Inside));
-        assert_eq!(parse_style_list_style_position("outside"), Ok(StyleListStylePosition::Outside));
+        assert_eq!(
+            parse_style_list_style_position("inside"),
+            Ok(StyleListStylePosition::Inside)
+        );
+        assert_eq!(
+            parse_style_list_style_position("outside"),
+            Ok(StyleListStylePosition::Outside)
+        );
     }
 
     #[test]
@@ -520,10 +583,16 @@ mod autotest_generated {
     fn hostile_input_is_rejected_without_panicking() {
         for input in hostile_inputs() {
             let ty = parse_style_list_style_type(&input);
-            assert!(ty.is_err(), "list-style-type accepted hostile input {input:?} as {ty:?}");
+            assert!(
+                ty.is_err(),
+                "list-style-type accepted hostile input {input:?} as {ty:?}"
+            );
 
             let pos = parse_style_list_style_position(&input);
-            assert!(pos.is_err(), "list-style-position accepted hostile input {input:?} as {pos:?}");
+            assert!(
+                pos.is_err(),
+                "list-style-position accepted hostile input {input:?} as {pos:?}"
+            );
         }
     }
 
@@ -533,7 +602,14 @@ mod autotest_generated {
         // NOTE: CSS keyword values are ASCII case-insensitive, so `DISC` /
         // `Inside` *should* parse per spec. These parsers are exact-match only;
         // the assertions below pin the current (stricter than spec) behavior.
-        for input in ["Disc", "DISC", "dIsC", "LOWER-ROMAN", "Decimal-Leading-Zero", "NONE"] {
+        for input in [
+            "Disc",
+            "DISC",
+            "dIsC",
+            "LOWER-ROMAN",
+            "Decimal-Leading-Zero",
+            "NONE",
+        ] {
             assert!(
                 parse_style_list_style_type(input).is_err(),
                 "unexpectedly case-insensitive for {input:?}"
@@ -560,7 +636,10 @@ mod autotest_generated {
 
         // Megabytes of padding around a valid keyword must still trim down to it.
         let padded = format!("{}disc{}", " ".repeat(1_000_000), "\n".repeat(1_000_000));
-        assert_eq!(parse_style_list_style_type(&padded), Ok(StyleListStyleType::Disc));
+        assert_eq!(
+            parse_style_list_style_type(&padded),
+            Ok(StyleListStyleType::Disc)
+        );
     }
 
     #[test]
@@ -568,7 +647,13 @@ mod autotest_generated {
     fn multibyte_input_is_rejected_without_slicing_panics() {
         // Trimming a string whose bytes straddle char boundaries must not panic
         // and must not truncate the error payload mid-codepoint.
-        for input in ["🙂", " 🙂 ", "日本語", "e\u{301}", "\u{1F600}\u{1F600}\u{1F600}"] {
+        for input in [
+            "🙂",
+            " 🙂 ",
+            "日本語",
+            "e\u{301}",
+            "\u{1F600}\u{1F600}\u{1F600}",
+        ] {
             match parse_style_list_style_type(input) {
                 Ok(v) => panic!("multibyte input {input:?} parsed as {v:?}"),
                 Err(StyleListStyleTypeParseError::InvalidValue(s)) => {
@@ -604,7 +689,10 @@ mod autotest_generated {
         let err = parse_style_list_style_type("🙂").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("list-style-type"), "{msg:?}");
-        assert!(msg.contains('🙂'), "error message dropped the offending value: {msg:?}");
+        assert!(
+            msg.contains('🙂'),
+            "error message dropped the offending value: {msg:?}"
+        );
 
         let err = parse_style_list_style_position("").unwrap_err();
         let msg = err.to_string();
@@ -634,7 +722,11 @@ mod autotest_generated {
                     assert_eq!(s.as_str(), payload, "to_contained mangled {payload:?}");
                 }
             }
-            assert_eq!(owned.to_shared(), shared, "round-trip lost data for {payload:?}");
+            assert_eq!(
+                owned.to_shared(),
+                shared,
+                "round-trip lost data for {payload:?}"
+            );
         }
     }
 
@@ -649,7 +741,11 @@ mod autotest_generated {
                     assert_eq!(s.as_str(), payload);
                 }
             }
-            assert_eq!(owned.to_shared(), shared, "round-trip lost data for {payload:?}");
+            assert_eq!(
+                owned.to_shared(),
+                shared,
+                "round-trip lost data for {payload:?}"
+            );
         }
     }
 
@@ -678,7 +774,10 @@ mod autotest_generated {
                 assert_eq!(s.as_str().len(), 100_000, "payload was truncated");
             }
         }
-        assert_eq!(owned.to_shared(), StyleListStyleTypeParseError::InvalidValue(&huge));
+        assert_eq!(
+            owned.to_shared(),
+            StyleListStyleTypeParseError::InvalidValue(&huge)
+        );
     }
 
     #[test]

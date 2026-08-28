@@ -14,7 +14,7 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::StyledDom,
     window::StringPairVec,
-    xml::{get_html_node, DomXml, ComponentMap, XmlNode, XmlNodeChild},
+    xml::{get_html_node, ComponentMap, DomXml, XmlNode, XmlNodeChild},
 };
 use azul_css::{
     css::{Css, CssDeclaration},
@@ -31,12 +31,12 @@ use base64::Engine;
 use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
+pub mod apply_midlevel;
 pub mod autodebug;
 pub mod autodoc;
 pub mod autoreview;
-pub mod apply_midlevel;
-pub mod pipeline;
 pub mod debug;
+pub mod pipeline;
 pub mod regression;
 pub mod telegram;
 
@@ -44,9 +44,7 @@ pub mod telegram;
 pub fn make_https_agent() -> ureq::Agent {
     let tls_config = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
-        .unversioned_rustls_crypto_provider(
-            std::sync::Arc::new(rustls_rustcrypto::provider())
-        )
+        .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls_rustcrypto::provider()))
         .build();
 
     ureq::Agent::config_builder()
@@ -245,11 +243,24 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
         let test_name = test_file.file_stem().unwrap().to_string_lossy().to_string();
         println!("Processing: {}", test_name);
 
-        let chrome_img = output_dir.join("reftest_img").join(format!("{}_chrome.webp", test_name));
-        let chrome_layout_json = output_dir.join("reftest_img").join(format!("{}_chrome_layout.json", test_name));
-        let azul_img = output_dir.join("reftest_img").join(format!("{}_azul.webp", test_name));
+        let chrome_img = output_dir
+            .join("reftest_img")
+            .join(format!("{}_chrome.webp", test_name));
+        let chrome_layout_json = output_dir
+            .join("reftest_img")
+            .join(format!("{}_chrome_layout.json", test_name));
+        let azul_img = output_dir
+            .join("reftest_img")
+            .join(format!("{}_azul.webp", test_name));
 
-        match pipeline.run_test(test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT) {
+        match pipeline.run_test(
+            test_file,
+            &chrome_img,
+            &azul_img,
+            &chrome_layout_json,
+            WIDTH,
+            HEIGHT,
+        ) {
             Ok(result) => {
                 let mut etr = EnhancedTestResult::from_debug_data(
                     result.test_name,
@@ -488,7 +499,11 @@ pub const PASS_THRESHOLD_PIXELS: usize = (1920 * 1080) / 200;
 
 /// Run a single reftest and generate HTML report
 pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow::Result<()> {
-    let RunRefTestsConfig { test_dir, output_dir, output_filename } = config;
+    let RunRefTestsConfig {
+        test_dir,
+        output_dir,
+        output_filename,
+    } = config;
 
     fs::create_dir_all(&output_dir)?;
     let _ = fs::create_dir_all(output_dir.join("reftest_img"));
@@ -509,22 +524,45 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
     let mut pipe = pipeline::ReftestPipeline::new(&chrome_path)
         .map_err(|e| anyhow::anyhow!("Pipeline: {}", e))?;
 
-    let chrome_img = output_dir.join("reftest_img").join(format!("{}_chrome.webp", test_name));
-    let azul_img = output_dir.join("reftest_img").join(format!("{}_azul.webp", test_name));
-    let chrome_layout_json = output_dir.join("reftest_img").join(format!("{}_chrome_layout.json", test_name));
+    let chrome_img = output_dir
+        .join("reftest_img")
+        .join(format!("{}_chrome.webp", test_name));
+    let azul_img = output_dir
+        .join("reftest_img")
+        .join(format!("{}_azul.webp", test_name));
+    let chrome_layout_json = output_dir
+        .join("reftest_img")
+        .join(format!("{}_chrome_layout.json", test_name));
 
-    let result = pipe.run_test(&test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT)
+    let result = pipe
+        .run_test(
+            &test_file,
+            &chrome_img,
+            &azul_img,
+            &chrome_layout_json,
+            WIDTH,
+            HEIGHT,
+        )
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let mut etr = EnhancedTestResult::from_debug_data(
-        result.test_name, result.diff_pixels, result.passed, result.debug_data,
+        result.test_name,
+        result.diff_pixels,
+        result.passed,
+        result.debug_data,
     );
     etr.set_azul_timing(&result.azul_timing);
-    if let Some(ref ct) = result.chrome_timing { etr.set_chrome_timing(ct); }
+    if let Some(ref ct) = result.chrome_timing {
+        etr.set_chrome_timing(ct);
+    }
 
     generate_enhanced_html_report(
-        &output_dir.join(output_filename), &vec![etr],
-        &chrome_version, &current_time, &git_hash, true,
+        &output_dir.join(output_filename),
+        &vec![etr],
+        &chrome_version,
+        &current_time,
+        &git_hash,
+        true,
     )?;
 
     Ok(())
@@ -563,7 +601,10 @@ pub fn run_single_reftest_headless(
     if !test_file.exists() {
         let html_file = test_dir.join(format!("{}.html", test_name));
         if !html_file.exists() {
-            return Err(anyhow::anyhow!("Test file not found: {}", test_file.display()));
+            return Err(anyhow::anyhow!(
+                "Test file not found: {}",
+                test_file.display()
+            ));
         }
         // Use .html file
         return run_single_reftest_headless(test_name, test_dir, output_dir);
@@ -582,12 +623,23 @@ pub fn run_single_reftest_headless(
     let azul_img = output_dir.join(format!("{}_azul.webp", test_name));
     let chrome_layout_json = output_dir.join(format!("{}_chrome_layout.json", test_name));
 
-    let result = pipe.run_test(&test_file, &chrome_img, &azul_img, &chrome_layout_json, WIDTH, HEIGHT)
+    let result = pipe
+        .run_test(
+            &test_file,
+            &chrome_img,
+            &azul_img,
+            &chrome_layout_json,
+            WIDTH,
+            HEIGHT,
+        )
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     println!("\nHeadless reftest for '{}' complete.", test_name);
     println!("   Debug information has been printed to the console.");
-    println!("   Generated images can be found in: {}", output_dir.display());
+    println!(
+        "   Generated images can be found in: {}",
+        output_dir.display()
+    );
 
     Ok(())
 }

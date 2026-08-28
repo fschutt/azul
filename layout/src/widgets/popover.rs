@@ -33,13 +33,24 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, *},
-        layout::{LayoutDisplay, LayoutPosition, LayoutFlexGrow, LayoutTop, LayoutLeft, LayoutMinWidth, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
+        layout::{
+            LayoutDisplay, LayoutFlexGrow, LayoutLeft, LayoutMinWidth, LayoutPaddingBottom,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutTop,
+        },
         property::{CssProperty, *},
-        style::{StyleCursor, StyleBackgroundContentVec, StyleBackgroundContent, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -63,9 +74,19 @@ const CONTENT_RADIUS: isize = 6;
 
 // ---- colours ----
 /// Panel background (white).
-const CONTENT_BG_COLOR: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+const CONTENT_BG_COLOR: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
 /// Panel border (#cccccc).
-const CONTENT_BORDER_COLOR: ColorU = ColorU { r: 204, g: 204, b: 204, a: 255 };
+const CONTENT_BORDER_COLOR: ColorU = ColorU {
+    r: 204,
+    g: 204,
+    b: 204,
+    a: 255,
+};
 
 /// Callback function type invoked when a popover is toggled. The [`PopoverState`]
 /// carries the *new* open/closed value.
@@ -162,9 +183,9 @@ fn build_content_style(open: bool) -> CssPropertyWithConditionsVec {
             CONTENT_MIN_WIDTH,
         ))),
         // padding: 8px
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            8,
-        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(8,)
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
             LayoutPaddingBottom::const_px(8),
         )),
@@ -187,33 +208,41 @@ fn build_content_style(open: bool) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
             LayoutBorderRightWidth::const_px(1),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
             StyleBorderBottomStyle {
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
             StyleBorderRightStyle {
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-            inner: CONTENT_BORDER_COLOR,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+            StyleBorderTopColor {
+                inner: CONTENT_BORDER_COLOR,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor {
                 inner: CONTENT_BORDER_COLOR,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
-            inner: CONTENT_BORDER_COLOR,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_color(
+            StyleBorderLeftColor {
+                inner: CONTENT_BORDER_COLOR,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
             StyleBorderRightColor {
                 inner: CONTENT_BORDER_COLOR,
@@ -239,7 +268,8 @@ fn build_content_style(open: bool) -> CssPropertyWithConditionsVec {
 impl Popover {
     /// Creates a popover whose `anchor`, when clicked, toggles a panel holding
     /// `content`. The panel starts closed.
-    #[must_use] pub fn new(anchor: Dom, content: Dom) -> Self {
+    #[must_use]
+    pub fn new(anchor: Dom, content: Dom) -> Self {
         Self {
             popover_state: PopoverStateWrapper::default(),
             anchor,
@@ -258,7 +288,8 @@ impl Popover {
 
     /// Builder-style setter for the initial open state.
     #[inline]
-    #[must_use] pub fn with_open(mut self, open: bool) -> Self {
+    #[must_use]
+    pub fn with_open(mut self, open: bool) -> Self {
         self.set_open(open);
         self
     }
@@ -275,7 +306,8 @@ impl Popover {
 
     /// Builder-style setter for the toggle callback.
     #[inline]
-    #[must_use] pub fn with_on_toggle<C: Into<PopoverOnToggleCallback>>(
+    #[must_use]
+    pub fn with_on_toggle<C: Into<PopoverOnToggleCallback>>(
         mut self,
         data: RefAny,
         on_toggle: C,
@@ -286,7 +318,8 @@ impl Popover {
 
     /// Replaces `self` with a default (empty) popover and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::new(Dom::default(), Dom::default());
         core::mem::swap(&mut s, self);
         s
@@ -294,8 +327,13 @@ impl Popover {
 
     /// Renders the popover into a [`Dom`] subtree with the `__azul-native-popover`
     /// class.
-    #[must_use] pub fn dom(self) -> Dom {
-        use azul_core::{callbacks::CoreCallback, dom::{EventFilter, HoverEventFilter}, refany::OptionRefAny};
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        use azul_core::{
+            callbacks::CoreCallback,
+            dom::{EventFilter, HoverEventFilter},
+            refany::OptionRefAny,
+        };
 
         // The trigger carries the click handler + the shared state. Clicking the
         // anchor (a descendant of the trigger) bubbles up to it (currentTarget
@@ -364,7 +402,9 @@ extern "C" fn on_popover_toggle(mut data: RefAny, mut info: CallbackInfo) -> Upd
         let inner = pop.inner;
         let pop = &mut *pop;
         let result = match pop.on_toggle.as_mut() {
-            Some(PopoverOnToggle { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+            Some(PopoverOnToggle { callback, refany }) => {
+                (callback.cb)(refany.clone(), info, inner)
+            }
             None => Update::DoNothing,
         };
         (now_open, result)
@@ -597,7 +637,9 @@ mod autotest_generated {
         let mut out = Vec::new();
         for change in changes {
             if let CallbackChange::ChangeNodeCssProperties {
-                node_id, properties, ..
+                node_id,
+                properties,
+                ..
             } = change
             {
                 for p in properties.as_ref() {
@@ -713,7 +755,10 @@ mod autotest_generated {
         for open in [false, true] {
             let a = build_content_style(open);
             let b = build_content_style(open);
-            assert_eq!(a, b, "build_content_style must be a pure function of `open`");
+            assert_eq!(
+                a, b,
+                "build_content_style must be a pure function of `open`"
+            );
             assert!(
                 a.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()),
                 "the panel style must apply unconditionally — a stray condition would \
@@ -728,7 +773,9 @@ mod autotest_generated {
         // closed, otherwise the runtime `set_css_property(display)` toggle would
         // reveal an unpositioned panel.
         let expected = alloc::vec![
-            CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+            CssPropertyWithConditions::simple(CssProperty::const_position(
+                LayoutPosition::Absolute
+            )),
             CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(
                 CONTENT_OFFSET_Y
             ))),
@@ -757,7 +804,9 @@ mod autotest_generated {
 
     #[test]
     fn new_stores_both_doms_and_starts_closed() {
-        let anchor = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("anchor"));
+        let anchor = Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("anchor"),
+        );
         let content = Dom::create_text_do_not_use_without_block_level_wrapper("panel");
         let pop = Popover::new(anchor.clone(), content.clone());
 
@@ -816,7 +865,8 @@ mod autotest_generated {
     fn new_accepts_the_same_dom_as_anchor_and_content() {
         // aliasing the two arguments must produce two independent subtrees, not
         // one shared (and later doubly-mounted) node.
-        let shared = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"));
+        let shared = Dom::create_div()
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"));
         let pop = Popover::new(shared.clone(), shared.clone());
 
         assert_eq!(pop.anchor, shared);
@@ -824,8 +874,14 @@ mod autotest_generated {
 
         let dom = pop.dom();
         let children = dom.children.as_ref();
-        assert_eq!(text_of(&children[0].children.as_ref()[0].children.as_ref()[0]), Some("x"));
-        assert_eq!(text_of(&children[1].children.as_ref()[0].children.as_ref()[0]), Some("x"));
+        assert_eq!(
+            text_of(&children[0].children.as_ref()[0].children.as_ref()[0]),
+            Some("x")
+        );
+        assert_eq!(
+            text_of(&children[1].children.as_ref()[0].children.as_ref()[0]),
+            Some("x")
+        );
     }
 
     // ------------------------------------------------------------------
@@ -834,7 +890,10 @@ mod autotest_generated {
 
     #[test]
     fn set_open_round_trips_state_and_style() {
-        let mut pop = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c"));
+        let mut pop = Popover::new(
+            Dom::create_text_do_not_use_without_block_level_wrapper("a"),
+            Dom::create_text_do_not_use_without_block_level_wrapper("c"),
+        );
 
         // repeats and flips: the style must follow the flag on every write,
         // including redundant ones.
@@ -857,17 +916,33 @@ mod autotest_generated {
         }
 
         // the restyle must not touch the payload doms
-        assert_eq!(pop.anchor, Dom::create_text_do_not_use_without_block_level_wrapper("a"));
-        assert_eq!(pop.content, Dom::create_text_do_not_use_without_block_level_wrapper("c"));
+        assert_eq!(
+            pop.anchor,
+            Dom::create_text_do_not_use_without_block_level_wrapper("a")
+        );
+        assert_eq!(
+            pop.content,
+            Dom::create_text_do_not_use_without_block_level_wrapper("c")
+        );
     }
 
     #[test]
     fn with_open_matches_set_open() {
         for open in [false, true] {
-            let mut mutated = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c"));
+            let mut mutated = Popover::new(
+                Dom::create_text_do_not_use_without_block_level_wrapper("a"),
+                Dom::create_text_do_not_use_without_block_level_wrapper("c"),
+            );
             mutated.set_open(open);
-            let built = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c")).with_open(open);
-            assert_eq!(built, mutated, "builder and setter must agree (open = {open})");
+            let built = Popover::new(
+                Dom::create_text_do_not_use_without_block_level_wrapper("a"),
+                Dom::create_text_do_not_use_without_block_level_wrapper("c"),
+            )
+            .with_open(open);
+            assert_eq!(
+                built, mutated,
+                "builder and setter must agree (open = {open})"
+            );
         }
     }
 
@@ -930,15 +1005,25 @@ mod autotest_generated {
 
     #[test]
     fn set_on_toggle_does_not_disturb_state_style_or_doms() {
-        let mut pop = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c")).with_open(true);
+        let mut pop = Popover::new(
+            Dom::create_text_do_not_use_without_block_level_wrapper("a"),
+            Dom::create_text_do_not_use_without_block_level_wrapper("c"),
+        )
+        .with_open(true);
         let style_before = pop.content_style.clone();
 
         pop.set_on_toggle(RefAny::new(0u8), toggle_cb(toggle_do_nothing));
 
         assert!(pop.popover_state.inner.open, "open flag must survive");
         assert_eq!(pop.content_style, style_before, "style must survive");
-        assert_eq!(pop.anchor, Dom::create_text_do_not_use_without_block_level_wrapper("a"));
-        assert_eq!(pop.content, Dom::create_text_do_not_use_without_block_level_wrapper("c"));
+        assert_eq!(
+            pop.anchor,
+            Dom::create_text_do_not_use_without_block_level_wrapper("a")
+        );
+        assert_eq!(
+            pop.content,
+            Dom::create_text_do_not_use_without_block_level_wrapper("c")
+        );
     }
 
     #[test]
@@ -987,19 +1072,32 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_moves_all_state_out() {
-        let mut pop = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c"))
-            .with_open(true)
-            .with_on_toggle(RefAny::new(5u8), toggle_cb(record_toggle));
+        let mut pop = Popover::new(
+            Dom::create_text_do_not_use_without_block_level_wrapper("a"),
+            Dom::create_text_do_not_use_without_block_level_wrapper("c"),
+        )
+        .with_open(true)
+        .with_on_toggle(RefAny::new(5u8), toggle_cb(record_toggle));
 
         let original = pop.swap_with_default();
 
-        assert_eq!(original.anchor, Dom::create_text_do_not_use_without_block_level_wrapper("a"));
-        assert_eq!(original.content, Dom::create_text_do_not_use_without_block_level_wrapper("c"));
+        assert_eq!(
+            original.anchor,
+            Dom::create_text_do_not_use_without_block_level_wrapper("a")
+        );
+        assert_eq!(
+            original.content,
+            Dom::create_text_do_not_use_without_block_level_wrapper("c")
+        );
         assert!(original.popover_state.inner.open);
         assert!(original.popover_state.on_toggle.is_some());
         assert_eq!(original.content_style, build_content_style(true));
 
-        assert_eq!(pop, Popover::default(), "self must be left as a default popover");
+        assert_eq!(
+            pop,
+            Popover::default(),
+            "self must be left as a default popover"
+        );
         assert!(
             pop.popover_state.on_toggle.is_none(),
             "self must lose the callback"
@@ -1025,7 +1123,11 @@ mod autotest_generated {
 
     #[test]
     fn dom_structure_classes_and_callback() {
-        let dom = Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("anchor"), Dom::create_text_do_not_use_without_block_level_wrapper("panel")).dom();
+        let dom = Popover::new(
+            Dom::create_text_do_not_use_without_block_level_wrapper("anchor"),
+            Dom::create_text_do_not_use_without_block_level_wrapper("panel"),
+        )
+        .dom();
 
         assert!(has_class(&dom, "__azul-native-popover"));
         let children = dom.children.as_ref();
@@ -1179,7 +1281,13 @@ mod autotest_generated {
         // `Dom::from(p) == p.dom()` cannot be asserted directly: every `dom()`
         // call mints a fresh `RefAny` for the trigger payload, and two distinct
         // `RefAny`s never compare equal. Compare the observable structure.
-        let make = || Popover::new(Dom::create_text_do_not_use_without_block_level_wrapper("a"), Dom::create_text_do_not_use_without_block_level_wrapper("c")).with_open(true);
+        let make = || {
+            Popover::new(
+                Dom::create_text_do_not_use_without_block_level_wrapper("a"),
+                Dom::create_text_do_not_use_without_block_level_wrapper("c"),
+            )
+            .with_open(true)
+        };
         let via_from = Dom::from(make());
         let via_dom = make().dom();
 
@@ -1218,7 +1326,10 @@ mod autotest_generated {
         let (update, changes) = run_toggle(None, 0, data.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "nothing may be restyled without a panel");
+        assert!(
+            changes.is_empty(),
+            "nothing may be restyled without a panel"
+        );
         assert!(!payload_open(&mut data), "state must not flip");
     }
 

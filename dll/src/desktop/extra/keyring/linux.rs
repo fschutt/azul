@@ -66,12 +66,8 @@ type LookupvFn = unsafe extern "C" fn(
     *mut c_void,
     *mut *mut GError,
 ) -> *mut c_char;
-type ClearvFn = unsafe extern "C" fn(
-    *const SecretSchema,
-    *mut c_void,
-    *mut c_void,
-    *mut *mut GError,
-) -> c_int;
+type ClearvFn =
+    unsafe extern "C" fn(*const SecretSchema, *mut c_void, *mut c_void, *mut *mut GError) -> c_int;
 
 struct SecretLib {
     _lib: Library,
@@ -160,7 +156,9 @@ unsafe fn warn_gerror_and_free(lib: &SecretLib, op: &str, err: *mut GError) {
     let msg = if (*err).message.is_null() {
         "<no message>".into()
     } else {
-        CStr::from_ptr((*err).message).to_string_lossy().into_owned()
+        CStr::from_ptr((*err).message)
+            .to_string_lossy()
+            .into_owned()
     };
     crate::plog_warn!(
         "[keyring] {} failed: {} (domain={}, code={}) — reporting Unavailable",

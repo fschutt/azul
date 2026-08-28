@@ -50,8 +50,7 @@ pub fn emit_imports(
         if !emitted.insert(name.to_ascii_lowercase()) {
             builder.line(&format!(
                 "-- SKIPPED duplicate (collides with prior Ada name): {} ({})",
-                func.c_name,
-                name
+                func.c_name, name
             ));
             continue;
         }
@@ -119,10 +118,9 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         let pname = sanitize_identifier(&pascalize_arg_name(&a.name));
         let ada_ty = match a.ref_kind {
             ArgRefKind::Owned => map_type_to_ada(&a.type_name, ir),
-            ArgRefKind::Ref
-            | ArgRefKind::RefMut
-            | ArgRefKind::Ptr
-            | ArgRefKind::PtrMut => "System.Address".to_string(),
+            ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                "System.Address".to_string()
+            }
         };
         params.push((pname, ada_ty));
     }
@@ -217,7 +215,10 @@ fn pascalize_method_name(name: &str) -> String {
     while let Some(c) = chars.next() {
         split.push(c);
         if c.is_ascii_lowercase()
-            && chars.peek().map(|n| n.is_ascii_uppercase()).unwrap_or(false)
+            && chars
+                .peek()
+                .map(|n| n.is_ascii_uppercase())
+                .unwrap_or(false)
         {
             split.push('_');
         }

@@ -90,7 +90,6 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
     }
     out.push('\n');
 
-
     out.push_str("## API reference\n\n");
     out.push_str(&format!(
         "- [API reference (HTML)]({}/api.html): full rendered reference for the latest version\n",
@@ -127,7 +126,10 @@ pub fn generate_llms_txt(api_data: &ApiData) -> String {
          build azul apps; also at {}/.well-known/azul-skill.md\n",
         HTML_ROOT, HTML_ROOT
     ));
-    out.push_str(&format!("- [llms-full.txt]({}/llms-full.txt): every guide page concatenated\n", HTML_ROOT));
+    out.push_str(&format!(
+        "- [llms-full.txt]({}/llms-full.txt): every guide page concatenated\n",
+        HTML_ROOT
+    ));
 
     out
 }
@@ -187,7 +189,7 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
          The entire public API is a stable `repr(C)` ABI. Native Rust callbacks are still \
          `extern \"C\"`. The 10+ language bindings are generated from a single `api.json`, so \
          the *concepts* below map one-to-one across C, C++, Python, etc. — only syntax differs.\n\n\
-         Depth: see "
+         Depth: see ",
     );
     s.push_str(&format!(
         "{HTML_ROOT}/guide/architecture.md and {HTML_ROOT}/guide/dom.md.\n\n"
@@ -232,7 +234,9 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
         "Treat the published reference as your API search backend via WebFetch:\n\n\
          1. Fetch the version manifest to learn the latest version:\n",
     );
-    s.push_str(&format!("   `{HTML_ROOT}/api/index.json` → `{{ \"latest\": \"{latest}\", \"versions\": [...] }}`\n"));
+    s.push_str(&format!(
+        "   `{HTML_ROOT}/api/index.json` → `{{ \"latest\": \"{latest}\", \"versions\": [...] }}`\n"
+    ));
     s.push_str(&format!(
         "2. Fetch the compact search index for that version and query it locally:\n   \
          `{HTML_ROOT}/api/<version>.search.json` (e.g. `{HTML_ROOT}/api/{latest}.search.json`).\n"

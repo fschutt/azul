@@ -13,10 +13,13 @@
 
 use std::{
     cell::{Cell, RefCell},
-    ffi::{CStr, CString, c_char, c_ulong, c_void},
+    ffi::{c_char, c_ulong, c_void, CStr, CString},
     rc::Rc,
 };
 
+use crate::desktop::shell2::common::event::{
+    HitTestNode, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
+};
 use azul_core::{
     callbacks::Update,
     dom::{DomId, NodeId},
@@ -25,15 +28,10 @@ use azul_core::{
     hit_test::{FullHitTest, HitTest},
     window::{CursorPosition, VirtualKeyCode},
 };
-use crate::desktop::shell2::common::event::{
-    HitTestNode, BUTTON_STATE_LEFT, BUTTON_STATE_RIGHT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
-};
-use azul_layout::{
-    managers::hover::InputPointId,
-};
+use azul_layout::managers::hover::InputPointId;
 
-use super::{defines::*, dlopen::Xlib, X11Window};
 use super::super::common::compose::ComposeAction;
+use super::{defines::*, dlopen::Xlib, X11Window};
 use crate::desktop::shell2::common::event::PlatformWindow;
 
 use super::super::super::common::debug_server::LogCategory;
@@ -137,8 +135,7 @@ impl ImeManager {
 
             let (chosen_style, style_kind) = if !styles_ptr.is_null() {
                 let count = (*styles_ptr).count_styles as usize;
-                let supported =
-                    std::slice::from_raw_parts((*styles_ptr).supported_styles, count);
+                let supported = std::slice::from_raw_parts((*styles_ptr).supported_styles, count);
 
                 let has = |mask: c_ulong| supported.iter().any(|&s| s == mask);
 
@@ -394,11 +391,7 @@ unsafe extern "C" fn preedit_start_cb(
     sink.dirty.set(true);
 }
 
-unsafe extern "C" fn preedit_done_cb(
-    _xic: XIC,
-    client_data: *mut c_void,
-    _call_data: *mut c_void,
-) {
+unsafe extern "C" fn preedit_done_cb(_xic: XIC, client_data: *mut c_void, _call_data: *mut c_void) {
     if client_data.is_null() {
         return;
     }
@@ -408,11 +401,7 @@ unsafe extern "C" fn preedit_done_cb(
     sink.dirty.set(true);
 }
 
-unsafe extern "C" fn preedit_draw_cb(
-    _xic: XIC,
-    client_data: *mut c_void,
-    call_data: *mut c_void,
-) {
+unsafe extern "C" fn preedit_draw_cb(_xic: XIC, client_data: *mut c_void, call_data: *mut c_void) {
     if client_data.is_null() || call_data.is_null() {
         return;
     }
@@ -452,11 +441,7 @@ unsafe extern "C" fn preedit_draw_cb(
     sink.dirty.set(true);
 }
 
-unsafe extern "C" fn preedit_caret_cb(
-    _xic: XIC,
-    client_data: *mut c_void,
-    call_data: *mut c_void,
-) {
+unsafe extern "C" fn preedit_caret_cb(_xic: XIC, client_data: *mut c_void, call_data: *mut c_void) {
     if client_data.is_null() || call_data.is_null() {
         return;
     }
@@ -804,12 +789,10 @@ impl X11Window {
 
         // Update mouse state based on enter/leave
         if event.type_ == EnterNotify {
-            self.common.mouse_state_mut().cursor_position =
-                CursorPosition::InWindow(position);
+            self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
             self.update_hit_test(position);
         } else if event.type_ == LeaveNotify {
-            self.common.mouse_state_mut().cursor_position =
-                CursorPosition::OutOfWindow(position);
+            self.common.mouse_state_mut().cursor_position = CursorPosition::OutOfWindow(position);
             // Clear hit test since mouse is out — unless a drag is in flight,
             // in which case the latch keeps the target (see
             // push_hit_test_latched). A drag past the window edge is an
@@ -897,7 +880,11 @@ impl X11Window {
                     delta_x,
                     delta_y,
                     continuous,
-                    if continuous { "TrackpadContinuous" } else { "WheelDiscrete" },
+                    if continuous {
+                        "TrackpadContinuous"
+                    } else {
+                        "WheelDiscrete"
+                    },
                     if continuous { "Touchpad" } else { "MouseWheel" },
                 );
 
@@ -928,9 +915,7 @@ impl X11Window {
                             .timers
                             .contains_key(&azul_core::task::SCROLL_MOMENTUM_TIMER_ID);
                     if start_timer {
-                        input_queue_clone = Some(
-                            layout_window.scroll_manager.get_input_queue()
-                        );
+                        input_queue_clone = Some(layout_window.scroll_manager.get_input_queue());
                     }
                 }
             }
@@ -938,13 +923,18 @@ impl X11Window {
             // Start the scroll momentum timer if this is the first input
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
-                    use azul_layout::scroll_timer::{ScrollPhysicsState, scroll_physics_timer_callback};
-                    use azul_layout::timer::{Timer, TimerCallbackType};
                     use azul_core::refany::RefAny;
                     use azul_core::task::Duration;
+                    use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
+                    use azul_layout::scroll_timer::{
+                        scroll_physics_timer_callback, ScrollPhysicsState,
+                    };
+                    use azul_layout::timer::{Timer, TimerCallbackType};
 
-                    let physics_state = ScrollPhysicsState::new(queue, self.resources.system_style.scroll_physics.clone());
+                    let physics_state = ScrollPhysicsState::new(
+                        queue,
+                        self.resources.system_style.scroll_physics.clone(),
+                    );
                     let interval_ms = self.resources.system_style.scroll_physics.timer_interval_ms;
                     let data = RefAny::new(physics_state);
                     let timer = Timer::create(
@@ -1076,10 +1066,18 @@ impl X11Window {
         // Detect key repeat: if the key is already in pressed_virtual_keycodes,
         // this is a repeat. Clear current_virtual_keycode in the snapshot
         // so the state-diff system sees None → Some(key).
-        let is_repeat = is_down && vk_pressed.map(|vk| {
-            self.common.current_window_state().keyboard_state
-                .pressed_virtual_keycodes.as_ref().iter().any(|k| *k == vk)
-        }).unwrap_or(false);
+        let is_repeat = is_down
+            && vk_pressed
+                .map(|vk| {
+                    self.common
+                        .current_window_state()
+                        .keyboard_state
+                        .pressed_virtual_keycodes
+                        .as_ref()
+                        .iter()
+                        .any(|k| *k == vk)
+                })
+                .unwrap_or(false);
 
         let mut prev_snapshot = self.common.current_window_state().clone();
         if is_repeat {
@@ -1145,11 +1143,7 @@ impl X11Window {
     /// and never carried AltGr at all.
     pub(super) fn update_modifiers_from_x11_state(&mut self, state: std::ffi::c_uint) {
         let masks = self.modifier_masks;
-        apply_modifier_mask_state(
-            self.common.keyboard_state_mut(),
-            masks,
-            state,
-        );
+        apply_modifier_mask_state(self.common.keyboard_state_mut(), masks, state);
     }
 
     /// Drop every key the window still believes is held.
@@ -1296,7 +1290,9 @@ impl X11Window {
         let Some(ref mut layout_window) = self.common.layout_window else {
             return;
         };
-        let standing = layout_window.hover_manager.get_current(&InputPointId::Mouse);
+        let standing = layout_window
+            .hover_manager
+            .get_current(&InputPointId::Mouse);
         if let Some(next) = latched_hit_test(any_button_down, standing, hit_test) {
             layout_window
                 .hover_manager
@@ -1315,8 +1311,7 @@ impl X11Window {
         paths: Vec<String>,
     ) -> ProcessEventResult {
         self.snapshot_window_state_baseline("x11.handle_file_drag_entered");
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
                 // MWA-B7: pass EVERY path — multi-file drops were silently
@@ -1353,8 +1348,7 @@ impl X11Window {
         paths: Vec<String>,
     ) -> ProcessEventResult {
         self.snapshot_window_state_baseline("x11.handle_file_drop");
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
                 // MWA-B7: pass EVERY path — multi-file drops were silently
@@ -1374,7 +1368,8 @@ impl X11Window {
 
     /// Get the first hovered node from current hit test
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
-        self.common.layout_window
+        self.common
+            .layout_window
             .as_ref()?
             .hover_manager
             .get_current(&InputPointId::Mouse)?
@@ -1474,9 +1469,9 @@ impl X11Window {
             menu.clone(),
             self.resources.system_style.clone(),
             parent_pos,
-            None,                   // No trigger rect for context menus
+            None,                  // No trigger rect for context menus
             Some(physical_cursor), // Cursor position (physical px)
-            None,                   // No parent menu
+            None,                  // No parent menu
         );
         // Parent the menu to THIS window so it reuses our X display (single
         // shared event pump) and is positioned relative to us.
@@ -1533,8 +1528,12 @@ fn apply_modifier_mask_state(
                     keyboard_state.pressed_virtual_keycodes.insert_hm_item(left);
                 }
             } else {
-                keyboard_state.pressed_virtual_keycodes.remove_hm_item(&left);
-                keyboard_state.pressed_virtual_keycodes.remove_hm_item(&right);
+                keyboard_state
+                    .pressed_virtual_keycodes
+                    .remove_hm_item(&left);
+                keyboard_state
+                    .pressed_virtual_keycodes
+                    .remove_hm_item(&right);
             }
         };
 
@@ -2161,10 +2160,16 @@ mod tests {
         assert_eq!(vk(0x0100_0000), None);
     }
 
-    fn masks(alt: std::ffi::c_uint, super_key: std::ffi::c_uint, altgr: std::ffi::c_uint)
-        -> super::super::ModifierMasks
-    {
-        super::super::ModifierMasks { alt, super_key, altgr }
+    fn masks(
+        alt: std::ffi::c_uint,
+        super_key: std::ffi::c_uint,
+        altgr: std::ffi::c_uint,
+    ) -> super::super::ModifierMasks {
+        super::super::ModifierMasks {
+            alt,
+            super_key,
+            altgr,
+        }
     }
 
     /// The `state` bitmask says a modifier is held, never which side. A user
@@ -2261,11 +2266,7 @@ mod tests {
                     *st = XBufferOverflow;
                     return bytes.len() as i32;
                 }
-                std::ptr::copy_nonoverlapping(
-                    bytes.as_ptr() as *const c_char,
-                    buf,
-                    bytes.len(),
-                );
+                std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const c_char, buf, bytes.len());
                 *st = XLookupChars;
             }
             bytes.len() as i32

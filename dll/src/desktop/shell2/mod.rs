@@ -28,10 +28,10 @@ pub mod common;
 // Platform-specific modules
 #[cfg(target_os = "android")]
 pub mod android;
-#[cfg(target_os = "linux")]
-pub mod linux;
 #[cfg(target_os = "ios")]
 pub mod ios;
+#[cfg(target_os = "linux")]
+pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
 #[cfg(target_os = "windows")]
@@ -44,8 +44,8 @@ pub mod run;
 
 // Re-export common types
 pub use common::{
-    AzBackend, CompositorMode, CpuCompositor, GpuCheckResult, GpuInfo,
-    RenderContext, WindowError, check_gpu_blacklist,
+    check_gpu_blacklist, AzBackend, CompositorMode, CpuCompositor, GpuCheckResult, GpuInfo,
+    RenderContext, WindowError,
 };
 // Re-export run function
 pub use run::run;

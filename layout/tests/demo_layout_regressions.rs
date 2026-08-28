@@ -20,8 +20,7 @@
 /// second font table to fall back to. These two display lists carry no text, so an
 /// empty manager is the honest input.
 fn test_font_manager() -> azul_layout::text3::cache::FontManager<azul_css::props::basic::FontRef> {
-    azul_layout::text3::cache::FontManager::new(FcFontCache::default())
-        .expect("FontManager::new")
+    azul_layout::text3::cache::FontManager::new(FcFontCache::default()).expect("FontManager::new")
 }
 
 use azul_core::{
@@ -142,17 +141,31 @@ const MAPS_CSS: &str = r#"
 /// button row) → map container (flex-grow: 1) holding the REAL MapWidget.
 fn maps_demo_dom() -> Dom {
     let mut button_row = Dom::create_div().with_ids_and_classes(class("btnrow"));
-    for label in ["←", "→", "↑", "↓", "+", "−", "Recentre", "Locate", "Clear pins"] {
+    for label in [
+        "←",
+        "→",
+        "↑",
+        "↓",
+        "+",
+        "−",
+        "Recentre",
+        "Locate",
+        "Clear pins",
+    ] {
         button_row = button_row.with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("btn"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label)),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    label,
+                )),
         );
     }
 
     let header = Dom::create_div()
         .with_ids_and_classes(class("header"))
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AzulMaps — centre 37.0000°, -122.0000° · zoom 2.0"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "AzulMaps — centre 37.0000°, -122.0000° · zoom 2.0",
+        ))
         .with_child(button_row);
 
     // The REAL widget, like examples/azul-maps does it (an empty-div
@@ -200,14 +213,18 @@ fn maps_header_items_present_in_display_list() {
     for (i, it) in items.iter().enumerate() {
         match it {
             DisplayListItem::Rect { bounds, color, .. } => println!(
-                "  [{i:2}] Rect    rgb({},{},{}) {:?}", color.r, color.g, color.b, bounds.inner()
+                "  [{i:2}] Rect    rgb({},{},{}) {:?}",
+                color.r,
+                color.g,
+                color.b,
+                bounds.inner()
             ),
-            DisplayListItem::VirtualView { bounds, .. } => println!(
-                "  [{i:2}] VView   {:?}", bounds.inner()
-            ),
-            DisplayListItem::VirtualViewPlaceholder { bounds, .. } => println!(
-                "  [{i:2}] VViewPh {:?}", bounds.inner()
-            ),
+            DisplayListItem::VirtualView { bounds, .. } => {
+                println!("  [{i:2}] VView   {:?}", bounds.inner())
+            }
+            DisplayListItem::VirtualViewPlaceholder { bounds, .. } => {
+                println!("  [{i:2}] VViewPh {:?}", bounds.inner())
+            }
             _ => {}
         }
     }
@@ -255,7 +272,10 @@ fn maps_render_paints_header_pixels() {
             vview_dls.insert(*id, r.display_list.clone());
         }
     }
-    println!("vview child DLs: {:?}", vview_dls.keys().collect::<Vec<_>>());
+    println!(
+        "vview child DLs: {:?}",
+        vview_dls.keys().collect::<Vec<_>>()
+    );
 
     let dpi = 1.0f32;
     let renderer_resources = RendererResources::default();
@@ -297,8 +317,10 @@ fn maps_render_paints_header_pixels() {
     // Sample a row across the header band at y=12 — inside the header's
     // padding rows, ABOVE the status text, so no anti-aliased glyph pixels
     // pollute the samples (y=40 hits text edges).
-    let samples: Vec<(usize, (u8, u8, u8))> =
-        [40usize, 150, 300, 450, 600].iter().map(|&x| (x, px(x, 12))).collect();
+    let samples: Vec<(usize, (u8, u8, u8))> = [40usize, 150, 300, 450, 600]
+        .iter()
+        .map(|&x| (x, px(x, 12)))
+        .collect();
     println!("header-band pixels at y=12: {samples:?}");
 
     // The header background is #2b2b2b (43,43,43); buttons are #4a90e2.
@@ -306,7 +328,9 @@ fn maps_render_paints_header_pixels() {
         (c.0 as i32 - 43).abs() < 25 && (c.1 as i32 - 43).abs() < 25 && (c.2 as i32 - 43).abs() < 25
     };
     let blue = |c: (u8, u8, u8)| {
-        (c.0 as i32 - 74).abs() < 25 && (c.1 as i32 - 144).abs() < 30 && (c.2 as i32 - 226).abs() < 30
+        (c.0 as i32 - 74).abs() < 25
+            && (c.1 as i32 - 144).abs() < 30
+            && (c.2 as i32 - 226).abs() < 30
     };
     assert!(
         dark(px(40, 12)) && dark(px(150, 12)),
@@ -337,24 +361,37 @@ fn maps_render_paints_header_pixels() {
 /// whole window — wiping the header (live: azul-maps' toolbar invisible).
 #[test]
 fn virtual_view_child_clip_cannot_escape_composite_bounds() {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+    use azul_css::props::basic::color::ColorU;
     use azul_layout::cpurender;
     use azul_layout::solver3::display_list::{
         BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect,
     };
-    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-    use azul_css::props::basic::color::ColorU;
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
     let rect = |x: f32, y: f32, w: f32, h: f32| -> WindowLogicalRect {
         LogicalRect {
             origin: LogicalPosition { x, y },
-            size: LogicalSize { width: w, height: h },
+            size: LogicalSize {
+                width: w,
+                height: h,
+            },
         }
         .into()
     };
-    let dark = ColorU { r: 43, g: 43, b: 43, a: 255 };
-    let grey = ColorU { r: 231, g: 233, b: 236, a: 255 };
+    let dark = ColorU {
+        r: 43,
+        g: 43,
+        b: 43,
+        a: 255,
+    };
+    let grey = ColorU {
+        r: 231,
+        g: 233,
+        b: 236,
+        a: 255,
+    };
 
     let child_dom = DomId { inner: 1 };
     // Child DL: window-sized clip + background — a typical child root.
@@ -375,7 +412,12 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
     };
     // Parent DL: dark header strip with a blue "button" inside it, then the
     // VirtualView clipped to the lower region (y 78..488).
-    let blue = ColorU { r: 74, g: 144, b: 226, a: 255 };
+    let blue = ColorU {
+        r: 74,
+        g: 144,
+        b: 226,
+        a: 255,
+    };
     let parent_dl = DisplayList {
         items: vec![
             DisplayListItem::Rect {
@@ -396,8 +438,8 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
                 child_dom_id: child_dom,
                 bounds: rect(8.0, 78.0, 624.0, 402.0),
                 clip_rect: rect(8.0, 78.0, 624.0, 402.0),
-            content_offset: Default::default(),
-        },
+                content_offset: Default::default(),
+            },
             DisplayListItem::PopClip,
         ],
         ..Default::default()
@@ -419,7 +461,14 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
         &std::collections::HashMap::new(),
     );
     compositor
-        .render_layers(&parent_dl, 1.0, &renderer_resources, &test_font_manager(), &mut glyph_cache, &render_state)
+        .render_layers(
+            &parent_dl,
+            1.0,
+            &renderer_resources,
+            &test_font_manager(),
+            &mut glyph_cache,
+            &render_state,
+        )
         .expect("render_layers");
     let mut out = cpurender::AzulPixmap::new(640, 480).expect("pixmap");
     compositor.composite_frame(&mut out, 1.0);
@@ -429,7 +478,11 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
         let d = o.data();
         (d[i], d[i + 1], d[i + 2])
     };
-    println!("header (40,40)={:?} child-region (40,200)={:?}", px(&out, 40, 40), px(&out, 40, 200));
+    println!(
+        "header (40,40)={:?} child-region (40,200)={:?}",
+        px(&out, 40, 40),
+        px(&out, 40, 200)
+    );
     assert_eq!(
         px(&out, 40, 40),
         (43, 43, 43),
@@ -441,7 +494,11 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
         (231, 233, 236),
         "the child must still paint INSIDE the composite bounds"
     );
-    assert_eq!(px(&out, 180, 40), (74, 144, 226), "the header button must paint (full path)");
+    assert_eq!(
+        px(&out, 180, 40),
+        (74, 144, 226),
+        "the header button must paint (full path)"
+    );
 
     // INCREMENTAL path: damage only the VirtualView band (what a tile
     // writeback produces). The header background TOUCHES the band, so it is
@@ -459,13 +516,18 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
         &render_state,
         &[LogicalRect {
             origin: LogicalPosition { x: 8.0, y: 78.0 },
-            size: LogicalSize { width: 624.0, height: 402.0 },
+            size: LogicalSize {
+                width: 624.0,
+                height: 402.0,
+            },
         }],
     )
     .expect("render_display_list_damaged");
     println!(
         "after incremental: button(180,40)={:?} header(40,12)={:?} child(40,200)={:?}",
-        px(&out, 180, 40), px(&out, 40, 12), px(&out, 40, 200)
+        px(&out, 180, 40),
+        px(&out, 40, 12),
+        px(&out, 40, 200)
     );
     assert_eq!(
         px(&out, 180, 40),
@@ -473,8 +535,16 @@ fn virtual_view_child_clip_cannot_escape_composite_bounds() {
         "incremental repaint of the VirtualView band wiped the header button \
          (partial-intersect item repainted unclipped over a skipped neighbour)"
     );
-    assert_eq!(px(&out, 40, 12), (43, 43, 43), "header background must survive incremental repaint");
-    assert_eq!(px(&out, 40, 200), (231, 233, 236), "child band must repaint");
+    assert_eq!(
+        px(&out, 40, 12),
+        (43, 43, 43),
+        "header background must survive incremental repaint"
+    );
+    assert_eq!(
+        px(&out, 40, 200),
+        (231, 233, 236),
+        "child band must repaint"
+    );
 }
 
 /// Cold pass: the header must get its content height (~37px+), not 0.
@@ -523,13 +593,26 @@ fn maps_demo_dom_with_css() -> Dom {
     const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
     let mut button_row = Dom::create_div().with_css("display: flex; flex-direction: row;");
-    for label in ["←", "→", "↑", "↓", "+", "−", "Recentre", "Locate", "Clear pins"] {
-        button_row = button_row
-            .with_child(Dom::create_div().with_css(BTN).with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label)));
+    for label in [
+        "←",
+        "→",
+        "↑",
+        "↓",
+        "+",
+        "−",
+        "Recentre",
+        "Locate",
+        "Clear pins",
+    ] {
+        button_row = button_row.with_child(Dom::create_div().with_css(BTN).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(label),
+        ));
     }
     let header = Dom::create_div()
         .with_css(HEADER)
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AzulMaps — centre 37.0000°, -122.0000° · zoom 2.0"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "AzulMaps — centre 37.0000°, -122.0000° · zoom 2.0",
+        ))
         .with_child(button_row);
     let map = MapWidget::create(MapTileLayer::default())
         .with_viewport(MapViewport::default())
@@ -587,7 +670,9 @@ fn maps_header_survives_incremental_relayout() {
 fn paint_canvas_with_menubar_wrapper_must_stretch_full_width() {
     let header = Dom::create_div()
         .with_ids_and_classes(class("header"))
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AzulPaint  ·  0 strokes  ·  Effect: Metaballs"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "AzulPaint  ·  0 strokes  ·  Effect: Metaballs",
+        ));
 
     let canvas = Dom::create_image(sizeless_image()).with_ids_and_classes(class("canvas"));
 
@@ -609,8 +694,7 @@ fn paint_canvas_with_menubar_wrapper_must_stretch_full_width() {
     let menubar_nodes = menubar.estimated_total_children + 1;
 
     // Mirror dll inject_software_menubar: Html root, menubar first.
-    let dom = Dom::create_html()
-        .with_children(vec![menubar, body].into());
+    let dom = Dom::create_html().with_children(vec![menubar, body].into());
 
     // Verbatim from examples/azul-paint/src/lib.rs (ROOT / HEADER / CANVAS).
     let css = r#"
@@ -627,9 +711,15 @@ fn paint_canvas_with_menubar_wrapper_must_stretch_full_width() {
     let body_idx = 1 + menubar_nodes;
     let header_idx = body_idx + 1;
     let canvas_idx = body_idx + 3;
-    let body_rect = lw.get_node_layout_rect(node_id(body_idx)).expect("body rect");
-    let header_rect = lw.get_node_layout_rect(node_id(header_idx)).expect("header rect");
-    let canvas_rect = lw.get_node_layout_rect(node_id(canvas_idx)).expect("canvas rect");
+    let body_rect = lw
+        .get_node_layout_rect(node_id(body_idx))
+        .expect("body rect");
+    let header_rect = lw
+        .get_node_layout_rect(node_id(header_idx))
+        .expect("header rect");
+    let canvas_rect = lw
+        .get_node_layout_rect(node_id(canvas_idx))
+        .expect("canvas rect");
     println!("menubar_nodes = {menubar_nodes}");
     println!("body   = {body_rect:?}");
     println!("header = {header_rect:?}");
@@ -664,17 +754,23 @@ fn menubar_flex_row_items_lay_out_horizontally_without_clipping() {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("mitem"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("File")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "File",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("mitem"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Edit")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Edit",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("mitem"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("View")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "View",
+                )),
         );
     let dom = Dom::create_body().with_child(bar);
     let css = r#"

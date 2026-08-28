@@ -215,11 +215,19 @@ impl AlsaCapture {
         out.clear();
         out.resize(CHUNK_FRAMES * self.channels as usize, 0.0);
         unsafe {
-            let mut n = (f.readi)(self.pcm, out.as_mut_ptr() as *mut c_void, CHUNK_FRAMES as c_ulong);
+            let mut n = (f.readi)(
+                self.pcm,
+                out.as_mut_ptr() as *mut c_void,
+                CHUNK_FRAMES as c_ulong,
+            );
             if n < 0 {
                 // -EPIPE (overrun) / -ESTRPIPE (suspend): recover + retry once.
                 (f.recover)(self.pcm, n as c_int, 1);
-                n = (f.readi)(self.pcm, out.as_mut_ptr() as *mut c_void, CHUNK_FRAMES as c_ulong);
+                n = (f.readi)(
+                    self.pcm,
+                    out.as_mut_ptr() as *mut c_void,
+                    CHUNK_FRAMES as c_ulong,
+                );
             }
             if n <= 0 {
                 out.clear();

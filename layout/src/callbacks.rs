@@ -16,10 +16,13 @@ use alloc::{
 use std::sync::Mutex;
 
 use azul_core::{
-    resources::UpdateImageType,
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
     dom::{AccessibilityAction, DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
-    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionLogicalRect, OptionLogicalSize, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},
+    geom::{
+        CursorNodePosition, DragDelta, LogicalPosition, LogicalRect, LogicalSize,
+        OptionCursorNodePosition, OptionDragDelta, OptionLogicalPosition, OptionLogicalRect,
+        OptionLogicalSize, OptionScreenPosition, ScreenPosition,
+    },
     gl::OptionGlContextPtr,
     gpu::GpuValueCache,
     hit_test::ScrollPosition,
@@ -27,30 +30,34 @@ use azul_core::{
     impl_callback,
     menu::Menu,
     refany::{OptionRefAny, RefAny},
+    resources::UpdateImageType,
     resources::{ImageCache, ImageMask, ImageRef, LoadedFont, LoadedFontVec, RendererResources},
     selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
     spaces::Inclusivity,
     styled_dom::{NodeHierarchyItemId, NodeHierarchyItemIdVec, StyledDom},
     task::{self, GetSystemTimeCallback, Instant, ThreadId, ThreadIdVec, TimerId, TimerIdVec},
-    window::{KeyboardState, Monitor, MonitorVec, MouseState, OptionMonitor, RawWindowHandle, WindowFlags, WindowSize},
+    window::{
+        KeyboardState, Monitor, MonitorVec, MouseState, OptionMonitor, RawWindowHandle,
+        WindowFlags, WindowSize,
+    },
     FastBTreeSet, OrderedMap,
 };
 use azul_css::{
+    corety::{OptionString, OptionUsize},
     css::CssPath,
     props::{
         basic::FontRef,
         property::{CssProperty, CssPropertyType, CssPropertyVec},
     },
     system::SystemStyle,
-    corety::{OptionString, OptionUsize},
     AzString, OptionU8Vec, StringVec, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
 
 #[cfg(feature = "icu")]
 use crate::icu::{
-    FormatLength, IcuDate, IcuDateTime, IcuLocalizerHandle, IcuResult,
-    IcuStringVec, IcuTime, ListType, PluralCategory,
+    FormatLength, IcuDate, IcuDateTime, IcuLocalizerHandle, IcuResult, IcuStringVec, IcuTime,
+    ListType, PluralCategory,
 };
 
 use crate::{
@@ -61,11 +68,11 @@ use crate::{
         gesture::{GestureAndDragManager, InputSample, PenState},
         gpu_state::GpuStateManager,
         hover::{HoverManager, InputPointId},
-        virtual_view::VirtualViewManager,
         scroll_state::{AnimatedScrollState, ScrollManager},
         selection::ClipboardContent,
         text_input::{PendingTextEdit, TextInputManager},
         undo_redo::{UndoRedoManager, UndoableOperation},
+        virtual_view::VirtualViewManager,
     },
     text3::cache::{TextShapingCache as TextLayoutCache, UnifiedLayout},
     thread::{CreateThreadCallback, Thread},
@@ -203,7 +210,9 @@ impl E2eScriptHandle {
     pub fn new() -> Self {
         use core::sync::atomic::{AtomicU64, Ordering};
         static NEXT: AtomicU64 = AtomicU64::new(1);
-        Self { id: NEXT.fetch_add(1, Ordering::Relaxed) }
+        Self {
+            id: NEXT.fetch_add(1, Ordering::Relaxed),
+        }
     }
 }
 
@@ -256,7 +265,9 @@ pub enum CallbackChange {
 
     // Window State Changes
     /// Modify the window state (size, position, title, etc.)
-    ModifyWindowState { state: FullWindowState },
+    ModifyWindowState {
+        state: FullWindowState,
+    },
     /// Inject a platform-native gesture-recognizer result into the
     /// in-process `GestureAndDragManager`. Read by the next
     /// `detect_long_press` / `detect_swipe_direction` / `detect_pinch` /
@@ -282,15 +293,21 @@ pub enum CallbackChange {
     /// Queue multiple window state changes to be applied in sequence across frames.
     /// This is needed for simulating clicks (mouse down -> wait -> mouse up) where each
     /// state change needs to trigger separate event processing.
-    QueueWindowStateSequence { states: Vec<FullWindowState> },
+    QueueWindowStateSequence {
+        states: Vec<FullWindowState>,
+    },
     /// Create a new window
-    CreateNewWindow { options: WindowCreateOptions },
+    CreateNewWindow {
+        options: WindowCreateOptions,
+    },
     /// Close the current window (via `Update::CloseWindow` return value, tracked here for logging)
     CloseWindow,
 
     // Focus Management
     /// Change keyboard focus to a specific node or clear focus
-    SetFocusTarget { target: FocusTarget },
+    SetFocusTarget {
+        target: FocusTarget,
+    },
 
     // Event Propagation Control
     /// Stop event from propagating to parent nodes (W3C stopPropagation).
@@ -305,7 +322,10 @@ pub enum CallbackChange {
 
     // Timer Management
     /// Add a new timer to the window
-    AddTimer { timer_id: TimerId, timer: Timer },
+    AddTimer {
+        timer_id: TimerId,
+        timer: Timer,
+    },
     /// Remove an existing timer
     /// Advance layout animations by an EXACT step, bypassing the wall clock.
     ///
@@ -316,7 +336,10 @@ pub enum CallbackChange {
     ///
     /// Integer microseconds, not `f32` seconds: an exact integer step is what
     /// lets a replayed scenario reproduce bit-for-bit.
-    TickAnimations { dt_micros: u32, steps: u32 },
+    TickAnimations {
+        dt_micros: u32,
+        steps: u32,
+    },
     /// Create/overwrite animation MOMENTUM on a node: kick its in-flight
     /// presence/move animation with the given velocity (logical px/s), or
     /// start an identity-anchored spring carrying that velocity when nothing
@@ -327,17 +350,27 @@ pub enum CallbackChange {
         velocity_x: f32,
         velocity_y: f32,
     },
-    RemoveTimer { timer_id: TimerId },
+    RemoveTimer {
+        timer_id: TimerId,
+    },
 
     // Thread Management
     /// Add a new background thread
-    AddThread { thread_id: ThreadId, thread: Thread },
+    AddThread {
+        thread_id: ThreadId,
+        thread: Thread,
+    },
     /// Remove an existing thread
-    RemoveThread { thread_id: ThreadId },
+    RemoveThread {
+        thread_id: ThreadId,
+    },
 
     // Content Modifications
     /// Change the text content of a node
-    ChangeNodeText { node_id: DomNodeId, text: AzString },
+    ChangeNodeText {
+        node_id: DomNodeId,
+        text: AzString,
+    },
     /// Update a node's ACCESSIBILITY declaration in place.
     ///
     /// Widgets publish their role and state when they build their DOM, which is
@@ -354,7 +387,10 @@ pub enum CallbackChange {
     },
     /// Update a node's announced VALUE in place. See
     /// [`CallbackChange::ChangeNodeAccessibilityState`].
-    ChangeNodeAccessibilityValue { node_id: DomNodeId, value: AzString },
+    ChangeNodeAccessibilityValue {
+        node_id: DomNodeId,
+        value: AzString,
+    },
     /// Change the image of a node
     ChangeNodeImage {
         dom_id: DomId,
@@ -368,7 +404,9 @@ pub enum CallbackChange {
         changeset: crate::managers::changeset::DocumentChangeset,
     },
     /// The commit handshake: the app confirms it applied structural edit `id`.
-    MarkDocumentEditApplied { id: u64 },
+    MarkDocumentEditApplied {
+        id: u64,
+    },
     /// The handshake WITH the applier's inverse operation — the edit becomes
     /// structurally undoable.
     MarkDocumentEditAppliedWithInverse {
@@ -381,7 +419,10 @@ pub enum CallbackChange {
     RedoStructuralEdit,
     /// Re-render an image callback (for resize/animation)
     /// This triggers re-invocation of the `RenderImageCallback`
-    UpdateImageCallback { dom_id: DomId, node_id: NodeId },
+    UpdateImageCallback {
+        dom_id: DomId,
+        node_id: NodeId,
+    },
     /// Re-render ALL image callbacks across all DOMs.
     ///
     /// This is the most efficient way to update animated GL textures:
@@ -391,7 +432,10 @@ pub enum CallbackChange {
     UpdateAllImageCallbacks,
     /// Trigger re-rendering of a `VirtualView` with a new DOM
     /// This forces the `VirtualView` to call its callback and update the display list
-    UpdateVirtualView { dom_id: DomId, node_id: NodeId },
+    UpdateVirtualView {
+        dom_id: DomId,
+        node_id: NodeId,
+    },
     /// Re-render EVERY `VirtualView` on the existing DOM (no node id needed).
     /// For shared-dataset changes that arrive out-of-band (e.g. a background
     /// tile-fetch writeback): the views re-read their cloned dataset in place.
@@ -467,9 +511,14 @@ pub enum CallbackChange {
 
     // Image Cache Management
     /// Add an image to the image cache
-    AddImageToCache { id: AzString, image: ImageRef },
+    AddImageToCache {
+        id: AzString,
+        image: ImageRef,
+    },
     /// Remove an image from the image cache
-    RemoveImageFromCache { id: AzString },
+    RemoveImageFromCache {
+        id: AzString,
+    },
 
     // Font Cache Management
     /// Reload system fonts (expensive operation)
@@ -488,13 +537,19 @@ pub enum CallbackChange {
     /// its `open` attribute — how a self-contained widget opens its own popup
     /// without the app carrying a flag. Node-keyed in the window's transient
     /// manager, so it survives rebuilds; a user dismissal clears it.
-    SetTransientWindowOpen { node: DomNodeId, open: bool },
+    SetTransientWindowOpen {
+        node: DomNodeId,
+        open: bool,
+    },
 
     /// Tear a `tearoff`-capable `<transient-window>` off into a free toplevel
     /// (`torn = true`) or dock it back onto its anchor (`false`) — what the
     /// user's drag of its `-azul-app-region: drag` strip does, available to a
     /// "float" / "dock" button as well.
-    SetTransientWindowTorn { node: DomNodeId, torn: bool },
+    SetTransientWindowTorn {
+        node: DomNodeId,
+        torn: bool,
+    },
 
     /// Start the platform eyedropper (`CallbackInfo::pick_screen_color`). The
     /// request is routed through this window's `EyedropperManager` so the
@@ -503,7 +558,9 @@ pub enum CallbackChange {
 
     /// Route every mouse move and the release to `node` until the button
     /// comes up, whatever is under the cursor (W3C `setPointerCapture`).
-    CapturePointer { node: DomNodeId },
+    CapturePointer {
+        node: DomNodeId,
+    },
     /// Drop an active pointer capture before the release would.
     ReleasePointerCapture,
 
@@ -530,9 +587,15 @@ pub enum CallbackChange {
         text: AzString,
     },
     /// Delete text backward (backspace) at cursor
-    DeleteBackward { dom_id: DomId, node_id: NodeId },
+    DeleteBackward {
+        dom_id: DomId,
+        node_id: NodeId,
+    },
     /// Delete text forward (delete key) at cursor
-    DeleteForward { dom_id: DomId, node_id: NodeId },
+    DeleteForward {
+        dom_id: DomId,
+        node_id: NodeId,
+    },
     /// Move cursor to a specific position
     MoveCursor {
         dom_id: DomId,
@@ -547,7 +610,9 @@ pub enum CallbackChange {
     },
     /// Set/override the text changeset for the current text input operation
     /// This allows callbacks to modify what text will be inserted during text input events
-    SetTextChangeset { changeset: PendingTextEdit },
+    SetTextChangeset {
+        changeset: PendingTextEdit,
+    },
 
     // Cursor Movement Operations
     /// Move cursor left (arrow left)
@@ -640,7 +705,9 @@ pub enum CallbackChange {
     /// This is used by the Debug API to update the hover manager's hit test
     /// data after modifying the mouse position, ensuring that callbacks
     /// can find the correct nodes under the cursor.
-    RequestHitTestUpdate { position: LogicalPosition },
+    RequestHitTestUpdate {
+        position: LogicalPosition,
+    },
 
     // Text Selection (for Debug API)
     /// Process a text selection click at a specific position
@@ -657,7 +724,9 @@ pub enum CallbackChange {
 
     // Cursor Blinking (System Timer Control)
     /// Set the cursor visibility state (called by blink timer)
-    SetCursorVisibility { visible: bool },
+    SetCursorVisibility {
+        visible: bool,
+    },
     /// Toggle cursor visibility based on blink timing
     ToggleCursorVisibility,
     /// Reset cursor blink state on user input (makes cursor visible, records time)
@@ -666,12 +735,12 @@ pub enum CallbackChange {
     StartCursorBlinkTimer,
     /// Stop the cursor blink timer (when focus leaves contenteditable)
     StopCursorBlinkTimer,
-    
+
     // Scroll cursor/selection into view
     /// Scroll the active text cursor into view within its scrollable container
     /// This is automatically triggered after text input or cursor movement
     ScrollActiveCursorIntoView,
-    
+
     // Create Text Input Event (for Debug API / Programmatic Text Input)
     /// Create a synthetic text input event
     ///
@@ -747,7 +816,9 @@ pub enum CallbackChange {
     /// travel through a process-global sink instead (an `e2e::hooks` function
     /// pointer into a `static` in the DLL), which meant a second window
     /// silently rendered the first window's mounted document.
-    RemountDom { xml: Option<AzString> },
+    RemountDom {
+        xml: Option<AzString>,
+    },
 
     // Routing
     /// Switch to a different route.
@@ -879,7 +950,8 @@ impl Callback {
     /// The caller must ensure that the usize in CoreCallback.cb was originally a valid
     /// function pointer of type `CallbackType`. This is guaranteed when `CoreCallback`
     /// is created through standard APIs, but unsafe code could violate this.
-    #[must_use] pub fn from_core(core: CoreCallback) -> Self {
+    #[must_use]
+    pub fn from_core(core: CoreCallback) -> Self {
         debug_assert!(core.cb != 0, "CoreCallback.cb is null");
         Self {
             cb: unsafe { core::mem::transmute::<usize, CallbackType>(core.cb) },
@@ -890,7 +962,8 @@ impl Callback {
     /// Convert to `CoreCallback` (function pointer stored as usize)
     ///
     /// This is always safe - we're just casting the function pointer to usize for storage.
-    #[must_use] pub fn to_core(self) -> CoreCallback {
+    #[must_use]
+    pub fn to_core(self) -> CoreCallback {
         CoreCallback {
             cb: self.cb as usize,
             ctx: self.ctx,
@@ -909,11 +982,13 @@ impl Callback {
     /// Safely invoke the callback with the given data and info
     ///
     /// This is a safe wrapper around calling the function pointer directly.
-    #[must_use] pub fn invoke(&self, data: RefAny, info: CallbackInfo) -> Update {
+    #[must_use]
+    pub fn invoke(&self, data: RefAny, info: CallbackInfo) -> Update {
         (self.cb)(data, info)
     }
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// FFI-safe Option<Callback> type for C interop.
 ///
 /// This enum provides an ABI-stable alternative to `Option<Callback>`
@@ -929,7 +1004,8 @@ pub enum OptionCallback {
 
 impl OptionCallback {
     /// Converts this FFI-safe option into a standard Rust `Option<Callback>`.
-    #[must_use] pub fn into_option(self) -> Option<Callback> {
+    #[must_use]
+    pub fn into_option(self) -> Option<Callback> {
         match self {
             Self::None => None,
             Self::Some(c) => Some(c),
@@ -937,12 +1013,14 @@ impl OptionCallback {
     }
 
     /// Returns `true` if a callback is present.
-    #[must_use] pub const fn is_some(&self) -> bool {
+    #[must_use]
+    pub const fn is_some(&self) -> bool {
         matches!(self, Self::Some(_))
     }
 
     /// Returns `true` if no callback is present.
-    #[must_use] pub const fn is_none(&self) -> bool {
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }
 }
@@ -1062,7 +1140,8 @@ impl CallbackInfo {
             // only lives for the duration of the callback, which is shorter than 'a
             // SAFETY: pointer cast only - erases lifetime 'a to 'static.
             // CallbackInfo only lives for the duration of the callback, which is shorter than 'a.
-            ref_data: std::ptr::from_ref::<CallbackInfoRefData<'a>>(ref_data).cast::<CallbackInfoRefData<'static>>(),
+            ref_data: std::ptr::from_ref::<CallbackInfoRefData<'a>>(ref_data)
+                .cast::<CallbackInfoRefData<'static>>(),
 
             // Context info (immutable event data)
             hit_dom_node,
@@ -1084,7 +1163,8 @@ impl CallbackInfo {
     ) -> Self {
         Self {
             // SAFETY: pointer cast only - erases lifetime 'a to 'static.
-            ref_data: ref_data as *const CallbackInfoRefData<'a> as *const CallbackInfoRefData<'static>,
+            ref_data: ref_data as *const CallbackInfoRefData<'a>
+                as *const CallbackInfoRefData<'static>,
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -1096,12 +1176,14 @@ impl CallbackInfo {
     ///
     /// Returns the cloned `OptionRefAny` if a callable was set, or None if this
     /// is a native Rust callback.
-    #[must_use] pub fn get_ctx(&self) -> OptionRefAny {
+    #[must_use]
+    pub fn get_ctx(&self) -> OptionRefAny {
         unsafe { (*self.ref_data).ctx.clone() }
     }
 
     /// Returns the OpenGL context if available
-    #[must_use] pub fn get_gl_context(&self) -> OptionGlContextPtr {
+    #[must_use]
+    pub fn get_gl_context(&self) -> OptionGlContextPtr {
         unsafe { (*self.ref_data).gl_context.clone() }
     }
 
@@ -1147,7 +1229,11 @@ impl CallbackInfo {
         mode: E2eExecutionMode,
     ) -> E2eScriptHandle {
         let handle = E2eScriptHandle::new();
-        self.push_change(CallbackChange::ExecuteE2eJson { script, handle, mode });
+        self.push_change(CallbackChange::ExecuteE2eJson {
+            script,
+            handle,
+            mode,
+        });
         handle
     }
 
@@ -1196,19 +1282,20 @@ impl CallbackInfo {
 
     /// Debug helper to get the changes pointer for debugging
     #[cfg(feature = "std")]
-    #[must_use] pub const fn get_changes_ptr(&self) -> *const () {
+    #[must_use]
+    pub const fn get_changes_ptr(&self) -> *const () {
         self.changes.cast::<()>()
     }
 
     /// Get the collected changes (consumes them from the Arc<Mutex>)
     #[cfg(feature = "std")]
-    #[must_use] pub fn take_changes(&self) -> Vec<CallbackChange> {
+    #[must_use]
+    pub fn take_changes(&self) -> Vec<CallbackChange> {
         // SAFETY: The pointer is valid for the lifetime of the callback
         unsafe {
-            (*self.changes).lock().map_or_else(
-                |_| Vec::new(),
-                |mut changes| core::mem::take(&mut *changes),
-            )
+            (*self.changes)
+                .lock()
+                .map_or_else(|_| Vec::new(), |mut changes| core::mem::take(&mut *changes))
         }
     }
 
@@ -1225,17 +1312,23 @@ impl CallbackInfo {
     ///
     /// Used by the E2E test runner to detect when it needs to yield.
     #[cfg(feature = "std")]
-    #[must_use] pub fn has_pending_relayout_change(&self) -> bool {
+    #[must_use]
+    pub fn has_pending_relayout_change(&self) -> bool {
         unsafe {
-            (*self.changes).lock().is_ok_and(|changes| changes.iter().any(|c| matches!(c,
-                    CallbackChange::ModifyWindowState { .. } |
+            (*self.changes).lock().is_ok_and(|changes| {
+                changes.iter().any(|c| {
+                    matches!(
+                        c,
+                        CallbackChange::ModifyWindowState { .. } |
                     CallbackChange::ScrollTo { .. } |
                     // Synthetic input (E2E `click` = move/down/up applied one
                     // state per frame): the runner MUST yield here, or every
                     // post-click step executes against the pre-click DOM and
                     // the queued states only apply after the test finishes.
                     CallbackChange::QueueWindowStateSequence { .. }
-                )))
+                    )
+                })
+            })
         }
     }
 
@@ -1366,9 +1459,7 @@ impl CallbackInfo {
                 // Capture BEFORE the dialog exists so it can never be in
                 // its own screenshot. Best-effort: a failed capture still
                 // opens the dialog, just without the attachment.
-                let screenshot = self
-                    .take_screenshot(DomId::ROOT_ID)
-                    .ok();
+                let screenshot = self.take_screenshot(DomId::ROOT_ID).ok();
                 crate::dialogs::report_problem::open(self, screenshot);
             }
             azul_core::window::SysDialogType::UpdateVersion => {
@@ -1455,7 +1546,8 @@ impl CallbackInfo {
     /// ```c
     /// AzString pattern = AzCallbackInfo_getRoutePattern(&info);
     /// ```
-    #[must_use] pub fn get_route_pattern(&self) -> AzString {
+    #[must_use]
+    pub fn get_route_pattern(&self) -> AzString {
         match &self.get_current_window_state().active_route {
             azul_core::resources::OptionRouteMatch::Some(rm) => rm.pattern.clone(),
             azul_core::resources::OptionRouteMatch::None => AzString::from_const_str("/"),
@@ -1472,13 +1564,13 @@ impl CallbackInfo {
     /// ```
     // FFI-exported (AzCallbackInfo_getRouteParam): the owned AzString key is the api.json signature.
     #[allow(clippy::needless_pass_by_value)]
-    #[must_use] pub fn get_route_param(&self, key: AzString) -> AzString {
+    #[must_use]
+    pub fn get_route_param(&self, key: AzString) -> AzString {
         match &self.get_current_window_state().active_route {
-            azul_core::resources::OptionRouteMatch::Some(rm) => {
-                rm.get_param(key.as_str())
-                    .cloned()
-                    .unwrap_or_else(|| AzString::from_const_str(""))
-            }
+            azul_core::resources::OptionRouteMatch::Some(rm) => rm
+                .get_param(key.as_str())
+                .cloned()
+                .unwrap_or_else(|| AzString::from_const_str("")),
             azul_core::resources::OptionRouteMatch::None => AzString::from_const_str(""),
         }
     }
@@ -1499,9 +1591,7 @@ impl CallbackInfo {
             azul_core::resources::OptionRouteMatch::None => return,
         };
         let mut params = match &ws.active_route {
-            azul_core::resources::OptionRouteMatch::Some(rm) => {
-                rm.params.as_ref().to_vec()
-            }
+            azul_core::resources::OptionRouteMatch::Some(rm) => rm.params.as_ref().to_vec(),
             azul_core::resources::OptionRouteMatch::None => return,
         };
         // Update or insert the parameter
@@ -1571,19 +1661,13 @@ impl CallbackInfo {
         // `Into<AzString>` rather than `Into<String>`: this crosses the FFI,
         // where the argument arrives as an AzString, and a Rust caller can
         // still pass a &str or a String.
-        azul_core::diagnostics::emit(alloc::format!(
-            "[azul][warn] {}",
-            message.into().as_str()
-        ));
+        azul_core::diagnostics::emit(alloc::format!("[azul][warn] {}", message.into().as_str()));
     }
 
     /// Emit an informational message. Same destinations as [`CallbackInfo::warn`];
     /// use it for things worth seeing in a trace but not worth alarming anyone.
     pub fn log(&mut self, message: impl Into<AzString>) {
-        azul_core::diagnostics::emit(alloc::format!(
-            "[azul][info] {}",
-            message.into().as_str()
-        ));
+        azul_core::diagnostics::emit(alloc::format!("[azul][info] {}", message.into().as_str()));
     }
 
     /// Update a node's accessibility STATE and/or VALUE without rebuilding.
@@ -1692,7 +1776,8 @@ impl CallbackInfo {
     /// Find a node by ID attribute in the layout tree
     ///
     /// Returns the `NodeId` of the first node with the given ID attribute, or None if not found.
-    #[must_use] pub fn get_node_id_by_id_attribute(&self, dom_id: DomId, id: &str) -> Option<NodeId> {
+    #[must_use]
+    pub fn get_node_id_by_id_attribute(&self, dom_id: DomId, id: &str) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.layout_results.get(&dom_id)?;
         let styled_dom = &layout_result.styled_dom;
@@ -1710,7 +1795,8 @@ impl CallbackInfo {
     /// Get the parent node of the given node
     ///
     /// Returns None if the node has no parent (i.e., it's the root node)
-    #[must_use] pub fn get_parent_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+    #[must_use]
+    pub fn get_parent_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.layout_results.get(&dom_id)?;
         let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
@@ -1721,7 +1807,8 @@ impl CallbackInfo {
     /// Get the next sibling of the given node
     ///
     /// Returns None if the node has no next sibling
-    #[must_use] pub fn get_next_sibling_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+    #[must_use]
+    pub fn get_next_sibling_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.layout_results.get(&dom_id)?;
         let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
@@ -1732,7 +1819,8 @@ impl CallbackInfo {
     /// Get the previous sibling of the given node
     ///
     /// Returns None if the node has no previous sibling
-    #[must_use] pub fn get_previous_sibling_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+    #[must_use]
+    pub fn get_previous_sibling_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.layout_results.get(&dom_id)?;
         let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
@@ -1743,7 +1831,8 @@ impl CallbackInfo {
     /// Get the first child of the given node
     ///
     /// Returns None if the node has no children
-    #[must_use] pub fn get_first_child_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+    #[must_use]
+    pub fn get_first_child_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.layout_results.get(&dom_id)?;
         let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
@@ -1754,7 +1843,8 @@ impl CallbackInfo {
     /// Get the last child of the given node
     ///
     /// Returns None if the node has no children
-    #[must_use] pub fn get_last_child_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+    #[must_use]
+    pub fn get_last_child_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.layout_results.get(&dom_id)?;
         let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
@@ -1766,7 +1856,8 @@ impl CallbackInfo {
     ///
     /// Returns an empty vector if the node has no children.
     /// Uses the contiguous node layout for efficient iteration.
-    #[must_use] pub fn get_all_children_nodes(&self, dom_id: DomId, node_id: NodeId) -> NodeHierarchyItemIdVec {
+    #[must_use]
+    pub fn get_all_children_nodes(&self, dom_id: DomId, node_id: NodeId) -> NodeHierarchyItemIdVec {
         let layout_window = self.get_layout_window();
         let Some(layout_result) = layout_window.layout_results.get(&dom_id) else {
             return NodeHierarchyItemIdVec::from_const_slice(&[]);
@@ -1800,7 +1891,8 @@ impl CallbackInfo {
     /// Get the number of direct children of the given node
     ///
     /// Uses the contiguous node layout for efficient counting.
-    #[must_use] pub fn get_children_count(&self, dom_id: DomId, node_id: NodeId) -> usize {
+    #[must_use]
+    pub fn get_children_count(&self, dom_id: DomId, node_id: NodeId) -> usize {
         let layout_window = self.get_layout_window();
         let Some(layout_result) = layout_window.layout_results.get(&dom_id) else {
             return 0;
@@ -1930,22 +2022,19 @@ impl CallbackInfo {
     /// The input lands in the shared scroll queue; the platform shell
     /// starts the physics timer when it sees pending input (the same path
     /// wheel momentum takes).
-    pub fn scroll_to_animated(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        target: LogicalPosition,
-    ) {
+    pub fn scroll_to_animated(&mut self, dom_id: DomId, node_id: NodeId, target: LogicalPosition) {
         use crate::managers::scroll_state::{ScrollInput, ScrollInputDevice, ScrollInputSource};
         let now = self.get_current_time();
-        self.get_scroll_manager().scroll_input_queue.push(ScrollInput {
-            dom_id,
-            node_id,
-            delta: target,
-            timestamp: now,
-            source: ScrollInputSource::AnimateTo,
-            device: ScrollInputDevice::Programmatic,
-        });
+        self.get_scroll_manager()
+            .scroll_input_queue
+            .push(ScrollInput {
+                dom_id,
+                node_id,
+                delta: target,
+                timestamp: now,
+                source: ScrollInputSource::AnimateTo,
+                device: ScrollInputDevice::Programmatic,
+            });
     }
 
     /// Scroll a node to a specific position without clamping.
@@ -1984,10 +2073,7 @@ impl CallbackInfo {
         node_id: DomNodeId,
         options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
     ) {
-        self.push_change(CallbackChange::ScrollIntoView {
-            node_id,
-            options,
-        });
+        self.push_change(CallbackChange::ScrollIntoView { node_id, options });
     }
 
     /// Record a structural document edit programmatically (the bold/italic
@@ -2033,9 +2119,7 @@ impl CallbackInfo {
     /// The pending structural edit, if any (inspect in a callback before
     /// deciding to apply or `prevent_default`).
     #[must_use]
-    pub fn get_document_edit_clone(
-        &self,
-    ) -> crate::managers::changeset::OptionDocumentChangeset {
+    pub fn get_document_edit_clone(&self) -> crate::managers::changeset::OptionDocumentChangeset {
         self.get_layout_window()
             .get_pending_document_edit()
             .cloned()
@@ -2068,7 +2152,8 @@ impl CallbackInfo {
     ///
     /// Use `set_text_changeset()` to modify the text that will be inserted,
     /// and `prevent_default()` to block the text input entirely.
-    #[must_use] pub const fn get_text_changeset(&self) -> Option<&PendingTextEdit> {
+    #[must_use]
+    pub const fn get_text_changeset(&self) -> Option<&PendingTextEdit> {
         self.get_layout_window()
             .text_input_manager
             .get_pending_changeset()
@@ -2182,7 +2267,7 @@ impl CallbackInfo {
     }
 
     // Cursor Blinking Api (for system timer control)
-    
+
     /// Set cursor visibility state
     ///
     /// This is primarily used internally by the cursor blink timer callback.
@@ -2190,7 +2275,7 @@ impl CallbackInfo {
     pub fn set_cursor_visibility(&mut self, visible: bool) {
         self.push_change(CallbackChange::SetCursorVisibility { visible });
     }
-    
+
     /// Reset cursor blink state on user input
     ///
     /// This makes the cursor visible and records the current time, so the blink
@@ -2199,7 +2284,7 @@ impl CallbackInfo {
     pub fn reset_cursor_blink(&mut self) {
         self.push_change(CallbackChange::ResetCursorBlink);
     }
-    
+
     /// Start the cursor blink timer
     ///
     /// Called automatically when focus lands on a contenteditable element.
@@ -2207,14 +2292,14 @@ impl CallbackInfo {
     pub fn start_cursor_blink_timer(&mut self) {
         self.push_change(CallbackChange::StartCursorBlinkTimer);
     }
-    
+
     /// Stop the cursor blink timer
     ///
     /// Called automatically when focus leaves a contenteditable element.
     pub fn stop_cursor_blink_timer(&mut self) {
         self.push_change(CallbackChange::StopCursorBlinkTimer);
     }
-    
+
     /// Scroll the active cursor into view
     ///
     /// This scrolls the focused text element's cursor into the visible area
@@ -2285,7 +2370,9 @@ impl CallbackInfo {
             .map_or(azul_core::dom::OptionDomNodeId::None, |zone| {
                 azul_core::dom::OptionDomNodeId::Some(DomNodeId {
                     dom: azul_core::dom::DomId::ROOT_ID,
-                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(zone)),
+                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                        zone,
+                    )),
                 })
             })
     }
@@ -2432,7 +2519,12 @@ impl CallbackInfo {
     /// selections are merged. If not, a new `MultiCursorState` is created.
     ///
     /// Returns the `SelectionId` of the new cursor.
-    pub fn add_cursor(&mut self, dom_id: DomId, node_id: NodeId, cursor: TextCursor) -> azul_core::selection::SelectionId {
+    pub fn add_cursor(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        cursor: TextCursor,
+    ) -> azul_core::selection::SelectionId {
         let id = azul_core::selection::SelectionId::new();
         self.push_change(CallbackChange::AddCursor {
             dom_id,
@@ -2445,7 +2537,12 @@ impl CallbackInfo {
     /// Add an additional selection range (for multi-cursor editing).
     ///
     /// Returns the `SelectionId` of the new selection.
-    pub fn add_selection_range(&mut self, dom_id: DomId, node_id: NodeId, range: SelectionRange) -> azul_core::selection::SelectionId {
+    pub fn add_selection_range(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        range: SelectionRange,
+    ) -> azul_core::selection::SelectionId {
         let id = azul_core::selection::SelectionId::new();
         self.push_change(CallbackChange::AddSelectionRange {
             dom_id,
@@ -2458,10 +2555,11 @@ impl CallbackInfo {
     /// Remove a specific selection/cursor by its stable ID.
     ///
     /// Returns true if a selection with that ID existed and was removed.
-    pub fn remove_selection_by_id(&mut self, selection_id: azul_core::selection::SelectionId) -> bool {
-        self.push_change(CallbackChange::RemoveSelectionById {
-            selection_id,
-        });
+    pub fn remove_selection_by_id(
+        &mut self,
+        selection_id: azul_core::selection::SelectionId,
+    ) -> bool {
+        self.push_change(CallbackChange::RemoveSelectionById { selection_id });
         true // Actual removal happens deferred; assume success
     }
 
@@ -2469,25 +2567,40 @@ impl CallbackInfo {
     ///
     /// Returns a Vec of `IdentifiedSelection` from the `MultiCursorState`, or empty
     /// if no multi-cursor state exists.
-    #[must_use] pub fn get_multi_cursor_selections(&self, dom_id: &DomId) -> azul_core::selection::IdentifiedSelectionVec {
+    #[must_use]
+    pub fn get_multi_cursor_selections(
+        &self,
+        dom_id: &DomId,
+    ) -> azul_core::selection::IdentifiedSelectionVec {
         let lw = self.get_layout_window();
-        lw.text_edit_manager.multi_cursor.as_ref()
+        lw.text_edit_manager
+            .multi_cursor
+            .as_ref()
             .map(|mc| mc.selections.clone())
             .unwrap_or_default()
             .into()
     }
 
     /// Get the primary (last-added) selection from the `MultiCursorState`.
-    #[must_use] pub fn get_primary_selection(&self, dom_id: &DomId) -> Option<azul_core::selection::IdentifiedSelection> {
+    #[must_use]
+    pub fn get_primary_selection(
+        &self,
+        dom_id: &DomId,
+    ) -> Option<azul_core::selection::IdentifiedSelection> {
         let lw = self.get_layout_window();
-        lw.text_edit_manager.multi_cursor.as_ref()
+        lw.text_edit_manager
+            .multi_cursor
+            .as_ref()
             .and_then(|mc| mc.get_primary().copied())
     }
 
     /// Get the number of active cursors/selections.
-    #[must_use] pub fn get_selection_count(&self, dom_id: &DomId) -> usize {
+    #[must_use]
+    pub fn get_selection_count(&self, dom_id: &DomId) -> usize {
         let lw = self.get_layout_window();
-        lw.text_edit_manager.multi_cursor.as_ref()
+        lw.text_edit_manager
+            .multi_cursor
+            .as_ref()
             .map_or(0, azul_core::selection::MultiCursorState::len)
     }
 
@@ -2544,7 +2657,8 @@ impl CallbackInfo {
     ///
     /// This provides read-only access to layout data, node hierarchies, managers, etc.
     /// All modifications should go through `CallbackChange` transactions via `push_change()`.
-    #[must_use] pub const fn get_layout_window(&self) -> &LayoutWindow {
+    #[must_use]
+    pub const fn get_layout_window(&self) -> &LayoutWindow {
         unsafe { (*self.ref_data).layout_window }
     }
 
@@ -2556,7 +2670,8 @@ impl CallbackInfo {
     /// for the cache-fork mechanics. Intended for app-side lazy pagination:
     /// lay out a monitor-height prefix eagerly, estimate the page count,
     /// then correct asynchronously with this query.
-    #[must_use] pub fn query_pagination(
+    #[must_use]
+    pub fn query_pagination(
         &self,
         styled_dom: &StyledDom,
         page_size: LogicalSize,
@@ -2612,12 +2727,14 @@ impl CallbackInfo {
     // All methods below delegate to LayoutWindow for read-only access
 
     /// Get the logical size of a node, or `None` if the node doesn't exist
-    #[must_use] pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
+    #[must_use]
+    pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
         self.get_layout_window().get_node_size(node_id)
     }
 
     /// Get the logical position of a node, or `None` if the node doesn't exist
-    #[must_use] pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
+    #[must_use]
+    pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.get_layout_window().get_node_position(node_id)
     }
 
@@ -2657,7 +2774,8 @@ impl CallbackInfo {
     ///
     /// This is more reliable than `get_node_rect` because the display list
     /// always contains the correct final rendered positions.
-    #[must_use] pub fn get_node_hit_test_bounds(&self, node_id: DomNodeId) -> Option<LogicalRect> {
+    #[must_use]
+    pub fn get_node_hit_test_bounds(&self, node_id: DomNodeId) -> Option<LogicalRect> {
         self.get_layout_window().get_node_hit_test_bounds(node_id)
     }
 
@@ -2665,7 +2783,8 @@ impl CallbackInfo {
     ///
     /// This is particularly useful for menu positioning, where you need
     /// to know where a UI element is to popup a menu relative to it.
-    #[must_use] pub fn get_node_rect(&self, node_id: DomNodeId) -> Option<LogicalRect> {
+    #[must_use]
+    pub fn get_node_rect(&self, node_id: DomNodeId) -> Option<LogicalRect> {
         let position = self.get_node_position(node_id)?;
         let size = self.get_node_size(node_id)?;
         Some(LogicalRect::new(position, size))
@@ -2675,7 +2794,8 @@ impl CallbackInfo {
     ///
     /// Convenience method that combines `get_hit_node()` and `get_node_rect()`.
     /// Useful for menu positioning based on the clicked element.
-    #[must_use] pub fn get_hit_node_rect(&self) -> Option<LogicalRect> {
+    #[must_use]
+    pub fn get_hit_node_rect(&self) -> Option<LogicalRect> {
         let hit_node = self.get_hit_node();
         self.get_node_rect(hit_node)
     }
@@ -2683,50 +2803,58 @@ impl CallbackInfo {
     // Timer Management (Query APIs)
 
     /// Get a reference to a timer
-    #[must_use] pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
+    #[must_use]
+    pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
         self.get_layout_window().get_timer(timer_id)
     }
 
     /// Get all timer IDs
-    #[must_use] pub fn get_timer_ids(&self) -> TimerIdVec {
+    #[must_use]
+    pub fn get_timer_ids(&self) -> TimerIdVec {
         self.get_layout_window().get_timer_ids()
     }
 
     // Thread Management (Query APIs)
 
     /// Get a reference to a thread
-    #[must_use] pub fn get_thread(&self, thread_id: &ThreadId) -> Option<&Thread> {
+    #[must_use]
+    pub fn get_thread(&self, thread_id: &ThreadId) -> Option<&Thread> {
         self.get_layout_window().get_thread(thread_id)
     }
 
     /// Get all thread IDs
-    #[must_use] pub fn get_thread_ids(&self) -> ThreadIdVec {
+    #[must_use]
+    pub fn get_thread_ids(&self) -> ThreadIdVec {
         self.get_layout_window().get_thread_ids()
     }
 
     // Gpu Value Cache Management (Query APIs)
 
     /// Get the GPU value cache for a specific DOM
-    #[must_use] pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&GpuValueCache> {
+    #[must_use]
+    pub fn get_gpu_cache(&self, dom_id: &DomId) -> Option<&GpuValueCache> {
         self.get_layout_window().get_gpu_cache(dom_id)
     }
 
     // Layout Result Access (Query APIs)
 
     /// Get a layout result for a specific DOM
-    #[must_use] pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&DomLayoutResult> {
+    #[must_use]
+    pub fn get_layout_result(&self, dom_id: &DomId) -> Option<&DomLayoutResult> {
         self.get_layout_window().get_layout_result(dom_id)
     }
 
     /// Get all DOM IDs that have layout results
-    #[must_use] pub fn get_dom_ids(&self) -> DomIdVec {
+    #[must_use]
+    pub fn get_dom_ids(&self) -> DomIdVec {
         self.get_layout_window().get_dom_ids()
     }
 
     // Node Hierarchy Navigation
 
     /// Get the DOM node that was hit by the event that triggered this callback
-    #[must_use] pub const fn get_hit_node(&self) -> DomNodeId {
+    #[must_use]
+    pub const fn get_hit_node(&self) -> DomNodeId {
         self.hit_dom_node
     }
 
@@ -2745,7 +2873,8 @@ impl CallbackInfo {
     }
 
     /// Get the parent of a node, skipping anonymous (table-generated) nodes
-    #[must_use] pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -2769,7 +2898,8 @@ impl CallbackInfo {
     }
 
     /// Get the previous sibling of a node, skipping anonymous nodes
-    #[must_use] pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -2793,7 +2923,8 @@ impl CallbackInfo {
     }
 
     /// Get the next sibling of a node, skipping anonymous nodes
-    #[must_use] pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -2817,7 +2948,8 @@ impl CallbackInfo {
     }
 
     /// Get the first child of a node, skipping anonymous nodes
-    #[must_use] pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -2841,7 +2973,8 @@ impl CallbackInfo {
     }
 
     /// Get the last child of a node, skipping anonymous nodes
-    #[must_use] pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -2918,7 +3051,8 @@ impl CallbackInfo {
     }
 
     /// Get the text content of a text node, or `None` if the node is not a text node
-    #[must_use] pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
+    #[must_use]
+    pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -2936,7 +3070,8 @@ impl CallbackInfo {
     ///
     /// Returns the HTML tag name as a string for the given node.
     /// For text nodes, returns "text". For image nodes, returns "img".
-    #[must_use] pub fn get_node_tag_name(&self, node_id: DomNodeId) -> Option<AzString> {
+    #[must_use]
+    pub fn get_node_tag_name(&self, node_id: DomNodeId) -> Option<AzString> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -2959,7 +3094,8 @@ impl CallbackInfo {
     // arm binds a differently-typed `v`, so the same-bodied arms can't be merged into
     // one or-pattern (won't type-check) — they are intentionally one-per-attribute.
     #[allow(clippy::match_same_arms)]
-    #[must_use] pub fn get_node_attribute(&self, node_id: DomNodeId, attr_name: &str) -> Option<AzString> {
+    #[must_use]
+    pub fn get_node_attribute(&self, node_id: DomNodeId, attr_name: &str) -> Option<AzString> {
         use azul_core::dom::AttributeType;
 
         let layout_window = self.get_layout_window();
@@ -3041,7 +3177,8 @@ impl CallbackInfo {
     }
 
     /// Get all classes of a node as a vector of strings
-    #[must_use] pub fn get_node_classes(&self, node_id: DomNodeId) -> StringVec {
+    #[must_use]
+    pub fn get_node_classes(&self, node_id: DomNodeId) -> StringVec {
         let Some(layout_window) = self.get_layout_window().get_layout_result(&node_id.dom) else {
             return StringVec::from_const_slice(&[]);
         };
@@ -3057,16 +3194,15 @@ impl CallbackInfo {
             .attributes()
             .as_ref()
             .iter()
-            .filter_map(|attr| {
-                attr.as_class().map(|c| c.to_string().into())
-            })
+            .filter_map(|attr| attr.as_class().map(|c| c.to_string().into()))
             .collect();
 
         StringVec::from(classes)
     }
 
     /// Get the ID attribute of a node (if it has one)
-    #[must_use] pub fn get_node_id(&self, node_id: DomNodeId) -> Option<AzString> {
+    #[must_use]
+    pub fn get_node_id(&self, node_id: DomNodeId) -> Option<AzString> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -3084,34 +3220,55 @@ impl CallbackInfo {
     // Text Selection Management
 
     /// Get the current selection state for a DOM (via `multi_cursor`)
-    #[must_use] pub const fn get_selection(&self, _dom_id: &DomId) -> Option<&SelectionState> {
+    #[must_use]
+    pub const fn get_selection(&self, _dom_id: &DomId) -> Option<&SelectionState> {
         // SelectionManager removed; multi_cursor is the source of truth.
         // SelectionState is a legacy type; return None.
         None
     }
 
     /// Check if a DOM has any selection (via `multi_cursor`)
-    #[must_use] pub fn has_selection(&self, _dom_id: &DomId) -> bool {
+    #[must_use]
+    pub fn has_selection(&self, _dom_id: &DomId) -> bool {
         self.get_layout_window()
-            .text_edit_manager.multi_cursor.as_ref()
-            .is_some_and(|mc| mc.selections.iter().any(|s| matches!(&s.selection, Selection::Range(_))))
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .is_some_and(|mc| {
+                mc.selections
+                    .iter()
+                    .any(|s| matches!(&s.selection, Selection::Range(_)))
+            })
     }
 
     /// Get the primary cursor for a DOM (via `multi_cursor`)
-    #[must_use] pub fn get_primary_cursor(&self, _dom_id: &DomId) -> Option<TextCursor> {
+    #[must_use]
+    pub fn get_primary_cursor(&self, _dom_id: &DomId) -> Option<TextCursor> {
         self.get_layout_window()
-            .text_edit_manager.multi_cursor.as_ref()
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
             .and_then(azul_core::selection::MultiCursorState::get_primary_cursor)
     }
 
     /// Get all selection ranges (excludes plain cursors, via `multi_cursor`)
-    #[must_use] pub fn get_selection_ranges(&self, _dom_id: &DomId) -> SelectionRangeVec {
-        let ranges: Vec<SelectionRange> = self.get_layout_window()
-            .text_edit_manager.multi_cursor.as_ref()
-            .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
-                Selection::Range(r) => Some(*r),
-                Selection::Cursor(_) => None,
-            }).collect()).unwrap_or_default();
+    #[must_use]
+    pub fn get_selection_ranges(&self, _dom_id: &DomId) -> SelectionRangeVec {
+        let ranges: Vec<SelectionRange> = self
+            .get_layout_window()
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| {
+                mc.selections
+                    .iter()
+                    .filter_map(|s| match &s.selection {
+                        Selection::Range(r) => Some(*r),
+                        Selection::Cursor(_) => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         ranges.into()
     }
 
@@ -3127,45 +3284,53 @@ impl CallbackInfo {
     /// - `get_selection()`, `get_primary_cursor()` for reading selections
     ///
     /// Future: Add `NodeId` -> `CacheId` mapping to enable node-specific layout access
-    #[must_use] pub const fn get_text_cache(&self) -> &TextLayoutCache {
+    #[must_use]
+    pub const fn get_text_cache(&self) -> &TextLayoutCache {
         &self.get_layout_window().text_cache
     }
 
     // Window State Access
 
     /// Get full current window state (immutable reference)
-    #[must_use] pub const fn get_current_window_state(&self) -> &FullWindowState {
+    #[must_use]
+    pub const fn get_current_window_state(&self) -> &FullWindowState {
         // SAFETY: current_window_state is a valid pointer for the lifetime of CallbackInfo
         unsafe { (*self.ref_data).current_window_state }
     }
 
     /// Get current window flags
-    #[must_use] pub const fn get_current_window_flags(&self) -> WindowFlags {
+    #[must_use]
+    pub const fn get_current_window_flags(&self) -> WindowFlags {
         self.get_current_window_state().flags
     }
 
     /// Get current keyboard state
-    #[must_use] pub fn get_current_keyboard_state(&self) -> KeyboardState {
+    #[must_use]
+    pub fn get_current_keyboard_state(&self) -> KeyboardState {
         self.get_current_window_state().keyboard_state.clone()
     }
 
     /// Get current mouse state
-    #[must_use] pub const fn get_current_mouse_state(&self) -> MouseState {
+    #[must_use]
+    pub const fn get_current_mouse_state(&self) -> MouseState {
         self.get_current_window_state().mouse_state
     }
 
     /// Get full previous window state (immutable reference)
-    #[must_use] pub const fn get_previous_window_state(&self) -> &Option<FullWindowState> {
+    #[must_use]
+    pub const fn get_previous_window_state(&self) -> &Option<FullWindowState> {
         unsafe { (*self.ref_data).previous_window_state }
     }
 
     /// Get previous window flags
-    #[must_use] pub fn get_previous_window_flags(&self) -> Option<WindowFlags> {
+    #[must_use]
+    pub fn get_previous_window_flags(&self) -> Option<WindowFlags> {
         Some(self.get_previous_window_state().as_ref()?.flags)
     }
 
     /// Get previous keyboard state
-    #[must_use] pub fn get_previous_keyboard_state(&self) -> Option<KeyboardState> {
+    #[must_use]
+    pub fn get_previous_keyboard_state(&self) -> Option<KeyboardState> {
         Some(
             self.get_previous_window_state()
                 .as_ref()?
@@ -3175,25 +3340,26 @@ impl CallbackInfo {
     }
 
     /// Get previous mouse state
-    #[must_use] pub fn get_previous_mouse_state(&self) -> Option<MouseState> {
-        Some(
-            self.get_previous_window_state()
-                .as_ref()?
-                .mouse_state,
-        )
+    #[must_use]
+    pub fn get_previous_mouse_state(&self) -> Option<MouseState> {
+        Some(self.get_previous_window_state().as_ref()?.mouse_state)
     }
 
     // Cursor and Input
 
-    #[must_use] pub const fn get_cursor_relative_to_node(&self) -> azul_core::geom::OptionCursorNodePosition {
+    #[must_use]
+    pub const fn get_cursor_relative_to_node(&self) -> azul_core::geom::OptionCursorNodePosition {
         use azul_core::geom::{CursorNodePosition, OptionCursorNodePosition};
         match self.cursor_relative_to_item {
-            OptionLogicalPosition::Some(p) => OptionCursorNodePosition::Some(CursorNodePosition::from_logical(p)),
+            OptionLogicalPosition::Some(p) => {
+                OptionCursorNodePosition::Some(CursorNodePosition::from_logical(p))
+            }
             OptionLogicalPosition::None => OptionCursorNodePosition::None,
         }
     }
 
-    #[must_use] pub const fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
+    #[must_use]
+    pub const fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
         self.cursor_in_viewport
     }
 
@@ -3219,21 +3385,20 @@ impl CallbackInfo {
     /// | **X11**     | Exact (pixels) |
     /// | **Wayland** | Falls back to window-local (compositor hides global position) |
     #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
-    #[must_use] pub fn get_cursor_position_screen(&self) -> azul_core::geom::OptionScreenPosition {
+    #[must_use]
+    pub fn get_cursor_position_screen(&self) -> azul_core::geom::OptionScreenPosition {
+        use azul_core::geom::{LogicalPosition, OptionScreenPosition, ScreenPosition};
         use azul_core::window::WindowPosition;
-        use azul_core::geom::{LogicalPosition, ScreenPosition, OptionScreenPosition};
 
         let ws = self.get_current_window_state();
         let Some(cursor_local) = ws.mouse_state.cursor_position.get_position() else {
             return OptionScreenPosition::None;
         };
         match ws.position {
-            WindowPosition::Initialized(pos) => {
-                OptionScreenPosition::Some(ScreenPosition::new(
-                    pos.x as f32 + cursor_local.x,
-                    pos.y as f32 + cursor_local.y,
-                ))
-            }
+            WindowPosition::Initialized(pos) => OptionScreenPosition::Some(ScreenPosition::new(
+                pos.x as f32 + cursor_local.x,
+                pos.y as f32 + cursor_local.y,
+            )),
             // Wayland / relative-to-parent: absolute screen position unknown here
             // (relative needs the parent's screen pos), fall back to window-local.
             WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => {
@@ -3249,7 +3414,8 @@ impl CallbackInfo {
     ///
     /// **Warning**: This is NOT stable during window moves (titlebar drag).
     /// Use `get_drag_delta_screen()` for titlebar dragging.
-    #[must_use] pub fn get_drag_delta(&self) -> azul_core::geom::OptionDragDelta {
+    #[must_use]
+    pub fn get_drag_delta(&self) -> azul_core::geom::OptionDragDelta {
         use azul_core::geom::{DragDelta, OptionDragDelta};
         let gm = self.get_gesture_drag_manager();
         match gm.get_drag_delta() {
@@ -3263,7 +3429,8 @@ impl CallbackInfo {
     /// Unlike `get_drag_delta()`, this is stable even when the window moves
     /// (e.g., during titlebar drag). Returns `None` if no drag is active.
     /// On Wayland: falls back to window-local delta.
-    #[must_use] pub fn get_drag_delta_screen(&self) -> azul_core::geom::OptionDragDelta {
+    #[must_use]
+    pub fn get_drag_delta_screen(&self) -> azul_core::geom::OptionDragDelta {
         use azul_core::geom::{DragDelta, OptionDragDelta};
         let gm = self.get_gesture_drag_manager();
         match gm.get_drag_delta_screen() {
@@ -3285,7 +3452,8 @@ impl CallbackInfo {
     /// This handles external position changes (DPI change, OS clamping, compositor
     /// resize) that would make the initial position stale.
     /// Returns `None` if no drag is active or fewer than 2 samples exist.
-    #[must_use] pub fn get_drag_delta_screen_incremental(&self) -> azul_core::geom::OptionDragDelta {
+    #[must_use]
+    pub fn get_drag_delta_screen_incremental(&self) -> azul_core::geom::OptionDragDelta {
         use azul_core::geom::{DragDelta, OptionDragDelta};
         let gm = self.get_gesture_drag_manager();
         match gm.get_drag_delta_screen_incremental() {
@@ -3294,13 +3462,15 @@ impl CallbackInfo {
         }
     }
 
-    #[must_use] pub const fn get_current_window_handle(&self) -> RawWindowHandle {
+    #[must_use]
+    pub const fn get_current_window_handle(&self) -> RawWindowHandle {
         unsafe { *(*self.ref_data).current_window_handle }
     }
 
     /// Get the system style (for menu rendering, CSD, etc.)
     /// This is useful for creating custom menus or other system-styled UI.
-    #[must_use] pub fn get_system_style(&self) -> Arc<SystemStyle> {
+    #[must_use]
+    pub fn get_system_style(&self) -> Arc<SystemStyle> {
         unsafe { (*self.ref_data).system_style.clone() }
     }
 
@@ -3309,9 +3479,12 @@ impl CallbackInfo {
     /// The returned `MonitorVec` is cloned from the shared monitor cache.
     /// The cache is initialized once at app start and updated by the platform
     /// layer on monitor topology changes. No OS calls are made here.
-    #[must_use] pub fn get_monitors(&self) -> MonitorVec {
+    #[must_use]
+    pub fn get_monitors(&self) -> MonitorVec {
         let monitors_arc = unsafe { &(*self.ref_data).monitors };
-        monitors_arc.lock().map_or_else(|_| MonitorVec::from_const_slice(&[]), |g| g.clone())
+        monitors_arc
+            .lock()
+            .map_or_else(|_| MonitorVec::from_const_slice(&[]), |g| g.clone())
     }
 
     /// Get the monitor that the current window is on, if known.
@@ -3319,7 +3492,8 @@ impl CallbackInfo {
     /// Uses `FullWindowState::monitor_id` (set by the platform layer) to find
     /// the matching monitor in the cached monitor list. Returns `None` if the
     /// monitor ID is not set or no matching monitor is found.
-    #[must_use] pub fn get_current_monitor(&self) -> OptionMonitor {
+    #[must_use]
+    pub fn get_current_monitor(&self) -> OptionMonitor {
         let ws = self.get_current_window_state();
         let monitor_index = match ws.monitor_id {
             azul_css::corety::OptionU32::Some(idx) => idx as usize,
@@ -3387,7 +3561,8 @@ impl CallbackInfo {
     /// ```
     #[cfg(feature = "icu")]
     pub fn format_decimal(&self, locale: &str, integer_part: i64, decimal_places: i16) -> AzString {
-        self.get_icu_localizer().format_decimal(locale, integer_part, decimal_places)
+        self.get_icu_localizer()
+            .format_decimal(locale, integer_part, decimal_places)
     }
 
     /// Get the plural category for a number (cardinal: "1 item", "2 items").
@@ -3432,7 +3607,8 @@ impl CallbackInfo {
         many: &str,
         other: &str,
     ) -> AzString {
-        self.get_icu_localizer().pluralize(locale, value, zero, one, two, few, many, other)
+        self.get_icu_localizer()
+            .pluralize(locale, value, zero, one, two, few, many, other)
     }
 
     /// Format a list of items with locale-appropriate conjunctions.
@@ -3486,7 +3662,8 @@ impl CallbackInfo {
     /// ```
     #[cfg(feature = "icu")]
     pub fn format_time(&self, locale: &str, time: IcuTime, include_seconds: bool) -> IcuResult {
-        self.get_icu_localizer().format_time(locale, time, include_seconds)
+        self.get_icu_localizer()
+            .format_time(locale, time, include_seconds)
     }
 
     /// Format a date and time according to the specified locale.
@@ -3496,8 +3673,14 @@ impl CallbackInfo {
     /// * `datetime` - The date and time to format (use IcuDateTime::now())
     /// * `length` - Short, Medium, or Long format
     #[cfg(feature = "icu")]
-    pub fn format_datetime(&self, locale: &str, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
-        self.get_icu_localizer().format_datetime(locale, datetime, length)
+    pub fn format_datetime(
+        &self,
+        locale: &str,
+        datetime: IcuDateTime,
+        length: FormatLength,
+    ) -> IcuResult {
+        self.get_icu_localizer()
+            .format_datetime(locale, datetime, length)
     }
 
     /// Compare two strings according to locale-specific collation rules.
@@ -3555,12 +3738,14 @@ impl CallbackInfo {
     }
 
     /// Get the current cursor position in logical coordinates relative to the window
-    #[must_use] pub fn get_cursor_position(&self) -> Option<LogicalPosition> {
+    #[must_use]
+    pub fn get_cursor_position(&self) -> Option<LogicalPosition> {
         self.cursor_in_viewport.into_option()
     }
 
     /// Get the layout rectangle of the currently hit node (in logical coordinates)
-    #[must_use] pub fn get_hit_node_layout_rect(&self) -> Option<LogicalRect> {
+    #[must_use]
+    pub fn get_hit_node_layout_rect(&self) -> Option<LogicalRect> {
         self.get_layout_window()
             .get_node_layout_rect(self.hit_dom_node)
     }
@@ -3584,7 +3769,8 @@ impl CallbackInfo {
     /// # Returns
     /// * `Some(CssProperty)` if the property is set on this node
     /// * `None` if the property is not set (will use default value)
-    #[must_use] pub fn get_computed_css_property(
+    #[must_use]
+    pub fn get_computed_css_property(
         &self,
         node_id: DomNodeId,
         property_type: CssPropertyType,
@@ -3619,24 +3805,28 @@ impl CallbackInfo {
     /// Get the computed width of a node from CSS
     ///
     /// Convenience method for getting the CSS width property.
-    #[must_use] pub fn get_computed_width(&self, node_id: DomNodeId) -> Option<CssProperty> {
+    #[must_use]
+    pub fn get_computed_width(&self, node_id: DomNodeId) -> Option<CssProperty> {
         self.get_computed_css_property(node_id, CssPropertyType::Width)
     }
 
     /// Get the computed height of a node from CSS
     ///
     /// Convenience method for getting the CSS height property.
-    #[must_use] pub fn get_computed_height(&self, node_id: DomNodeId) -> Option<CssProperty> {
+    #[must_use]
+    pub fn get_computed_height(&self, node_id: DomNodeId) -> Option<CssProperty> {
         self.get_computed_css_property(node_id, CssPropertyType::Height)
     }
 
     // System Callbacks
 
-    #[must_use] pub const fn get_system_time_fn(&self) -> GetSystemTimeCallback {
+    #[must_use]
+    pub const fn get_system_time_fn(&self) -> GetSystemTimeCallback {
         unsafe { (*self.ref_data).system_callbacks.get_system_time_fn }
     }
 
-    #[must_use] pub fn get_current_time(&self) -> task::Instant {
+    #[must_use]
+    pub fn get_current_time(&self) -> task::Instant {
         let cb = self.get_system_time_fn();
         (cb.cb)()
     }
@@ -3645,7 +3835,8 @@ impl CallbackInfo {
     ///
     /// This provides access to fonts, images, and other rendering resources.
     /// Useful for custom rendering or screenshot functionality.
-    #[must_use] pub const fn get_renderer_resources(&self) -> &RendererResources {
+    #[must_use]
+    pub const fn get_renderer_resources(&self) -> &RendererResources {
         unsafe { (*self.ref_data).renderer_resources }
     }
 
@@ -3680,18 +3871,13 @@ impl CallbackInfo {
     /// (`get_styled_dom_clone` / `get_dom_subtree` clone the refcounted
     /// handles). This snapshot covers the INDIRECT case: images registered
     /// by css id and resolved through the cache at layout time.
-    #[must_use] pub fn get_image_cache_clone(&self) -> crate::resource_handles::ImageCacheSnapshot {
+    #[must_use]
+    pub fn get_image_cache_clone(&self) -> crate::resource_handles::ImageCacheSnapshot {
         // Core's ImageCache has no Clone (derive(Clone)+Drop double-free
         // audit); clone the refcounted-handle map explicitly.
-        crate::resource_handles::ImageCacheSnapshot::from_image_cache(
-            ImageCache {
-                image_id_map: self
-                    .get_layout_window()
-                    .image_cache
-                    .image_id_map
-                    .clone(),
-            },
-        )
+        crate::resource_handles::ImageCacheSnapshot::from_image_cache(ImageCache {
+            image_id_map: self.get_layout_window().image_cache.image_id_map.clone(),
+        })
     }
 
     /// Snapshot of the window's font resolution state (shared parsed-font
@@ -3708,7 +3894,8 @@ impl CallbackInfo {
     /// is what preserves the INDIRECT state: family-name resolution,
     /// fallback chains and the parsed system faces backing them.
     #[cfg(feature = "text_layout")]
-    #[must_use] pub fn get_font_cache_clone(&self) -> crate::resource_handles::FontCacheSnapshot {
+    #[must_use]
+    pub fn get_font_cache_clone(&self) -> crate::resource_handles::FontCacheSnapshot {
         crate::resource_handles::FontCacheSnapshot::from_font_manager(
             self.get_layout_window().font_manager.clone_shared(),
         )
@@ -3722,7 +3909,8 @@ impl CallbackInfo {
     /// [`get_font_cache_clone`](Self::get_font_cache_clone) /
     /// [`get_image_cache_clone`](Self::get_image_cache_clone) and the PDF
     /// lays out the same styled content with the same resources.
-    #[must_use] pub fn get_styled_dom_clone(&self) -> StyledDom {
+    #[must_use]
+    pub fn get_styled_dom_clone(&self) -> StyledDom {
         // Overlay-merged (A5.3): un-committed text edits are spliced in, so an
         // export taken mid-typing contains what the user SEES, not the
         // pre-edit DOM.
@@ -3744,7 +3932,8 @@ impl CallbackInfo {
     /// [`get_styled_dom_clone`](Self::get_styled_dom_clone) instead. This
     /// getter is for re-composing a subtree into a new document (e.g.
     /// wrapping it in a print layout).
-    #[must_use] pub fn get_dom_subtree(&self, node_id: DomNodeId) -> azul_core::dom::OptionDom {
+    #[must_use]
+    pub fn get_dom_subtree(&self, node_id: DomNodeId) -> azul_core::dom::OptionDom {
         let lw = self.get_layout_window();
         let Some(nid) = node_id.node.into_crate_internal() else {
             return azul_core::dom::OptionDom::None;
@@ -3773,7 +3962,8 @@ impl CallbackInfo {
     /// The list includes fallback faces that were resolved during layout, not
     /// just the families named in the source CSS.
     #[cfg(feature = "text_layout")]
-    #[must_use] pub fn get_loaded_fonts(&self) -> LoadedFontVec {
+    #[must_use]
+    pub fn get_loaded_fonts(&self) -> LoadedFontVec {
         let font_manager = &self.get_layout_window().font_manager;
         let Ok(guard) = font_manager.parsed_fonts.lock() else {
             return Vec::new().into();
@@ -3811,7 +4001,8 @@ impl CallbackInfo {
     /// fonts loaded from disk retain an mmap-backed handle and always succeed).
     /// The returned bytes can be embedded directly into a generated document.
     #[cfg(feature = "text_layout")]
-    #[must_use] pub fn get_loaded_font_bytes(&self, font_hash: u64) -> OptionU8Vec {
+    #[must_use]
+    pub fn get_loaded_font_bytes(&self, font_hash: u64) -> OptionU8Vec {
         let font_manager = &self.get_layout_window().font_manager;
         // Resolve through the ONE lookup: an embedded (`StyleFontFamily::Ref`)
         // face can carry a glyph run just as a loaded one can, so a callback asking
@@ -3820,7 +4011,10 @@ impl CallbackInfo {
             return OptionU8Vec::None;
         };
         let parsed = crate::font_ref_to_parsed_font(&font_ref);
-        parsed.source_bytes_for_subset().map_or_else(|| OptionU8Vec::None, |bytes| OptionU8Vec::Some(U8Vec::from_vec(bytes.as_slice().to_vec())))
+        parsed.source_bytes_for_subset().map_or_else(
+            || OptionU8Vec::None,
+            |bytes| OptionU8Vec::Some(U8Vec::from_vec(bytes.as_slice().to_vec())),
+        )
     }
 
     // Screenshot API
@@ -3880,14 +4074,14 @@ impl CallbackInfo {
         let dpi_factor = ws.size.get_hidpi_factor().inner.get();
 
         // Build scroll offset map from the current ScrollManager state
-        let scroll_offsets = layout_window.scroll_manager
+        let scroll_offsets = layout_window
+            .scroll_manager
             .build_scroll_offset_map(dom_id, &layout_result.scroll_id_to_node_id);
 
         // Build CPU render state from GpuValueCache - provides current
         // transform values (scrollbar thumb positions) and opacity values
         // (scrollbar visibility fading) that the GPU path animates dynamically.
-        let gpu_cache = layout_window.gpu_state_manager
-            .get_cache(dom_id);
+        let gpu_cache = layout_window.gpu_state_manager.get_cache(dom_id);
         // Virtual-view child DOMs (map tiles, embedded views) render through
         // their OWN display lists composited at the placeholder's position —
         // without them a screenshot showed grey placeholders where the live
@@ -3900,22 +4094,31 @@ impl CallbackInfo {
                 .map(|(id, r)| (*id, r.display_list.clone()))
                 .collect();
 
-        let render_state = CpuRenderState::from_gpu_cache(
-            gpu_cache,
-            dom_id,
-            &scroll_offsets,
-        )
-        .with_system_style(layout_window.system_style.clone())
-        .with_virtual_view_display_lists(vview_dls);
+        let render_state = CpuRenderState::from_gpu_cache(gpu_cache, dom_id, &scroll_offsets)
+            .with_system_style(layout_window.system_style.clone())
+            .with_virtual_view_display_lists(vview_dls);
 
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
-            let refs = display_list.items.iter().filter(|i| matches!(i,
-                crate::solver3::display_list::DisplayListItem::PushReferenceFrame { .. })).count();
-            let vals: Vec<String> = render_state.transforms.iter()
-                .map(|(k, t)| alloc::format!("{k}=>tx{}", t.m[3][0])).collect();
-            eprintln!("[shot] dl_items={} refframes={refs} transforms={vals:?}",
-                display_list.items.len());
+            let refs = display_list
+                .items
+                .iter()
+                .filter(|i| {
+                    matches!(
+                        i,
+                        crate::solver3::display_list::DisplayListItem::PushReferenceFrame { .. }
+                    )
+                })
+                .count();
+            let vals: Vec<String> = render_state
+                .transforms
+                .iter()
+                .map(|(k, t)| alloc::format!("{k}=>tx{}", t.m[3][0]))
+                .collect();
+            eprintln!(
+                "[shot] dl_items={} refframes={refs} transforms={vals:?}",
+                display_list.items.len()
+            );
         }
 
         // COMPOSITED render, not the flat item walk. The flat rasteriser's
@@ -4010,7 +4213,12 @@ impl CallbackInfo {
             return Err(AzString::from("node has no size in the current layout"));
         };
         // The screenshot is in PHYSICAL pixels; node bounds are logical.
-        let dpi = self.get_current_window_state().size.get_hidpi_factor().inner.get();
+        let dpi = self
+            .get_current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let (x, y) = (
             (position.x * dpi).max(0.0) as u32,
@@ -4139,7 +4347,8 @@ impl CallbackInfo {
     ///
     /// Use this to query scroll state for nodes without modifying it.
     /// To request programmatic scrolling, use `nodes_scrolled_in_callback`.
-    #[must_use] pub const fn get_scroll_manager(&self) -> &ScrollManager {
+    #[must_use]
+    pub const fn get_scroll_manager(&self) -> &ScrollManager {
         unsafe { &(*self.ref_data).layout_window.scroll_manager }
     }
 
@@ -4150,7 +4359,8 @@ impl CallbackInfo {
     ///
     /// The manager is updated by the event loop and provides read-only query access
     /// to callbacks for gesture-aware UI behavior.
-    #[must_use] pub const fn get_gesture_drag_manager(&self) -> &GestureAndDragManager {
+    #[must_use]
+    pub const fn get_gesture_drag_manager(&self) -> &GestureAndDragManager {
         unsafe { &(*self.ref_data).layout_window.gesture_drag_manager }
     }
 
@@ -4161,10 +4371,7 @@ impl CallbackInfo {
     /// platform backends from their gesture-recognizer callbacks and by
     /// the e2e debug-server harness so JSON tests can drive every event
     /// filter end-to-end.
-    pub fn inject_native_gesture(
-        &mut self,
-        gesture: crate::managers::gesture::NativeGestureEvent,
-    ) {
+    pub fn inject_native_gesture(&mut self, gesture: crate::managers::gesture::NativeGestureEvent) {
         self.push_change(CallbackChange::InjectNativeGesture { gesture });
     }
 
@@ -4197,7 +4404,8 @@ impl CallbackInfo {
     ///
     /// Use this to query which node currently has focus and whether focus
     /// is being moved to another node.
-    #[must_use] pub const fn get_focus_manager(&self) -> &FocusManager {
+    #[must_use]
+    pub const fn get_focus_manager(&self) -> &FocusManager {
         &self.get_layout_window().focus_manager
     }
 
@@ -4205,7 +4413,8 @@ impl CallbackInfo {
     ///
     /// This allows user callbacks to query the undo/redo state and intercept
     /// undo/redo operations via `preventDefault()`.
-    #[must_use] pub const fn get_undo_redo_manager(&self) -> &UndoRedoManager {
+    #[must_use]
+    pub const fn get_undo_redo_manager(&self) -> &UndoRedoManager {
         &self.get_layout_window().undo_redo_manager
     }
 
@@ -4213,41 +4422,52 @@ impl CallbackInfo {
     ///
     /// Use this to query which nodes are currently hovered at various input points
     /// (mouse, touch points, pen).
-    #[must_use] pub const fn get_hover_manager(&self) -> &HoverManager {
+    #[must_use]
+    pub const fn get_hover_manager(&self) -> &HoverManager {
         &self.get_layout_window().hover_manager
     }
 
     /// Get immutable reference to the text input manager
     ///
     /// Use this to query text selection state, cursor positions, and IME composition.
-    #[must_use] pub const fn get_text_input_manager(&self) -> &TextInputManager {
+    #[must_use]
+    pub const fn get_text_input_manager(&self) -> &TextInputManager {
         &self.get_layout_window().text_input_manager
     }
 
     /// Check if `multi_cursor` has any selection ranges.
     ///
     /// Replaces the removed `get_selection_manager()`.
-    #[must_use] pub fn has_any_selection(&self) -> bool {
+    #[must_use]
+    pub fn has_any_selection(&self) -> bool {
         self.get_layout_window()
-            .text_edit_manager.multi_cursor.as_ref()
-            .is_some_and(|mc| mc.selections.iter().any(|s| matches!(&s.selection, Selection::Range(_))))
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .is_some_and(|mc| {
+                mc.selections
+                    .iter()
+                    .any(|s| matches!(&s.selection, Selection::Range(_)))
+            })
     }
 
     /// Check if a specific node is currently focused
-    #[must_use] pub fn is_node_focused(&self, node_id: DomNodeId) -> bool {
+    #[must_use]
+    pub fn is_node_focused(&self, node_id: DomNodeId) -> bool {
         self.get_focus_manager().has_focus(&node_id)
     }
 
     /// Check if any node in a specific DOM is focused
-    #[must_use] pub fn is_dom_focused(&self, dom_id: DomId) -> bool {
-        self.get_focused_node()
-            .is_some_and(|n| n.dom == dom_id)
+    #[must_use]
+    pub fn is_dom_focused(&self, dom_id: DomId) -> bool {
+        self.get_focused_node().is_some_and(|n| n.dom == dom_id)
     }
 
     // Pen/Stylus Query Methods
 
     /// Get current pen/stylus state if a pen is active
-    #[must_use] pub const fn get_pen_state(&self) -> Option<&PenState> {
+    #[must_use]
+    pub const fn get_pen_state(&self) -> Option<&PenState> {
         self.get_gesture_drag_manager().get_pen_state()
     }
 
@@ -4256,7 +4476,8 @@ impl CallbackInfo {
     /// features - eraser / barrel button / barrel roll / tilt / pressure -
     /// are in [`CallbackInfo::get_pen_state`].) Kept live by the platform pad
     /// backend (Wintab / libwacom+libinput / macOS tablet `NSEvent`s).
-    #[must_use] pub const fn get_wacom_pad(&self) -> Option<crate::managers::gesture::WacomPadState> {
+    #[must_use]
+    pub const fn get_wacom_pad(&self) -> Option<crate::managers::gesture::WacomPadState> {
         self.get_gesture_drag_manager().get_pad_state().copied()
     }
 
@@ -4266,7 +4487,8 @@ impl CallbackInfo {
     /// iOS/macOS `CLLocationManager`) via the async fix channel that the
     /// layout pass folds into the manager - so a callback can read the user's
     /// position to, e.g., place a "you are here" marker on a map.
-    #[must_use] pub const fn get_location_fix(&self) -> Option<azul_core::geolocation::LocationFix> {
+    #[must_use]
+    pub const fn get_location_fix(&self) -> Option<azul_core::geolocation::LocationFix> {
         self.get_layout_window().geolocation_manager.latest_fix()
     }
 
@@ -4275,7 +4497,8 @@ impl CallbackInfo {
     /// delivered one. Kept live by the sensor backends (iOS `CoreMotion`,
     /// Android `SensorManager`) via the async channel the layout pass folds
     /// into the manager - so a callback can drive tilt / shake / compass UI.
-    #[must_use] pub const fn get_sensor_reading(
+    #[must_use]
+    pub const fn get_sensor_reading(
         &self,
         kind: azul_core::sensors::SensorKind,
     ) -> Option<azul_core::sensors::SensorReading> {
@@ -4287,7 +4510,8 @@ impl CallbackInfo {
     /// by a notch / rounded corners / status bar. Zero where the platform or
     /// window has no inset. Set by the platform shell (macOS `NSScreen` notch,
     /// iOS `UIView.safeAreaInsets`, Android `WindowInsets`).
-    #[must_use] pub const fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
+    #[must_use]
+    pub const fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
         self.get_layout_window().safe_area_insets
     }
 
@@ -4298,7 +4522,8 @@ impl CallbackInfo {
     /// manager - so a callback can drive movement / menu UI. For the common
     /// single-controller case, [`CallbackInfo::get_primary_gamepad`] skips
     /// the id bookkeeping.
-    #[must_use] pub fn get_gamepad_state(
+    #[must_use]
+    pub fn get_gamepad_state(
         &self,
         id: azul_core::gamepad::GamepadId,
     ) -> Option<azul_core::gamepad::GamepadState> {
@@ -4307,7 +4532,8 @@ impl CallbackInfo {
 
     /// Get the first currently-connected gamepad, or `None` if none is
     /// connected - the convenient single-controller accessor.
-    #[must_use] pub fn get_primary_gamepad(&self) -> Option<azul_core::gamepad::GamepadState> {
+    #[must_use]
+    pub fn get_primary_gamepad(&self) -> Option<azul_core::gamepad::GamepadState> {
         self.get_layout_window().gamepad_manager.primary()
     }
 
@@ -4317,7 +4543,8 @@ impl CallbackInfo {
     /// Windows `UserConsentVerifier`) via the async result channel the
     /// layout pass folds into the manager - so a callback can unlock a
     /// vault / settings panel once the user authenticates.
-    #[must_use] pub const fn get_biometric_result(&self) -> Option<azul_core::biometric::BiometricResult> {
+    #[must_use]
+    pub const fn get_biometric_result(&self) -> Option<azul_core::biometric::BiometricResult> {
         self.get_layout_window().biometric_manager.last_result()
     }
 
@@ -4325,7 +4552,8 @@ impl CallbackInfo {
     /// `Fingerprint`, `Iris`, or `NotAvailable`. Lets a callback decide
     /// whether to even offer a biometric unlock before requesting one
     /// (no OS prompt is shown - this just reads the cached probe).
-    #[must_use] pub const fn get_biometric_kind(&self) -> azul_core::biometric::BiometricKind {
+    #[must_use]
+    pub const fn get_biometric_kind(&self) -> azul_core::biometric::BiometricKind {
         self.get_layout_window().biometric_manager.availability()
     }
 
@@ -4349,13 +4577,11 @@ impl CallbackInfo {
     /// Returns immediately; the outcome arrives via `get_keyring_result()`
     /// on a later frame.
     pub fn keyring_store(&mut self, key: AzString, secret: AzString, require_biometry: bool) {
-        crate::managers::keyring::push_keyring_request(
-            azul_core::keyring::KeyringRequest::Store {
-                key,
-                secret,
-                require_biometry,
-            },
-        );
+        crate::managers::keyring::push_keyring_request(azul_core::keyring::KeyringRequest::Store {
+            key,
+            secret,
+            require_biometry,
+        });
     }
 
     /// Read the secret stored under `key`. A biometry-bound item shows the
@@ -4379,8 +4605,12 @@ impl CallbackInfo {
     /// completes. Read after a `keyring_store/get/delete` to observe the
     /// result - e.g. the revealed secret from a `keyring_get`
     /// (`KeyringResult::Retrieved`).
-    #[must_use] pub fn get_keyring_result(&self) -> Option<azul_core::keyring::KeyringResult> {
-        self.get_layout_window().keyring_manager.last_result().cloned()
+    #[must_use]
+    pub fn get_keyring_result(&self) -> Option<azul_core::keyring::KeyringResult> {
+        self.get_layout_window()
+            .keyring_manager
+            .last_result()
+            .cloned()
     }
 
     /// Read the most recently observed permission state for `capability`
@@ -4389,7 +4619,8 @@ impl CallbackInfo {
     /// a camera preview only once granted). Kept live by the platform
     /// permission backend; a capability is subscribed by mounting its probe
     /// node (`CameraProbe` / `GeolocationProbe` / …) into the DOM.
-    #[must_use] pub fn get_permission_status(
+    #[must_use]
+    pub fn get_permission_status(
         &self,
         capability: crate::managers::permission::Capability,
     ) -> crate::managers::permission::PermissionState {
@@ -4400,36 +4631,40 @@ impl CallbackInfo {
 
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
-    #[must_use] pub fn get_pen_pressure(&self) -> Option<f32> {
+    #[must_use]
+    pub fn get_pen_pressure(&self) -> Option<f32> {
         self.get_pen_state().map(|pen| pen.pressure)
     }
 
     /// Get current pen tilt angles (`x_tilt`, `y_tilt`) in degrees
     /// Returns None if no pen is active
-    #[must_use] pub fn get_pen_tilt(&self) -> Option<PenTilt> {
+    #[must_use]
+    pub fn get_pen_tilt(&self) -> Option<PenTilt> {
         self.get_pen_state().map(|pen| pen.tilt)
     }
 
     /// Check if pen is currently in contact with surface
-    #[must_use] pub fn is_pen_in_contact(&self) -> bool {
-        self.get_pen_state()
-            .is_some_and(|pen| pen.in_contact)
+    #[must_use]
+    pub fn is_pen_in_contact(&self) -> bool {
+        self.get_pen_state().is_some_and(|pen| pen.in_contact)
     }
 
     /// Check if pen is in eraser mode
-    #[must_use] pub fn is_pen_eraser(&self) -> bool {
-        self.get_pen_state()
-            .is_some_and(|pen| pen.is_eraser)
+    #[must_use]
+    pub fn is_pen_eraser(&self) -> bool {
+        self.get_pen_state().is_some_and(|pen| pen.is_eraser)
     }
 
     /// Check if pen barrel button is pressed
-    #[must_use] pub fn is_pen_barrel_button_pressed(&self) -> bool {
+    #[must_use]
+    pub fn is_pen_barrel_button_pressed(&self) -> bool {
         self.get_pen_state()
             .is_some_and(|pen| pen.barrel_button_pressed)
     }
 
     /// Get the last recorded input sample (for `event_id` and detailed input data)
-    #[must_use] pub fn get_last_input_sample(&self) -> Option<&InputSample> {
+    #[must_use]
+    pub fn get_last_input_sample(&self) -> Option<&InputSample> {
         let manager = self.get_gesture_drag_manager();
         manager
             .get_current_session()
@@ -4437,7 +4672,8 @@ impl CallbackInfo {
     }
 
     /// Get the event ID of the current event
-    #[must_use] pub fn get_current_event_id(&self) -> Option<u64> {
+    #[must_use]
+    pub fn get_current_event_id(&self) -> Option<u64> {
         self.get_last_input_sample().map(|sample| sample.event_id)
     }
 
@@ -4455,29 +4691,36 @@ impl CallbackInfo {
     /// Detection uses the touch / pointer trajectory and a velocity
     /// threshold; on iOS / Android the platform backend may override the
     /// in-process detector with a native gesture-recognizer result.
-    #[must_use] pub fn get_swipe_direction(&self) -> crate::managers::gesture::OptionGestureDirection {
-        self.get_gesture_drag_manager().detect_swipe_direction().into()
+    #[must_use]
+    pub fn get_swipe_direction(&self) -> crate::managers::gesture::OptionGestureDirection {
+        self.get_gesture_drag_manager()
+            .detect_swipe_direction()
+            .into()
     }
 
     /// Returns the active pinch gesture (scale + center + distances), if any.
-    #[must_use] pub fn get_pinch(&self) -> crate::managers::gesture::OptionDetectedPinch {
+    #[must_use]
+    pub fn get_pinch(&self) -> crate::managers::gesture::OptionDetectedPinch {
         self.get_gesture_drag_manager().detect_pinch().into()
     }
 
     /// Returns the active rotation gesture (radians + center), if any.
-    #[must_use] pub fn get_rotation(&self) -> crate::managers::gesture::OptionDetectedRotation {
+    #[must_use]
+    pub fn get_rotation(&self) -> crate::managers::gesture::OptionDetectedRotation {
         self.get_gesture_drag_manager().detect_rotation().into()
     }
 
     /// Returns the active long-press, if the user is currently holding a
     /// pointer in place beyond the configured threshold.
-    #[must_use] pub fn get_long_press(&self) -> crate::managers::gesture::OptionDetectedLongPress {
+    #[must_use]
+    pub fn get_long_press(&self) -> crate::managers::gesture::OptionDetectedLongPress {
         self.get_gesture_drag_manager().detect_long_press().into()
     }
 
     /// True iff the gesture manager classified the current event sequence
     /// as a double-click / double-tap.
-    #[must_use] pub fn was_double_clicked(&self) -> bool {
+    #[must_use]
+    pub fn was_double_clicked(&self) -> bool {
         self.get_gesture_drag_manager().detect_double_click()
     }
 
@@ -4529,14 +4772,16 @@ impl CallbackInfo {
     /// Check if a drag gesture is currently active
     ///
     /// Convenience method that queries the gesture manager.
-    #[must_use] pub const fn is_dragging(&self) -> bool {
+    #[must_use]
+    pub const fn is_dragging(&self) -> bool {
         self.get_gesture_drag_manager().is_dragging()
     }
 
     /// Get the currently focused node (if any)
     ///
     /// Returns None if no node has focus.
-    #[must_use] pub const fn get_focused_node(&self) -> Option<DomNodeId> {
+    #[must_use]
+    pub const fn get_focused_node(&self) -> Option<DomNodeId> {
         self.get_layout_window()
             .focus_manager
             .get_focused_node()
@@ -4544,7 +4789,8 @@ impl CallbackInfo {
     }
 
     /// Check if a specific node has focus
-    #[must_use] pub fn has_focus(&self, node_id: DomNodeId) -> bool {
+    #[must_use]
+    pub fn has_focus(&self, node_id: DomNodeId) -> bool {
         self.get_layout_window().focus_manager.has_focus(&node_id)
     }
 
@@ -4554,7 +4800,8 @@ impl CallbackInfo {
     /// (First file only - use [`get_hovered_files`](Self::get_hovered_files)
     /// for multi-file drags; no longer `const` since MWA-B7 made the manager
     /// store a Vec.)
-    #[must_use] pub fn get_hovered_file(&self) -> Option<&AzString> {
+    #[must_use]
+    pub fn get_hovered_file(&self) -> Option<&AzString> {
         self.get_layout_window()
             .file_drop_manager
             .get_hovered_file()
@@ -4562,7 +4809,8 @@ impl CallbackInfo {
 
     /// ALL files of the current drag hover (MWA-B7 - multi-file drags were
     /// previously truncated to the first path before they reached callbacks).
-    #[must_use] pub fn get_hovered_files(&self) -> StringVec {
+    #[must_use]
+    pub fn get_hovered_files(&self) -> StringVec {
         self.get_layout_window()
             .file_drop_manager
             .get_hovered_files()
@@ -4575,14 +4823,16 @@ impl CallbackInfo {
     /// This is a one-shot value that is cleared after event processing.
     /// Returns None if no file was dropped this frame. (First file only -
     /// use [`get_dropped_files`](Self::get_dropped_files) for the full list.)
-    #[must_use] pub fn get_dropped_file(&self) -> Option<&AzString> {
+    #[must_use]
+    pub fn get_dropped_file(&self) -> Option<&AzString> {
         self.get_layout_window()
             .file_drop_manager
             .get_dropped_file()
     }
 
     /// ALL files of this frame's drop (MWA-B7; one-shot).
-    #[must_use] pub fn get_dropped_files(&self) -> StringVec {
+    #[must_use]
+    pub fn get_dropped_files(&self) -> StringVec {
         self.get_layout_window()
             .file_drop_manager
             .get_dropped_files()
@@ -4598,11 +4848,8 @@ impl CallbackInfo {
     /// the virtual scroll extent. A full cold layout pass per call - cache
     /// per item template.
     #[cfg(feature = "std")]
-    #[must_use] pub fn measure_dom(
-        &self,
-        dom: azul_core::dom::Dom,
-        available: LogicalSize,
-    ) -> LogicalSize {
+    #[must_use]
+    pub fn measure_dom(&self, dom: azul_core::dom::Dom, available: LogicalSize) -> LogicalSize {
         self.get_layout_window().measure_dom(dom, available)
     }
 
@@ -4610,16 +4857,21 @@ impl CallbackInfo {
     /// drag auto-scroll when there is no focused node - node drags and OS
     /// file hovers scroll the container under the pointer, not the focused
     /// text field.
-    #[must_use] pub fn get_deepest_hovered_node(&self) -> Option<DomNodeId> {
+    #[must_use]
+    pub fn get_deepest_hovered_node(&self) -> Option<DomNodeId> {
         let hit = self
             .get_layout_window()
             .hover_manager
             .get_current(&InputPointId::Mouse)?;
         hit.hovered_nodes.iter().next().and_then(|(dom_id, entry)| {
-            entry.regular_hit_test_nodes.keys().next_back().map(|nid| DomNodeId {
-                dom: *dom_id,
-                node: NodeHierarchyItemId::from_crate_internal(Some(*nid)),
-            })
+            entry
+                .regular_hit_test_nodes
+                .keys()
+                .next_back()
+                .map(|nid| DomNodeId {
+                    dom: *dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(*nid)),
+                })
         })
     }
 
@@ -4628,17 +4880,22 @@ impl CallbackInfo {
     /// Returns true if either a node drag or file drag is in progress.
     /// `gesture_drag_manager` is the single source of truth (the old
     /// `drag_drop_manager` mirror has been deleted — see `managers/drag_drop.rs`).
-    #[must_use] pub const fn is_drag_active(&self) -> bool {
+    #[must_use]
+    pub const fn is_drag_active(&self) -> bool {
         self.get_layout_window().gesture_drag_manager.is_dragging()
     }
 
     /// Check if a node drag is specifically active
-    #[must_use] pub fn is_node_drag_active(&self) -> bool {
-        self.get_layout_window().gesture_drag_manager.is_node_drag_active()
+    #[must_use]
+    pub fn is_node_drag_active(&self) -> bool {
+        self.get_layout_window()
+            .gesture_drag_manager
+            .is_node_drag_active()
     }
 
     /// Check if a file drag is specifically active
-    #[must_use] pub fn is_file_drag_active(&self) -> bool {
+    #[must_use]
+    pub fn is_file_drag_active(&self) -> bool {
         let lw = self.get_layout_window();
         // MWA-C-file_drop: an EXTERNAL OS drag (Finder/Explorer hovering
         // files over the window) lives in file_drop_manager, not in the
@@ -4651,8 +4908,12 @@ impl CallbackInfo {
     /// Get the current drag/drop state (if any)
     ///
     /// Returns None if no drag is active, or Some with drag state.
-    #[must_use] pub fn get_drag_state(&self) -> Option<crate::managers::drag_drop::DragState> {
-        let ctx = self.get_layout_window().gesture_drag_manager.get_drag_context()?;
+    #[must_use]
+    pub fn get_drag_state(&self) -> Option<crate::managers::drag_drop::DragState> {
+        let ctx = self
+            .get_layout_window()
+            .gesture_drag_manager
+            .get_drag_context()?;
         crate::managers::drag_drop::DragState::from_context(ctx)
     }
 
@@ -4660,23 +4921,28 @@ impl CallbackInfo {
     ///
     /// Returns None if no drag is active, or Some with drag context.
     /// Prefer this over `get_drag_state` for new code.
-    #[must_use] pub const fn get_drag_context(&self) -> Option<&azul_core::drag::DragContext> {
+    #[must_use]
+    pub const fn get_drag_context(&self) -> Option<&azul_core::drag::DragContext> {
         // The gesture manager holds the LIVE context and is the ONLY source of
         // truth. (The `drag_drop_manager` mirror was a frozen clone taken at
         // drag start whose drop-target/position went stale for the whole drag;
         // it has been deleted.)
-        self.get_layout_window().gesture_drag_manager.get_drag_context()
+        self.get_layout_window()
+            .gesture_drag_manager
+            .get_drag_context()
     }
 
     // Hover Manager Access
 
     /// Get the current mouse cursor hit test result (most recent frame)
-    #[must_use] pub fn get_current_hit_test(&self) -> Option<&FullHitTest> {
+    #[must_use]
+    pub fn get_current_hit_test(&self) -> Option<&FullHitTest> {
         self.get_hover_manager().get_current(&InputPointId::Mouse)
     }
 
     /// Get mouse cursor hit test from N frames ago (0 = current, 1 = previous, etc.)
-    #[must_use] pub fn get_hit_test_frame(&self, frames_ago: usize) -> Option<&FullHitTest> {
+    #[must_use]
+    pub fn get_hit_test_frame(&self, frames_ago: usize) -> Option<&FullHitTest> {
         self.get_hover_manager()
             .get_frame(&InputPointId::Mouse, frames_ago)
     }
@@ -4684,12 +4950,14 @@ impl CallbackInfo {
     /// Get the full mouse cursor hit test history (up to 5 frames)
     ///
     /// Returns None if no mouse history exists yet
-    #[must_use] pub fn get_hit_test_history(&self) -> Option<&VecDeque<FullHitTest>> {
+    #[must_use]
+    pub fn get_hit_test_history(&self) -> Option<&VecDeque<FullHitTest>> {
         self.get_hover_manager().get_history(&InputPointId::Mouse)
     }
 
     /// Check if there's sufficient mouse history for gesture detection (at least 2 frames)
-    #[must_use] pub fn has_sufficient_history_for_gestures(&self) -> bool {
+    #[must_use]
+    pub fn has_sufficient_history_for_gestures(&self) -> bool {
         self.get_hover_manager()
             .has_sufficient_history_for_gestures(&InputPointId::Mouse)
     }
@@ -4697,35 +4965,33 @@ impl CallbackInfo {
     // File Drop Manager Access
 
     /// Get immutable reference to the file drop manager
-    #[must_use] pub const fn get_file_drop_manager(&self) -> &FileDropManager {
+    #[must_use]
+    pub const fn get_file_drop_manager(&self) -> &FileDropManager {
         &self.get_layout_window().file_drop_manager
     }
 
     // Drag-Drop Manager Access
 
-
     /// Get the node being dragged (if any)
-    #[must_use] pub fn get_dragged_node(&self) -> Option<DomNodeId> {
-        self.get_drag_context()
-            .and_then(|ctx| {
-                ctx.as_node_drag().map(|node_drag| {
-                    DomNodeId {
-                        dom: node_drag.dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(node_drag.node_id)),
-                    }
-                })
+    #[must_use]
+    pub fn get_dragged_node(&self) -> Option<DomNodeId> {
+        self.get_drag_context().and_then(|ctx| {
+            ctx.as_node_drag().map(|node_drag| DomNodeId {
+                dom: node_drag.dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node_drag.node_id)),
             })
+        })
     }
 
     /// Get the file path being dragged (if any)
-    #[must_use] pub fn get_dragged_file(&self) -> Option<&AzString> {
+    #[must_use]
+    pub fn get_dragged_file(&self) -> Option<&AzString> {
         // Gesture context first (intra-app file drags), then the
         // FileDropManager's hovered/dropped state (external OS drags).
         self.get_drag_context()
             .and_then(|ctx| {
-                ctx.as_file_drop().and_then(|file_drop| {
-                    file_drop.files.as_ref().first()
-                })
+                ctx.as_file_drop()
+                    .and_then(|file_drop| file_drop.files.as_ref().first())
             })
             .or_else(|| {
                 let lw = self.get_layout_window();
@@ -4740,7 +5006,8 @@ impl CallbackInfo {
     ///
     /// W3C equivalent: `dataTransfer.types`
     /// Returns an empty vec if no drag is active or no data is set.
-    #[must_use] pub fn get_drag_types(&self) -> StringVec {
+    #[must_use]
+    pub fn get_drag_types(&self) -> StringVec {
         let lw = self.get_layout_window();
         // Try gesture manager first
         if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
@@ -4761,11 +5028,16 @@ impl CallbackInfo {
     ///
     /// W3C equivalent: `dataTransfer.getData(type)`
     /// Returns None if no drag is active or the MIME type is not set.
-    #[must_use] pub fn get_drag_data(&self, mime_type: &str) -> OptionU8Vec {
+    #[must_use]
+    pub fn get_drag_data(&self, mime_type: &str) -> OptionU8Vec {
         let lw = self.get_layout_window();
         if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
             if let Some(node_drag) = ctx.as_node_drag() {
-                return node_drag.drag_data.get_data(mime_type).map(|d| U8Vec::from(d.to_vec())).into();
+                return node_drag
+                    .drag_data
+                    .get_data(mime_type)
+                    .map(|d| U8Vec::from(d.to_vec()))
+                    .into();
             }
         }
         OptionU8Vec::None
@@ -4803,7 +5075,8 @@ impl CallbackInfo {
     ///
     /// Convenience method that uses the `hit_dom_node` from this callback.
     /// Use `get_scroll_offset_for_node` if you need to query a specific node.
-    #[must_use] pub fn get_scroll_offset(&self) -> Option<LogicalPosition> {
+    #[must_use]
+    pub fn get_scroll_offset(&self) -> Option<LogicalPosition> {
         self.get_scroll_offset_for_node(
             self.hit_dom_node.dom,
             self.hit_dom_node.node.into_crate_internal()?,
@@ -4811,7 +5084,8 @@ impl CallbackInfo {
     }
 
     /// Get the current scroll offset for a specific node (if it's scrollable)
-    #[must_use] pub fn get_scroll_offset_for_node(
+    #[must_use]
+    pub fn get_scroll_offset_for_node(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -4821,7 +5095,8 @@ impl CallbackInfo {
     }
 
     /// Get the scroll state (container rect, content rect, current offset) for a node
-    #[must_use] pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
+    #[must_use]
+    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
         self.get_scroll_manager().get_scroll_state(dom_id, node_id)
     }
 
@@ -4829,7 +5104,8 @@ impl CallbackInfo {
     ///
     /// This is the recommended API for timer callbacks that need to compute
     /// scroll physics. Returns container/content rects and max scroll bounds.
-    #[must_use] pub fn get_scroll_node_info(
+    #[must_use]
+    pub fn get_scroll_node_info(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -4848,7 +5124,8 @@ impl CallbackInfo {
     /// fires on the hovered node, which is what they identify. Wheel-as-zoom
     /// widgets (the map) read `.y` here instead of consuming the scroll-physics
     /// input queue (which only carries deltas for actual scroll containers).
-    #[must_use] pub const fn get_scroll_delta(
+    #[must_use]
+    pub const fn get_scroll_delta(
         &self,
         _dom_id: DomId,
         _node_id: NodeId,
@@ -4858,11 +5135,8 @@ impl CallbackInfo {
 
     /// Deprecated: Returns false. Scroll activity flags were removed.
     /// Kept for FFI backward compatibility.
-    #[must_use] pub const fn had_scroll_activity(
-        &self,
-        _dom_id: DomId,
-        _node_id: NodeId,
-    ) -> bool {
+    #[must_use]
+    pub const fn had_scroll_activity(&self, _dom_id: DomId, _node_id: NodeId) -> bool {
         false
     }
 
@@ -4873,11 +5147,8 @@ impl CallbackInfo {
     /// when this one is exhausted (momentum hand-off), and whose scrolling
     /// moves this one's box on screen. For "which scroll box does this node
     /// live in?" use [`Self::find_scroll_target`], which may answer `node_id`.
-    #[must_use] pub fn find_scroll_parent(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<NodeId> {
+    #[must_use]
+    pub fn find_scroll_parent(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         self.find_scroll_container(dom_id, node_id, Inclusivity::AncestorsOnly)
     }
 
@@ -4887,11 +5158,8 @@ impl CallbackInfo {
     /// in a `TextInput` sits on the value `<p>`, which is simultaneously the
     /// IFC root and the horizontal scroll box, so a strict-ancestor search
     /// skipped straight past the field and scrolled the page instead.
-    #[must_use] pub fn find_scroll_target(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<NodeId> {
+    #[must_use]
+    pub fn find_scroll_target(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         self.find_scroll_container(dom_id, node_id, Inclusivity::SelfAndAncestors)
     }
 
@@ -4916,23 +5184,24 @@ impl CallbackInfo {
     /// platform event handlers. The queue is thread-safe (Arc<Mutex>), so
     /// the timer can call `take_all()` with only `&self`.
     #[cfg(feature = "std")]
-    #[must_use] pub fn get_scroll_input_queue(
-        &self,
-    ) -> crate::managers::scroll_state::ScrollInputQueue {
+    #[must_use]
+    pub fn get_scroll_input_queue(&self) -> crate::managers::scroll_state::ScrollInputQueue {
         self.get_scroll_manager().scroll_input_queue.clone()
     }
 
     // Gpu State Manager Access
 
     /// Get immutable reference to the GPU state manager
-    #[must_use] pub const fn get_gpu_state_manager(&self) -> &GpuStateManager {
+    #[must_use]
+    pub const fn get_gpu_state_manager(&self) -> &GpuStateManager {
         &self.get_layout_window().gpu_state_manager
     }
 
     // VirtualView Manager Access
 
     /// Get immutable reference to the `VirtualView` manager
-    #[must_use] pub const fn get_virtual_view_manager(&self) -> &VirtualViewManager {
+    #[must_use]
+    pub const fn get_virtual_view_manager(&self) -> &VirtualViewManager {
         &self.get_layout_window().virtual_view_manager
     }
 
@@ -4943,7 +5212,8 @@ impl CallbackInfo {
     ///
     /// Returns the clipboard content that would be copied if the operation proceeds.
     /// Use this to validate or transform clipboard content before copying.
-    #[must_use] pub fn inspect_copy_changeset(&self, target: DomNodeId) -> Option<ClipboardContent> {
+    #[must_use]
+    pub fn inspect_copy_changeset(&self, target: DomNodeId) -> Option<ClipboardContent> {
         let layout_window = self.get_layout_window();
         let dom_id = &target.dom;
         layout_window.get_selected_content_for_clipboard(dom_id)
@@ -4953,7 +5223,8 @@ impl CallbackInfo {
     ///
     /// Returns the clipboard content that would be cut (copied + deleted).
     /// Use this to validate or transform content before cutting.
-    #[must_use] pub fn inspect_cut_changeset(&self, target: DomNodeId) -> Option<ClipboardContent> {
+    #[must_use]
+    pub fn inspect_cut_changeset(&self, target: DomNodeId) -> Option<ClipboardContent> {
         // Cut uses same content extraction as copy
         self.inspect_copy_changeset(target)
     }
@@ -4962,20 +5233,26 @@ impl CallbackInfo {
     ///
     /// Returns the selection range that will be replaced when pasting.
     /// Returns None if no selection exists (paste will insert at cursor).
-    #[must_use] pub fn inspect_paste_target_range(&self, _target: DomNodeId) -> Option<SelectionRange> {
+    #[must_use]
+    pub fn inspect_paste_target_range(&self, _target: DomNodeId) -> Option<SelectionRange> {
         let layout_window = self.get_layout_window();
         layout_window
-            .text_edit_manager.multi_cursor.as_ref()
-            .and_then(|mc| mc.selections.iter().find_map(|s| match &s.selection {
-                Selection::Range(r) => Some(*r),
-                Selection::Cursor(_) => None,
-            }))
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .and_then(|mc| {
+                mc.selections.iter().find_map(|s| match &s.selection {
+                    Selection::Range(r) => Some(*r),
+                    Selection::Cursor(_) => None,
+                })
+            })
     }
 
     /// Inspect what text would be selected by Select All operation
     ///
     /// Returns the full text content and the range that would be selected.
-    #[must_use] pub fn inspect_select_all_changeset(&self, target: DomNodeId) -> Option<SelectAllResult> {
+    #[must_use]
+    pub fn inspect_select_all_changeset(&self, target: DomNodeId) -> Option<SelectAllResult> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
 
         let layout_window = self.get_layout_window();
@@ -5021,7 +5298,8 @@ impl CallbackInfo {
     /// Returns (`range_to_delete`, `deleted_text`).
     /// - forward=true: Delete key (delete character after cursor)
     /// - forward=false: Backspace key (delete character before cursor)
-    #[must_use] pub fn inspect_delete_changeset(
+    #[must_use]
+    pub fn inspect_delete_changeset(
         &self,
         target: DomNodeId,
         forward: bool,
@@ -5062,21 +5340,24 @@ impl CallbackInfo {
     ///
     /// Returns the operation that would be undone, allowing inspection
     /// of what state will be restored.
-    #[must_use] pub fn inspect_undo_operation(&self, node_id: NodeId) -> Option<&UndoableOperation> {
+    #[must_use]
+    pub fn inspect_undo_operation(&self, node_id: NodeId) -> Option<&UndoableOperation> {
         self.get_undo_redo_manager().peek_undo(node_id)
     }
 
     /// Inspect a pending redo operation
     ///
     /// Returns the operation that would be reapplied.
-    #[must_use] pub fn inspect_redo_operation(&self, node_id: NodeId) -> Option<&UndoableOperation> {
+    #[must_use]
+    pub fn inspect_redo_operation(&self, node_id: NodeId) -> Option<&UndoableOperation> {
         self.get_undo_redo_manager().peek_redo(node_id)
     }
 
     /// Check if undo is available for a specific node
     ///
     /// Returns true if there is at least one undoable operation in the stack.
-    #[must_use] pub fn can_undo(&self, node_id: NodeId) -> bool {
+    #[must_use]
+    pub fn can_undo(&self, node_id: NodeId) -> bool {
         self.get_undo_redo_manager()
             .get_stack(node_id)
             .is_some_and(super::managers::undo_redo::NodeUndoRedoStack::can_undo)
@@ -5085,7 +5366,8 @@ impl CallbackInfo {
     /// Check if redo is available for a specific node
     ///
     /// Returns true if there is at least one redoable operation in the stack.
-    #[must_use] pub fn can_redo(&self, node_id: NodeId) -> bool {
+    #[must_use]
+    pub fn can_redo(&self, node_id: NodeId) -> bool {
         self.get_undo_redo_manager()
             .get_stack(node_id)
             .is_some_and(super::managers::undo_redo::NodeUndoRedoStack::can_redo)
@@ -5095,7 +5377,8 @@ impl CallbackInfo {
     ///
     /// Returns the pre-state text content that would be restored if undo is performed.
     /// Returns None if no undo operation is available.
-    #[must_use] pub fn get_undo_text(&self, node_id: NodeId) -> Option<AzString> {
+    #[must_use]
+    pub fn get_undo_text(&self, node_id: NodeId) -> Option<AzString> {
         self.get_undo_redo_manager()
             .peek_undo(node_id)
             .map(|op| op.pre_state.text_content.clone())
@@ -5105,7 +5388,8 @@ impl CallbackInfo {
     ///
     /// Returns the pre-state text content that would be restored if redo is performed.
     /// Returns None if no redo operation is available.
-    #[must_use] pub fn get_redo_text(&self, node_id: NodeId) -> Option<AzString> {
+    #[must_use]
+    pub fn get_redo_text(&self, node_id: NodeId) -> Option<AzString> {
         self.get_undo_redo_manager()
             .peek_redo(node_id)
             .map(|op| op.pre_state.text_content.clone())
@@ -5123,7 +5407,8 @@ impl CallbackInfo {
     /// # Returns
     /// * `Some(&ClipboardContent)` - If paste is in progress and clipboard has content
     /// * `None` - If no paste operation is active or clipboard is empty
-    #[must_use] pub const fn get_clipboard_content(&self) -> Option<&ClipboardContent> {
+    #[must_use]
+    pub const fn get_clipboard_content(&self) -> Option<&ClipboardContent> {
         unsafe {
             (*self.ref_data)
                 .layout_window
@@ -5193,7 +5478,8 @@ impl CallbackInfo {
     /// Get the current text content of a node
     ///
     /// Helper for inspecting text before operations.
-    #[must_use] pub fn get_node_text_content(&self, target: DomNodeId) -> Option<String> {
+    #[must_use]
+    pub fn get_node_text_content(&self, target: DomNodeId) -> Option<String> {
         let layout_window = self.get_layout_window();
         let node_id = target.node.into_crate_internal()?;
         // Some("") must mean "the node exists and its text is empty" — an empty string is
@@ -5219,7 +5505,8 @@ impl CallbackInfo {
     /// Get the current cursor position in a node
     ///
     /// Returns the text cursor position if the node is focused.
-    #[must_use] pub fn get_node_cursor_position(&self, target: DomNodeId) -> Option<TextCursor> {
+    #[must_use]
+    pub fn get_node_cursor_position(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
 
         // Check if this node is focused
@@ -5233,14 +5520,23 @@ impl CallbackInfo {
     /// Get the current selection ranges in a node
     ///
     /// Returns all active selection ranges for the specified DOM.
-    #[must_use] pub fn get_node_selection_ranges(&self, _target: DomNodeId) -> SelectionRangeVec {
+    #[must_use]
+    pub fn get_node_selection_ranges(&self, _target: DomNodeId) -> SelectionRangeVec {
         let layout_window = self.get_layout_window();
         let ranges: Vec<SelectionRange> = layout_window
-            .text_edit_manager.multi_cursor.as_ref()
-            .map(|mc| mc.selections.iter().filter_map(|s| match &s.selection {
-                Selection::Range(r) => Some(*r),
-                Selection::Cursor(_) => None,
-            }).collect()).unwrap_or_default();
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| {
+                mc.selections
+                    .iter()
+                    .filter_map(|s| match &s.selection {
+                        Selection::Range(r) => Some(*r),
+                        Selection::Cursor(_) => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         ranges.into()
     }
 
@@ -5248,14 +5544,16 @@ impl CallbackInfo {
     ///
     /// This checks if the specific node (identified by `DomNodeId`) has a selection,
     /// as opposed to `has_selection(DomId)` which checks the entire DOM.
-    #[must_use] pub fn node_has_selection(&self, target: DomNodeId) -> bool {
+    #[must_use]
+    pub fn node_has_selection(&self, target: DomNodeId) -> bool {
         !self.get_node_selection_ranges(target).as_ref().is_empty()
     }
 
     /// Get the length of text in a node
     ///
     /// Useful for bounds checking in custom operations.
-    #[must_use] pub fn get_node_text_length(&self, target: DomNodeId) -> Option<usize> {
+    #[must_use]
+    pub fn get_node_text_length(&self, target: DomNodeId) -> Option<usize> {
         self.get_node_text_content(target).map(|text| text.len())
     }
 
@@ -5397,7 +5695,11 @@ impl CallbackInfo {
     /// Inspect where the cursor would move when pressing Ctrl+Home
     ///
     /// Returns the cursor position at the start of the document.
-    #[must_use] pub const fn inspect_move_cursor_to_document_start(&self, target: DomNodeId) -> Option<TextCursor> {
+    #[must_use]
+    pub const fn inspect_move_cursor_to_document_start(
+        &self,
+        target: DomNodeId,
+    ) -> Option<TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId};
 
         Some(TextCursor {
@@ -5412,7 +5714,8 @@ impl CallbackInfo {
     /// Inspect where the cursor would move when pressing Ctrl+End
     ///
     /// Returns the cursor position at the end of the document.
-    #[must_use] pub fn inspect_move_cursor_to_document_end(&self, target: DomNodeId) -> Option<TextCursor> {
+    #[must_use]
+    pub fn inspect_move_cursor_to_document_end(&self, target: DomNodeId) -> Option<TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId};
 
         let text_len = self.get_node_text_length(target)?;
@@ -5430,7 +5733,8 @@ impl CallbackInfo {
     ///
     /// Returns (`range_to_delete`, `deleted_text`).
     /// This is a convenience wrapper around `inspect_delete_changeset(target`, false).
-    #[must_use] pub fn inspect_backspace(&self, target: DomNodeId) -> Option<DeleteResult> {
+    #[must_use]
+    pub fn inspect_backspace(&self, target: DomNodeId) -> Option<DeleteResult> {
         self.inspect_delete_changeset(target, false)
     }
 
@@ -5438,7 +5742,8 @@ impl CallbackInfo {
     ///
     /// Returns (`range_to_delete`, `deleted_text`).
     /// This is a convenience wrapper around `inspect_delete_changeset(target`, true).
-    #[must_use] pub fn inspect_delete(&self, target: DomNodeId) -> Option<DeleteResult> {
+    #[must_use]
+    pub fn inspect_delete(&self, target: DomNodeId) -> Option<DeleteResult> {
         self.inspect_delete_changeset(target, true)
     }
 
@@ -5553,7 +5858,8 @@ pub struct ExternalSystemCallbacks {
 }
 
 impl ExternalSystemCallbacks {
-    #[must_use] pub fn rust_internal() -> Self {
+    #[must_use]
+    pub fn rust_internal() -> Self {
         use crate::thread::create_thread_libstd;
 
         Self {
@@ -5580,12 +5886,14 @@ pub enum FocusUpdateRequest {
 
 impl FocusUpdateRequest {
     /// Check if this represents a focus change
-    #[must_use] pub const fn is_change(&self) -> bool {
+    #[must_use]
+    pub const fn is_change(&self) -> bool {
         !matches!(self, Self::NoChange)
     }
 
     /// Convert to the new focused node (Some(node) or None for clear)
-    #[must_use] pub const fn to_focused_node(&self) -> Option<Option<DomNodeId>> {
+    #[must_use]
+    pub const fn to_focused_node(&self) -> Option<Option<DomNodeId>> {
         match self {
             Self::FocusNode(node) => Some(Some(*node)),
             Self::ClearFocus => Some(None),
@@ -5594,7 +5902,8 @@ impl FocusUpdateRequest {
     }
 
     /// Create from Option<Option<DomNodeId>> (legacy format)
-    #[must_use] pub const fn from_optional(opt: Option<Option<DomNodeId>>) -> Self {
+    #[must_use]
+    pub const fn from_optional(opt: Option<Option<DomNodeId>>) -> Self {
         match opt {
             Some(Some(node)) => Self::FocusNode(node),
             Some(None) => Self::ClearFocus,
@@ -5611,7 +5920,8 @@ pub struct MenuCallback {
     pub callback: Callback,
     pub refany: RefAny,
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Optional `MenuCallback`
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
@@ -5621,18 +5931,21 @@ pub enum OptionMenuCallback {
 }
 
 impl OptionMenuCallback {
-    #[must_use] pub fn into_option(self) -> Option<MenuCallback> {
+    #[must_use]
+    pub fn into_option(self) -> Option<MenuCallback> {
         match self {
             Self::None => None,
             Self::Some(c) => Some(c),
         }
     }
 
-    #[must_use] pub const fn is_some(&self) -> bool {
+    #[must_use]
+    pub const fn is_some(&self) -> bool {
         matches!(self, Self::Some(_))
     }
 
-    #[must_use] pub const fn is_none(&self) -> bool {
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
         matches!(self, Self::None)
     }
 }
@@ -5690,7 +6003,8 @@ impl RenderImageCallback {
     ///
     /// This is safe because we ensure that the usize in `CoreRenderImageCallback`
     /// was originally created from a valid `RenderImageCallbackType` function pointer.
-    #[must_use] pub fn from_core(core_callback: &azul_core::callbacks::CoreRenderImageCallback) -> Self {
+    #[must_use]
+    pub fn from_core(core_callback: &azul_core::callbacks::CoreRenderImageCallback) -> Self {
         debug_assert!(core_callback.cb != 0, "CoreRenderImageCallback.cb is null");
         Self {
             cb: unsafe { core::mem::transmute::<usize, RenderImageCallbackType>(core_callback.cb) },
@@ -5701,7 +6015,8 @@ impl RenderImageCallback {
     /// Convert to `CoreRenderImageCallback` (function pointer stored as usize)
     ///
     /// This is always safe - we're just casting the function pointer to usize for storage.
-    #[must_use] pub fn to_core(self) -> azul_core::callbacks::CoreRenderImageCallback {
+    #[must_use]
+    pub fn to_core(self) -> azul_core::callbacks::CoreRenderImageCallback {
         azul_core::callbacks::CoreRenderImageCallback {
             cb: self.cb as usize,
             ctx: self.ctx,
@@ -5753,7 +6068,8 @@ impl Clone for RenderImageCallbackInfo {
 }
 
 impl RenderImageCallbackInfo {
-    #[must_use] pub const fn new<'a>(
+    #[must_use]
+    pub const fn new<'a>(
         callback_node_id: DomNodeId,
         bounds: HidpiAdjustedBounds,
         gl_context: &'a OptionGlContextPtr,
@@ -5772,7 +6088,8 @@ impl RenderImageCallbackInfo {
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
-    #[must_use] pub fn get_ctx(&self) -> OptionRefAny {
+    #[must_use]
+    pub fn get_ctx(&self) -> OptionRefAny {
         if self.callable_ptr.is_null() {
             OptionRefAny::None
         } else {
@@ -5794,11 +6111,13 @@ impl RenderImageCallbackInfo {
         self.callable_ptr = ptr;
     }
 
-    #[must_use] pub const fn get_callback_node_id(&self) -> DomNodeId {
+    #[must_use]
+    pub const fn get_callback_node_id(&self) -> DomNodeId {
         self.callback_node_id
     }
 
-    #[must_use] pub const fn get_bounds(&self) -> HidpiAdjustedBounds {
+    #[must_use]
+    pub const fn get_bounds(&self) -> HidpiAdjustedBounds {
         self.bounds
     }
 
@@ -5814,7 +6133,8 @@ impl RenderImageCallbackInfo {
         unsafe { &*self.system_fonts }
     }
 
-    #[must_use] pub fn get_gl_context(&self) -> OptionGlContextPtr {
+    #[must_use]
+    pub fn get_gl_context(&self) -> OptionGlContextPtr {
         self.internal_get_gl_context().clone()
     }
 }
@@ -5839,7 +6159,8 @@ impl From<Result<Vec<u8>, AzString>> for ResultU8VecString {
         }
     }
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Result type for functions returning () or a String error  
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
@@ -5882,7 +6203,8 @@ const BASE64_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Encode bytes to Base64 string
-#[must_use] pub fn base64_encode(input: &[u8]) -> String {
+#[must_use]
+pub fn base64_encode(input: &[u8]) -> String {
     let mut output = String::with_capacity(input.len().div_ceil(3) * 4);
 
     for chunk in input.chunks(3) {
@@ -5952,8 +6274,7 @@ mod autotest_generated {
             ctx: OptionRefAny::None,
         };
 
-        let changes: Arc<Mutex<Vec<CallbackChange>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
 
         let mut info = CallbackInfo::new(
             &ref_data,
@@ -5997,7 +6318,12 @@ mod autotest_generated {
     }
 
     extern "C" fn img_cb(_: RefAny, _: RenderImageCallbackInfo) -> ImageRef {
-        ImageRef::null_image(0, 0, azul_core::resources::RawImageFormat::RGBA8, Vec::new())
+        ImageRef::null_image(
+            0,
+            0,
+            azul_core::resources::RawImageFormat::RGBA8,
+            Vec::new(),
+        )
     }
 
     fn a_css_property() -> CssProperty {
@@ -6262,7 +6588,10 @@ mod autotest_generated {
     fn callback_to_core_of_ctxless_callback_keeps_ctx_none() {
         let core = Callback::from_ptr(cb_do_nothing).to_core();
         assert!(core.ctx.is_none());
-        assert_eq!(Callback::from_core(core).cb as usize, cb_do_nothing as usize);
+        assert_eq!(
+            Callback::from_core(core).cb as usize,
+            cb_do_nothing as usize
+        );
     }
 
     #[test]
@@ -6428,7 +6757,10 @@ mod autotest_generated {
         let info = RenderImageCallbackInfo::new(node0(), bounds, &gl, &image_cache, &fonts);
 
         assert_eq!(info.get_callback_node_id(), node0());
-        assert_eq!(info.get_bounds().logical_size, LogicalSize::new(640.0, 480.0));
+        assert_eq!(
+            info.get_bounds().logical_size,
+            LogicalSize::new(640.0, 480.0)
+        );
         // callable_ptr is null for native Rust callbacks: get_ctx must return
         // None rather than dereferencing the null pointer.
         assert!(info.get_ctx().is_none());
@@ -6512,7 +6844,10 @@ mod autotest_generated {
 
         // ... and in the other direction, for the legacy Option<Option<_>> form.
         for opt in [Some(Some(node0())), Some(None), None] {
-            assert_eq!(FocusUpdateRequest::from_optional(opt).to_focused_node(), opt);
+            assert_eq!(
+                FocusUpdateRequest::from_optional(opt).to_focused_node(),
+                opt
+            );
         }
 
         // is_change agrees with "to_focused_node produced something"
@@ -6543,7 +6878,10 @@ mod autotest_generated {
 
     #[test]
     fn result_void_string_from_maps_ok_and_err() {
-        assert!(matches!(ResultVoidString::from(Ok(())), ResultVoidString::Ok));
+        assert!(matches!(
+            ResultVoidString::from(Ok(())),
+            ResultVoidString::Ok
+        ));
         let err = ResultVoidString::from(Err(AzString::from("")));
         assert!(matches!(&err, ResultVoidString::Err(e) if e.as_str().is_empty()));
     }
@@ -6611,7 +6949,10 @@ mod autotest_generated {
             );
             let changes = info.take_changes();
             assert_eq!(changes.len(), 1);
-            assert!(matches!(changes[0], CallbackChange::StopImmediatePropagation));
+            assert!(matches!(
+                changes[0],
+                CallbackChange::StopImmediatePropagation
+            ));
         });
     }
 
@@ -6768,7 +7109,9 @@ mod autotest_generated {
 
             for (change, expected) in changes.iter().zip(positions) {
                 let CallbackChange::ScrollTo {
-                    position, unclamped, ..
+                    position,
+                    unclamped,
+                    ..
                 } = change
                 else {
                     panic!("expected ScrollTo, got {change:?}");
@@ -6805,7 +7148,11 @@ mod autotest_generated {
                 panic!("expected ScrollTo");
             };
             assert!(*unclamped, "scroll_to_unclamped must skip clamping");
-            assert_eq!(dom_id.inner, usize::MAX, "an unknown DomId is not rejected here");
+            assert_eq!(
+                dom_id.inner,
+                usize::MAX,
+                "an unknown DomId is not rejected here"
+            );
             assert_eq!(position.x, -99999.0);
         });
     }
@@ -6859,9 +7206,15 @@ mod autotest_generated {
             );
             let changes = info.take_changes();
             assert_eq!(changes.len(), 3);
-            assert!(matches!(&changes[0], CallbackChange::ShowTooltip { text, .. } if text.as_str().is_empty()));
-            assert!(matches!(&changes[1], CallbackChange::ShowTooltip { text, position } if text.as_str() == "🌍" && position.x.is_nan()));
-            assert!(matches!(&changes[2], CallbackChange::ShowTooltip { text, .. } if text.as_str().len() == 100_000));
+            assert!(
+                matches!(&changes[0], CallbackChange::ShowTooltip { text, .. } if text.as_str().is_empty())
+            );
+            assert!(
+                matches!(&changes[1], CallbackChange::ShowTooltip { text, position } if text.as_str() == "🌍" && position.x.is_nan())
+            );
+            assert!(
+                matches!(&changes[2], CallbackChange::ShowTooltip { text, .. } if text.as_str().len() == 100_000)
+            );
         });
     }
 
@@ -7012,10 +7365,15 @@ mod autotest_generated {
 
             let changes = info.take_changes();
             assert_eq!(changes.len(), 7);
-            assert!(matches!(&changes[0], CallbackChange::InsertText { text, .. } if text.as_str() == "🌍"));
+            assert!(
+                matches!(&changes[0], CallbackChange::InsertText { text, .. } if text.as_str() == "🌍")
+            );
             assert!(matches!(changes[1], CallbackChange::MoveCursor { .. }));
             assert!(matches!(changes[2], CallbackChange::SetSelection { .. }));
-            assert!(matches!(changes[3], CallbackChange::SetTextChangeset { .. }));
+            assert!(matches!(
+                changes[3],
+                CallbackChange::SetTextChangeset { .. }
+            ));
             assert!(matches!(changes[5], CallbackChange::DeleteNode { .. }));
         });
     }
@@ -7024,7 +7382,12 @@ mod autotest_generated {
     fn image_cache_mutators_accept_empty_ids_and_null_images() {
         with_info(node_none(), |info| {
             let img = || {
-                ImageRef::null_image(0, 0, azul_core::resources::RawImageFormat::RGBA8, Vec::new())
+                ImageRef::null_image(
+                    0,
+                    0,
+                    azul_core::resources::RawImageFormat::RGBA8,
+                    Vec::new(),
+                )
             };
             info.add_image_to_cache(AzString::from(""), img());
             info.remove_image_from_cache(AzString::from(""));
@@ -7372,7 +7735,10 @@ mod autotest_generated {
         let cloned = change.clone();
         assert!(matches!(
             cloned,
-            CallbackChange::ScrollTo { unclamped: true, .. }
+            CallbackChange::ScrollTo {
+                unclamped: true,
+                ..
+            }
         ));
         assert!(!format!("{change:?}").is_empty());
     }

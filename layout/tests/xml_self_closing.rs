@@ -143,7 +143,10 @@ fn test_html5_auto_close_list_items() {
     assert_eq!(li_items[2].node_type.as_str(), "li");
 
     // Each <li> should contain its text
-    assert!(!li_items[0].children.as_ref().is_empty(), "First li should have text");
+    assert!(
+        !li_items[0].children.as_ref().is_empty(),
+        "First li should have text"
+    );
 }
 
 /// Verifies that `<p>` auto-closes when encountering block-level elements
@@ -289,13 +292,19 @@ fn test_header_without_closing_tag_lenient() {
     // With lenient parsing, <header> stays open (no auto-close rule for
     // header->footer), so footer becomes a child of header.
     let body_elems = element_children(body.children.as_ref());
-    assert!(!body_elems.is_empty(), "Should have at least one element child");
+    assert!(
+        !body_elems.is_empty(),
+        "Should have at least one element child"
+    );
 
     let header = body_elems[0];
     assert_eq!(header.node_type.as_str(), "header");
     let header_elems = element_children(header.children.as_ref());
     // header contains: div, hr, footer
-    assert!(header_elems.len() >= 2, "Header should contain div, hr (and footer as child)");
+    assert!(
+        header_elems.len() >= 2,
+        "Header should contain div, hr (and footer as child)"
+    );
 }
 
 /// Verifies that HTML5 void elements (`<br>`, `<hr>`, `<img>`, `<input>`)
@@ -319,7 +328,11 @@ fn test_auto_close_void_tags() {
     let body = element_children(html.children.as_ref())[0];
 
     let body_elems = element_children(body.children.as_ref());
-    assert_eq!(body_elems.len(), 5, "body should have img, br, hr, input, div");
+    assert_eq!(
+        body_elems.len(),
+        5,
+        "body should have img, br, hr, input, div"
+    );
     assert_eq!(body_elems[0].node_type.as_str(), "img");
     assert_eq!(body_elems[1].node_type.as_str(), "br");
     assert_eq!(body_elems[2].node_type.as_str(), "hr");

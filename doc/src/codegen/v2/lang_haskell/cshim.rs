@@ -18,8 +18,8 @@
 //! `Internal.FFI` hides the alloca dance so user code keeps the
 //! natural `args -> IO T` shape.
 
-use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef, TypeCategory};
 use super::super::config::CodegenConfig;
+use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef, TypeCategory};
 
 /// Top-level entry: produce the full `cbits/azul_shims.c` source as a
 /// single string, including the necessary `#include`s.
@@ -129,8 +129,8 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
         // args; c_typename already inlines the `*` so we treat them as
         // pointers regardless of the surrounding ref_kind (which the IR
         // sometimes records as Owned for these encodings).
-        let type_is_ptr_prefix = a.type_name.starts_with("*mut ")
-            || a.type_name.starts_with("*const ");
+        let type_is_ptr_prefix =
+            a.type_name.starts_with("*mut ") || a.type_name.starts_with("*const ");
         let c_ty = c_typename(&a.type_name);
         if type_is_ptr_prefix {
             // c_ty already ends in ` *` (or `const T *`) — emit the
@@ -265,11 +265,7 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
 /// True if a function passes the same inclusion filter as the
 /// foreign-import emitter (so the shim's symbol resolves to the same
 /// libazul export).
-pub fn should_emit_shim_for(
-    func: &FunctionDef,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) -> bool {
+pub fn should_emit_shim_for(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     if !config.should_include_type(&func.class_name) {
         return false;
     }
@@ -312,9 +308,9 @@ pub fn needs_shim(func: &FunctionDef) -> bool {
     if return_is_aggregate(func) {
         return true;
     }
-    func.args.iter().any(|a| {
-        matches!(a.ref_kind, ArgRefKind::Owned) && !is_c_primitive(&a.type_name)
-    })
+    func.args
+        .iter()
+        .any(|a| matches!(a.ref_kind, ArgRefKind::Owned) && !is_c_primitive(&a.type_name))
 }
 
 pub fn return_is_aggregate(func: &FunctionDef) -> bool {
@@ -338,15 +334,33 @@ pub fn return_is_aggregate(func: &FunctionDef) -> bool {
 fn is_c_primitive(t: &str) -> bool {
     matches!(
         t.trim(),
-        "u8" | "u16" | "u32" | "u64"
-            | "i8" | "i16" | "i32" | "i64"
-            | "usize" | "isize"
-            | "f32" | "f64"
-            | "bool" | "()"
-            | "c_void" | "void"
-            | "c_char" | "c_uchar" | "c_int" | "c_uint"
-            | "c_long" | "c_ulong" | "c_longlong" | "c_ulonglong"
-            | "size_t" | "ssize_t" | "intptr_t" | "uintptr_t"
+        "u8" | "u16"
+            | "u32"
+            | "u64"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "usize"
+            | "isize"
+            | "f32"
+            | "f64"
+            | "bool"
+            | "()"
+            | "c_void"
+            | "void"
+            | "c_char"
+            | "c_uchar"
+            | "c_int"
+            | "c_uint"
+            | "c_long"
+            | "c_ulong"
+            | "c_longlong"
+            | "c_ulonglong"
+            | "size_t"
+            | "ssize_t"
+            | "intptr_t"
+            | "uintptr_t"
             | "char"
     )
 }

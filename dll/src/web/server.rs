@@ -11,7 +11,7 @@
 //! - `POST /az/exec/{node_id}` — server-side callback execution (Phase 0)
 
 use std::collections::HashMap;
-use std::io::{Read, Write, BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,13 +20,13 @@ use azul_core::callbacks::{CoreCallback, LayoutCallback};
 use azul_core::refany::RefAny;
 use azul_core::resources::AppConfig;
 use azul_layout::window_state::FullWindowState;
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 
-use super::{BoundaryWasm, CallbackWasm, LayoutWasm};
 use super::config::WebConfig;
-use super::html_render::{CollectedImage, CollectedFont};
+use super::html_render::{CollectedFont, CollectedImage};
 use super::loader_js;
+use super::{BoundaryWasm, CallbackWasm, LayoutWasm};
 
 /// Pre-rendered route data.
 pub struct RenderedRoute {
@@ -87,10 +87,7 @@ pub struct WebServerState {
 }
 
 /// Start the HTTP server and block forever.
-pub fn run_server(
-    bind_addr: SocketAddr,
-    state: WebServerState,
-) -> Result<(), String> {
+pub fn run_server(bind_addr: SocketAddr, state: WebServerState) -> Result<(), String> {
     let listener = TcpListener::bind(bind_addr)
         .map_err(|e| format!("Failed to bind to {}: {}", bind_addr, e))?;
 
@@ -156,13 +153,15 @@ fn handle_connection(
     state: &WebServerState,
     loader_js: &str,
 ) -> Result<(), String> {
-    stream.set_read_timeout(Some(Duration::from_secs(30)))
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
         .map_err(|e| format!("set_read_timeout: {}", e))?;
     let mut reader = BufReader::new(&stream);
 
     // Read the request line
     let mut request_line = String::new();
-    reader.read_line(&mut request_line)
+    reader
+        .read_line(&mut request_line)
         .map_err(|e| format!("read error: {}", e))?;
 
     // Read headers (we need Content-Length for POST, Referer for callback dispatch,
@@ -173,7 +172,8 @@ fn handle_connection(
     let mut accept_encoding: Option<String> = None;
     loop {
         let mut header_line = String::new();
-        reader.read_line(&mut header_line)
+        reader
+            .read_line(&mut header_line)
             .map_err(|e| format!("header read error: {}", e))?;
         let trimmed = header_line.trim();
         if trimmed.is_empty() {
@@ -213,10 +213,12 @@ fn handle_connection(
 
     match (method, path) {
         // ── Static assets under /az/ ──
-
-        ("GET", "/az/loader.js") => {
-            send_response(&mut stream, 200, "application/javascript", loader_js.as_bytes())
-        }
+        ("GET", "/az/loader.js") => send_response(
+            &mut stream,
+            200,
+            "application/javascript",
+            loader_js.as_bytes(),
+        ),
         // 2026-06-10: the dylib's embedded fallback TTF, fetched by the loader and fed to
         // AzStartup_setFallbackFont so the wasm-side solver shapes text with REAL bytes
         // (the lifted const mirror only covers statically-accessed pages of the font).
@@ -238,10 +240,19 @@ fn handle_connection(
             )
         }
         ("GET", p) if p.starts_with("/az/cb/") && p.ends_with(".wasm") => {
-            let name = p.strip_prefix("/az/cb/").unwrap_or("")
-                .split('.').next().unwrap_or("");
+            let name = p
+                .strip_prefix("/az/cb/")
+                .unwrap_or("")
+                .split('.')
+                .next()
+                .unwrap_or("");
             if let Some(cb) = state.cb_wasms.iter().find(|c| c.name == name) {
-                send_wasm(&mut stream, &cb.wasm_bytes, None, accept_encoding.as_deref())
+                send_wasm(
+                    &mut stream,
+                    &cb.wasm_bytes,
+                    None,
+                    accept_encoding.as_deref(),
+                )
             } else {
                 send_response(&mut stream, 404, "text/plain", b"Callback not found")
             }
@@ -250,10 +261,19 @@ fn handle_connection(
             // M8.3: layout-callback WASMs. Same scheme as /az/cb/ —
             // URL is `/az/layout/{name}.{hash}.wasm`; we dispatch by
             // name and let the hash piece act as a cache-bust.
-            let name = p.strip_prefix("/az/layout/").unwrap_or("")
-                .split('.').next().unwrap_or("");
+            let name = p
+                .strip_prefix("/az/layout/")
+                .unwrap_or("")
+                .split('.')
+                .next()
+                .unwrap_or("");
             if let Some(lw) = state.layout_wasms.iter().find(|l| l.name == name) {
-                send_wasm(&mut stream, &lw.wasm_bytes, None, accept_encoding.as_deref())
+                send_wasm(
+                    &mut stream,
+                    &lw.wasm_bytes,
+                    None,
+                    accept_encoding.as_deref(),
+                )
             } else {
                 send_response(&mut stream, 404, "text/plain", b"Layout callback not found")
             }
@@ -262,16 +282,30 @@ fn handle_connection(
             // M10-D: boundary-shard wasms. URL is
             // `/az/fn/{canonical_name}.{hash}.wasm`. Dispatched by
             // canonical name; the hash is cache-bust only.
-            let name = p.strip_prefix("/az/fn/").unwrap_or("")
-                .split('.').next().unwrap_or("");
-            if let Some(bw) = state.boundary_wasms.iter().find(|b| b.canonical_name == name) {
-                send_wasm(&mut stream, &bw.wasm_bytes, None, accept_encoding.as_deref())
+            let name = p
+                .strip_prefix("/az/fn/")
+                .unwrap_or("")
+                .split('.')
+                .next()
+                .unwrap_or("");
+            if let Some(bw) = state
+                .boundary_wasms
+                .iter()
+                .find(|b| b.canonical_name == name)
+            {
+                send_wasm(
+                    &mut stream,
+                    &bw.wasm_bytes,
+                    None,
+                    accept_encoding.as_deref(),
+                )
             } else {
                 send_response(&mut stream, 404, "text/plain", b"Boundary shard not found")
             }
         }
-        ("GET", p) if p == "/az/manifest.json"
-            || (p.starts_with("/az/manifest.") && p.ends_with(".json")) =>
+        ("GET", p)
+            if p == "/az/manifest.json"
+                || (p.starts_with("/az/manifest.") && p.ends_with(".json")) =>
         {
             // M10-D: shard manifest. Lists every shard URL +
             // exports + imports so loader.js can topo-sort and
@@ -284,16 +318,10 @@ fn handle_connection(
             // No-cache for manifest.json: small payload + always wins
             // on changes; the wasms it references have their own
             // hashed URLs for cache busting.
-            send_response(
-                &mut stream,
-                200,
-                "application/json",
-                manifest.as_bytes(),
-            )
+            send_response(&mut stream, 200, "application/json", manifest.as_bytes())
         }
 
         // ── Image serving ──
-
         ("GET", p) if p.starts_with("/az/img/") => {
             let id_str = p.strip_prefix("/az/img/").unwrap_or("0");
             let id: usize = id_str.parse().unwrap_or(usize::MAX);
@@ -305,7 +333,6 @@ fn handle_connection(
         }
 
         // ── Font serving ──
-
         ("GET", p) if p.starts_with("/az/font/") => {
             let id_str = p.strip_prefix("/az/font/").unwrap_or("0");
             let id: usize = id_str.parse().unwrap_or(usize::MAX);
@@ -327,7 +354,6 @@ fn handle_connection(
         //      Phase 0 `CallbackInfo` skeleton — enough plumbing to mutate
         //      `RefAny` app state, which is the common case.
         //   4. Re-run layout via `re_render_body` and return the new HTML.
-
         ("POST", p) if p.starts_with("/az/exec/") => {
             // Auth check: when `auth_token` is configured, require a
             // matching `Authorization: Bearer <token>` header. Compared
@@ -354,7 +380,8 @@ fn handle_connection(
             // the Phase 0 invocation runs with sentinel cursor values.
             if content_length > 0 {
                 let mut body = vec![0u8; content_length];
-                reader.read_exact(&mut body)
+                reader
+                    .read_exact(&mut body)
                     .map_err(|e| format!("body read error: {}", e))?;
             }
 
@@ -372,49 +399,68 @@ fn handle_connection(
             }
 
             let html = re_render_body(state);
-            send_response(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes())
+            send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                html.as_bytes(),
+            )
         }
 
-        ("GET", "/favicon.ico") => {
-            send_response(&mut stream, 204, "text/plain", b"")
-        }
+        ("GET", "/favicon.ico") => send_response(&mut stream, 204, "text/plain", b""),
 
         // ── Route matching ──
-
         ("GET", path) => {
             // Try to match against registered routes
             if let Some(route) = state.rendered_routes.get(path) {
-                send_response(&mut stream, 200, "text/html; charset=utf-8", route.html.as_bytes())
+                send_response(
+                    &mut stream,
+                    200,
+                    "text/html; charset=utf-8",
+                    route.html.as_bytes(),
+                )
             } else {
                 // Try parameterized route matching
                 for route in state.rendered_routes.values() {
                     if azul_core::resources::match_route(&route.pattern, path).is_some() {
                         // For parameterized routes, we'd need to re-render with params.
                         // For now, serve the template HTML (Phase 0 limitation).
-                        return send_response(&mut stream, 200, "text/html; charset=utf-8", route.html.as_bytes());
+                        return send_response(
+                            &mut stream,
+                            200,
+                            "text/html; charset=utf-8",
+                            route.html.as_bytes(),
+                        );
                     }
                 }
                 // Fall back to root route
                 if let Some(root) = state.rendered_routes.get("/") {
-                    send_response(&mut stream, 200, "text/html; charset=utf-8", root.html.as_bytes())
+                    send_response(
+                        &mut stream,
+                        200,
+                        "text/html; charset=utf-8",
+                        root.html.as_bytes(),
+                    )
                 } else if let Some(first) = state.rendered_routes.values().next() {
-                    send_response(&mut stream, 200, "text/html; charset=utf-8", first.html.as_bytes())
+                    send_response(
+                        &mut stream,
+                        200,
+                        "text/html; charset=utf-8",
+                        first.html.as_bytes(),
+                    )
                 } else {
                     send_response(&mut stream, 404, "text/plain", b"No routes configured")
                 }
             }
         }
 
-        _ => {
-            send_response(&mut stream, 404, "text/plain", b"Not Found")
-        }
+        _ => send_response(&mut stream, 404, "text/plain", b"Not Found"),
     }
 }
 
 /// Re-render the page body by calling the layout callback again.
 fn re_render_body(state: &WebServerState) -> String {
-    let app_data = state.app_data.lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let app_data = state.app_data.lock().unwrap_or_else(|e| e.into_inner());
     let output = super::html_render::render_initial_page(
         &app_data,
         &state.layout_callback,
@@ -439,7 +485,12 @@ fn referer_route(state: &WebServerState, referer: Option<&str>) -> String {
         // Strip `scheme://host` if present and any trailing `?query#frag`.
         let path = r
             .split_once("://")
-            .map(|(_, rest)| rest.splitn(2, '/').nth(1).map(|p| format!("/{}", p)).unwrap_or_else(|| "/".to_string()))
+            .map(|(_, rest)| {
+                rest.splitn(2, '/')
+                    .nth(1)
+                    .map(|p| format!("/{}", p))
+                    .unwrap_or_else(|| "/".to_string())
+            })
             .unwrap_or_else(|| r.to_string());
         let path = path.split(['?', '#']).next().unwrap_or("/").to_string();
         if state.rendered_routes.contains_key(&path) {
@@ -454,7 +505,12 @@ fn referer_route(state: &WebServerState, referer: Option<&str>) -> String {
     if state.rendered_routes.contains_key("/") {
         return "/".to_string();
     }
-    state.rendered_routes.keys().next().cloned().unwrap_or_else(|| "/".to_string())
+    state
+        .rendered_routes
+        .keys()
+        .next()
+        .cloned()
+        .unwrap_or_else(|| "/".to_string())
 }
 
 /// Invoke a discovered callback server-side with a Phase 0 `CallbackInfo`.
@@ -479,15 +535,17 @@ fn try_invoke_callback(
     use std::collections::BTreeMap;
 
     use azul_core::callbacks::Update;
-    use azul_core::id::NodeId;
     use azul_core::dom::{DomId, DomNodeId};
     use azul_core::geom::OptionLogicalPosition;
-    use azul_core::window::{MonitorVec, RawWindowHandle, WebHandle};
-    use azul_core::resources::RendererResources;
     use azul_core::gl::OptionGlContextPtr;
+    use azul_core::id::NodeId;
+    use azul_core::resources::RendererResources;
     use azul_core::styled_dom::NodeHierarchyItemId;
+    use azul_core::window::{MonitorVec, RawWindowHandle, WebHandle};
     use azul_css::system::SystemStyle;
-    use azul_layout::callbacks::{Callback, CallbackInfo, CallbackInfoRefData, ExternalSystemCallbacks};
+    use azul_layout::callbacks::{
+        Callback, CallbackInfo, CallbackInfoRefData, ExternalSystemCallbacks,
+    };
     use azul_layout::window::LayoutWindow;
 
     let cb = Callback::from_core(core_cb.clone());
@@ -495,18 +553,24 @@ fn try_invoke_callback(
     let layout_window = match LayoutWindow::new((*state.fc_cache).clone()) {
         Ok(lw) => lw,
         Err(e) => {
-            eprintln!("[azul-web] callback dispatch: LayoutWindow::new failed ({:?})", e);
+            eprintln!(
+                "[azul-web] callback dispatch: LayoutWindow::new failed ({:?})",
+                e
+            );
             return Update::DoNothing;
         }
     };
     let renderer_resources = RendererResources::default();
     let gl_context: OptionGlContextPtr = OptionGlContextPtr::None;
-    let scroll: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, azul_core::hit_test::ScrollPosition>> =
-        BTreeMap::new();
+    let scroll: BTreeMap<
+        DomId,
+        BTreeMap<NodeHierarchyItemId, azul_core::hit_test::ScrollPosition>,
+    > = BTreeMap::new();
     let window_handle = RawWindowHandle::Web(WebHandle { id: 0 });
     let sys_callbacks = ExternalSystemCallbacks::rust_internal();
     let sys_style = std::sync::Arc::new(SystemStyle::default());
-    let monitors_arc = std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[])));
+    let monitors_arc =
+        std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[])));
     let previous_window_state: Option<FullWindowState> = None;
 
     let ref_data = CallbackInfoRefData {
@@ -542,7 +606,9 @@ fn try_invoke_callback(
     let app_data_clone = app_data_locked.clone();
     drop(app_data_locked);
 
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (cb.cb)(app_data_clone, info))) {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (cb.cb)(app_data_clone, info)
+    })) {
         Ok(update) => update,
         Err(_) => {
             eprintln!("[azul-web] callback panicked at node az_{}", node_idx);
@@ -620,17 +686,19 @@ fn send_response_inner(
         ""
     };
 
-    let response = format!(
+    let response =
+        format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n",
         status, status_text, content_type, body.len(), cache_header
     );
 
-    stream.write_all(response.as_bytes())
+    stream
+        .write_all(response.as_bytes())
         .map_err(|e| format!("write error: {}", e))?;
-    stream.write_all(body)
+    stream
+        .write_all(body)
         .map_err(|e| format!("write body error: {}", e))?;
-    stream.flush()
-        .map_err(|e| format!("flush error: {}", e))?;
+    stream.flush().map_err(|e| format!("flush error: {}", e))?;
 
     Ok(())
 }
@@ -703,13 +771,7 @@ fn send_wasm(
             None => None,
         };
         if let Some(br) = br {
-            return send_response_encoded(
-                stream,
-                200,
-                "application/wasm",
-                br,
-                Some("br"),
-            );
+            return send_response_encoded(stream, 200, "application/wasm", br, Some("br"));
         }
     }
     send_response_cached(stream, 200, "application/wasm", body)
@@ -736,11 +798,17 @@ fn send_response_encoded(
     let response = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
          Cache-Control: public, max-age=31536000, immutable\r\n{}Connection: close\r\n\r\n",
-        status, status_text, content_type, body.len(), enc_header
+        status,
+        status_text,
+        content_type,
+        body.len(),
+        enc_header
     );
-    stream.write_all(response.as_bytes())
+    stream
+        .write_all(response.as_bytes())
         .map_err(|e| format!("write error: {}", e))?;
-    stream.write_all(body)
+    stream
+        .write_all(body)
         .map_err(|e| format!("write body error: {}", e))?;
     stream.flush().map_err(|e| format!("flush error: {}", e))?;
     Ok(())
@@ -830,7 +898,10 @@ pub fn build_manifest(state: &WebServerState) -> String {
                 kv("name", Json::string(bw.canonical_name.clone())),
                 kv(
                     "url",
-                    Json::string(format!("/az/fn/{}.{}.wasm", bw.canonical_name, bw.content_hash)),
+                    Json::string(format!(
+                        "/az/fn/{}.{}.wasm",
+                        bw.canonical_name, bw.content_hash
+                    )),
                 ),
                 kv("body_export", Json::string(bw.body_export.clone())),
                 kv("canonical_addr", Json::integer(bw.canonical_addr as i64)),

@@ -16,9 +16,9 @@ fn load_times_new_roman() -> Option<ParsedFont> {
     // `from_bytes` drops `original_bytes`, so `hmtx_bytes()` would return
     // `&[]` and every advance lookup would come back zero. Retain the
     // source bytes via `with_source_bytes` so the hmtx table is readable.
-    let bytes_arc = std::sync::Arc::new(
-        rust_fontconfig::FontBytes::Owned(std::sync::Arc::from(font_bytes.as_slice())),
-    );
+    let bytes_arc = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(std::sync::Arc::from(
+        font_bytes.as_slice(),
+    )));
     Some(ParsedFont::from_bytes(&font_bytes, 0, &mut warnings)?.with_source_bytes(bytes_arc))
 }
 
@@ -29,31 +29,87 @@ fn load_times_new_roman() -> Option<ParsedFont> {
 /// g=55 dx=0 ax=1179, g=72 dx=-71 ax=838, g=86 dx=0 ax=797, g=87 dx=0 ax=569
 struct HbGlyph {
     glyph_id: u16,
-    dx: i32,       // x placement offset (font units)
-    ax: u16,       // x advance (font units, after kerning adjustment)
+    dx: i32, // x placement offset (font units)
+    ax: u16, // x advance (font units, after kerning adjustment)
 }
 
 fn hb_test() -> Vec<HbGlyph> {
     vec![
-        HbGlyph { glyph_id: 55, dx: 0, ax: 1179 },   // T
-        HbGlyph { glyph_id: 72, dx: -71, ax: 838 },   // e (kerned after T)
-        HbGlyph { glyph_id: 86, dx: 0, ax: 797 },     // s
-        HbGlyph { glyph_id: 87, dx: 0, ax: 569 },     // t
+        HbGlyph {
+            glyph_id: 55,
+            dx: 0,
+            ax: 1179,
+        }, // T
+        HbGlyph {
+            glyph_id: 72,
+            dx: -71,
+            ax: 838,
+        }, // e (kerned after T)
+        HbGlyph {
+            glyph_id: 86,
+            dx: 0,
+            ax: 797,
+        }, // s
+        HbGlyph {
+            glyph_id: 87,
+            dx: 0,
+            ax: 569,
+        }, // t
     ]
 }
 
 fn hb_upper_left() -> Vec<HbGlyph> {
     vec![
-        HbGlyph { glyph_id: 88, dx: 0, ax: 1024 },    // u
-        HbGlyph { glyph_id: 83, dx: 0, ax: 1024 },    // p
-        HbGlyph { glyph_id: 83, dx: 0, ax: 1024 },    // p
-        HbGlyph { glyph_id: 72, dx: 0, ax: 909 },     // e
-        HbGlyph { glyph_id: 85, dx: 0, ax: 661 },     // r
-        HbGlyph { glyph_id: 16, dx: -20, ax: 662 },   // hyphen
-        HbGlyph { glyph_id: 79, dx: 0, ax: 569 },     // l
-        HbGlyph { glyph_id: 72, dx: 0, ax: 909 },     // e
-        HbGlyph { glyph_id: 73, dx: 0, ax: 682 },     // f
-        HbGlyph { glyph_id: 87, dx: 0, ax: 569 },     // t
+        HbGlyph {
+            glyph_id: 88,
+            dx: 0,
+            ax: 1024,
+        }, // u
+        HbGlyph {
+            glyph_id: 83,
+            dx: 0,
+            ax: 1024,
+        }, // p
+        HbGlyph {
+            glyph_id: 83,
+            dx: 0,
+            ax: 1024,
+        }, // p
+        HbGlyph {
+            glyph_id: 72,
+            dx: 0,
+            ax: 909,
+        }, // e
+        HbGlyph {
+            glyph_id: 85,
+            dx: 0,
+            ax: 661,
+        }, // r
+        HbGlyph {
+            glyph_id: 16,
+            dx: -20,
+            ax: 662,
+        }, // hyphen
+        HbGlyph {
+            glyph_id: 79,
+            dx: 0,
+            ax: 569,
+        }, // l
+        HbGlyph {
+            glyph_id: 72,
+            dx: 0,
+            ax: 909,
+        }, // e
+        HbGlyph {
+            glyph_id: 73,
+            dx: 0,
+            ax: 682,
+        }, // f
+        HbGlyph {
+            glyph_id: 87,
+            dx: 0,
+            ax: 569,
+        }, // t
     ]
 }
 
@@ -89,15 +145,27 @@ fn test_shaping_vs_hbshape_test() {
     assert_eq!(glyphs.len(), hb.len(), "glyph count mismatch");
 
     println!("\n=== Shaping comparison: \"Test\" (units_per_em={upem}) ===");
-    println!("{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12} {:>10}",
-        "char", "gid_as", "gid_hb", "raw_adv", "eff_adv", "hb_ax", "off_x", "hb_dx", "advance", "kerning");
+    println!(
+        "{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12} {:>10}",
+        "char",
+        "gid_as",
+        "gid_hb",
+        "raw_adv",
+        "eff_adv",
+        "hb_ax",
+        "off_x",
+        "hb_dx",
+        "advance",
+        "kerning"
+    );
 
     for (g, h) in glyphs.iter().zip(hb.iter()) {
         let raw_advance = font.get_horizontal_advance(g.glyph_id);
         let effective_advance_units = (g.advance + g.kerning).round() as i32;
         let offset_x_units = g.offset.x.round() as i32;
 
-        println!("{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12.1} {:>10.1}",
+        println!(
+            "{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12.1} {:>10.1}",
             g.codepoint,
             g.glyph_id,
             h.glyph_id,
@@ -122,23 +190,42 @@ fn test_shaping_vs_hbshape_test() {
     let e_hb = &hb[1];
     let t_hb = &hb[0];
     println!("\n'T','e' kerning analysis:");
-    println!("  T: allsorts eff_adv={:.0} hb_ax={}", t_glyph.advance + t_glyph.kerning, t_hb.ax);
-    println!("  e: allsorts eff_adv={:.0} hb_ax={}", e_glyph.advance + e_glyph.kerning, e_hb.ax);
-    println!("  T+e total: allsorts={:.0} hb={}",
+    println!(
+        "  T: allsorts eff_adv={:.0} hb_ax={}",
+        t_glyph.advance + t_glyph.kerning,
+        t_hb.ax
+    );
+    println!(
+        "  e: allsorts eff_adv={:.0} hb_ax={}",
+        e_glyph.advance + e_glyph.kerning,
+        e_hb.ax
+    );
+    println!(
+        "  T+e total: allsorts={:.0} hb={}",
         (t_glyph.advance + t_glyph.kerning) + (e_glyph.advance + e_glyph.kerning),
-        t_hb.ax as u32 + e_hb.ax as u32);
+        t_hb.ax as u32 + e_hb.ax as u32
+    );
     println!("  allsorts has GPOS: {}", font.gpos().is_some());
-    println!("  allsorts has kern table: {}", font.opt_kern_table.is_some());
+    println!(
+        "  allsorts has kern table: {}",
+        font.opt_kern_table.is_some()
+    );
 
     // Total width of "Te" must match between allsorts and hb-shape
-    let te_allsorts = (t_glyph.advance + t_glyph.kerning + e_glyph.advance + e_glyph.kerning).round() as i32;
+    let te_allsorts =
+        (t_glyph.advance + t_glyph.kerning + e_glyph.advance + e_glyph.kerning).round() as i32;
     let te_hb = t_hb.ax as i32 + e_hb.ax as i32;
-    assert_eq!(te_allsorts, te_hb,
-        "Total 'Te' width mismatch: allsorts={te_allsorts} vs hb-shape={te_hb}");
+    assert_eq!(
+        te_allsorts, te_hb,
+        "Total 'Te' width mismatch: allsorts={te_allsorts} vs hb-shape={te_hb}"
+    );
 
     // Overall total width must match
-    assert_eq!(allsorts_total.round() as i32, hb_total as i32,
-        "Total 'Test' width mismatch: allsorts={allsorts_total:.0} vs hb-shape={hb_total}");
+    assert_eq!(
+        allsorts_total.round() as i32,
+        hb_total as i32,
+        "Total 'Test' width mismatch: allsorts={allsorts_total:.0} vs hb-shape={hb_total}"
+    );
     println!();
 }
 
@@ -173,15 +260,27 @@ fn test_shaping_vs_hbshape_upper_left() {
     assert_eq!(glyphs.len(), hb.len(), "glyph count mismatch");
 
     println!("\n=== Shaping comparison: \"upper-left\" (units_per_em={upem}) ===");
-    println!("{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12} {:>10}",
-        "char", "gid_as", "gid_hb", "raw_adv", "eff_adv", "hb_ax", "off_x", "hb_dx", "advance", "kerning");
+    println!(
+        "{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12} {:>10}",
+        "char",
+        "gid_as",
+        "gid_hb",
+        "raw_adv",
+        "eff_adv",
+        "hb_ax",
+        "off_x",
+        "hb_dx",
+        "advance",
+        "kerning"
+    );
 
     for (i, (g, h)) in glyphs.iter().zip(hb.iter()).enumerate() {
         let raw_advance = font.get_horizontal_advance(g.glyph_id);
         let effective_advance_units = (g.advance + g.kerning).round() as i32;
         let offset_x_units = g.offset.x.round() as i32;
 
-        println!("{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12.1} {:>10.1}",
+        println!(
+            "{:<6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>12.1} {:>10.1}",
             g.codepoint,
             g.glyph_id,
             h.glyph_id,
@@ -194,8 +293,11 @@ fn test_shaping_vs_hbshape_upper_left() {
             g.kerning,
         );
 
-        assert_eq!(g.glyph_id, h.glyph_id,
-            "glyph {} '{}': glyph_id mismatch", i, g.codepoint);
+        assert_eq!(
+            g.glyph_id, h.glyph_id,
+            "glyph {} '{}': glyph_id mismatch",
+            i, g.codepoint
+        );
     }
     println!();
 }

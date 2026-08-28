@@ -9,8 +9,8 @@
 //! - Hit-testing (`hit_test_component`)
 //! - Drag delta conversion (`handle_scrollbar_drag`)
 
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::dom::ScrollbarOrientation;
+use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
 /// Information about scrollbar requirements and dimensions
 // +spec:overflow:55c244 - scrollbar appearance, size, and edge placement are UA-defined
@@ -31,7 +31,8 @@ pub struct ScrollbarRequirements {
 impl ScrollbarRequirements {
     /// Checks if the presence of scrollbars reduces the available inner size,
     /// which would necessitate a reflow of the content.
-    #[must_use] pub fn needs_reflow(&self) -> bool {
+    #[must_use]
+    pub fn needs_reflow(&self) -> bool {
         self.scrollbar_width > 0.0 || self.scrollbar_height > 0.0
     }
 
@@ -40,7 +41,8 @@ impl ScrollbarRequirements {
     // +spec:overflow:30a49c - scrollbar space subtracted from content area
     /// Takes a size (representing a content-box) and returns a new size
     /// reduced by the dimensions of any active scrollbars.
-    #[must_use] pub fn shrink_size(&self, size: LogicalSize) -> LogicalSize {
+    #[must_use]
+    pub fn shrink_size(&self, size: LogicalSize) -> LogicalSize {
         LogicalSize {
             width: (size.width - self.scrollbar_width).max(0.0),
             height: (size.height - self.scrollbar_height).max(0.0),
@@ -113,7 +115,8 @@ impl Default for ScrollbarGeometry {
 /// - `scrollbar_width_px`: CSS-resolved scrollbar thickness in pixels
 /// - `has_other_scrollbar`: Whether the perpendicular scrollbar is also visible
 ///   (reduces track length by one `scrollbar_width_px` for the corner)
-#[must_use] pub fn compute_scrollbar_geometry(
+#[must_use]
+pub fn compute_scrollbar_geometry(
     orientation: ScrollbarOrientation,
     inner_rect: LogicalRect,
     content_size: LogicalSize,
@@ -179,7 +182,8 @@ pub fn quantize_thumb_offset(thumb_offset: f32) -> f32 {
 
 /// Like [`compute_scrollbar_geometry`] but allows overriding the button size.
 /// Pass `button_size = 0.0` for macOS-style overlay scrollbars (no arrow buttons).
-#[must_use] pub fn compute_scrollbar_geometry_with_button_size(
+#[must_use]
+pub fn compute_scrollbar_geometry_with_button_size(
     orientation: ScrollbarOrientation,
     inner_rect: LogicalRect,
     content_size: LogicalSize,
@@ -202,7 +206,12 @@ pub fn quantize_thumb_offset(thumb_offset: f32) -> f32 {
                 ),
                 size: LogicalSize::new(scrollbar_width_px, track_total),
             };
-            (track_total, inner_rect.size.height, content_size.height, track_rect)
+            (
+                track_total,
+                inner_rect.size.height,
+                content_size.height,
+                track_rect,
+            )
         }
         ScrollbarOrientation::Horizontal => {
             let track_total = if has_other_scrollbar {
@@ -217,7 +226,12 @@ pub fn quantize_thumb_offset(thumb_offset: f32) -> f32 {
                 ),
                 size: LogicalSize::new(track_total, scrollbar_width_px),
             };
-            (track_total, inner_rect.size.width, content_size.width, track_rect)
+            (
+                track_total,
+                inner_rect.size.width,
+                content_size.width,
+                track_rect,
+            )
         }
     };
 
@@ -479,8 +493,8 @@ mod autotest_generated {
         approx(out.height, 0.0);
 
         // inf - inf == NaN -> clamped to 0.0
-        let out =
-            reqs(f32::INFINITY, f32::INFINITY).shrink_size(LogicalSize::new(f32::INFINITY, f32::INFINITY));
+        let out = reqs(f32::INFINITY, f32::INFINITY)
+            .shrink_size(LogicalSize::new(f32::INFINITY, f32::INFINITY));
         approx(out.width, 0.0);
         approx(out.height, 0.0);
 
@@ -588,14 +602,20 @@ mod autotest_generated {
             15.0,
             true,
         );
-        approx(without.track_rect.size.height - with.track_rect.size.height, 15.0);
+        approx(
+            without.track_rect.size.height - with.track_rect.size.height,
+            15.0,
+        );
         approx(without.usable_track_length - with.usable_track_length, 15.0);
         approx(with.usable_track_length, 200.0 - 15.0 - 30.0);
     }
 
     #[test]
     fn compute_scrollbar_geometry_defaults_to_button_size_equal_to_width() {
-        for orientation in [ScrollbarOrientation::Vertical, ScrollbarOrientation::Horizontal] {
+        for orientation in [
+            ScrollbarOrientation::Vertical,
+            ScrollbarOrientation::Horizontal,
+        ] {
             let a = compute_scrollbar_geometry(
                 orientation,
                 rect(5.0, 7.0, 120.0, 240.0),
@@ -992,7 +1012,7 @@ mod autotest_generated {
         approx(g.max_scroll, 100.0); // 200 - 100
         approx(g.scroll_ratio, 0.5); // 50 / 100
         approx(g.thumb_offset, 45.0); // (180 - 90) * 0.5
-        // the track rect is passed straight through, never recomputed
+                                      // the track rect is passed straight through, never recomputed
         approx(g.track_rect.origin.x, track.origin.x);
         approx(g.track_rect.size.height, track.size.height);
         assert_eq!(g.orientation, ScrollbarOrientation::Horizontal);
@@ -1122,7 +1142,10 @@ mod autotest_generated {
 
     #[test]
     fn geometry_invariants_hold_across_a_finite_input_grid() {
-        let orientations = [ScrollbarOrientation::Vertical, ScrollbarOrientation::Horizontal];
+        let orientations = [
+            ScrollbarOrientation::Vertical,
+            ScrollbarOrientation::Horizontal,
+        ];
         let rects = [
             rect(0.0, 0.0, 0.0, 0.0),
             rect(0.0, 0.0, 1.0, 1.0),

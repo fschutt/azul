@@ -10,9 +10,9 @@
 //! - `to_pixels_internal()` — legacy fallback used by `prop_cache.rs`; does not
 //!   distinguish rem from em. Marked `#[doc(hidden)]`.
 
+use crate::corety::AzString;
 use core::fmt;
 use std::num::ParseFloatError;
-use crate::corety::AzString;
 
 use crate::props::{
     basic::{error::ParseFloatErrorWithInput, FloatValue, SizeMetric},
@@ -41,7 +41,8 @@ impl NormalizedPercentage {
     /// # Arguments
     /// * `value` - A normalized percentage where 0.0 = 0% and 1.0 = 100%
     #[inline]
-    #[must_use] pub const fn new(value: f32) -> Self {
+    #[must_use]
+    pub const fn new(value: f32) -> Self {
         Self(value)
     }
 
@@ -50,13 +51,15 @@ impl NormalizedPercentage {
     /// This divides by 100 internally, so you should use this when converting
     /// from CSS percentage syntax like "50%" which is stored as 50.0.
     #[inline]
-    #[must_use] pub fn from_unnormalized(value: f32) -> Self {
+    #[must_use]
+    pub fn from_unnormalized(value: f32) -> Self {
         Self(value / 100.0)
     }
 
     /// Get the raw normalized value (0.0-1.0)
     #[inline]
-    #[must_use] pub const fn get(self) -> f32 {
+    #[must_use]
+    pub const fn get(self) -> f32 {
         self.0
     }
 
@@ -65,7 +68,8 @@ impl NormalizedPercentage {
     /// This multiplies the normalized percentage by the containing block size.
     /// For example, 50% (0.5) of 640px = 320px.
     #[inline]
-    #[must_use] pub fn resolve(self, containing_block_size: f32) -> f32 {
+    #[must_use]
+    pub fn resolve(self, containing_block_size: f32) -> f32 {
         self.0 * containing_block_size
     }
 }
@@ -88,7 +92,8 @@ pub struct CssLogicalSize {
 
 impl CssLogicalSize {
     #[inline]
-    #[must_use] pub const fn new(inline_size: f32, block_size: f32) -> Self {
+    #[must_use]
+    pub const fn new(inline_size: f32, block_size: f32) -> Self {
         Self {
             inline_size,
             block_size,
@@ -97,7 +102,8 @@ impl CssLogicalSize {
 
     /// Convert to physical size (width, height) in horizontal writing mode
     #[inline]
-    #[must_use] pub const fn to_physical(self) -> PhysicalSize {
+    #[must_use]
+    pub const fn to_physical(self) -> PhysicalSize {
         PhysicalSize {
             width: self.inline_size,
             height: self.block_size,
@@ -115,13 +121,15 @@ pub struct PhysicalSize {
 
 impl PhysicalSize {
     #[inline]
-    #[must_use] pub const fn new(width: f32, height: f32) -> Self {
+    #[must_use]
+    pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
     }
 
     /// Convert to logical size in horizontal writing mode
     #[inline]
-    #[must_use] pub const fn to_logical(self) -> CssLogicalSize {
+    #[must_use]
+    pub const fn to_logical(self) -> CssLogicalSize {
         CssLogicalSize {
             inline_size: self.width,
             block_size: self.height,
@@ -190,7 +198,8 @@ impl Default for ResolutionContext {
 impl ResolutionContext {
     /// Create a minimal context for testing or default resolution
     #[inline]
-    #[must_use] pub const fn default_const() -> Self {
+    #[must_use]
+    pub const fn default_const() -> Self {
         Self {
             element_font_size: 16.0,
             parent_font_size: 16.0,
@@ -207,7 +216,6 @@ impl ResolutionContext {
             vertical_writing_mode: false,
         }
     }
-
 }
 
 /// Specifies which property context we're resolving for, to determine correct reference values
@@ -284,7 +292,8 @@ impl fmt::Display for PixelValue {
 
 impl PixelValue {
     #[inline]
-    #[must_use] pub const fn zero() -> Self {
+    #[must_use]
+    pub const fn zero() -> Self {
         const ZERO_PX: PixelValue = PixelValue::const_px(0);
         ZERO_PX
     }
@@ -292,14 +301,16 @@ impl PixelValue {
     /// Same as `PixelValue::px()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
-    #[must_use] pub const fn const_px(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_px(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::Px, value)
     }
 
     /// Same as `PixelValue::em()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
-    #[must_use] pub const fn const_em(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_em(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::Em, value)
     }
 
@@ -316,53 +327,61 @@ impl PixelValue {
     /// // 1.17em = const_em_fractional(1, 17)
     /// ```
     #[inline]
-    #[must_use] pub const fn const_em_fractional(pre_comma: isize, post_comma: isize) -> Self {
+    #[must_use]
+    pub const fn const_em_fractional(pre_comma: isize, post_comma: isize) -> Self {
         Self::const_from_metric_fractional(SizeMetric::Em, pre_comma, post_comma)
     }
 
     /// Same as `PixelValue::pt()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
-    #[must_use] pub const fn const_pt(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_pt(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::Pt, value)
     }
 
     /// Creates a pt value from a fractional number in const context.
     #[inline]
-    #[must_use] pub const fn const_pt_fractional(pre_comma: isize, post_comma: isize) -> Self {
+    #[must_use]
+    pub const fn const_pt_fractional(pre_comma: isize, post_comma: isize) -> Self {
         Self::const_from_metric_fractional(SizeMetric::Pt, pre_comma, post_comma)
     }
 
     /// Same as `PixelValue::percent()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
-    #[must_use] pub const fn const_percent(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_percent(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::Percent, value)
     }
 
     /// Same as `PixelValue::in()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
-    #[must_use] pub const fn const_in(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_in(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::In, value)
     }
 
     /// Same as `PixelValue::cm()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
-    #[must_use] pub const fn const_cm(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_cm(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::Cm, value)
     }
 
     /// Same as `PixelValue::mm()`, but only accepts whole numbers,
     /// since using `f32` in const fn is not yet stabilized.
     #[inline]
-    #[must_use] pub const fn const_mm(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_mm(value: isize) -> Self {
         Self::const_from_metric(SizeMetric::Mm, value)
     }
 
     #[inline]
-    #[must_use] pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
+    #[must_use]
+    pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
         Self {
             metric,
             number: FloatValue::const_new(value),
@@ -376,7 +395,8 @@ impl PixelValue {
     /// * `pre_comma` - The integer part
     /// * `post_comma` - The fractional part as digits
     #[inline]
-    #[must_use] pub const fn const_from_metric_fractional(
+    #[must_use]
+    pub const fn const_from_metric_fractional(
         metric: SizeMetric,
         pre_comma: isize,
         post_comma: isize,
@@ -388,47 +408,56 @@ impl PixelValue {
     }
 
     #[inline]
-    #[must_use] pub fn px(value: f32) -> Self {
+    #[must_use]
+    pub fn px(value: f32) -> Self {
         Self::from_metric(SizeMetric::Px, value)
     }
 
     #[inline]
-    #[must_use] pub fn em(value: f32) -> Self {
+    #[must_use]
+    pub fn em(value: f32) -> Self {
         Self::from_metric(SizeMetric::Em, value)
     }
 
     #[inline]
-    #[must_use] pub fn inch(value: f32) -> Self {
+    #[must_use]
+    pub fn inch(value: f32) -> Self {
         Self::from_metric(SizeMetric::In, value)
     }
 
     #[inline]
-    #[must_use] pub fn cm(value: f32) -> Self {
+    #[must_use]
+    pub fn cm(value: f32) -> Self {
         Self::from_metric(SizeMetric::Cm, value)
     }
 
     #[inline]
-    #[must_use] pub fn mm(value: f32) -> Self {
+    #[must_use]
+    pub fn mm(value: f32) -> Self {
         Self::from_metric(SizeMetric::Mm, value)
     }
 
     #[inline]
-    #[must_use] pub fn pt(value: f32) -> Self {
+    #[must_use]
+    pub fn pt(value: f32) -> Self {
         Self::from_metric(SizeMetric::Pt, value)
     }
 
     #[inline]
-    #[must_use] pub fn percent(value: f32) -> Self {
+    #[must_use]
+    pub fn percent(value: f32) -> Self {
         Self::from_metric(SizeMetric::Percent, value)
     }
 
     #[inline]
-    #[must_use] pub fn rem(value: f32) -> Self {
+    #[must_use]
+    pub fn rem(value: f32) -> Self {
         Self::from_metric(SizeMetric::Rem, value)
     }
 
     #[inline]
-    #[must_use] pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
+    #[must_use]
+    pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
         Self {
             metric,
             number: FloatValue::new(value),
@@ -437,7 +466,8 @@ impl PixelValue {
 
     #[inline]
     #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         if self.metric == other.metric {
             Self {
                 metric: self.metric,
@@ -447,7 +477,8 @@ impl PixelValue {
             // Interpolate between different metrics by converting to px
             // Note: Uses DEFAULT_FONT_SIZE for em/rem - acceptable for animation fallback
             let self_px_interp = self.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
-            let other_px_interp = other.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+            let other_px_interp =
+                other.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
             Self::from_metric(
                 SizeMetric::Px,
                 self_px_interp + (other_px_interp - self_px_interp) * t,
@@ -461,7 +492,8 @@ impl PixelValue {
     /// The returned `NormalizedPercentage` is already normalized to 0.0-1.0 range,
     /// so you should multiply it directly with the containing block size.
     #[inline]
-    #[must_use] pub fn to_percent(&self) -> Option<NormalizedPercentage> {
+    #[must_use]
+    pub fn to_percent(&self) -> Option<NormalizedPercentage> {
         match self.metric {
             SizeMetric::Percent => Some(NormalizedPercentage::from_unnormalized(self.number.get())),
             _ => None,
@@ -475,7 +507,13 @@ impl PixelValue {
     /// **DO NOT USE directly!** Use `resolve_with_context()` instead for new code.
     #[doc(hidden)]
     #[inline]
-    #[must_use] pub fn to_pixels_internal(&self, percent_resolve: f32, em_resolve: f32, rem_resolve: f32) -> f32 {
+    #[must_use]
+    pub fn to_pixels_internal(
+        &self,
+        percent_resolve: f32,
+        em_resolve: f32,
+        rem_resolve: f32,
+    ) -> f32 {
         match self.metric {
             SizeMetric::Px => self.number.get(),
             SizeMetric::Pt => self.number.get() * PT_TO_PX,
@@ -506,7 +544,8 @@ impl PixelValue {
     /// * `context` - Resolution context with font sizes and dimensions
     /// * `property_context` - Which property we're resolving for (affects % and em resolution)
     #[inline]
-    #[must_use] pub fn resolve_with_context(
+    #[must_use]
+    pub fn resolve_with_context(
         &self,
         context: &ResolutionContext,
         property_context: PropertyContext,
@@ -593,14 +632,10 @@ impl PixelValue {
                     // Border-radius: element's own dimensions (CSS Backgrounds 3 §5.1)
                     // Note: More complex - horizontal % uses width, vertical % uses height
                     // For now, use width as default
-                    PropertyContext::BorderRadius => {
-                        context.element_size.map_or(0.0, |s| s.width)
-                    }
+                    PropertyContext::BorderRadius => context.element_size.map_or(0.0, |s| s.width),
 
                     // Transforms: element's own dimensions (CSS Transforms §20.1)
-                    PropertyContext::Transform => {
-                        context.element_size.map_or(0.0, |s| s.width)
-                    }
+                    PropertyContext::Transform => context.element_size.map_or(0.0, |s| s.width),
 
                     // Other properties: default to containing block width
                     PropertyContext::Other => context.containing_block_size.width,
@@ -679,12 +714,14 @@ impl PixelValueNoPercent {
     /// **DO NOT USE directly!** Use `resolve_with_context()` on inner value instead.
     #[doc(hidden)]
     #[inline]
-    #[must_use] pub fn to_pixels_internal(&self, em_resolve: f32, rem_resolve: f32) -> f32 {
+    #[must_use]
+    pub fn to_pixels_internal(&self, em_resolve: f32, rem_resolve: f32) -> f32 {
         self.inner.to_pixels_internal(0.0, em_resolve, rem_resolve)
     }
 
     #[inline]
-    #[must_use] pub const fn zero() -> Self {
+    #[must_use]
+    pub const fn zero() -> Self {
         const ZERO_PXNP: PixelValueNoPercent = PixelValueNoPercent {
             inner: PixelValue::zero(),
         };
@@ -733,14 +770,21 @@ pub enum CssPixelValueParseErrorOwned {
 }
 
 impl CssPixelValueParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssPixelValueParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssPixelValueParseErrorOwned {
         match self {
             CssPixelValueParseError::EmptyString => CssPixelValueParseErrorOwned::EmptyString,
             CssPixelValueParseError::NoValueGiven(s, metric) => {
-                CssPixelValueParseErrorOwned::NoValueGiven(PixelNoValueGivenError { value: (*s).to_string().into(), metric: *metric })
+                CssPixelValueParseErrorOwned::NoValueGiven(PixelNoValueGivenError {
+                    value: (*s).to_string().into(),
+                    metric: *metric,
+                })
             }
             CssPixelValueParseError::ValueParseErr(err, s) => {
-                CssPixelValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: (*s).to_string().into() })
+                CssPixelValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput {
+                    error: err.clone().into(),
+                    input: (*s).to_string().into(),
+                })
             }
             CssPixelValueParseError::InvalidPixelValue(s) => {
                 CssPixelValueParseErrorOwned::InvalidPixelValue((*s).to_string().into())
@@ -750,7 +794,8 @@ impl CssPixelValueParseError<'_> {
 }
 
 impl CssPixelValueParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssPixelValueParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssPixelValueParseError<'_> {
         match self {
             Self::EmptyString => CssPixelValueParseError::EmptyString,
             Self::NoValueGiven(e) => {
@@ -759,9 +804,7 @@ impl CssPixelValueParseErrorOwned {
             Self::ValueParseErr(e) => {
                 CssPixelValueParseError::ValueParseErr(e.error.to_std(), e.input.as_str())
             }
-            Self::InvalidPixelValue(s) => {
-                CssPixelValueParseError::InvalidPixelValue(s.as_str())
-            }
+            Self::InvalidPixelValue(s) => CssPixelValueParseError::InvalidPixelValue(s.as_str()),
         }
     }
 }
@@ -884,7 +927,7 @@ pub fn parse_pixel_value_with_auto(
 
 /// Reference to a specific system metric value.
 /// These are resolved at runtime based on the user's system preferences.
-/// 
+///
 /// CSS syntax: `system:button-padding`, `system:button-radius`, `system:titlebar-height`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -915,10 +958,10 @@ pub enum SystemMetricRef {
     SafeAreaRight,
 }
 
-
 impl SystemMetricRef {
     /// Resolve this system metric reference against actual system metrics.
-    #[must_use] pub const fn resolve(&self, metrics: &crate::system::SystemMetrics) -> Option<PixelValue> {
+    #[must_use]
+    pub const fn resolve(&self, metrics: &crate::system::SystemMetrics) -> Option<PixelValue> {
         match self {
             Self::ButtonRadius => metrics.corner_radius.as_option().copied(),
             Self::ButtonPaddingHorizontal => metrics.button_padding_horizontal.as_option().copied(),
@@ -935,7 +978,8 @@ impl SystemMetricRef {
     }
 
     /// Returns the CSS string representation of this system metric reference.
-    #[must_use] pub const fn as_css_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_css_str(&self) -> &'static str {
         match self {
             Self::ButtonRadius => "system:button-radius",
             Self::ButtonPaddingHorizontal => "system:button-padding-horizontal",
@@ -952,7 +996,8 @@ impl SystemMetricRef {
     }
 
     /// Parse a system metric reference from a CSS string (without the "system:" prefix).
-    #[must_use] pub fn from_css_str(s: &str) -> Option<Self> {
+    #[must_use]
+    pub fn from_css_str(s: &str) -> Option<Self> {
         match s {
             "button-radius" => Some(Self::ButtonRadius),
             "button-padding-horizontal" => Some(Self::ButtonPaddingHorizontal),
@@ -984,7 +1029,7 @@ impl FormatAsCssValue for SystemMetricRef {
 
 /// A pixel value reference that can be either a concrete value or a system metric.
 /// System metrics are lazily evaluated at runtime based on the user's system theme.
-/// 
+///
 /// CSS syntax: `10px`, `1.5em`, `system:button-padding`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C, u8)]
@@ -1009,24 +1054,30 @@ impl From<PixelValue> for PixelValueOrSystem {
 
 impl PixelValueOrSystem {
     /// Create a new `PixelValueOrSystem` from a concrete value.
-    #[must_use] pub const fn value(v: PixelValue) -> Self {
+    #[must_use]
+    pub const fn value(v: PixelValue) -> Self {
         Self::Value(v)
     }
-    
+
     /// Create a new `PixelValueOrSystem` from a system metric reference.
-    #[must_use] pub const fn system(s: SystemMetricRef) -> Self {
+    #[must_use]
+    pub const fn system(s: SystemMetricRef) -> Self {
         Self::System(s)
     }
-    
+
     /// Resolve the pixel value against a `SystemMetrics` struct.
     /// Returns the system metric if available, or falls back to the provided default.
-    #[must_use] pub fn resolve(&self, system_metrics: &crate::system::SystemMetrics, fallback: PixelValue) -> PixelValue {
+    #[must_use]
+    pub fn resolve(
+        &self,
+        system_metrics: &crate::system::SystemMetrics,
+        fallback: PixelValue,
+    ) -> PixelValue {
         match self {
             Self::Value(v) => *v,
             Self::System(ref_type) => ref_type.resolve(system_metrics).unwrap_or(fallback),
         }
     }
-    
 }
 
 impl fmt::Display for PixelValueOrSystem {
@@ -1048,7 +1099,7 @@ impl FormatAsCssValue for PixelValueOrSystem {
 }
 
 /// Parse a pixel value that may include system metric references.
-/// 
+///
 /// Accepts: `10px`, `1.5em`, `system:button-padding`, etc.
 #[cfg(feature = "parser")]
 /// # Errors
@@ -1058,7 +1109,7 @@ pub fn parse_pixel_value_or_system(
     input: &str,
 ) -> Result<PixelValueOrSystem, CssPixelValueParseError<'_>> {
     let input = input.trim();
-    
+
     // Check for system metric reference
     if let Some(metric_name) = input.strip_prefix("system:") {
         if let Some(metric_ref) = SystemMetricRef::from_css_str(metric_name) {
@@ -1066,7 +1117,7 @@ pub fn parse_pixel_value_or_system(
         }
         return Err(CssPixelValueParseError::InvalidPixelValue(input));
     }
-    
+
     // Parse as regular pixel value
     Ok(PixelValueOrSystem::Value(parse_pixel_value(input)?))
 }
@@ -1587,13 +1638,13 @@ mod autotest_generated {
     fn parse_pixel_value_survives_unicode() {
         // Multibyte input must never slice mid-codepoint or panic.
         for input in [
-            "\u{1F600}",             // emoji alone
-            "10px\u{1F600}",         // emoji suffix
-            "10px\u{0301}",          // combining acute after the unit
-            "\u{200B}10px",          // zero-width space (NOT trimmable whitespace)
-            "\u{0661}\u{0660}px",    // arabic-indic digits
-            "10\u{0440}\u{0445}",    // cyrillic look-alike of "px"
-            "\u{202E}10px",          // RTL override
+            "\u{1F600}",          // emoji alone
+            "10px\u{1F600}",      // emoji suffix
+            "10px\u{0301}",       // combining acute after the unit
+            "\u{200B}10px",       // zero-width space (NOT trimmable whitespace)
+            "\u{0661}\u{0660}px", // arabic-indic digits
+            "10\u{0440}\u{0445}", // cyrillic look-alike of "px"
+            "\u{202E}10px",       // RTL override
         ] {
             let got = parse_pixel_value(input);
             assert!(got.is_err(), "{input:?} must be rejected, got {got:?}");
@@ -1751,12 +1802,12 @@ mod autotest_generated {
         ));
 
         for input in [
-            "system:",                  // empty metric name
-            "system:unknown",           // unknown metric
-            "system: button-radius",    // no inner trim after the colon
-            "system:BUTTON-RADIUS",     // case-sensitive
-            "system:button-radius;x",   // trailing junk
-            "system:\u{1F600}",         // unicode metric name
+            "system:",                // empty metric name
+            "system:unknown",         // unknown metric
+            "system: button-radius",  // no inner trim after the colon
+            "system:BUTTON-RADIUS",   // case-sensitive
+            "system:button-radius;x", // trailing junk
+            "system:\u{1F600}",       // unicode metric name
         ] {
             let err = parse_pixel_value_or_system(input).unwrap_err();
             assert!(
@@ -1937,7 +1988,10 @@ mod autotest_generated {
     #[test]
     fn const_fractional_constructors_match_their_documented_examples() {
         // The doc-comment examples on `const_em_fractional`.
-        assert!(approx(PixelValue::const_em_fractional(1, 5).number.get(), 1.5));
+        assert!(approx(
+            PixelValue::const_em_fractional(1, 5).number.get(),
+            1.5
+        ));
         assert!(approx(
             PixelValue::const_em_fractional(0, 83).number.get(),
             0.83
@@ -1948,7 +2002,10 @@ mod autotest_generated {
         ));
         assert_eq!(PixelValue::const_em_fractional(1, 5).metric, SizeMetric::Em);
         assert_eq!(PixelValue::const_pt_fractional(1, 5).metric, SizeMetric::Pt);
-        assert!(approx(PixelValue::const_pt_fractional(2, 25).number.get(), 2.25));
+        assert!(approx(
+            PixelValue::const_pt_fractional(2, 25).number.get(),
+            2.25
+        ));
 
         // Zero fraction, and the negative case (the sign must reach the fraction:
         // -1.5, not -1 + 0.5 = -0.5).
@@ -1974,8 +2031,7 @@ mod autotest_generated {
 
         // A pathological fraction must still land somewhere finite. (isize::MIN is
         // NOT exercised: negating it overflows inside the digit-counting code.)
-        let extreme =
-            PixelValue::const_from_metric_fractional(SizeMetric::Px, 0, isize::MAX);
+        let extreme = PixelValue::const_from_metric_fractional(SizeMetric::Px, 0, isize::MAX);
         assert!(extreme.number.get().is_finite());
     }
 
@@ -2089,7 +2145,10 @@ mod autotest_generated {
 
     #[test]
     fn to_pixels_internal_converts_every_absolute_and_relative_unit() {
-        assert_eq!(PixelValue::px(10.0).to_pixels_internal(0.0, 16.0, 16.0), 10.0);
+        assert_eq!(
+            PixelValue::px(10.0).to_pixels_internal(0.0, 16.0, 16.0),
+            10.0
+        );
         assert!(approx(
             PixelValue::pt(72.0).to_pixels_internal(0.0, 16.0, 16.0),
             96.0
@@ -2110,7 +2169,10 @@ mod autotest_generated {
 
         // em and rem read different resolves (this legacy path is the one that
         // historically conflated them, so pin that they are separate arguments).
-        assert_eq!(PixelValue::em(2.0).to_pixels_internal(0.0, 10.0, 100.0), 20.0);
+        assert_eq!(
+            PixelValue::em(2.0).to_pixels_internal(0.0, 10.0, 100.0),
+            20.0
+        );
         assert_eq!(
             PixelValue::rem(2.0).to_pixels_internal(0.0, 10.0, 100.0),
             200.0
@@ -2202,7 +2264,10 @@ mod autotest_generated {
             PixelValueNoPercent::from(PixelValue::percent(50.0)).to_pixels_internal(16.0, 16.0),
             0.0
         );
-        assert_eq!(PixelValueNoPercent::zero().to_pixels_internal(16.0, 16.0), 0.0);
+        assert_eq!(
+            PixelValueNoPercent::zero().to_pixels_internal(16.0, 16.0),
+            0.0
+        );
         assert_eq!(PixelValueNoPercent::zero().inner, PixelValue::zero());
         assert_eq!(PixelValueNoPercent::default().inner, PixelValue::zero());
     }
@@ -2214,7 +2279,11 @@ mod autotest_generated {
         for metric in ALL_METRICS {
             let v = PixelValue::from_metric(metric, 50.0);
             if metric == SizeMetric::Percent {
-                assert_eq!(v.to_percent().unwrap().get(), 0.5, "50% must normalize to 0.5");
+                assert_eq!(
+                    v.to_percent().unwrap().get(),
+                    0.5,
+                    "50% must normalize to 0.5"
+                );
             } else {
                 assert!(
                     v.to_percent().is_none(),
@@ -2232,10 +2301,7 @@ mod autotest_generated {
                 .resolve(640.0),
             320.0
         );
-        assert_eq!(
-            PixelValue::percent(-50.0).to_percent().unwrap().get(),
-            -0.5
-        );
+        assert_eq!(PixelValue::percent(-50.0).to_percent().unwrap().get(), -0.5);
         assert_eq!(PixelValue::percent(0.0).to_percent().unwrap().get(), 0.0);
         // Extreme instances stay finite.
         assert!(PixelValue::percent(f32::MAX)
@@ -2370,8 +2436,7 @@ mod autotest_generated {
             ..distinct_context()
         };
         assert_eq!(
-            PixelValue::percent(50.0)
-                .resolve_with_context(&ctx, PropertyContext::BorderRadius),
+            PixelValue::percent(50.0).resolve_with_context(&ctx, PropertyContext::BorderRadius),
             0.0
         );
         assert_eq!(
@@ -2543,7 +2608,10 @@ mod autotest_generated {
         // In horizontal writing mode inline==width and block==height; a swapped
         // mapping would survive a square, so use a non-square size.
         assert_eq!(CssLogicalSize::new(800.0, 600.0).to_physical().width, 800.0);
-        assert_eq!(PhysicalSize::new(800.0, 600.0).to_logical().block_size, 600.0);
+        assert_eq!(
+            PhysicalSize::new(800.0, 600.0).to_logical().block_size,
+            600.0
+        );
 
         // These are transparent f32 carriers: no sanitizing, no panics.
         let nan = PhysicalSize::new(f32::NAN, f32::INFINITY);
@@ -2661,7 +2729,10 @@ mod autotest_generated {
         );
         // Even a pathological input must emit compilable code, never "NaN".
         let nan = PixelValue::from_metric(SizeMetric::Vmax, f32::NAN).format_as_rust_code(0);
-        assert_eq!(nan, "PixelValue { metric: Vmax, number: FloatValue::new(0) }");
+        assert_eq!(
+            nan,
+            "PixelValue { metric: Vmax, number: FloatValue::new(0) }"
+        );
         assert!(!PixelValue::px(f32::INFINITY)
             .format_as_rust_code(0)
             .contains("inf"));
@@ -2731,7 +2802,10 @@ mod autotest_generated {
                 "{name:?} must parse back to {r:?}"
             );
             // Serialize-parse-serialize is stable.
-            assert_eq!(SystemMetricRef::from_css_str(name).unwrap().as_css_str(), css);
+            assert_eq!(
+                SystemMetricRef::from_css_str(name).unwrap().as_css_str(),
+                css
+            );
 
             // Footgun worth pinning: feeding the *full* CSS string back in fails,
             // because from_css_str does not strip the prefix itself.
@@ -2747,10 +2821,10 @@ mod autotest_generated {
             "",
             "   ",
             "\t\n",
-            " button-radius ",     // no trimming
-            "Button-Radius",       // case-sensitive
-            "button_radius",       // wrong separator
-            "button-padding",      // the spelling the docs advertise; not a real one
+            " button-radius ", // no trimming
+            "Button-Radius",   // case-sensitive
+            "button_radius",   // wrong separator
+            "button-padding",  // the spelling the docs advertise; not a real one
             "button-radius;x",
             "\u{1F600}",
             "b\u{0301}utton-radius",
@@ -2763,10 +2837,7 @@ mod autotest_generated {
         }
 
         // Long input is rejected without hanging.
-        assert_eq!(
-            SystemMetricRef::from_css_str(&"a".repeat(100_000)),
-            None
-        );
+        assert_eq!(SystemMetricRef::from_css_str(&"a".repeat(100_000)), None);
         assert_eq!(SystemMetricRef::from_css_str(&"(".repeat(10_000)), None);
     }
 
@@ -2827,10 +2898,7 @@ mod autotest_generated {
 
         // Extreme fallbacks stay finite (they went through FloatValue too).
         let nan_fallback = PixelValue::px(f32::NAN);
-        assert_eq!(
-            sys.resolve(&empty, nan_fallback).number.get(),
-            0.0
-        );
+        assert_eq!(sys.resolve(&empty, nan_fallback).number.get(), 0.0);
 
         // Constructors / conversions / default.
         assert_eq!(

@@ -220,10 +220,7 @@ pub fn callback_ctx_field(wrapper: &str, ir: &super::ir::CodegenIR) -> Option<St
 /// Today only `WindowCreateOptions` matches; the predicate is metadata-
 /// driven so a future class with the same pattern lights up
 /// automatically.
-pub fn has_layout_callback_factory(
-    s: &super::ir::StructDef,
-    ir: &super::ir::CodegenIR,
-) -> bool {
+pub fn has_layout_callback_factory(s: &super::ir::StructDef, ir: &super::ir::CodegenIR) -> bool {
     layout_callback_factory_info(s, ir).is_some()
 }
 
@@ -268,18 +265,22 @@ pub fn layout_callback_factory_info(
     ir: &super::ir::CodegenIR,
 ) -> Option<LayoutCallbackFactoryInfo> {
     use super::ir::FunctionKind;
-    let default_func = ir.functions.iter().find(|f| {
-        f.class_name == s.name && matches!(f.kind, FunctionKind::Default)
-    })?;
+    let default_func = ir
+        .functions
+        .iter()
+        .find(|f| f.class_name == s.name && matches!(f.kind, FunctionKind::Default))?;
     let create_func = ir.functions.iter().find(|f| {
         f.class_name == s.name
-            && matches!(f.kind, FunctionKind::Constructor | FunctionKind::StaticMethod)
+            && matches!(
+                f.kind,
+                FunctionKind::Constructor | FunctionKind::StaticMethod
+            )
             && f.args.len() == 1
-            && f.args[0]
-                .callback_info
-                .as_ref()
-                .is_some()
-            && f.return_type.as_deref().map(|r| r.trim() == s.name).unwrap_or(false)
+            && f.args[0].callback_info.as_ref().is_some()
+            && f.return_type
+                .as_deref()
+                .map(|r| r.trim() == s.name)
+                .unwrap_or(false)
     })?;
     let callback_wrapper = create_func.args[0]
         .callback_info
@@ -365,9 +366,7 @@ fn find_field_of_type(
 /// form (`CheckBoxOnToggleCallbackType` etc.) the smart factory would
 /// need an extra `.cb` field extract bridge; today only Button matches
 /// the wrapper-struct shape.
-pub fn smart_callback_setter_info(
-    func: &super::ir::FunctionDef,
-) -> Option<(String, String)> {
+pub fn smart_callback_setter_info(func: &super::ir::FunctionDef) -> Option<(String, String)> {
     use super::ir::FunctionKind;
     if !matches!(
         func.kind,
@@ -512,49 +511,25 @@ pub fn invoker_c_arg_list(cb: &CallbackTypedefDef) -> String {
 /// declares those types, otherwise the FFI parser will reject the
 /// forward references.
 pub fn emit_cdef_block(out: &mut String, ir: &CodegenIR) {
-    out.push_str(
-        "    /* Host-handle releaser — called once per RefAny last-clone drop. */\n",
-    );
+    out.push_str("    /* Host-handle releaser — called once per RefAny last-clone drop. */\n");
     out.push_str("    void AzApp_setHostHandleReleaser(void (*)(uint64_t));\n\n");
-    out.push_str(
-        "    /* User-data RefAny on top of the host-handle path: one shared\n",
-    );
-    out.push_str(
-        "       lifetime story for both callback registration and refany_create. */\n",
-    );
+    out.push_str("    /* User-data RefAny on top of the host-handle path: one shared\n");
+    out.push_str("       lifetime story for both callback registration and refany_create. */\n");
     out.push_str("    AzRefAny AzRefAny_newHostHandle(uint64_t);\n");
     out.push_str("    uint64_t AzRefAny_getHostHandle(const AzRefAny*);\n\n");
-    out.push_str(
-        "    /* Generic invoker fallback — fires when no per-kind invoker is\n",
-    );
-    out.push_str(
-        "       registered. Useful for hosts that want one dispatch site for\n",
-    );
-    out.push_str(
-        "       every kind, or for user-defined custom kinds shipped via a\n",
-    );
-    out.push_str(
-        "       small downstream `impl_managed_callback!` whose host hasn't\n",
-    );
-    out.push_str(
-        "       wired a per-kind setter. Args are an array of pointers (one\n",
-    );
-    out.push_str(
-        "       per by-value frame arg, in declared order). */\n",
-    );
+    out.push_str("    /* Generic invoker fallback — fires when no per-kind invoker is\n");
+    out.push_str("       registered. Useful for hosts that want one dispatch site for\n");
+    out.push_str("       every kind, or for user-defined custom kinds shipped via a\n");
+    out.push_str("       small downstream `impl_managed_callback!` whose host hasn't\n");
+    out.push_str("       wired a per-kind setter. Args are an array of pointers (one\n");
+    out.push_str("       per by-value frame arg, in declared order). */\n");
     out.push_str("    void AzApp_setGenericInvoker(\n");
     out.push_str(
         "        void (*)(uint64_t, const char*, const void* const*, size_t, void*));\n\n",
     );
-    out.push_str(
-        "    /* Per-kind invoker setters + pointer-arg signatures. The return\n",
-    );
-    out.push_str(
-        "       value is an *out-parameter* so libffi-style runtimes (which\n",
-    );
-    out.push_str(
-        "       can't return aggregates > 8 bytes from callbacks) handle every\n",
-    );
+    out.push_str("    /* Per-kind invoker setters + pointer-arg signatures. The return\n");
+    out.push_str("       value is an *out-parameter* so libffi-style runtimes (which\n");
+    out.push_str("       can't return aggregates > 8 bytes from callbacks) handle every\n");
     out.push_str("       kind uniformly. */\n");
     for cb in host_invoker_kinds(ir) {
         let wrapper = wrapper_name(cb);
@@ -629,7 +604,10 @@ mod tests {
     fn snake_case_handles_camel_and_acronyms() {
         assert_eq!(to_snake_case("Callback"), "callback");
         assert_eq!(to_snake_case("LayoutCallback"), "layout_callback");
-        assert_eq!(to_snake_case("VirtualViewCallback"), "virtual_view_callback");
+        assert_eq!(
+            to_snake_case("VirtualViewCallback"),
+            "virtual_view_callback"
+        );
     }
 
     #[test]

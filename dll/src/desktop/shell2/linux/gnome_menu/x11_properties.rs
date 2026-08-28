@@ -101,8 +101,8 @@ impl X11Properties {
         property_name: &str,
         value: &[u8],
     ) -> Result<(), GnomeMenuError> {
-        use std::os::raw::{c_int, c_ulong};
         use crate::desktop::shell2::linux::x11::defines::PropModeReplace;
+        use std::os::raw::{c_int, c_ulong};
 
         if display.is_null() {
             return Err(GnomeMenuError::X11PropertyFailed(

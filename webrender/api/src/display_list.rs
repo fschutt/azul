@@ -685,7 +685,9 @@ impl BuiltDisplayList {
                 Real::SetGradientStops { .. } => {
                     Debug::SetGradientStops(item.iter.cur_stops.iter().cloned().collect())
                 }
-                Real::SetPoints { .. } => Debug::SetPoints(item.iter.cur_points.iter().copied().collect()),
+                Real::SetPoints { .. } => {
+                    Debug::SetPoints(item.iter.cur_points.iter().copied().collect())
+                }
                 Real::RectClip(v) => Debug::RectClip(v),
                 Real::RoundedRectClip(v) => Debug::RoundedRectClip(v),
                 Real::ImageMaskClip(v) => Debug::ImageMaskClip(v),
@@ -834,7 +836,10 @@ impl<'a> BuiltDisplayListIter<'a> {
         loop {
             self.next_raw()?;
             match self.cur_item {
-                SetGradientStops { .. } | SetFilterOps { .. } | SetFilterData | SetFilterPrimitives { .. }
+                SetGradientStops { .. }
+                | SetFilterOps { .. }
+                | SetFilterData
+                | SetFilterPrimitives { .. }
                 | SetPoints { .. } => {
                     // These are marker items for populating other display items, don't yield them.
                     continue;
@@ -886,7 +891,8 @@ impl<'a> BuiltDisplayListIter<'a> {
                 }
             }
             SetFilterPrimitives { primitive_count } => {
-                let end = (self.filter_primitive_index + primitive_count).min(self.payload.filter_primitives.len());
+                let end = (self.filter_primitive_index + primitive_count)
+                    .min(self.payload.filter_primitives.len());
                 self.cur_filter_primitives =
                     &self.payload.filter_primitives[self.filter_primitive_index..end];
                 self.filter_primitive_index = end;
@@ -1814,7 +1820,9 @@ impl DisplayListBuilder {
         if stops.is_empty() {
             return;
         }
-        self.push_item(&di::DisplayItem::SetGradientStops { stop_count: stops.len() });
+        self.push_item(&di::DisplayItem::SetGradientStops {
+            stop_count: stops.len(),
+        });
         // Store stops directly in payload
         self.payload.stops.extend_from_slice(stops);
     }
@@ -1844,7 +1852,9 @@ impl DisplayListBuilder {
         filter_primitives: &[di::FilterPrimitive],
     ) {
         if !filters.is_empty() {
-            self.push_item(&di::DisplayItem::SetFilterOps { filter_count: filters.len() });
+            self.push_item(&di::DisplayItem::SetFilterOps {
+                filter_count: filters.len(),
+            });
             // Store filters directly in payload
             self.payload.filters.extend_from_slice(filters);
         }
@@ -1856,7 +1866,9 @@ impl DisplayListBuilder {
         }
 
         if !filter_primitives.is_empty() {
-            self.push_item(&di::DisplayItem::SetFilterPrimitives { primitive_count: filter_primitives.len() });
+            self.push_item(&di::DisplayItem::SetFilterPrimitives {
+                primitive_count: filter_primitives.len(),
+            });
             // Store filter primitives directly in payload
             self.payload
                 .filter_primitives
@@ -1960,7 +1972,9 @@ impl DisplayListBuilder {
         // are cleared between processing other display items, so we'll correctly get
         // zero points when no SetPoints item has been pushed.
         if points.len() >= 3 {
-            self.push_item(&di::DisplayItem::SetPoints { point_count: points.len() });
+            self.push_item(&di::DisplayItem::SetPoints {
+                point_count: points.len(),
+            });
             // Store points directly in the payload
             self.payload.points.extend_from_slice(points);
         }

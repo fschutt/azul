@@ -28,13 +28,13 @@ use azul_css::AzString;
 use super::{cpu_dialog_window, style};
 use crate::appenv::{GpuProvisionOutcome, GpuProvisionReport, GpuStatus};
 use crate::callbacks::CallbackInfo;
-use azul_core::task::ThreadReceiver;
 use crate::thread::{
     Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
     WriteBackCallbackType,
 };
 use crate::widgets::button::{Button, ButtonOnClickCallbackType};
 use crate::widgets::progressbar::ProgressBar;
+use azul_core::task::ThreadReceiver;
 
 /// Where the dialog is in the inspect → consent → apply story.
 #[derive(Debug, Clone)]
@@ -200,7 +200,10 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
     drop(ctx);
-    let state = info.get_ctx().into_option().unwrap_or_else(|| RefAny::new(()));
+    let state = info
+        .get_ctx()
+        .into_option()
+        .unwrap_or_else(|| RefAny::new(()));
 
     use azul_css::props::{
         basic::pixel::PixelValue,
@@ -321,11 +324,13 @@ fn gl_section(status: Option<&GpuStatus>) -> Vec<Dom> {
         Some(s) if s.ok => {
             out.push(Dom::create_p_with_text(alloc::format!(
                 "GPU rendering, on {} ({})",
-                s.renderer, s.vendor
+                s.renderer,
+                s.vendor
             )));
             out.push(Dom::create_p_with_text(alloc::format!(
                 "OpenGL {} - GLSL {}",
-                s.version, s.glsl_version
+                s.version,
+                s.glsl_version
             )));
         }
         Some(s) => {
@@ -335,10 +340,14 @@ fn gl_section(status: Option<&GpuStatus>) -> Vec<Dom> {
             if !s.renderer.is_empty() {
                 out.push(Dom::create_p_with_text(alloc::format!(
                     "Detected: {} ({}) - OpenGL {}",
-                    s.renderer, s.vendor, s.version
+                    s.renderer,
+                    s.vendor,
+                    s.version
                 )));
             }
-            out.push(Dom::create_p_with_text(alloc::format!("Why: {}", s.verdict)));
+            out.push(Dom::create_p_with_text(alloc::format!(
+                "Why: {}", s.verdict
+            )));
         }
         None => out.push(Dom::create_p_with_text(
             "CPU rendering - no GPU probe ran in this session.",

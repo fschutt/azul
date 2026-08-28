@@ -130,11 +130,7 @@ pub fn emit_user_facing_enum_aliases(
 
 /// Emit `callback :name, [args], :return` declarations for every
 /// callback typedef. These give us idiomatic function-pointer types.
-pub fn emit_callback_typedefs(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) {
+pub fn emit_callback_typedefs(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("# --- Callback typedefs ----------------------------------------");
     for cb in &ir.callback_typedefs {
         emit_callback_typedef(builder, cb, config);
@@ -288,13 +284,8 @@ fn emit_monomorphized_alias(
                 if let Some(ref payload_ty) = v.payload_type {
                     builder.line("layout(");
                     builder.indent();
-                    let ruby_ty = type_with_ref_to_ruby(
-                        payload_ty,
-                        v.payload_ref_kind,
-                        config,
-                        ir,
-                        false,
-                    );
+                    let ruby_ty =
+                        type_with_ref_to_ruby(payload_ty, v.payload_ref_kind, config, ir, false);
                     builder.line(&format!(":payload, {}", ruby_ty));
                     builder.dedent();
                     builder.line(")");
@@ -315,7 +306,10 @@ fn emit_monomorphized_alias(
                 let trailing = if i == last { "" } else { "," };
                 let v_struct_name = format!("{}Variant{}", name, v.name);
                 let field = ruby_field_name(&v.name);
-                builder.line(&format!(":{}, {}.by_value{}", field, v_struct_name, trailing));
+                builder.line(&format!(
+                    ":{}, {}.by_value{}",
+                    field, v_struct_name, trailing
+                ));
             }
             builder.dedent();
             builder.line(")");

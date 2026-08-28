@@ -12,8 +12,9 @@ use azul_core::{
     dom::Dom,
     refany::RefAny,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{OptionString, 
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
+use azul_css::{
     dynamic_selector::CssPropertyWithConditionsVec,
     props::{
         basic::*,
@@ -21,7 +22,7 @@ use azul_css::{OptionString,
         property::{CssProperty, *},
         style::*,
     },
-    *,
+    OptionString, *,
 };
 
 use crate::{
@@ -137,7 +138,8 @@ impl NumberInput {
         self
     }
 
-    #[must_use] pub fn create(input: f32) -> Self {
+    #[must_use]
+    pub fn create(input: f32) -> Self {
         Self {
             number_input_state: NumberInputStateWrapper {
                 inner: NumberInputState {
@@ -190,7 +192,8 @@ impl NumberInput {
         self.text_input.placeholder_style = style;
     }
 
-    #[must_use] pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_placeholder_style(style);
         self
     }
@@ -199,7 +202,8 @@ impl NumberInput {
         self.text_input.container_style = style;
     }
 
-    #[must_use] pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
@@ -208,7 +212,8 @@ impl NumberInput {
         self.text_input.label_style = style;
     }
 
-    #[must_use] pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_label_style(style);
         self
     }
@@ -265,7 +270,8 @@ impl NumberInput {
         s
     }
 
-    #[must_use] pub fn dom(mut self) -> Dom {
+    #[must_use]
+    pub fn dom(mut self) -> Dom {
         let number_string = format!("{}", self.number_input_state.inner.number);
         self.text_input.text_input_state.inner.text = number_string
             .chars()
@@ -506,7 +512,7 @@ mod autotest_generated {
     /// comma, so the widget's `,` -> `.` rewrite cannot rescue any of them
     /// either. (Buffers that are merely incomplete live in `TRANSIENT_PREFIXES`.)
     const MALFORMED: [&str; 20] = [
-        " ",            // `from_str` does not trim
+        " ", // `from_str` does not trim
         " 1",
         "1 ",
         "\t1",
@@ -518,14 +524,14 @@ mod autotest_generated {
         "..",
         "--1",
         "1.2.3",
-        "0x10",         // hex is not float syntax
+        "0x10", // hex is not float syntax
         "0b1",
-        "1_000",        // Rust *literal* syntax is not *parse* syntax
+        "1_000", // Rust *literal* syntax is not *parse* syntax
         "1/2",
         "1%",
-        "½",            // vulgar fraction
-        "∞",            // the symbol is not the word "inf"
-        "1\u{200b}0",   // zero-width space wedged between two digits
+        "½",          // vulgar fraction
+        "∞",          // the symbol is not the word "inf"
+        "1\u{200b}0", // zero-width space wedged between two digits
     ];
 
     /// Buffers `from_str` rejects that are PREFIXES of a number: the states a
@@ -534,26 +540,18 @@ mod autotest_generated {
     /// unchanged, hook silent) or a negative / fractional number can never be
     /// entered from scratch.
     const TRANSIENT_PREFIXES: [&str; 10] = [
-        "",             // the empty buffer: select-all + delete, then type
-        "+",
-        "-",
-        ".",
-        "-.",
-        "+.",
-        "1e",
-        "1e+",
-        "1e-",
-        "1.5e-",
+        "", // the empty buffer: select-all + delete, then type
+        "+", "-", ".", "-.", "+.", "1e", "1e+", "1e-", "1.5e-",
     ];
 
     /// Digits that are digits to a human but not to `from_str`.
     const NON_ASCII_DIGITS: [&str; 6] = [
-        "١٢٣",        // Arabic-Indic
-        "١٫٥",        // Arabic-Indic + the Arabic decimal separator
-        "１２３",      // fullwidth
-        "𝟏",          // MATHEMATICAL BOLD DIGIT ONE
-        "٣.5",        // mixed script
-        "Ⅻ",          // roman numeral twelve
+        "١٢٣",    // Arabic-Indic
+        "١٫٥",    // Arabic-Indic + the Arabic decimal separator
+        "１２３", // fullwidth
+        "𝟏",      // MATHEMATICAL BOLD DIGIT ONE
+        "٣.5",    // mixed script
+        "Ⅻ",      // roman numeral twelve
     ];
 
     /// Every spelling the Rust float parser accepts, paired with the value the widget
@@ -870,7 +868,11 @@ mod autotest_generated {
             .get_node_type()
             .format()
             .or_else(|| {
-                label.children.as_ref().first().and_then(|c| c.root.get_node_type().format())
+                label
+                    .children
+                    .as_ref()
+                    .first()
+                    .and_then(|c| c.root.get_node_type().format())
             })
             .expect("the label child must wrap a text node")
     }
@@ -1042,7 +1044,10 @@ mod autotest_generated {
             let a = NumberInput::create(1.0).with_placeholder_style(s.clone());
             let mut b = NumberInput::create(1.0);
             b.set_placeholder_style(s.clone());
-            assert_eq!(a, b, "with_placeholder_style != set_placeholder_style ({n})");
+            assert_eq!(
+                a, b,
+                "with_placeholder_style != set_placeholder_style ({n})"
+            );
 
             let a = NumberInput::create(1.0).with_container_style(s.clone());
             let mut b = NumberInput::create(1.0);
@@ -1061,7 +1066,10 @@ mod autotest_generated {
         let placeholder = style(1);
         let container = style(2);
         let label = style(3);
-        assert_ne!(placeholder, container, "the fixture must be distinguishable");
+        assert_ne!(
+            placeholder, container,
+            "the fixture must be distinguishable"
+        );
         assert_ne!(container, label, "the fixture must be distinguishable");
 
         let input = NumberInput::create(0.0)
@@ -1123,7 +1131,10 @@ mod autotest_generated {
             reject_everything as TextInputOnVirtualKeyDownCallbackType,
         );
         let mut b = NumberInput::create(1.0);
-        b.set_on_virtual_key_down(data, reject_everything as TextInputOnVirtualKeyDownCallbackType);
+        b.set_on_virtual_key_down(
+            data,
+            reject_everything as TextInputOnVirtualKeyDownCallbackType,
+        );
         assert_eq!(a, b, "with_on_virtual_key_down != set_on_virtual_key_down");
     }
 
@@ -1163,7 +1174,10 @@ mod autotest_generated {
         let original = input.clone();
 
         let taken = input.swap_with_default();
-        assert_eq!(taken, original, "swap_with_default must return the original");
+        assert_eq!(
+            taken, original,
+            "swap_with_default must return the original"
+        );
         assert_eq!(
             input,
             NumberInput::create(0.0),
@@ -1251,7 +1265,10 @@ mod autotest_generated {
 
     #[test]
     fn dom_renders_non_finite_values_as_inf_and_nan() {
-        assert_eq!(buffer_text(&NumberInput::create(f32::INFINITY).dom()), "inf");
+        assert_eq!(
+            buffer_text(&NumberInput::create(f32::INFINITY).dom()),
+            "inf"
+        );
         assert_eq!(
             buffer_text(&NumberInput::create(f32::NEG_INFINITY).dom()),
             "-inf",
@@ -1322,8 +1339,8 @@ mod autotest_generated {
             )
             .dom();
 
-        let r = drive_virtual_key_down(&dom)
-            .expect("with_on_virtual_key_down must survive rendering");
+        let r =
+            drive_virtual_key_down(&dom).expect("with_on_virtual_key_down must survive rendering");
         assert_eq!(r.update, Update::RefreshDomAllWindows);
         assert_eq!(r.valid, TextInputValid::No);
     }
@@ -1401,9 +1418,17 @@ mod autotest_generated {
                     TextInputValid::Yes,
                     "{text:?} must be allowed to exist in the field — `-5` starts with `-`",
                 );
-                assert_eq!(r.update, Update::DoNothing, "{text:?}: nothing to relayout yet");
+                assert_eq!(
+                    r.update,
+                    Update::DoNothing,
+                    "{text:?}: nothing to relayout yet"
+                );
                 let after = read(&state);
-                assert!(same(after.number, 7.5), "{text:?} changed the value to {}", after.number);
+                assert!(
+                    same(after.number, 7.5),
+                    "{text:?} changed the value to {}",
+                    after.number
+                );
                 assert!(same(after.previous, 0.0), "{text:?} touched `previous`");
             }
             for text in MALFORMED {
@@ -1428,7 +1453,10 @@ mod autotest_generated {
                 let _ = validate_text_input(state.clone(), info, text_state(text));
             }
         });
-        assert!(recorded(&recorder).is_empty(), "an incomplete number is not a value change");
+        assert!(
+            recorded(&recorder).is_empty(),
+            "an incomplete number is not a value change"
+        );
     }
 
     #[test]
@@ -1564,12 +1592,12 @@ mod autotest_generated {
         let state = RefAny::new(wrapper(0.0, f32::MIN, f32::MAX));
 
         for (text, expected) in [
-            ("9".repeat(10_000), f32::MAX),          // overflows to +inf, saturates
+            ("9".repeat(10_000), f32::MAX), // overflows to +inf, saturates
             (format!("-{}", "9".repeat(10_000)), f32::MIN),
             (format!("{}1", "0".repeat(10_000)), 1.0), // leading zeros
             (format!("0.{}", "0".repeat(10_000)), 0.0),
-            ("1e999999999".to_string(), f32::MAX),   // exponent overflow
-            ("1e-999999999".to_string(), 0.0),       // exponent underflow
+            ("1e999999999".to_string(), f32::MAX), // exponent overflow
+            ("1e-999999999".to_string(), 0.0),     // exponent underflow
         ] {
             let (r, after) = validate_one(&state, &text);
             assert_eq!(
@@ -1640,11 +1668,11 @@ mod autotest_generated {
                 (-10.0, 10.0, "-1000", -10.0),
                 (-10.0, 10.0, "inf", 10.0),
                 (-10.0, 10.0, "-inf", -10.0),
-                (-10.0, 10.0, "10", 10.0),          // exactly on the bound
+                (-10.0, 10.0, "10", 10.0), // exactly on the bound
                 (-10.0, 10.0, "-10", -10.0),
-                (-10.0, 10.0, "10.000001", 10.0),   // one ulp past the bound
+                (-10.0, 10.0, "10.000001", 10.0), // one ulp past the bound
                 (-10.0, 10.0, "0", 0.0),
-                (0.0, 0.0, "5", 0.0),               // a single-point range is legal
+                (0.0, 0.0, "5", 0.0), // a single-point range is legal
                 (0.0, 0.0, "-5", 0.0),
                 (5.0, 5.0, "0", 5.0),
             ] {
@@ -1693,9 +1721,9 @@ mod autotest_generated {
             for (text, previous, number) in [
                 ("1", 0.0f32, 1.0f32),
                 ("2", 1.0, 2.0),
-                ("100", 2.0, 10.0),   // clamped
-                ("200", 10.0, 10.0),  // `previous` is the *clamped* old value
-                ("abc", 10.0, 10.0),  // rejected: neither field moves
+                ("100", 2.0, 10.0),  // clamped
+                ("200", 10.0, 10.0), // `previous` is the *clamped* old value
+                ("abc", 10.0, 10.0), // rejected: neither field moves
                 ("-5", 10.0, 0.0),
             ] {
                 let _ = validate_text_input(state.clone(), info, text_state(text));
@@ -1760,9 +1788,8 @@ mod autotest_generated {
         // The downcast guard bails out *before* parsing, so a mis-wired NumberInput
         // reports arbitrary text as valid instead of rejecting it.
         let state = RefAny::new(0u32);
-        let r = with_info(|info| {
-            validate_text_input(state.clone(), info, text_state("not a number"))
-        });
+        let r =
+            with_info(|info| validate_text_input(state.clone(), info, text_state("not a number")));
         assert_eq!(r.update, Update::DoNothing);
         assert_eq!(r.valid, TextInputValid::Yes);
 
@@ -1778,12 +1805,7 @@ mod autotest_generated {
     #[test]
     fn validate_does_not_invoke_the_value_change_hook_for_rejected_input() {
         let recorder = RefAny::new(Recorder::new(Update::RefreshDom));
-        let state = RefAny::new(wrapper_with_value_hook(
-            1.0,
-            f32::MIN,
-            f32::MAX,
-            &recorder,
-        ));
+        let state = RefAny::new(wrapper_with_value_hook(1.0, f32::MIN, f32::MAX, &recorder));
 
         with_info(|info| {
             for text in MALFORMED {

@@ -43,7 +43,10 @@ pub(crate) struct MenuLayoutData {
 /// This callback uses menu_renderer to create a StyledDom from the Menu structure.
 /// It's called by Azul's normal layout system, so rendering happens through the
 /// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) -> azul_core::dom::Dom {
+extern "C" fn menu_layout_callback(
+    mut data: RefAny,
+    _info: LayoutCallbackInfo,
+) -> azul_core::dom::Dom {
     // Clone data early to avoid borrow issues
     let data_clone = data.clone();
 

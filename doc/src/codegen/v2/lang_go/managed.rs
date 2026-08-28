@@ -160,7 +160,11 @@ fn kind_list<'a>(ir: &'a CodegenIR) -> Vec<Kind<'a>> {
     host_invoker_kinds(ir)
         .map(|cb| Kind {
             wrapper: wrapper_name(cb),
-            arg_types: cb.args.iter().map(|a| a.type_name.trim().to_string()).collect(),
+            arg_types: cb
+                .args
+                .iter()
+                .map(|a| a.type_name.trim().to_string())
+                .collect(),
             ret: cb
                 .return_type
                 .as_deref()
@@ -226,7 +230,10 @@ pub fn generate_export(ir: &CodegenIR, config: &CodegenConfig) -> Result<String>
             n,
             params.join(", ")
         ));
-        b.line(&format!("    azGoDispatch(uint64(handle), {})", fwd.join(", ")));
+        b.line(&format!(
+            "    azGoDispatch(uint64(handle), {})",
+            fwd.join(", ")
+        ));
         b.line("}");
         b.blank();
     }
@@ -547,7 +554,10 @@ fn emit_register_fns(
         b.line("    id := azGoNewHandle(azGoAdapter(func(args []unsafe.Pointer) {");
         for (i, (nm, t)) in names.iter().zip(&k.arg_types).enumerate() {
             if t == "usize" {
-                b.line(&format!("        {} := uint(*(*C.size_t)(args[{}]))", nm, i));
+                b.line(&format!(
+                    "        {} := uint(*(*C.size_t)(args[{}]))",
+                    nm, i
+                ));
             } else if wrapper_types.iter().any(|w| w == t) {
                 b.line(&format!(
                     "        {} := &{}{{ inner: *(*C.{})(args[{}]) }}",
@@ -564,9 +574,7 @@ fn emit_register_fns(
         let n_args = k.arg_types.len();
         match &rk {
             RetKind::Void => b.line(&format!("        fn({})", call_args)),
-            RetKind::OutParam(_) => {
-                b.line(&format!("        fn({}, args[{}])", call_args, n_args))
-            }
+            RetKind::OutParam(_) => b.line(&format!("        fn({}, args[{}])", call_args, n_args)),
             RetKind::Enum(r) => b.line(&format!(
                 "        *(*C.{c})(args[{n}]) = C.{c}(fn({a}))",
                 c = c_typename(r),
@@ -646,7 +654,11 @@ fn emit_smart_helpers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     // host-invoker allowlist, emit `On<X>(data *RefAny, fn <Kind>Func)`.
     // Iterated per wrapper struct (same order as wrappers.go) so the
     // artifact lines up.
-    for s in ir.structs.iter().filter(|s| should_emit_wrapper(s, ir, config)) {
+    for s in ir
+        .structs
+        .iter()
+        .filter(|s| should_emit_wrapper(s, ir, config))
+    {
         let go_name = super::sanitize_identifier(&s.name);
         for f in ir.functions_for_class(&s.name) {
             if !matches!(f.kind, FunctionKind::Method | FunctionKind::MethodMut) {

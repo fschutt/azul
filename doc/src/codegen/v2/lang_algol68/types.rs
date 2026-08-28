@@ -46,9 +46,12 @@ pub fn generate_types(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("# ---------------------------------------------------------------------------- #");
-    builder.line("# MODE / type definitions: enums (as INT constants), STRUCTs, UNIONs, PROCs.   #");
-    builder.line("# ---------------------------------------------------------------------------- #");
+    builder
+        .line("# ---------------------------------------------------------------------------- #");
+    builder
+        .line("# MODE / type definitions: enums (as INT constants), STRUCTs, UNIONs, PROCs.   #");
+    builder
+        .line("# ---------------------------------------------------------------------------- #");
     builder.blank();
 
     // 1. Unit-only enums -> INT constants (no MODE; Algol 68 has no enum kw).
@@ -179,10 +182,7 @@ fn emit_unit_enum_constants(builder: &mut CodeBuilder, e: &EnumDef) {
     // b = 1;`), but separate lines keep the diff readable.
     for (i, v) in e.variants.iter().enumerate() {
         let variant_lower = camel_or_snake_to_spaced_lower_pub(&v.name);
-        builder.line(&format!(
-            "INT {} {} = {};",
-            prefix, variant_lower, i
-        ));
+        builder.line(&format!("INT {} {} = {};", prefix, variant_lower, i));
     }
     builder.blank();
 }

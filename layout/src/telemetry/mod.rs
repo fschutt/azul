@@ -69,8 +69,8 @@ use std::{
 };
 
 pub use config::{
-    load as load_config, set_tier, snapshot as config_snapshot, tier, ConsentScope, TelemetryConfig,
-    TelemetryTier, TierChange, TierSource,
+    load as load_config, set_tier, snapshot as config_snapshot, tier, ConsentScope,
+    TelemetryConfig, TelemetryTier, TierChange, TierSource,
 };
 pub use metrics::{MetricLabels, MetricsSnapshot};
 pub use otlp::{LogRecord, ResourceInfo, Severity};
@@ -353,7 +353,12 @@ pub struct DocOpenToken {
 pub fn record_document_open_begin() -> DocOpenToken {
     let (rss, _) = crate::probe::current_rss_bytes();
     if is_collecting() {
-        metrics::gauge_set_dim(metrics::RSS_BYTES, "checkpoint", "before_document", rss as f64);
+        metrics::gauge_set_dim(
+            metrics::RSS_BYTES,
+            "checkpoint",
+            "before_document",
+            rss as f64,
+        );
     }
     DocOpenToken { rss_before: rss }
 }
@@ -369,7 +374,12 @@ pub fn record_document_opened(token: DocOpenToken, doc_size: f64) {
     if !is_collecting() {
         return;
     }
-    metrics::gauge_set_dim(metrics::RSS_BYTES, "checkpoint", "after_document", rss_after as f64);
+    metrics::gauge_set_dim(
+        metrics::RSS_BYTES,
+        "checkpoint",
+        "after_document",
+        rss_after as f64,
+    );
     let delta = rss_after.saturating_sub(token.rss_before) as f64;
     metrics::gauge_set(metrics::DOC_RSS_DELTA_BYTES, delta);
     if doc_size > 0.0 {
@@ -415,8 +425,10 @@ impl Drop for FramePump {
         // a TICK count that converts through the same accessor, so a frame
         // measured in browser frames still lands in the seconds histogram.
         #[allow(clippy::cast_precision_loss)]
-        let seconds =
-            azul_core::task::Instant::now().duration_since(&self.start).as_nanos() as f64 / 1e9;
+        let seconds = azul_core::task::Instant::now()
+            .duration_since(&self.start)
+            .as_nanos() as f64
+            / 1e9;
         record_frame(self.scope, seconds);
         let _ = drain_probe_events();
     }
@@ -453,7 +465,10 @@ fn note_if_slow(what: &str, seconds: f64) {
     metrics::counter_add_dim(metrics::SLOW_FRAMES, "scope", what, 1);
     let mut record = LogRecord::new(
         Severity::Warn,
-        format!("slow {what}: {ms:.1} ms (threshold {:.1} ms)", slow_frame_threshold_ms()),
+        format!(
+            "slow {what}: {ms:.1} ms (threshold {:.1} ms)",
+            slow_frame_threshold_ms()
+        ),
     )
     .with_attribute("event.kind", "slow_frame")
     .with_attribute("slow.scope", what.to_owned())
@@ -564,7 +579,11 @@ pub fn report_e2e_failure(scenario: &str, step: &str, detail: &str) {
 /// needing to parse the message.
 pub fn report_e2e_result(scenario: &str, passed: bool, steps: usize) {
     log_with_attributes(
-        if passed { Severity::Info } else { Severity::Error },
+        if passed {
+            Severity::Info
+        } else {
+            Severity::Error
+        },
         &format!(
             "e2e scenario {} after {steps} step(s)",
             if passed { "passed" } else { "FAILED" }
@@ -701,12 +720,7 @@ pub fn drain_probe_events() -> usize {
         match event.kind {
             crate::probe::EventKind::Span { dur_ns } => {
                 let seconds = dur_ns as f64 / 1_000_000_000.0;
-                metrics::histogram_record_dim(
-                    metrics::PHASE_SECONDS,
-                    "phase",
-                    event.name,
-                    seconds,
-                );
+                metrics::histogram_record_dim(metrics::PHASE_SECONDS, "phase", event.name, seconds);
                 // WHICH span was slow, by name — the per-phase histogram
                 // says "something in text_shape is slow at p95", this log
                 // says "span text_shape took 41.3 ms in THIS session".
@@ -975,7 +989,12 @@ impl CrashDump {
         let path = path.into();
         let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        let get = |k: &str| v.get(k).and_then(serde_json::Value::as_str).unwrap_or("").to_owned();
+        let get = |k: &str| {
+            v.get(k)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
         Ok(Self {
             path,
             message: get("message"),
@@ -1103,16 +1122,14 @@ pub fn install_panic_hook() {
 
             // 1. The Loki-facing log record. Severity ERROR renders red;
             //    FATAL maps to Grafana's purple "critical" band.
-            let mut record = LogRecord::new(
-                Severity::Error,
-                format!("crash: {message} (at {location})"),
-            )
-            .with_attribute("event.kind", "crash")
-            .with_attribute("crash.message", message.clone())
-            .with_attribute("crash.location", location.clone())
-            .with_attribute("crash.scope", scope.clone())
-            .with_attribute("crash.backtrace", backtrace.clone())
-            .with_attribute("app.document_size", format!("{doc_size}"));
+            let mut record =
+                LogRecord::new(Severity::Error, format!("crash: {message} (at {location})"))
+                    .with_attribute("event.kind", "crash")
+                    .with_attribute("crash.message", message.clone())
+                    .with_attribute("crash.location", location.clone())
+                    .with_attribute("crash.scope", scope.clone())
+                    .with_attribute("crash.backtrace", backtrace.clone())
+                    .with_attribute("app.document_size", format!("{doc_size}"));
             for (k, v) in sys.as_attributes() {
                 record = record.with_attribute(k, v);
             }
@@ -1270,8 +1287,14 @@ mod tests {
         let out = super::strip_user_paths(&input);
         assert!(!out.contains(&home), "home dir must not survive: {out}");
         assert!(out.contains("~/Development"), "home becomes ~: {out}");
-        assert!(out.contains("rust:library/std/src/panic.rs"), "rustc prefix collapses: {out}");
-        assert!(out.contains("…/crate/src/lib.rs"), "long paths keep 3 components: {out}");
+        assert!(
+            out.contains("rust:library/std/src/panic.rs"),
+            "rustc prefix collapses: {out}"
+        );
+        assert!(
+            out.contains("…/crate/src/lib.rs"),
+            "long paths keep 3 components: {out}"
+        );
         // The frame information itself survives.
         assert!(out.contains("window.rs:42"));
     }
@@ -1321,7 +1344,10 @@ mod tests {
         record_relayout_scope("relayout");
         count("test_inert_total", 5);
         log(Severity::Error, "should not be buffered");
-        assert!(metrics::snapshot().is_empty(), "tier Off must record nothing");
+        assert!(
+            metrics::snapshot().is_empty(),
+            "tier Off must record nothing"
+        );
         assert_eq!(
             preview_payloads(),
             (None, None),

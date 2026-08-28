@@ -2420,7 +2420,6 @@ fn extract_macro_generated_types(
         }
 
         // CSS parser error macros - these generate *Owned error enums with repr(C, u8)
-
         "define_simple_column_parser" | "define_flow_parser" => {
             // define_simple_column_parser!(fn, struct, error, error_owned, prop, vals...)
             // define_flow_parser!(fn, struct, error, error_owned, prop)
@@ -3790,10 +3789,19 @@ mod tests {
         let types = extract_types_from_source(source);
 
         let names: Vec<_> = types.iter().map(|t| t.type_name.as_str()).collect();
-        assert!(names.contains(&"OnClickCallbackType"), "the type alias, got {names:?}");
+        assert!(
+            names.contains(&"OnClickCallbackType"),
+            "the type alias, got {names:?}"
+        );
         assert!(names.contains(&"OnClick"), "CallbackWrapper, got {names:?}");
-        assert!(names.contains(&"OptionOnClick"), "OptionCallbackWrapper, got {names:?}");
-        assert!(names.contains(&"OnClickCallback"), "CallbackValue, got {names:?}");
+        assert!(
+            names.contains(&"OptionOnClick"),
+            "OptionCallbackWrapper, got {names:?}"
+        );
+        assert!(
+            names.contains(&"OnClickCallback"),
+            "CallbackValue, got {names:?}"
+        );
 
         assert_eq!(types.len(), 4, "got {names:?}");
     }

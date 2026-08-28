@@ -527,7 +527,8 @@ impl CGenerator {
 
                     if let Some(ref payload_type) = variant.payload_type {
                         let c_type = self.rust_type_to_c_with_prefix(payload_type, config);
-                        let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(&variant.payload_ref_kind);
+                        let (ptr_prefix, ptr_suffix) =
+                            self.ref_kind_to_c_syntax(&variant.payload_ref_kind);
                         builder.line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
                     }
 
@@ -579,7 +580,10 @@ impl CGenerator {
                     let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(&field.ref_kind);
                     builder.line(&format!(
                         "{}{}{} {};",
-                        ptr_prefix, c_type, ptr_suffix, escape_cpp_keyword_for_c(&field.name)
+                        ptr_prefix,
+                        c_type,
+                        ptr_suffix,
+                        escape_cpp_keyword_for_c(&field.name)
                     ));
                 }
                 builder.dedent();
@@ -668,7 +672,11 @@ impl CGenerator {
 
                 builder.line(&format!(
                     "{}{}{} {}{};",
-                    ptr_prefix, c_type, ptr_suffix, escape_cpp_keyword_for_c(&field.name), array_suffix
+                    ptr_prefix,
+                    c_type,
+                    ptr_suffix,
+                    escape_cpp_keyword_for_c(&field.name),
+                    array_suffix
                 ));
             }
 
@@ -783,16 +791,24 @@ impl CGenerator {
                         let c_type = self.rust_type_to_c_with_prefix(type_name, config);
                         let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(ref_kind);
                         if types.len() == 1 {
-                            builder.line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
+                            builder
+                                .line(&format!("{}{}{} payload;", ptr_prefix, c_type, ptr_suffix));
                         } else {
-                            builder.line(&format!("{}{}{} payload_{};", ptr_prefix, c_type, ptr_suffix, i));
+                            builder.line(&format!(
+                                "{}{}{} payload_{};",
+                                ptr_prefix, c_type, ptr_suffix, i
+                            ));
                         }
                     }
                 }
                 EnumVariantKind::Struct(fields) if !fields.is_empty() => {
                     for field in fields {
                         let c_type = self.rust_type_to_c_with_prefix(&field.type_name, config);
-                        builder.line(&format!("{} {};", c_type, escape_cpp_keyword_for_c(&field.name)));
+                        builder.line(&format!(
+                            "{} {};",
+                            c_type,
+                            escape_cpp_keyword_for_c(&field.name)
+                        ));
                     }
                 }
                 _ => {}
@@ -837,16 +853,23 @@ impl CGenerator {
         // C-friendly (just a fn-ptr; ctx is implicitly None). The
         // WithCtx form is for managed-FFI hosts that need the GC'd
         // refany ctx. Mirrors the Rust-side emit in lang_rust.rs.
-        let self_snake: String = func.class_name.chars().enumerate().flat_map(|(i, c)| {
-            if c.is_uppercase() {
-                let mut v = Vec::new();
-                if i > 0 { v.push('_'); }
-                v.push(c.to_ascii_lowercase());
-                v
-            } else {
-                vec![c]
-            }
-        }).collect();
+        let self_snake: String = func
+            .class_name
+            .chars()
+            .enumerate()
+            .flat_map(|(i, c)| {
+                if c.is_uppercase() {
+                    let mut v = Vec::new();
+                    if i > 0 {
+                        v.push('_');
+                    }
+                    v.push(c.to_ascii_lowercase());
+                    v
+                } else {
+                    vec![c]
+                }
+            })
+            .collect();
         let is_api_function = matches!(
             func.kind,
             FunctionKind::Constructor
@@ -857,8 +880,7 @@ impl CGenerator {
         let has_cb_wrapper_arg = is_api_function
             && func.args.iter().any(|a| {
                 let is_self = a.name == "self" || a.name == self_snake;
-                !is_self
-                    && super::managed_host_invoker::is_callback_wrapper(&a.type_name)
+                !is_self && super::managed_host_invoker::is_callback_wrapper(&a.type_name)
             });
 
         let return_type = func
@@ -923,9 +945,7 @@ impl CGenerator {
                             ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
                             ArgRefKind::Ptr => ("const ", "*"),
                         };
-                        byref_args.push(format!(
-                            "{ptr_prefix}{c_type}{ptr_suffix} {escaped_name}"
-                        ));
+                        byref_args.push(format!("{ptr_prefix}{c_type}{ptr_suffix} {escaped_name}"));
                     }
                 }
                 builder.line(
@@ -944,15 +964,14 @@ impl CGenerator {
         // callback-wrapper replaced by its fn-pointer typedef (raw
         // form), once with the fn-pointer typedef plus a trailing
         // `<arg>_ctx: AzOptionRefAny` per callback-wrapper arg.
-        let opt_refany_c =
-            self.rust_type_to_c_with_prefix("OptionRefAny", config);
+        let opt_refany_c = self.rust_type_to_c_with_prefix("OptionRefAny", config);
 
         let mut args_raw: Vec<String> = Vec::with_capacity(func.args.len());
         let mut args_ctx: Vec<String> = Vec::with_capacity(func.args.len() + 1);
         for arg in &func.args {
             let is_self = arg.name == "self" || arg.name == self_snake;
-            let is_cb_wrapper = !is_self
-                && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
+            let is_cb_wrapper =
+                !is_self && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
             let effective_type = if is_cb_wrapper {
                 super::managed_host_invoker::callback_typedef_for(arg.type_name.trim())
             } else {
@@ -966,8 +985,7 @@ impl CGenerator {
                 ArgRefKind::Ptr => ("const ", "*"),
             };
             let escaped_name = escape_cpp_keyword_for_c(&arg.name);
-            let formatted =
-                format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name);
+            let formatted = format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name);
             args_raw.push(formatted.clone());
             args_ctx.push(formatted);
             if is_cb_wrapper {
@@ -1219,7 +1237,7 @@ impl CGenerator {
             }
 
             let name = config.apply_prefix(&enum_def.name);
-            
+
             // Get the first variant name to access the tag for unions
             // (all variants share the same tag at the same offset due to repr(C, u8))
             let first_variant_name = enum_def.variants.first().map(|v| &v.name);
@@ -1376,10 +1394,7 @@ impl CGenerator {
 
                 if has_run_destructor {
                     // Vec with run_destructor field (e.g., FmtArgVec)
-                    builder.line(&format!(
-                        "#define {}_empty {{ \\",
-                        prefixed_name
-                    ));
+                    builder.line(&format!("#define {}_empty {{ \\", prefixed_name));
                     builder.line("    .ptr = 0, \\");
                     builder.line("    .len = 0, \\");
                     builder.line("    .cap = 0, \\");
@@ -1391,10 +1406,7 @@ impl CGenerator {
                     builder.line("}");
                 } else {
                     // Standard Vec without run_destructor
-                    builder.line(&format!(
-                        "#define {}_empty {{ \\",
-                        prefixed_name
-                    ));
+                    builder.line(&format!("#define {}_empty {{ \\", prefixed_name));
                     builder.line("    .ptr = 0, \\");
                     builder.line("    .len = 0, \\");
                     builder.line("    .cap = 0, \\");
@@ -1414,8 +1426,8 @@ impl CGenerator {
 
     /// Generate the C-API patch (additional macros for convenience)
     fn generate_capi_patch(&self, builder: &mut CodeBuilder) {
-        // NOTE: Most compile-time initializer macros (AzNodeData_new, AzDom_newStatic, 
-        // AzAppConfig_default) were REMOVED because they can easily get out of sync 
+        // NOTE: Most compile-time initializer macros (AzNodeData_new, AzDom_newStatic,
+        // AzAppConfig_default) were REMOVED because they can easily get out of sync
         // with the actual Rust struct definitions.
         //
         // Users MUST call the corresponding _create() or _new() functions instead:
@@ -1463,7 +1475,9 @@ impl CGenerator {
         // converter (lang_lua/cdef.rs) filters line-wise and would leave the
         // ` * ` continuation lines of a multi-line block comment behind as
         // bare `*` tokens, breaking ffi.cdef / FFI::cdef at parse time.
-        builder.line("/* Macro to copy a runtime NUL-terminated string into a refcounted AzString. */");
+        builder.line(
+            "/* Macro to copy a runtime NUL-terminated string into a refcounted AzString. */",
+        );
         builder.line("/* Counterpart to AzString_fromConstStr: use AzString_fromConstStr for */");
         builder.line("/* compile-time literals (zero allocation), AZ_STR for runtime strings: */");
         builder.line("/*     AzString title = AZ_STR(some_char_ptr);                          */");
@@ -1504,7 +1518,9 @@ impl CGenerator {
         builder.line(" *");
         builder.line(" * - void fooRef_delete(fooRef): disposes of the fooRef and decreases the immutable reference count.");
         builder.line(" *   Safe to call even if the downcast FAILED: when .ptr is still 0 the refcount decrease is skipped,");
-        builder.line(" *   so always pair every fooRef_create with a fooRef_delete on every code path.");
+        builder.line(
+            " *   so always pair every fooRef_create with a fooRef_delete on every code path.",
+        );
         builder.line(" * - void fooRefMut_delete(fooRefMut): disposes of the fooRefMut and decreases the mutable reference");
         builder.line(" *   count. Like fooRef_delete, this is safe to call after a failed downcast (no-op on the refcount).");
         builder.line(" * - bool fooRefAny_delete(AzRefAny): disposes of the AzRefAny type, returns false if the AzRefAny is not of type RefAny<foo>");
@@ -1526,16 +1542,17 @@ impl CGenerator {
         builder.line("#define AZ_REFLECT(structName, destructor) \\");
         builder.line("    AZ_REFLECT_FULL(structName, destructor, 0, 0)");
         builder.line("");
-        
+
         // Full macro with JSON support
         builder.line("/* Full reflection with optional JSON support */");
         builder.line("#define AZ_REFLECT_JSON(structName, destructor, toJsonFn, fromJsonFn) \\");
         builder.line("    AZ_REFLECT_FULL(structName, destructor, (uintptr_t)(toJsonFn), (uintptr_t)(fromJsonFn))");
         builder.line("");
-        
+
         // Internal macro with all parameters
         builder.line("/* Internal macro with all parameters */");
-        builder.line("#define AZ_REFLECT_FULL(structName, destructor, serializeFn, deserializeFn) \\");
+        builder
+            .line("#define AZ_REFLECT_FULL(structName, destructor, serializeFn, deserializeFn) \\");
         builder.line("    /* in C all statics are guaranteed to have a unique address, use that address as a TypeId */ \\");
         builder.line("    static uint64_t const structName##_RttiTypePtrId = 0; \\");
         builder.line("    static uint64_t const structName##_RttiTypeId = (uint64_t)(&structName##_RttiTypePtrId); \\");
@@ -1566,8 +1583,9 @@ impl CGenerator {
         builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \\");
         builder.line("            if (!AzRefCount_canBeShared(&refany->sharing_info)) { return false; } else {\\");
         builder.line("                AzRefCount_increaseRef(&refany->sharing_info); \\");
-        builder
-            .line("                result->ptr = (structName* const)(AzRefAny_getDataPtr(refany)); \\");
+        builder.line(
+            "                result->ptr = (structName* const)(AzRefAny_getDataPtr(refany)); \\",
+        );
         builder.line("                return true; \\");
         builder.line("            } \\");
         builder.line("        } \\");
@@ -1587,18 +1605,28 @@ impl CGenerator {
         builder.line("    } \\");
         builder.line("    \\");
         builder.line("    /* releases a structNameRef (decreases the RefCount) */ \\");
-        builder.line("    /* safe to call after a FAILED downcast: .ptr is still 0 then, so the */ \\");
-        builder.line("    /* borrow-count decrease is skipped and only the _create clone is released */ \\");
+        builder.line(
+            "    /* safe to call after a FAILED downcast: .ptr is still 0 then, so the */ \\",
+        );
+        builder.line(
+            "    /* borrow-count decrease is skipped and only the _create clone is released */ \\",
+        );
         builder.line("    void structName##Ref_delete(structName##Ref* restrict value) { \\");
-        builder.line("        if (value->ptr != 0) { AzRefCount_decreaseRef(&value->sharing_info); } \\");
+        builder.line(
+            "        if (value->ptr != 0) { AzRefCount_decreaseRef(&value->sharing_info); } \\",
+        );
         builder.line("        AzRefCount_delete(&value->sharing_info); \\");
         builder.line("        value->ptr = 0; \\");
         builder.line("    }\\");
         builder.line("    \\");
         builder.line("    /* releases a structNameRefMut (decreases the mutable RefCount) */ \\");
-        builder.line("    /* safe to call after a FAILED downcast (see structNameRef_delete above) */ \\");
+        builder.line(
+            "    /* safe to call after a FAILED downcast (see structNameRef_delete above) */ \\",
+        );
         builder.line("    void structName##RefMut_delete(structName##RefMut* restrict value) { \\");
-        builder.line("        if (value->ptr != 0) { AzRefCount_decreaseRefmut(&value->sharing_info); } \\");
+        builder.line(
+            "        if (value->ptr != 0) { AzRefCount_decreaseRefmut(&value->sharing_info); } \\",
+        );
         builder.line("        AzRefCount_delete(&value->sharing_info); \\");
         builder.line("        value->ptr = 0; \\");
         builder.line("    }\\");

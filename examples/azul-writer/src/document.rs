@@ -164,15 +164,21 @@ impl DocumentModel {
             Some(m) if m.width > 0 && m.height > 0 => (m.width as usize, m.height as usize),
             // No monitor info (headless/web/startup race): the exact path —
             // correctness over speed when the bound is unknowable.
-            _ => return (page_count_cached(&self.content, self.generation, fonts), true),
+            _ => {
+                return (
+                    page_count_cached(&self.content, self.generation, fonts),
+                    true,
+                )
+            }
         };
         let char_budget = mon_w.saturating_mul(mon_h);
         let line_budget = mon_h; // 1px minimum font ⇒ ≥ this many lines never fit
 
-        if self.markdown.len() <= char_budget
-            && self.markdown.lines().count() <= line_budget
-        {
-            return (page_count_cached(&self.content, self.generation, fonts), true);
+        if self.markdown.len() <= char_budget && self.markdown.lines().count() <= line_budget {
+            return (
+                page_count_cached(&self.content, self.generation, fonts),
+                true,
+            );
         }
 
         // Walk the SOURCE to find how many top-level blocks fit the budget
@@ -198,10 +204,8 @@ impl DocumentModel {
         let prefix_blocks = prefix_blocks.max(1);
 
         // First `prefix_blocks` children of the content DOM = the prefix.
-        let (prefix, _tail) = azul_layout::document_edit::split_dom_at_path(
-            &self.content,
-            &[prefix_blocks as u32],
-        );
+        let (prefix, _tail) =
+            azul_layout::document_edit::split_dom_at_path(&self.content, &[prefix_blocks as u32]);
         // Direct computation — NOT page_count_cached: that path memoizes
         // COMPLETE entries only.
         let prefix_paths = compute_break_paths_with_fonts(&prefix, fonts);
@@ -213,8 +217,7 @@ impl DocumentModel {
 
         // Scale by character proportion (never below what the prefix proved).
         let total_chars = self.markdown.len().max(1);
-        let est = (prefix_pages as f64 * total_chars as f64 / chars.max(1) as f64).ceil()
-            as usize;
+        let est = (prefix_pages as f64 * total_chars as f64 / chars.max(1) as f64).ceil() as usize;
         (est.max(prefix_pages), false)
     }
 
@@ -289,9 +292,7 @@ pub fn markdown_to_content_dom(markdown: &str) -> Dom {
         body = "<p></p>".to_string();
     }
 
-    let xml = format!(
-        "<html><head><style>{DOC_CSS}</style></head><body>{body}</body></html>"
-    );
+    let xml = format!("<html><head><style>{DOC_CSS}</style></head><body>{body}</body></html>");
     if let Ok(dump) = std::env::var("AZWRITER_DUMP_XML") {
         let _ = std::fs::write(&dump, &xml);
     }
@@ -303,7 +304,9 @@ pub fn markdown_to_content_dom(markdown: &str) -> Dom {
         }
         Err(e) => Dom::create_div()
             .with_css(DOC_CSS)
-            .with_child(Dom::create_p_with_text(format!("markdown parse error: {e}"))),
+            .with_child(Dom::create_p_with_text(format!(
+                "markdown parse error: {e}"
+            ))),
     }
 }
 
@@ -637,9 +640,10 @@ fn compute_break_paths_with_fonts(
     let styled_dom = {
         let _p = crate::perf::Phase::start("    dom_clone+cascade");
         let mut for_styling = content.clone();
-        azul_core::styled_dom::StyledDom::create_from_dom(
-            core::mem::replace(&mut for_styling, Dom::create_div()),
-        )
+        azul_core::styled_dom::StyledDom::create_from_dom(core::mem::replace(
+            &mut for_styling,
+            Dom::create_div(),
+        ))
     };
 
     // REUSE the layout cache across paginations. A fresh cache means every
@@ -700,29 +704,29 @@ fn compute_break_paths_with_fonts(
 
     let _p_pag = crate::perf::Phase::start("    compute_document_pagination");
     let pagination = LAYOUT_CACHE.with(|lc| {
-      let layout_cache = &mut *lc.borrow_mut();
-      with_font_manager(fonts, |font_manager| {
-        compute_document_pagination(
-            layout_cache,
-            &mut text_cache,
-            fragmentation_context,
-            &styled_dom,
-            viewport,
-            font_manager,
-            &BTreeMap::new(),
-            &mut debug_messages,
-            None,
-            &renderer_resources,
-            azul_core::resources::IdNamespace(0),
-            azul_core::dom::DomId::ROOT_ID,
-            font_loader,
-            FakePageConfig::new(),
-            &azul_core::resources::ImageCache::default(),
-            azul_core::task::GetSystemTimeCallback {
-                cb: azul_core::task::get_system_time_libstd,
-            },
-        )
-      })
+        let layout_cache = &mut *lc.borrow_mut();
+        with_font_manager(fonts, |font_manager| {
+            compute_document_pagination(
+                layout_cache,
+                &mut text_cache,
+                fragmentation_context,
+                &styled_dom,
+                viewport,
+                font_manager,
+                &BTreeMap::new(),
+                &mut debug_messages,
+                None,
+                &renderer_resources,
+                azul_core::resources::IdNamespace(0),
+                azul_core::dom::DomId::ROOT_ID,
+                font_loader,
+                FakePageConfig::new(),
+                &azul_core::resources::ImageCache::default(),
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+            )
+        })
     });
 
     drop(_p_pag);
@@ -757,9 +761,8 @@ fn compute_break_paths_with_fonts(
         });
     }
 
-    let breaks = LAYOUT_CACHE.with(|lc| {
-        pagination_to_dom_breaks(&lc.borrow(), &styled_dom, &pagination)
-    });
+    let breaks =
+        LAYOUT_CACHE.with(|lc| pagination_to_dom_breaks(&lc.borrow(), &styled_dom, &pagination));
     let Some(breaks) = breaks else {
         return Vec::new();
     };
@@ -772,9 +775,7 @@ fn compute_break_paths_with_fonts(
 /// a fresh DOM.
 fn with_font_manager<R>(
     fonts: Option<rust_fontconfig::FcFontCache>,
-    f: impl FnOnce(
-        &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
-    ) -> R,
+    f: impl FnOnce(&mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>) -> R,
 ) -> R {
     use std::cell::RefCell;
     thread_local! {
@@ -900,10 +901,7 @@ mod sample_tests {
 /// each leaf block — the app passes an engine readback
 /// (`CallbackInfo::get_node_text_content`, which sees the text overlay's
 /// live edits), tests pass a pure model walk.
-pub fn dom_to_markdown(
-    content: &Dom,
-    text_of: &mut dyn FnMut(&[u32]) -> Option<String>,
-) -> String {
+pub fn dom_to_markdown(content: &Dom, text_of: &mut dyn FnMut(&[u32]) -> Option<String>) -> String {
     use azul_core::dom::NodeType;
 
     fn own_text(d: &Dom) -> String {
@@ -1038,9 +1036,8 @@ pub fn tag_pages_with_block_ids(pages: &mut [Page], offsets: &[usize]) {
                     .iter()
                     .enumerate()
                     .map(|(j, sub)| {
-                        sub.clone().with_id(azul_css::AzString::from(
-                            nested_dom_id(model_index, j),
-                        ))
+                        sub.clone()
+                            .with_id(azul_css::AzString::from(nested_dom_id(model_index, j)))
                     })
                     .collect();
                 tagged.children = nested.into();
@@ -1132,7 +1129,11 @@ mod edit_loop_tests {
             .join("\n");
         let dom = markdown_to_content_dom(&md);
         let pages = paginate(dom);
-        assert!(pages.len() >= 2, "need a multi-page doc, got {}", pages.len());
+        assert!(
+            pages.len() >= 2,
+            "need a multi-page doc, got {}",
+            pages.len()
+        );
         let offsets = page_block_offsets(&pages);
         assert_eq!(offsets[0], 0);
         assert_eq!(
@@ -1197,15 +1198,10 @@ mod edit_loop_tests {
         // Page 0 hosts everything (single page); offset 0; host = model root.
         let host_path = page_path_to_model_path(0, &[]);
         let applied = azul_layout::document_edit::apply_document_operation(
-            &mut model,
-            &host_path,
-            &changeset,
+            &mut model, &host_path, &changeset,
         )
         .expect("apply split");
-        assert!(matches!(
-            applied.inverse,
-            DocumentOperation::MergeNodes(_)
-        ));
+        assert!(matches!(applied.inverse, DocumentOperation::MergeNodes(_)));
 
         let mut provider = model_text_provider(&model);
         let out = dom_to_markdown(&model, &mut provider);
@@ -1233,7 +1229,11 @@ mod save_round_trip_tests {
         let dir = std::env::temp_dir().join("azwriter_round_trip");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("doc.md");
-        std::fs::write(&path, "# Title\n\nFirst paragraph here.\n\nSecond paragraph.\n").unwrap();
+        std::fs::write(
+            &path,
+            "# Title\n\nFirst paragraph here.\n\nSecond paragraph.\n",
+        )
+        .unwrap();
 
         let mut model = DocumentModel::from_path(&path);
         let before_pages = paginate(model.content.clone()).len();
@@ -1248,12 +1248,18 @@ mod save_round_trip_tests {
             null_node,
             DocumentOperation::SplitNode(DocOpSplitNode {
                 node: null_node,
-                at: NodePosition { child_index: 0, text_byte: Some(5).into() },
+                at: NodePosition {
+                    child_index: 0,
+                    text_byte: Some(5).into(),
+                },
             }),
             EditResumePoint {
                 anchor_key: 0,
                 node_path: vec![2u32].into(), // NEW second part sits at index 2
-                position: NodePosition { child_index: 0, text_byte: Some(0).into() },
+                position: NodePosition {
+                    child_index: 0,
+                    text_byte: Some(0).into(),
+                },
             },
             azul_core::task::Instant::from(std::time::Instant::now()),
         );
@@ -1302,8 +1308,7 @@ mod pdf_export_tests {
                   ## Section\n\n- alpha\n- beta\n\nClosing paragraph.\n";
         let content = markdown_to_content_dom(md);
 
-        let mut doc = Dom::create_body()
-            .with_css("margin: 0; padding: 96px; background: white;");
+        let mut doc = Dom::create_body().with_css("margin: 0; padding: 96px; background: white;");
         doc.add_child(content);
         let styled = azul_core::styled_dom::StyledDom::create_from_dom(doc);
 
@@ -1326,7 +1331,10 @@ mod pdf_export_tests {
         );
         assert_eq!(&out[..5], b"%PDF-", "PDF header");
         let text = String::from_utf8_lossy(out);
-        assert!(text.contains("/Type /Page") || text.contains("/Type/Page"), "page objects");
+        assert!(
+            text.contains("/Type /Page") || text.contains("/Type/Page"),
+            "page objects"
+        );
 
         // GEOMETRY: every text-positioning op must land INSIDE the page box.
         // A4 = 842pt tall; the export used to hand printpdf the page height
@@ -1345,11 +1353,15 @@ mod pdf_export_tests {
                 }
             }
         }
-        assert!(!ys.is_empty(), "expected text-matrix ops in the content stream");
+        assert!(
+            !ys.is_empty(),
+            "expected text-matrix ops in the content stream"
+        );
         let a4_h_pt = 1123.0 * 72.0 / 96.0;
         let above = ys.iter().filter(|y| **y > a4_h_pt).count();
         assert_eq!(
-            above, 0,
+            above,
+            0,
             "{above}/{} text ops sit ABOVE the {a4_h_pt}pt page box (px/pt \
              confusion); max y = {:?}",
             ys.len(),
@@ -1424,9 +1436,11 @@ mod live_text_tests {
         // stale render can't accidentally satisfy the lookup).
         let untagged = paginate(markdown_to_content_dom(&md));
         let any_id = untagged.iter().any(|p| {
-            p.dom.children.as_ref().iter().any(|b| {
-                b.root.attributes().iter().any(|a| a.as_id().is_some())
-            })
+            p.dom
+                .children
+                .as_ref()
+                .iter()
+                .any(|b| b.root.attributes().iter().any(|a| a.as_id().is_some()))
         });
         assert!(!any_id, "untagged pages must carry no block ids");
     }
@@ -1462,9 +1476,16 @@ mod live_text_tests {
             "list items must carry [block, child] ids, got {li_ids:?}"
         );
         // path_dom_id must produce exactly those ids for the serializer's paths.
-        assert_eq!(path_dom_id(&[1, 0]).as_deref(), Some(nested_dom_id(1, 0).as_str()));
+        assert_eq!(
+            path_dom_id(&[1, 0]).as_deref(),
+            Some(nested_dom_id(1, 0).as_str())
+        );
         assert_eq!(path_dom_id(&[1]).as_deref(), Some(block_dom_id(1).as_str()));
-        assert_eq!(path_dom_id(&[1, 0, 2]), None, "deeper paths are unsupported");
+        assert_eq!(
+            path_dom_id(&[1, 0, 2]),
+            None,
+            "deeper paths are unsupported"
+        );
 
         // A live provider addressing a LIST ITEM must reach the markdown.
         let doc = markdown_to_content_dom("# T\n\n- alpha\n- beta\n");
@@ -1559,10 +1580,7 @@ mod resize_cost_tests {
         }
         let per = t0.elapsed() / N;
         eprintln!("[COST] paginate() = {per:?} per call");
-        assert!(
-            per < std::time::Duration::from_millis(500),
-            "sanity bound"
-        );
+        assert!(per < std::time::Duration::from_millis(500), "sanity bound");
     }
 }
 
@@ -1587,7 +1605,10 @@ mod undo_api_validation {
             EditResumePoint {
                 anchor_key: 0,
                 node_path: resume_path.into(),
-                position: NodePosition { child_index: 0, text_byte: Some(0).into() },
+                position: NodePosition {
+                    child_index: 0,
+                    text_byte: Some(0).into(),
+                },
             },
             azul_core::task::Instant::from(std::time::Instant::now()),
         )
@@ -1618,7 +1639,10 @@ mod undo_api_validation {
         let cs_split = changeset(
             DocumentOperation::SplitNode(DocOpSplitNode {
                 node: null_node(),
-                at: NodePosition { child_index: 0, text_byte: Some(5).into() },
+                at: NodePosition {
+                    child_index: 0,
+                    text_byte: Some(5).into(),
+                },
             }),
             vec![1],
         );
@@ -1671,13 +1695,15 @@ mod undo_api_validation {
         let cs = changeset(
             DocumentOperation::SplitNode(DocOpSplitNode {
                 node: null_node(),
-                at: NodePosition { child_index: 0, text_byte: Some(5).into() },
+                at: NodePosition {
+                    child_index: 0,
+                    text_byte: Some(5).into(),
+                },
             }),
             vec![1],
         );
-        let applied =
-            azul_layout::document_edit::apply_document_operation(&mut model, &[], &cs)
-                .expect("apply split");
+        let applied = azul_layout::document_edit::apply_document_operation(&mut model, &[], &cs)
+            .expect("apply split");
         assert_eq!(texts(&model), vec!["First", " paragraph here.", "Second."]);
 
         // UNDO: re-record the inverse through the same loop. The app knows

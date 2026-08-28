@@ -1,4 +1,3 @@
-
 use azul_layout::solver3::sizing::*;
 
 #[test]
@@ -67,13 +66,8 @@ fn test_resolve_percentage_with_box_model_asymmetric() {
     // Container: 1000px
     // CSS spec: percentage resolves against containing block
     // 100% of 1000px = 1000px (margins/borders/padding ignored)
-    let result = resolve_percentage_with_box_model(
-        1000.0,
-        1.0,
-        (100.0, 50.0),
-        (10.0, 20.0),
-        (5.0, 15.0),
-    );
+    let result =
+        resolve_percentage_with_box_model(1000.0, 1.0, (100.0, 50.0), (10.0, 20.0), (5.0, 15.0));
     assert_eq!(result, 1000.0);
 }
 

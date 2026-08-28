@@ -62,7 +62,17 @@ pub fn capture(window: &Win32Window) -> Option<Screenshot> {
         let mut out = None;
         if !dib.is_null() && !bits.is_null() {
             let old = (gdi32.SelectObject)(mem_dc, dib);
-            let ok = (gdi32.BitBlt)(mem_dc, 0, 0, width, height, screen_dc, 0, 0, SRCCOPY | CAPTUREBLT);
+            let ok = (gdi32.BitBlt)(
+                mem_dc,
+                0,
+                0,
+                width,
+                height,
+                screen_dc,
+                0,
+                0,
+                SRCCOPY | CAPTUREBLT,
+            );
             if ok != 0 {
                 #[allow(clippy::cast_sign_loss)] // checked positive
                 let n = width as usize * height as usize * 4;
@@ -73,7 +83,14 @@ pub fn capture(window: &Win32Window) -> Option<Screenshot> {
                     height: height as u32,
                     rgba: super::bgra_to_rgba(bgra),
                     origin: LogicalPosition::zero(),
-                    scale: window.common.current_window_state().size.get_hidpi_factor().inner.get().max(0.01),
+                    scale: window
+                        .common
+                        .current_window_state()
+                        .size
+                        .get_hidpi_factor()
+                        .inner
+                        .get()
+                        .max(0.01),
                 };
                 out = Some(shot);
             } else {

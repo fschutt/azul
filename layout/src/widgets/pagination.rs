@@ -29,23 +29,38 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutJustifyContent, LayoutMinWidth, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutJustifyContent, LayoutMinWidth, LayoutPaddingBottom, LayoutPaddingLeft,
+            LayoutPaddingRight, LayoutPaddingTop,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderRightColor, StyleCursor, StyleTextAlign, StyleUserSelect, StyleTextColor, LayoutBorderLeftWidth, StyleBorderLeftStyle, StyleBorderLeftColor, StyleBorderTopLeftRadius, StyleBorderBottomLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomRightRadius},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
 
 static PAGINATION_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-pagination"))];
-static PAGINATION_PAGE_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-pagination-page"))];
-static PAGINATION_NAV_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-pagination-nav"))];
+static PAGINATION_PAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-pagination-page",
+))];
+static PAGINATION_NAV_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-pagination-nav",
+))];
 
 const PREV_LABEL: AzString = AzString::from_const_str("Prev");
 const NEXT_LABEL: AzString = AzString::from_const_str("Next");
@@ -103,17 +118,47 @@ pub struct PaginationState {
 
 // ---- colours (mirroring segmented's palette) ----
 /// Page border colour (#ced4da).
-const PAGE_BORDER_COLOR: ColorU = ColorU { r: 206, g: 212, b: 218, a: 255 };
+const PAGE_BORDER_COLOR: ColorU = ColorU {
+    r: 206,
+    g: 212,
+    b: 218,
+    a: 255,
+};
 /// Active-page background (#0d6efd, accent blue).
-const ACCENT_BG_COLOR: ColorU = ColorU { r: 13, g: 110, b: 253, a: 255 };
+const ACCENT_BG_COLOR: ColorU = ColorU {
+    r: 13,
+    g: 110,
+    b: 253,
+    a: 255,
+};
 /// Neutral (inactive) background (white).
-const NEUTRAL_BG_COLOR: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+const NEUTRAL_BG_COLOR: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
 /// Active-page text colour (white).
-const ACTIVE_TEXT: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+const ACTIVE_TEXT: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
 /// Neutral text colour (#212529, dark).
-const NEUTRAL_TEXT: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
+const NEUTRAL_TEXT: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+};
 /// Disabled (Prev/Next at a bound) text colour (#adb5bd, muted grey).
-const DISABLED_TEXT: ColorU = ColorU { r: 173, g: 181, b: 189, a: 255 };
+const DISABLED_TEXT: ColorU = ColorU {
+    r: 173,
+    g: 181,
+    b: 189,
+    a: 255,
+};
 
 const ACCENT_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(ACCENT_BG_COLOR)];
@@ -173,9 +218,9 @@ fn build_button_style(
             36,
         ))),
         // padding: 6px 12px
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            6,
-        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(6),
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
             LayoutPaddingBottom::const_px(6),
         )),
@@ -196,9 +241,11 @@ fn build_button_style(
         CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
             LayoutBorderRightWidth::const_px(1),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            },
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
             StyleBorderBottomStyle {
                 inner: BorderStyle::Solid,
@@ -209,9 +256,11 @@ fn build_button_style(
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-            inner: PAGE_BORDER_COLOR,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+            StyleBorderTopColor {
+                inner: PAGE_BORDER_COLOR,
+            },
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor {
                 inner: PAGE_BORDER_COLOR,
@@ -223,7 +272,9 @@ fn build_button_style(
             },
         )),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
         CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg)),
@@ -276,7 +327,8 @@ fn build_button_style(
 impl Pagination {
     /// Creates a pager for `total_pages` pages with `current_page` (1-based)
     /// selected. `current_page` is clamped into `[1, total_pages.max(1)]`.
-    #[must_use] pub fn create(current_page: usize, total_pages: usize) -> Self {
+    #[must_use]
+    pub fn create(current_page: usize, total_pages: usize) -> Self {
         let total_pages = total_pages.max(1);
         let current_page = current_page.clamp(1, total_pages);
         Self {
@@ -302,13 +354,15 @@ impl Pagination {
 
     /// Builder-style setter for the current page.
     #[inline]
-    #[must_use] pub fn with_current_page(mut self, current_page: usize) -> Self {
+    #[must_use]
+    pub fn with_current_page(mut self, current_page: usize) -> Self {
         self.set_current_page(current_page);
         self
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(1, 1);
         core::mem::swap(&mut s, self);
         s
@@ -328,7 +382,8 @@ impl Pagination {
     }
 
     #[inline]
-    #[must_use] pub fn with_on_change<C: Into<PaginationOnChangeCallback>>(
+    #[must_use]
+    pub fn with_on_change<C: Into<PaginationOnChangeCallback>>(
         mut self,
         data: RefAny,
         on_change: C,
@@ -337,7 +392,8 @@ impl Pagination {
         self
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -497,18 +553,35 @@ extern "C" fn on_page_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let (bg, text) = if i == 0 {
             // Prev
             let disabled = new_page <= 1;
-            (NEUTRAL_BG, if disabled { DISABLED_TEXT } else { NEUTRAL_TEXT })
+            (
+                NEUTRAL_BG,
+                if disabled {
+                    DISABLED_TEXT
+                } else {
+                    NEUTRAL_TEXT
+                },
+            )
         } else if i == n - 1 {
             // Next
             let disabled = new_page >= total;
-            (NEUTRAL_BG, if disabled { DISABLED_TEXT } else { NEUTRAL_TEXT })
+            (
+                NEUTRAL_BG,
+                if disabled {
+                    DISABLED_TEXT
+                } else {
+                    NEUTRAL_TEXT
+                },
+            )
         } else if i == new_page {
             (ACCENT_BG, ACTIVE_TEXT)
         } else {
             (NEUTRAL_BG, NEUTRAL_TEXT)
         };
         info.set_css_property(*node, CssProperty::const_background_content(bg));
-        info.set_css_property(*node, CssProperty::const_text_color(StyleTextColor { inner: text }));
+        info.set_css_property(
+            *node,
+            CssProperty::const_text_color(StyleTextColor { inner: text }),
+        );
     }
 
     result
@@ -612,7 +685,10 @@ mod autotest_generated {
                 _ => None,
             })
             .collect();
-        assert!(found.len() <= 1, "a button must declare at most one text colour");
+        assert!(
+            found.len() <= 1,
+            "a button must declare at most one text colour"
+        );
         found.first().copied()
     }
 
@@ -625,9 +701,16 @@ mod autotest_generated {
                 _ => None,
             })
             .collect();
-        assert!(found.len() <= 1, "a button must declare at most one background");
+        assert!(
+            found.len() <= 1,
+            "a button must declare at most one background"
+        );
         let bg: &StyleBackgroundContentVec = *found.first()?;
-        assert_eq!(bg.as_ref().len(), 1, "a button must declare exactly one background layer");
+        assert_eq!(
+            bg.as_ref().len(),
+            1,
+            "a button must declare exactly one background layer"
+        );
         match &bg.as_ref()[0] {
             StyleBackgroundContent::Color(c) => Some(*c),
             other => panic!("pagination background is not a flat colour: {other:?}"),
@@ -700,9 +783,15 @@ mod autotest_generated {
     /// — the "I am the first button in the joined bar" marker.
     fn has_left_border(props: &[CssProperty]) -> (bool, bool, bool) {
         (
-            props.iter().any(|p| matches!(p, CssProperty::BorderLeftWidth(_))),
-            props.iter().any(|p| matches!(p, CssProperty::BorderLeftStyle(_))),
-            props.iter().any(|p| matches!(p, CssProperty::BorderLeftColor(_))),
+            props
+                .iter()
+                .any(|p| matches!(p, CssProperty::BorderLeftWidth(_))),
+            props
+                .iter()
+                .any(|p| matches!(p, CssProperty::BorderLeftStyle(_))),
+            props
+                .iter()
+                .any(|p| matches!(p, CssProperty::BorderLeftColor(_))),
         )
     }
 
@@ -951,7 +1040,11 @@ mod autotest_generated {
             let len = types.len();
             types.sort_unstable();
             types.dedup();
-            assert_eq!(types.len(), len, "duplicate declaration for ({a},{d},{f},{l})");
+            assert_eq!(
+                types.len(),
+                len,
+                "duplicate declaration for ({a},{d},{f},{l})"
+            );
         }
     }
 
@@ -1010,10 +1103,26 @@ mod autotest_generated {
             let (tl, bl, tr, br) = radii(&props);
             let r = PAGE_RADIUS as f32;
 
-            assert_eq!(tl, if f { Some(r) } else { None }, "top-left for is_first={f}");
-            assert_eq!(bl, if f { Some(r) } else { None }, "bottom-left for is_first={f}");
-            assert_eq!(tr, if l { Some(r) } else { None }, "top-right for is_last={l}");
-            assert_eq!(br, if l { Some(r) } else { None }, "bottom-right for is_last={l}");
+            assert_eq!(
+                tl,
+                if f { Some(r) } else { None },
+                "top-left for is_first={f}"
+            );
+            assert_eq!(
+                bl,
+                if f { Some(r) } else { None },
+                "bottom-left for is_first={f}"
+            );
+            assert_eq!(
+                tr,
+                if l { Some(r) } else { None },
+                "top-right for is_last={l}"
+            );
+            assert_eq!(
+                br,
+                if l { Some(r) } else { None },
+                "bottom-right for is_last={l}"
+            );
         }
     }
 
@@ -1029,7 +1138,9 @@ mod autotest_generated {
                 "left border must be present iff is_first ({a},{d},{f},{l})"
             );
             assert!(
-                props.iter().any(|p| matches!(p, CssProperty::BorderRightWidth(_))),
+                props
+                    .iter()
+                    .any(|p| matches!(p, CssProperty::BorderRightWidth(_))),
                 "every button draws its own right border"
             );
         }
@@ -1039,7 +1150,9 @@ mod autotest_generated {
     fn build_button_style_property_count_is_purely_position_dependent() {
         // The colour flags must not add or drop declarations — only the position
         // flags do (left border + 2 radii for first, 2 radii for last).
-        let base = build_button_style(false, false, false, false).as_ref().len();
+        let base = build_button_style(false, false, false, false)
+            .as_ref()
+            .len();
         for (a, d) in [(false, false), (true, false), (false, true), (true, true)] {
             assert_eq!(
                 build_button_style(a, d, false, false).as_ref().len(),
@@ -1090,13 +1203,31 @@ mod autotest_generated {
         ] {
             assert_eq!(c.a, 255, "{name} must be fully opaque");
         }
-        assert_ne!(ACCENT_BG_COLOR, NEUTRAL_BG_COLOR, "the active page must stand out");
-        assert_ne!(ACTIVE_TEXT, NEUTRAL_TEXT, "active text must read on the accent fill");
-        assert_ne!(NEUTRAL_TEXT, DISABLED_TEXT, "a disabled end must look disabled");
+        assert_ne!(
+            ACCENT_BG_COLOR, NEUTRAL_BG_COLOR,
+            "the active page must stand out"
+        );
+        assert_ne!(
+            ACTIVE_TEXT, NEUTRAL_TEXT,
+            "active text must read on the accent fill"
+        );
+        assert_ne!(
+            NEUTRAL_TEXT, DISABLED_TEXT,
+            "a disabled end must look disabled"
+        );
         // The active-page text sits on the accent fill and must not equal it.
-        assert_ne!(ACTIVE_TEXT, ACCENT_BG_COLOR, "active text would be invisible");
-        assert_ne!(NEUTRAL_TEXT, NEUTRAL_BG_COLOR, "neutral text would be invisible");
-        assert_ne!(DISABLED_TEXT, NEUTRAL_BG_COLOR, "disabled text would be invisible");
+        assert_ne!(
+            ACTIVE_TEXT, ACCENT_BG_COLOR,
+            "active text would be invisible"
+        );
+        assert_ne!(
+            NEUTRAL_TEXT, NEUTRAL_BG_COLOR,
+            "neutral text would be invisible"
+        );
+        assert_ne!(
+            DISABLED_TEXT, NEUTRAL_BG_COLOR,
+            "disabled text would be invisible"
+        );
     }
 
     // ==================================================================
@@ -1142,7 +1273,10 @@ mod autotest_generated {
             for cur in [0usize, 1, 2, 63, 1023, usize::MAX - 1, usize::MAX] {
                 let s = Pagination::create(cur, total).pagination_state.inner;
                 assert!(s.total_pages >= 1, "create({cur}, {total}) left 0 pages");
-                assert!(s.current_page >= 1, "create({cur}, {total}) produced page 0");
+                assert!(
+                    s.current_page >= 1,
+                    "create({cur}, {total}) produced page 0"
+                );
                 assert!(
                     s.current_page <= s.total_pages,
                     "create({cur}, {total}) escaped the upper bound"
@@ -1232,7 +1366,10 @@ mod autotest_generated {
             p.set_current_page(page);
             let once = p.pagination_state.inner.current_page;
             p.set_current_page(page);
-            assert_eq!(p.pagination_state.inner.current_page, once, "not idempotent");
+            assert_eq!(
+                p.pagination_state.inner.current_page, once,
+                "not idempotent"
+            );
             assert_eq!(once, page);
         }
     }
@@ -1258,7 +1395,10 @@ mod autotest_generated {
 
         // The builder form must not drop an already-installed callback.
         let p = Pagination::create(1, 6)
-            .with_on_change(RefAny::new(ChangeLog { seen: Vec::new() }), cb(record_change))
+            .with_on_change(
+                RefAny::new(ChangeLog { seen: Vec::new() }),
+                cb(record_change),
+            )
             .with_current_page(4);
         assert_eq!(p.pagination_state.inner.current_page, 4);
         assert!(
@@ -1278,13 +1418,19 @@ mod autotest_generated {
 
         assert_eq!(old.pagination_state.inner.current_page, 3);
         assert_eq!(old.pagination_state.inner.total_pages, 9);
-        assert_eq!(p, Pagination::default(), "self must be left as a 1-of-1 pager");
+        assert_eq!(
+            p,
+            Pagination::default(),
+            "self must be left as a 1-of-1 pager"
+        );
     }
 
     #[test]
     fn swap_with_default_moves_the_callback_out_of_self() {
-        let mut p = Pagination::create(1, 3)
-            .with_on_change(RefAny::new(ChangeLog { seen: Vec::new() }), cb(record_change));
+        let mut p = Pagination::create(1, 3).with_on_change(
+            RefAny::new(ChangeLog { seen: Vec::new() }),
+            cb(record_change),
+        );
 
         let old = p.swap_with_default();
         assert!(
@@ -1334,8 +1480,10 @@ mod autotest_generated {
     #[test]
     fn with_on_change_installs_the_callback_and_touches_nothing_else() {
         let before = Pagination::create(2, 5);
-        let after = Pagination::create(2, 5)
-            .with_on_change(RefAny::new(ChangeLog { seen: Vec::new() }), cb(record_change));
+        let after = Pagination::create(2, 5).with_on_change(
+            RefAny::new(ChangeLog { seen: Vec::new() }),
+            cb(record_change),
+        );
 
         assert_eq!(
             after.pagination_state.inner, before.pagination_state.inner,
@@ -1357,7 +1505,10 @@ mod autotest_generated {
     #[test]
     fn set_on_change_overwrites_the_previous_callback_and_data() {
         let mut p = Pagination::create(1, 3);
-        p.set_on_change(RefAny::new(ChangeLog { seen: Vec::new() }), cb(record_change));
+        p.set_on_change(
+            RefAny::new(ChangeLog { seen: Vec::new() }),
+            cb(record_change),
+        );
         p.set_on_change(RefAny::new(42u32), cb(change_do_nothing));
 
         let installed = p
@@ -1416,9 +1567,15 @@ mod autotest_generated {
             }
 
             assert!(dom.root.has_class("__azul-native-pagination"));
-            assert!(dom.root.is_node_type(NodeType::Div), "the bar must be a div");
+            assert!(
+                dom.root.is_node_type(NodeType::Div),
+                "the bar must be a div"
+            );
             assert_eq!(classes(&children[0]), ["__azul-native-pagination-nav"]);
-            assert_eq!(classes(&children[total + 1]), ["__azul-native-pagination-nav"]);
+            assert_eq!(
+                classes(&children[total + 1]),
+                ["__azul-native-pagination-nav"]
+            );
             assert_eq!(classes(&children[1]), ["__azul-native-pagination-page"]);
         }
     }
@@ -1444,7 +1601,11 @@ mod autotest_generated {
         let dom = Pagination::create(2, total).dom();
         for (i, child) in dom.children.as_ref().iter().enumerate() {
             let cbs = child.root.get_callbacks();
-            assert_eq!(cbs.as_ref().len(), 1, "button {i} must carry exactly one handler");
+            assert_eq!(
+                cbs.as_ref().len(),
+                1,
+                "button {i} must carry exactly one handler"
+            );
             assert_eq!(
                 cbs.as_ref()[0].event,
                 EventFilter::Hover(HoverEventFilter::MouseUp)
@@ -1540,12 +1701,20 @@ mod autotest_generated {
 
             assert_eq!(
                 prev,
-                Some(if current == 1 { DISABLED_TEXT } else { NEUTRAL_TEXT }),
+                Some(if current == 1 {
+                    DISABLED_TEXT
+                } else {
+                    NEUTRAL_TEXT
+                }),
                 "Prev at page {current}/{total}"
             );
             assert_eq!(
                 next,
-                Some(if current == total { DISABLED_TEXT } else { NEUTRAL_TEXT }),
+                Some(if current == total {
+                    DISABLED_TEXT
+                } else {
+                    NEUTRAL_TEXT
+                }),
                 "Next at page {current}/{total}"
             );
             // A muted end is a *style-only* signal — it stays clickable.
@@ -1709,7 +1878,11 @@ mod autotest_generated {
         let mut state2 = state.clone();
 
         let (update, changes) = run_click(Some(styled), next_node(total), state);
-        assert_eq!(update, Update::DoNothing, "no user callback => nothing to redraw");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "no user callback => nothing to redraw"
+        );
         assert_eq!(current_page_of(&mut state2), 3, "Next must step 2 -> 3");
         assert_eq!(
             restyle(&changes).len(),
@@ -1768,8 +1941,15 @@ mod autotest_generated {
 
         let (update, changes) = run_click(Some(styled), PREV_NODE, state);
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a disabled end must fire nothing at all");
-        assert_eq!(current_page_of(&mut state2), 1, "page 1 must not underflow to 0");
+        assert!(
+            changes.is_empty(),
+            "a disabled end must fire nothing at all"
+        );
+        assert_eq!(
+            current_page_of(&mut state2),
+            1,
+            "page 1 must not underflow to 0"
+        );
     }
 
     #[test]
@@ -1781,7 +1961,11 @@ mod autotest_generated {
         let (update, changes) = run_click(Some(styled), next_node(total), state);
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
-        assert_eq!(current_page_of(&mut state2), total, "must not run past the end");
+        assert_eq!(
+            current_page_of(&mut state2),
+            total,
+            "must not run past the end"
+        );
     }
 
     #[test]
@@ -1798,7 +1982,11 @@ mod autotest_generated {
                 (1..=total).contains(&page),
                 "page {page} escaped [1, {total}] after {step} Next presses"
             );
-            assert_eq!(page, (step + 2).min(total), "Next must advance one at a time");
+            assert_eq!(
+                page,
+                (step + 2).min(total),
+                "Next must advance one at a time"
+            );
         }
         assert_eq!(current_page_of(&mut probe), total);
 
@@ -1806,7 +1994,10 @@ mod autotest_generated {
         for step in 0..(total + 2) {
             let (_, _) = run_click(Some(styled.clone()), PREV_NODE, state.clone());
             let page = current_page_of(&mut probe);
-            assert!((1..=total).contains(&page), "page {page} escaped [1, {total}]");
+            assert!(
+                (1..=total).contains(&page),
+                "page {page} escaped [1, {total}]"
+            );
             assert_eq!(page, total.saturating_sub(step + 1).max(1));
         }
         assert_eq!(current_page_of(&mut probe), 1);
@@ -1851,7 +2042,11 @@ mod autotest_generated {
         let (styled, state) = flatten(p);
 
         let (update, _) = run_click(Some(styled.clone()), page_node(4), state.clone());
-        assert_eq!(update, Update::RefreshDom, "the user's Update must propagate");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user's Update must propagate"
+        );
         assert_eq!(
             logged(&mut log),
             vec![PaginationState {
@@ -1899,7 +2094,11 @@ mod autotest_generated {
         assert_eq!(pass.len(), total + 2, "one pair of writes per button");
 
         for (i, (node, bg, fg)) in pass.iter().enumerate() {
-            assert_eq!(*node, 2 * i + 1, "buttons must be restyled in document order");
+            assert_eq!(
+                *node,
+                2 * i + 1,
+                "buttons must be restyled in document order"
+            );
             let (want_bg, want_fg) = if i == 0 {
                 // Prev: live, because the new page is not 1.
                 (NEUTRAL_BG_COLOR, NEUTRAL_TEXT)
@@ -1931,7 +2130,11 @@ mod autotest_generated {
         let (_, changes) = run_click(Some(styled), page_node(total), state);
         let pass = restyle(&changes);
         assert_eq!(pass[0].2, NEUTRAL_TEXT, "Prev is live at the last page");
-        assert_eq!(pass[total + 1].2, DISABLED_TEXT, "Next must go muted at the end");
+        assert_eq!(
+            pass[total + 1].2,
+            DISABLED_TEXT,
+            "Next must go muted at the end"
+        );
     }
 
     #[test]
@@ -1979,7 +2182,11 @@ mod autotest_generated {
     fn click_with_a_foreign_payload_does_nothing() {
         let (styled, _) = flatten(Pagination::create(2, 4));
         let (update, changes) = run_click(Some(styled), page_node(3), RefAny::new(0u32));
-        assert_eq!(update, Update::DoNothing, "a failed downcast must bail cleanly");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "a failed downcast must bail cleanly"
+        );
         assert!(
             changes.is_empty(),
             "no state change => no restyle, even for a foreign payload"

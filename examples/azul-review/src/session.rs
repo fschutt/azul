@@ -45,23 +45,24 @@ use crate::AppState;
 // --------------------------------------------------------------------------
 
 fn bytes(v: &[u8]) -> U8Vec {
-    v.first()
-        .map_or_else(U8Vec::create, |first| {
-            U8Vec::copy_from_bytes(first, 0, v.len())
-        })
+    v.first().map_or_else(U8Vec::create, |first| {
+        U8Vec::copy_from_bytes(first, 0, v.len())
+    })
 }
 
 fn obj(entries: Vec<JsonKeyValue>) -> Json {
-    let vec = entries.first().map_or_else(JsonKeyValueVec::create, |first| {
-        JsonKeyValueVec::copy_from_array(first, entries.len())
-    });
+    let vec = entries
+        .first()
+        .map_or_else(JsonKeyValueVec::create, |first| {
+            JsonKeyValueVec::copy_from_array(first, entries.len())
+        });
     Json::object(vec)
 }
 
 fn arr(items: Vec<Json>) -> Json {
-    let vec = items
-        .first()
-        .map_or_else(JsonVec::create, |first| JsonVec::copy_from_array(first, items.len()));
+    let vec = items.first().map_or_else(JsonVec::create, |first| {
+        JsonVec::copy_from_array(first, items.len())
+    });
     Json::array(vec)
 }
 
@@ -159,7 +160,11 @@ fn wav(samples: &[f32], sample_rate: u32) -> Vec<u8> {
     let mut out = Vec::with_capacity(44 + data_len);
     let mut tag = |s: &str| out.extend_from_slice(s.as_bytes());
     tag("RIFF");
-    out.extend_from_slice(&u32::try_from(36 + data_len).unwrap_or(u32::MAX).to_le_bytes());
+    out.extend_from_slice(
+        &u32::try_from(36 + data_len)
+            .unwrap_or(u32::MAX)
+            .to_le_bytes(),
+    );
     out.extend_from_slice(b"WAVEfmt ");
     out.extend_from_slice(&16u32.to_le_bytes()); // fmt chunk size
     out.extend_from_slice(&1u16.to_le_bytes()); // PCM
@@ -209,14 +214,8 @@ pub fn save(s: &AppState) -> bool {
     let model = obj(vec![
         kv_str("format", "azreview/1"),
         kv_str("root", &s.root.display().to_string()),
-        kv_str(
-            "file",
-            s.file().map_or("", |f| f.display.as_str()),
-        ),
-        JsonKeyValue::create(
-            "strokes",
-            arr(s.strokes.iter().map(stroke_json).collect()),
-        ),
+        kv_str("file", s.file().map_or("", |f| f.display.as_str())),
+        JsonKeyValue::create("strokes", arr(s.strokes.iter().map(stroke_json).collect())),
         JsonKeyValue::create(
             "findings",
             arr(s.findings.iter().map(finding_json).collect()),
@@ -249,9 +248,10 @@ pub fn save(s: &AppState) -> bool {
 /// files parks the sheet, and an archive that spanned files would have to be
 /// rewritten in full every time one of them changed.
 fn archive_path(s: &AppState) -> std::path::PathBuf {
-    let stem = s
-        .file()
-        .map_or_else(|| "session".to_string(), |f| f.display.replace(['/', '\\'], "_"));
+    let stem = s.file().map_or_else(
+        || "session".to_string(),
+        |f| f.display.replace(['/', '\\'], "_"),
+    );
     crate::scratch_dir().join(format!("{stem}.azreview.zip"))
 }
 

@@ -1,7 +1,6 @@
-
-use azul_layout::solver3::calc::*;
 use azul_css::props::basic::{FloatValue, PixelValue, SizeMetric, DEFAULT_FONT_SIZE};
 use azul_css::props::layout::{CalcAstItem, CalcAstItemVec};
+use azul_layout::solver3::calc::*;
 
 /// Helper: create a `PixelValue` from metric + number.
 fn pv(metric: SizeMetric, number: f32) -> PixelValue {
@@ -422,20 +421,32 @@ fn chained_mul_div() {
 
 #[test]
 fn resolve_px() {
-    assert_eq!(resolve_pixel_value(&pv(SizeMetric::Px, 42.0), 0.0, 16.0, 16.0), 42.0);
+    assert_eq!(
+        resolve_pixel_value(&pv(SizeMetric::Px, 42.0), 0.0, 16.0, 16.0),
+        42.0
+    );
 }
 
 #[test]
 fn resolve_percent() {
-    assert_eq!(resolve_pixel_value(&pv(SizeMetric::Percent, 25.0), 400.0, 16.0, 16.0), 100.0);
+    assert_eq!(
+        resolve_pixel_value(&pv(SizeMetric::Percent, 25.0), 400.0, 16.0, 16.0),
+        100.0
+    );
 }
 
 #[test]
 fn resolve_em_custom() {
-    assert_eq!(resolve_pixel_value(&pv(SizeMetric::Em, 2.0), 0.0, 20.0, 16.0), 40.0);
+    assert_eq!(
+        resolve_pixel_value(&pv(SizeMetric::Em, 2.0), 0.0, 20.0, 16.0),
+        40.0
+    );
 }
 
 #[test]
 fn resolve_rem_custom() {
-    assert_eq!(resolve_pixel_value(&pv(SizeMetric::Rem, 2.0), 0.0, 20.0, 18.0), 36.0);
+    assert_eq!(
+        resolve_pixel_value(&pv(SizeMetric::Rem, 2.0), 0.0, 20.0, 18.0),
+        36.0
+    );
 }

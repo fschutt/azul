@@ -4,7 +4,9 @@
 
 #[cfg(feature = "xml")]
 mod xml_compilation_tests {
-    use azul_core::xml::{str_to_rust_code, str_to_c_code, str_to_cpp_code, str_to_python_code, ComponentMap};
+    use azul_core::xml::{
+        str_to_c_code, str_to_cpp_code, str_to_python_code, str_to_rust_code, ComponentMap,
+    };
     use azul_layout::xml::parse_xml_string;
 
     const SAMPLE: &str = r#"<!DOCTYPE html>
@@ -18,7 +20,9 @@ mod xml_compilation_tests {
     const MIXED: &str = r#"<!DOCTYPE html>
 <html><head></head><body><p>Before <span>mid</span> after</p></body></html>"#;
 
-    fn count(hay: &str, needle: &str) -> usize { hay.matches(needle).count() }
+    fn count(hay: &str, needle: &str) -> usize {
+        hay.matches(needle).count()
+    }
 
     #[test]
     fn test_mixed_text_and_element_children_rust() {
@@ -38,11 +42,32 @@ mod xml_compilation_tests {
         for (name, out) in [
             ("c", str_to_c_code(parsed.as_ref(), &cmap).unwrap()),
             ("cpp", str_to_cpp_code(parsed.as_ref(), &cmap).unwrap()),
-            ("python", str_to_python_code(parsed.as_ref(), &cmap).unwrap()),
+            (
+                "python",
+                str_to_python_code(parsed.as_ref(), &cmap).unwrap(),
+            ),
         ] {
-            assert_eq!(count(&out, "Before"), 1, "{}: lost leading text:\n{}", name, out);
-            assert_eq!(count(&out, "mid"), 1, "{}: lost element text:\n{}", name, out);
-            assert_eq!(count(&out, "after"), 1, "{}: lost trailing text:\n{}", name, out);
+            assert_eq!(
+                count(&out, "Before"),
+                1,
+                "{}: lost leading text:\n{}",
+                name,
+                out
+            );
+            assert_eq!(
+                count(&out, "mid"),
+                1,
+                "{}: lost element text:\n{}",
+                name,
+                out
+            );
+            assert_eq!(
+                count(&out, "after"),
+                1,
+                "{}: lost trailing text:\n{}",
+                name,
+                out
+            );
         }
     }
 
@@ -344,13 +369,29 @@ mod xml_compilation_tests {
     #[test]
     fn test_tier_a_p_with_text_all_langs() {
         let (rust, c, cpp, py) = gen_all("<p>hi</p>");
-        assert!(rust.contains("Dom::create_p_with_text(AzString::from(\"hi\"))"), "{}", rust);
+        assert!(
+            rust.contains("Dom::create_p_with_text(AzString::from(\"hi\"))"),
+            "{}",
+            rust
+        );
         assert!(c.contains("AzDom_createPWithText(AZ_STR(\"hi\"))"), "{}", c);
-        assert!(cpp.contains("Dom::create_p_with_text(String(\"hi\"))"), "{}", cpp);
+        assert!(
+            cpp.contains("Dom::create_p_with_text(String(\"hi\"))"),
+            "{}",
+            cpp
+        );
         assert!(py.contains("azul.Dom.create_p_with_text(\"hi\")"), "{}", py);
         // text folded into the ctor — never also emitted as a child text node
-        assert!(!c.contains("AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"hi\"))"), "text not consumed: {}", c);
-        assert!(!rust.contains("Dom::create_text_do_not_use_without_block_level_wrapper(\"hi\")"), "text not consumed: {}", rust);
+        assert!(
+            !c.contains("AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"hi\"))"),
+            "text not consumed: {}",
+            c
+        );
+        assert!(
+            !rust.contains("Dom::create_text_do_not_use_without_block_level_wrapper(\"hi\")"),
+            "text not consumed: {}",
+            rust
+        );
     }
 
     // Tier C — `<button aria-label="Go">Go</button>` → create_button(text, aria).
@@ -358,10 +399,28 @@ mod xml_compilation_tests {
     fn test_tier_c_button_aria_all_langs() {
         let (rust, c, cpp, py) = gen_all("<button aria-label=\"Go\">Go</button>");
         assert!(rust.contains("Dom::create_button(AzString::from(\"Go\"), SmallAriaInfo::label(AzString::from(\"Go\")))"), "{}", rust);
-        assert!(c.contains("AzDom_createButton(AZ_STR(\"Go\"), AzSmallAriaInfo_label(AZ_STR(\"Go\")))"), "{}", c);
-        assert!(cpp.contains("Dom::create_button(String(\"Go\"), SmallAriaInfo::label(String(\"Go\")))"), "{}", cpp);
-        assert!(py.contains("azul.Dom.create_button(\"Go\", azul.SmallAriaInfo.label(\"Go\"))"), "{}", py);
-        assert!(!c.contains("AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"Go\"))"), "button text must be consumed: {}", c);
+        assert!(
+            c.contains("AzDom_createButton(AZ_STR(\"Go\"), AzSmallAriaInfo_label(AZ_STR(\"Go\")))"),
+            "{}",
+            c
+        );
+        assert!(
+            cpp.contains(
+                "Dom::create_button(String(\"Go\"), SmallAriaInfo::label(String(\"Go\")))"
+            ),
+            "{}",
+            cpp
+        );
+        assert!(
+            py.contains("azul.Dom.create_button(\"Go\", azul.SmallAriaInfo.label(\"Go\"))"),
+            "{}",
+            py
+        );
+        assert!(
+            !c.contains("AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(\"Go\"))"),
+            "button text must be consumed: {}",
+            c
+        );
     }
 
     // Tier C — `<a href="x">link</a>` (no aria) → create_a_no_a11y(href, Some(label)).
@@ -369,9 +428,23 @@ mod xml_compilation_tests {
     fn test_tier_c_a_no_aria_all_langs() {
         let (rust, c, cpp, py) = gen_all("<a href=\"x\">link</a>");
         assert!(rust.contains("Dom::create_a_no_a11y(AzString::from(\"x\"), OptionString::Some(AzString::from(\"link\")))"), "{}", rust);
-        assert!(c.contains("AzDom_createANoA11y(AZ_STR(\"x\"), AzOptionString_some(AZ_STR(\"link\")))"), "{}", c);
-        assert!(cpp.contains("Dom::create_a_no_a11y(String(\"x\"), OptionString::some(String(\"link\")))"), "{}", cpp);
-        assert!(py.contains("azul.Dom.create_a_no_a11y(\"x\", azul.OptionString.some(\"link\"))"), "{}", py);
+        assert!(
+            c.contains("AzDom_createANoA11y(AZ_STR(\"x\"), AzOptionString_some(AZ_STR(\"link\")))"),
+            "{}",
+            c
+        );
+        assert!(
+            cpp.contains(
+                "Dom::create_a_no_a11y(String(\"x\"), OptionString::some(String(\"link\")))"
+            ),
+            "{}",
+            cpp
+        );
+        assert!(
+            py.contains("azul.Dom.create_a_no_a11y(\"x\", azul.OptionString.some(\"link\"))"),
+            "{}",
+            py
+        );
     }
 
     // Tier C — `<input type="text" name="u">` → create_input_no_a11y(type, name, label).
@@ -379,9 +452,23 @@ mod xml_compilation_tests {
     fn test_tier_c_input_all_langs() {
         let (rust, c, cpp, py) = gen_all("<input type=\"text\" name=\"u\">");
         assert!(rust.contains("Dom::create_input_no_a11y(AzString::from(\"text\"), AzString::from(\"u\"), AzString::from(\"\"))"), "{}", rust);
-        assert!(c.contains("AzDom_createInputNoA11y(AZ_STR(\"text\"), AZ_STR(\"u\"), AZ_STR(\"\"))"), "{}", c);
-        assert!(cpp.contains("Dom::create_input_no_a11y(String(\"text\"), String(\"u\"), String(\"\"))"), "{}", cpp);
-        assert!(py.contains("azul.Dom.create_input_no_a11y(\"text\", \"u\", \"\")"), "{}", py);
+        assert!(
+            c.contains("AzDom_createInputNoA11y(AZ_STR(\"text\"), AZ_STR(\"u\"), AZ_STR(\"\"))"),
+            "{}",
+            c
+        );
+        assert!(
+            cpp.contains(
+                "Dom::create_input_no_a11y(String(\"text\"), String(\"u\"), String(\"\"))"
+            ),
+            "{}",
+            cpp
+        );
+        assert!(
+            py.contains("azul.Dom.create_input_no_a11y(\"text\", \"u\", \"\")"),
+            "{}",
+            py
+        );
     }
 
     // Tier B — `<details><summary>S</summary></details>` → details_no_a11y + summary_with_text_no_a11y.
@@ -389,13 +476,29 @@ mod xml_compilation_tests {
     fn test_tier_b_details_summary_all_langs() {
         let (rust, c, cpp, py) = gen_all("<details><summary>S</summary></details>");
         assert!(rust.contains("Dom::create_details_no_a11y()"), "{}", rust);
-        assert!(rust.contains("Dom::create_summary_with_text_no_a11y(AzString::from(\"S\"))"), "{}", rust);
+        assert!(
+            rust.contains("Dom::create_summary_with_text_no_a11y(AzString::from(\"S\"))"),
+            "{}",
+            rust
+        );
         assert!(c.contains("AzDom_createDetailsNoA11y()"), "{}", c);
-        assert!(c.contains("AzDom_createSummaryWithTextNoA11y(AZ_STR(\"S\"))"), "{}", c);
+        assert!(
+            c.contains("AzDom_createSummaryWithTextNoA11y(AZ_STR(\"S\"))"),
+            "{}",
+            c
+        );
         assert!(cpp.contains("Dom::create_details_no_a11y()"), "{}", cpp);
-        assert!(cpp.contains("Dom::create_summary_with_text_no_a11y(String(\"S\"))"), "{}", cpp);
+        assert!(
+            cpp.contains("Dom::create_summary_with_text_no_a11y(String(\"S\"))"),
+            "{}",
+            cpp
+        );
         assert!(py.contains("azul.Dom.create_details_no_a11y()"), "{}", py);
-        assert!(py.contains("azul.Dom.create_summary_with_text_no_a11y(\"S\")"), "{}", py);
+        assert!(
+            py.contains("azul.Dom.create_summary_with_text_no_a11y(\"S\")"),
+            "{}",
+            py
+        );
     }
 
     // Tier D — Progress/Meter/Dialog use the NoA11y form with extracted scalars.
@@ -404,13 +507,37 @@ mod xml_compilation_tests {
         let (rust, c, cpp, py) = gen_all(
             "<progress value=\"0.5\" max=\"1\"></progress><meter value=\"2\" min=\"0\" max=\"10\"></meter><dialog></dialog>",
         );
-        assert!(rust.contains("Dom::create_progress_no_a11y(0.5, 1.0)"), "{}", rust);
-        assert!(rust.contains("Dom::create_meter_no_a11y(2.0, 0.0, 10.0)"), "{}", rust);
+        assert!(
+            rust.contains("Dom::create_progress_no_a11y(0.5, 1.0)"),
+            "{}",
+            rust
+        );
+        assert!(
+            rust.contains("Dom::create_meter_no_a11y(2.0, 0.0, 10.0)"),
+            "{}",
+            rust
+        );
         assert!(rust.contains("Dom::create_dialog_no_a11y()"), "{}", rust);
-        assert!(c.contains("AzDom_createProgressNoA11y(0.5f, 1.0f)"), "{}", c);
-        assert!(c.contains("AzDom_createMeterNoA11y(2.0f, 0.0f, 10.0f)"), "{}", c);
-        assert!(cpp.contains("Dom::create_progress_no_a11y(0.5f, 1.0f)"), "{}", cpp);
-        assert!(py.contains("azul.Dom.create_meter_no_a11y(2.0, 0.0, 10.0)"), "{}", py);
+        assert!(
+            c.contains("AzDom_createProgressNoA11y(0.5f, 1.0f)"),
+            "{}",
+            c
+        );
+        assert!(
+            c.contains("AzDom_createMeterNoA11y(2.0f, 0.0f, 10.0f)"),
+            "{}",
+            c
+        );
+        assert!(
+            cpp.contains("Dom::create_progress_no_a11y(0.5f, 1.0f)"),
+            "{}",
+            cpp
+        );
+        assert!(
+            py.contains("azul.Dom.create_meter_no_a11y(2.0, 0.0, 10.0)"),
+            "{}",
+            py
+        );
     }
 
     /// Build the full set of semantic `AzDom_create*` symbols this generator can
@@ -418,19 +545,52 @@ mod xml_compilation_tests {
     /// `azul20.hpp` (C++); the C++/Python/Rust names are their snake_case.
     fn verified_c_semantic_symbols() -> Vec<String> {
         let with_text = [
-            "Acronym", "B", "Bdi", "Bdo", "Big", "Blockquote", "Cite", "Code",
-            "Del", "Dfn", "Em", "H1", "H2", "H3", "H4", "H5", "H6", "I", "Ins",
-            "Kbd", "Li", "Mark", "P", "Pre", "Rp", "Rt", "S", "Samp", "Small",
-            "Span", "Strong", "Style", "Sub", "Sup", "Td", "Th", "Title", "U",
+            "Acronym",
+            "B",
+            "Bdi",
+            "Bdo",
+            "Big",
+            "Blockquote",
+            "Cite",
+            "Code",
+            "Del",
+            "Dfn",
+            "Em",
+            "H1",
+            "H2",
+            "H3",
+            "H4",
+            "H5",
+            "H6",
+            "I",
+            "Ins",
+            "Kbd",
+            "Li",
+            "Mark",
+            "P",
+            "Pre",
+            "Rp",
+            "Rt",
+            "S",
+            "Samp",
+            "Small",
+            "Span",
+            "Strong",
+            "Style",
+            "Sub",
+            "Sup",
+            "Td",
+            "Th",
+            "Title",
+            "U",
             "Var",
         ];
         let tier_b = [
-            "Details", "Form", "Fieldset", "Legend", "Menu", "Output",
-            "Datalist", "Canvas", "Audio", "Video", "Area",
+            "Details", "Form", "Fieldset", "Legend", "Menu", "Output", "Datalist", "Canvas",
+            "Audio", "Video", "Area",
         ];
         let tier_c = [
-            "Button", "A", "Label", "Input", "Textarea", "Select", "Option",
-            "Optgroup", "Table",
+            "Button", "A", "Label", "Input", "Textarea", "Select", "Option", "Optgroup", "Table",
         ];
         let mut v = Vec::new();
         for t in with_text {
@@ -441,7 +601,12 @@ mod xml_compilation_tests {
             v.push(format!("AzDom_create{}NoA11y", t));
         }
         // Summary has both aria-only and with-text forms.
-        for s in ["AzDom_createSummary", "AzDom_createSummaryNoA11y", "AzDom_createSummaryWithText", "AzDom_createSummaryWithTextNoA11y"] {
+        for s in [
+            "AzDom_createSummary",
+            "AzDom_createSummaryNoA11y",
+            "AzDom_createSummaryWithText",
+            "AzDom_createSummaryWithTextNoA11y",
+        ] {
             v.push(s.to_string());
         }
         for t in tier_c {
@@ -481,11 +646,30 @@ mod xml_compilation_tests {
             || b.ends_with("NoA11y")
             || matches!(
                 b,
-                "Button" | "A" | "Label" | "Input" | "Textarea" | "Select"
-                    | "Option" | "Optgroup" | "Table" | "Details" | "Summary"
-                    | "Form" | "Fieldset" | "Legend" | "Menu" | "Output"
-                    | "Datalist" | "Canvas" | "Audio" | "Video" | "Area"
-                    | "Progress" | "Meter" | "Dialog"
+                "Button"
+                    | "A"
+                    | "Label"
+                    | "Input"
+                    | "Textarea"
+                    | "Select"
+                    | "Option"
+                    | "Optgroup"
+                    | "Table"
+                    | "Details"
+                    | "Summary"
+                    | "Form"
+                    | "Fieldset"
+                    | "Legend"
+                    | "Menu"
+                    | "Output"
+                    | "Datalist"
+                    | "Canvas"
+                    | "Audio"
+                    | "Video"
+                    | "Area"
+                    | "Progress"
+                    | "Meter"
+                    | "Dialog"
             )
     }
 
@@ -494,13 +678,27 @@ mod xml_compilation_tests {
             || method.ends_with("_no_a11y")
             || matches!(
                 method,
-                "create_button" | "create_a" | "create_label" | "create_input"
-                    | "create_textarea" | "create_select" | "create_option"
-                    | "create_optgroup" | "create_table" | "create_details"
-                    | "create_summary" | "create_form" | "create_fieldset"
-                    | "create_legend" | "create_menu" | "create_output"
-                    | "create_datalist" | "create_canvas" | "create_audio"
-                    | "create_video" | "create_area"
+                "create_button"
+                    | "create_a"
+                    | "create_label"
+                    | "create_input"
+                    | "create_textarea"
+                    | "create_select"
+                    | "create_option"
+                    | "create_optgroup"
+                    | "create_table"
+                    | "create_details"
+                    | "create_summary"
+                    | "create_form"
+                    | "create_fieldset"
+                    | "create_legend"
+                    | "create_menu"
+                    | "create_output"
+                    | "create_datalist"
+                    | "create_canvas"
+                    | "create_audio"
+                    | "create_video"
+                    | "create_area"
             )
     }
 
@@ -570,7 +768,11 @@ mod xml_compilation_tests {
                 );
             }
         }
-        assert!(saw_semantic, "test page emitted no semantic symbols:\n{}", c);
+        assert!(
+            saw_semantic,
+            "test page emitted no semantic symbols:\n{}",
+            c
+        );
 
         // (b) Header gate: when azul.h is reachable, every verified + every
         //     emitted semantic symbol must exist in it.

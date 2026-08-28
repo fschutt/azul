@@ -116,13 +116,18 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         } else if let Some(v) = arg.strip_prefix("--analyzer-model=") {
             analyzer_model = Some(v.to_string());
         } else if let Some(v) = arg.strip_prefix("--limit=") {
-            limit = Some(v.parse::<usize>()
-                .map_err(|_| format!("--limit must be a non-negative integer, got: {}", v))?);
+            limit = Some(
+                v.parse::<usize>()
+                    .map_err(|_| format!("--limit must be a non-negative integer, got: {}", v))?,
+            );
         } else if let Some(v) = arg.strip_prefix("--last=") {
-            last = Some(v.parse::<usize>()
-                .map_err(|_| format!("--last must be a non-negative integer, got: {}", v))?);
+            last = Some(
+                v.parse::<usize>()
+                    .map_err(|_| format!("--last must be a non-negative integer, got: {}", v))?,
+            );
         } else if let Some(v) = arg.strip_prefix("--retries=") {
-            retries = v.parse::<u32>()
+            retries = v
+                .parse::<u32>()
                 .map_err(|_| format!("--retries must be a non-negative integer, got: {}", v))?
                 .max(1);
         } else if *arg == "--no-analyze" {
@@ -144,19 +149,19 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         }
     }
 
-    let mode_count = (triage_only as u8)
-        + (pending_only as u8)
-        + (refresh_pending as u8)
-        + (auto_apply as u8);
+    let mode_count =
+        (triage_only as u8) + (pending_only as u8) + (refresh_pending as u8) + (auto_apply as u8);
     if mode_count > 1 {
-        return Err("--triage, --pending-only, --auto-apply, and --refresh-pending \
+        return Err(
+            "--triage, --pending-only, --auto-apply, and --refresh-pending \
                     are mutually exclusive: they walk different subsets of the \
                     commit list."
-            .to_string());
+                .to_string(),
+        );
     }
 
-    let reference = reference
-        .ok_or_else(|| "--reference=<branch-or-tag> is required".to_string())?;
+    let reference =
+        reference.ok_or_else(|| "--reference=<branch-or-tag> is required".to_string())?;
 
     Ok(Config {
         reference,
@@ -189,7 +194,9 @@ pub fn run(config: Config) -> Result<(), String> {
 
     // Resolve reference and base SHAs up-front
     let reference_sha = git_rev_parse(&project_root, &config.reference)?;
-    let base_ref = config.base.clone()
+    let base_ref = config
+        .base
+        .clone()
         .unwrap_or_else(|| "origin/layout-debug-clean".to_string());
     let base_sha = git_rev_parse(&project_root, &base_ref)?;
 
@@ -207,8 +214,10 @@ pub fn run(config: Config) -> Result<(), String> {
         return Err(format!(
             "progress.json is for reference {} (sha {}), but you asked for {} (sha {}). \
              Delete {} to start fresh.",
-            progress.reference, progress.reference_sha,
-            config.reference, reference_sha,
+            progress.reference,
+            progress.reference_sha,
+            config.reference,
+            reference_sha,
             progress_path.display()
         ));
     }
@@ -233,7 +242,13 @@ pub fn run(config: Config) -> Result<(), String> {
     let total = commits.len();
 
     if config.refresh_pending {
-        return run_refresh_pending(&project_root, &mut progress, &progress_path, &commits, &config);
+        return run_refresh_pending(
+            &project_root,
+            &mut progress,
+            &progress_path,
+            &commits,
+            &config,
+        );
     }
 
     let mode_label = if config.triage_only {
@@ -245,7 +260,10 @@ pub fn run(config: Config) -> Result<(), String> {
     } else {
         "APPLY"
     };
-    println!("Reference {} → {} commits  [mode: {}]", config.reference, total, mode_label);
+    println!(
+        "Reference {} → {} commits  [mode: {}]",
+        config.reference, total, mode_label
+    );
     println!("Base: {}", base_ref);
     println!(
         "Progress: {}/{} processed, {} pending\n",
@@ -254,7 +272,10 @@ pub fn run(config: Config) -> Result<(), String> {
         progress.pending.len()
     );
     if let Some(n) = config.limit {
-        println!("Session limit: will stop after {} decision(s) this run.\n", n);
+        println!(
+            "Session limit: will stop after {} decision(s) this run.\n",
+            n
+        );
     }
     if config.triage_only {
         println!("Triage mode: analyzer + decision only — no apply agent will run.");
@@ -264,20 +285,33 @@ pub fn run(config: Config) -> Result<(), String> {
         println!(
             "Pending-only mode: only the {} pending entr{} will be applied; un-triaged",
             progress.pending.len(),
-            if progress.pending.len() == 1 { "y" } else { "ies" }
+            if progress.pending.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
         );
         println!("  commits are left untouched. Runs to completion without prompting.\n");
     } else if config.auto_apply {
         println!("Auto-apply mode: no human in the loop. The analyzer classifies every");
         println!("  un-processed commit and acts on its tag automatically:");
-        println!("    [KEEP]/[WIRE]/[REFACTOR] → apply (unattended, up to {} attempts)", config.retries);
+        println!(
+            "    [KEEP]/[WIRE]/[REFACTOR] → apply (unattended, up to {} attempts)",
+            config.retries
+        );
         println!("    [DONE]    → skip (bug already fixed in the drifted tree)");
         println!("    [REJECT]  → reject");
         println!(
             "    [UNCLEAR] → {}",
-            if config.auto_unclear_apply { "apply (--auto-apply-unclear)" } else { "skip, leave for human review" }
+            if config.auto_unclear_apply {
+                "apply (--auto-apply-unclear)"
+            } else {
+                "skip, leave for human review"
+            }
         );
-        println!("  Re-run to resume; [UNCLEAR]/[DONE] skips are recorded so they're not redone.\n");
+        println!(
+            "  Re-run to resume; [UNCLEAR]/[DONE] skips are recorded so they're not redone.\n"
+        );
     } else if !progress.pending.is_empty() {
         println!(
             "Will auto-consume {} pending decision(s) without prompting.\n",
@@ -342,16 +376,33 @@ pub fn run(config: Config) -> Result<(), String> {
                     println!("All commits processed.");
                 }
                 if let Some(b) = bridge.as_ref() {
-                    let applied = progress.processed.iter().filter(|d| matches!(
-                        d.decision,
-                        DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
-                    )).count();
-                    let rejected = progress.processed.iter()
-                        .filter(|d| d.decision == DecisionKind::Rejected).count();
-                    let skipped = progress.processed.iter().filter(|d| matches!(
-                        d.decision,
-                        DecisionKind::SkippedMd | DecisionKind::SkippedByUser | DecisionKind::SkippedAuto
-                    )).count();
+                    let applied = progress
+                        .processed
+                        .iter()
+                        .filter(|d| {
+                            matches!(
+                                d.decision,
+                                DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
+                            )
+                        })
+                        .count();
+                    let rejected = progress
+                        .processed
+                        .iter()
+                        .filter(|d| d.decision == DecisionKind::Rejected)
+                        .count();
+                    let skipped = progress
+                        .processed
+                        .iter()
+                        .filter(|d| {
+                            matches!(
+                                d.decision,
+                                DecisionKind::SkippedMd
+                                    | DecisionKind::SkippedByUser
+                                    | DecisionKind::SkippedAuto
+                            )
+                        })
+                        .count();
                     let _ = b.send_message(
                         &format!(
                             "apply-midlevel finished [mode: {}]\nreference: {}\napplied={} rejected={} skipped={} pending={}",
@@ -421,7 +472,9 @@ pub fn run(config: Config) -> Result<(), String> {
         save_progress(&progress_path, &progress)?;
 
         // ── Plan session (analyzer iterations) ──────────────────────────
-        let mut plan = PlanSession { iterations: Vec::new() };
+        let mut plan = PlanSession {
+            iterations: Vec::new(),
+        };
 
         // Restore the full iteration trace from a pending entry so the apply
         // agent's prompt gets the AGREED PLAN section (latest_plan) plus the
@@ -446,10 +499,16 @@ pub fn run(config: Config) -> Result<(), String> {
                 pd.action
             );
             let feedback_blob: Option<String> = if !pd.iterations.is_empty() {
-                let v: Vec<String> = pd.iterations.iter()
+                let v: Vec<String> = pd
+                    .iterations
+                    .iter()
                     .filter_map(|it| it.user_feedback.clone())
                     .collect();
-                if v.is_empty() { None } else { Some(v.join("\n---\n")) }
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.join("\n---\n"))
+                }
             } else {
                 pd.comment.clone()
             };
@@ -461,7 +520,9 @@ pub fn run(config: Config) -> Result<(), String> {
                     }
                 }
             } else {
-                println!("[pending] (no analyzer plan saved — legacy entry, apply agent re-derives)");
+                println!(
+                    "[pending] (no analyzer plan saved — legacy entry, apply agent re-derives)"
+                );
             }
             if let Some(c) = &feedback_blob {
                 println!("[pending] saved instructions:");
@@ -477,7 +538,9 @@ pub fn run(config: Config) -> Result<(), String> {
                         total,
                         info.subject,
                         pd.action,
-                        feedback_blob.as_deref().unwrap_or("(no extra instructions)")
+                        feedback_blob
+                            .as_deref()
+                            .unwrap_or("(no extra instructions)")
                     ),
                     None,
                 );
@@ -489,15 +552,23 @@ pub fn run(config: Config) -> Result<(), String> {
             // decide on without it) and map its classification tag straight to
             // an action. No prompt, no refinement loop.
             match run_analysis_agent(
-                &project_root, &next, &info, paired_docs.as_ref(),
-                &plan, None, &config,
+                &project_root,
+                &next,
+                &info,
+                paired_docs.as_ref(),
+                &plan,
+                None,
+                &config,
             ) {
                 Ok(output) => plan.iterations.push(PlanIteration {
                     user_feedback: None,
                     analyzer_output: output,
                 }),
                 Err(e) => {
-                    println!("[auto] analyzer failed: {} — recording skip for human review", e);
+                    println!(
+                        "[auto] analyzer failed: {} — recording skip for human review",
+                        e
+                    );
                 }
             }
             let (action, tag) = match plan.latest_plan() {
@@ -520,7 +591,11 @@ pub fn run(config: Config) -> Result<(), String> {
                 let _ = b.send_message(
                     &format!(
                         "[auto {}/{}] {}\n[{}] → {}",
-                        processed_so_far + 1, total, info.subject, tag, verb
+                        processed_so_far + 1,
+                        total,
+                        info.subject,
+                        tag,
+                        verb
                     ),
                     None,
                 );
@@ -530,8 +605,13 @@ pub fn run(config: Config) -> Result<(), String> {
             // Initial analysis (no user feedback yet)
             if !config.skip_analyze {
                 match run_analysis_agent(
-                    &project_root, &next, &info, paired_docs.as_ref(),
-                    &plan, None, &config,
+                    &project_root,
+                    &next,
+                    &info,
+                    paired_docs.as_ref(),
+                    &plan,
+                    None,
+                    &config,
                 ) {
                     Ok(output) => plan.iterations.push(PlanIteration {
                         user_feedback: None,
@@ -559,8 +639,13 @@ pub fn run(config: Config) -> Result<(), String> {
                 match action {
                     UserAction::Refine(feedback) => {
                         match run_analysis_agent(
-                            &project_root, &next, &info, paired_docs.as_ref(),
-                            &plan, Some(&feedback), &config,
+                            &project_root,
+                            &next,
+                            &info,
+                            paired_docs.as_ref(),
+                            &plan,
+                            Some(&feedback),
+                            &config,
                         ) {
                             Ok(output) => plan.iterations.push(PlanIteration {
                                 user_feedback: Some(feedback),
@@ -576,7 +661,9 @@ pub fn run(config: Config) -> Result<(), String> {
                     }
                     UserAction::ShowRemote => {
                         if let Some(b) = bridge.as_ref() {
-                            if let Err(e) = send_commit_diff_to_phone(b, &project_root, &next, &info) {
+                            if let Err(e) =
+                                send_commit_diff_to_phone(b, &project_root, &next, &info)
+                            {
                                 eprintln!("[telegram] sendDocument failed: {}", e);
                             }
                         }
@@ -593,8 +680,7 @@ pub fn run(config: Config) -> Result<(), String> {
                 // agent. This is the whole point of triage — get a decision per
                 // commit without paying the 20-min CI cost for each.
                 if config.triage_only && !consuming_pending {
-                    let any_feedback = plan.iterations.iter()
-                        .any(|it| it.user_feedback.is_some());
+                    let any_feedback = plan.iterations.iter().any(|it| it.user_feedback.is_some());
                     let action = if any_feedback {
                         PendingAction::Edit
                     } else {
@@ -626,100 +712,117 @@ pub fn run(config: Config) -> Result<(), String> {
                         let _ = b.send_message(
                             &format!(
                                 "[triage {}/{}] {}\nqueued: {:?} ({} pending)",
-                                processed_so_far + 1, total, info.subject, action, pending_count
+                                processed_so_far + 1,
+                                total,
+                                info.subject,
+                                action,
+                                pending_count
                             ),
                             None,
                         );
                     }
                     println!();
                 } else {
+                    let pre_head = git_head(&project_root)?;
+                    let user_refinements: Vec<String> = plan
+                        .iterations
+                        .iter()
+                        .filter_map(|it| it.user_feedback.clone())
+                        .collect();
+                    let was_refined = !user_refinements.is_empty();
 
-                let pre_head = git_head(&project_root)?;
-                let user_refinements: Vec<String> = plan.iterations.iter()
-                    .filter_map(|it| it.user_feedback.clone())
-                    .collect();
-                let was_refined = !user_refinements.is_empty();
+                    // Counts consecutive failures of run_apply_agent. Resets to 0
+                    // on success (so post-apply refinement gets a fresh budget).
+                    let mut attempts: u32 = 0;
 
-                // Counts consecutive failures of run_apply_agent. Resets to 0
-                // on success (so post-apply refinement gets a fresh budget).
-                let mut attempts: u32 = 0;
-
-                // Apply + post-apply refine loop
-                let final_outcome = loop {
-                    let outcome = run_apply_agent(
-                        &project_root, &next, &info,
-                        paired_docs.as_ref(),
-                        &plan,
-                        &pre_head,
-                        &config,
-                    );
-                    match outcome {
-                        Ok(applied) => {
-                            attempts = 0;
-                            print_applied_summary(&project_root, &pre_head, &applied.new_sha)?;
-                            if let Some(b) = bridge.as_ref() {
-                                if let Err(e) = send_applied_diff_to_phone(
-                                    b, &project_root, &pre_head, &applied.new_sha,
-                                ) {
-                                    eprintln!("[telegram] applied-diff sendDocument failed: {}", e);
-                                }
-                            }
-                            // Unattended (pending-consumer or full-auto): no
-                            // human to confirm — auto-accept the result. Diff
-                            // was already mirrored to phone above for review.
-                            if unattended {
-                                break Ok(applied);
-                            }
-                            match prompt_post_apply(&input_channel)? {
-                                PostApply::Accept => break Ok(applied),
-                                PostApply::Refine(instr) => {
-                                    plan.iterations.push(PlanIteration {
-                                        user_feedback: Some(instr),
-                                        analyzer_output: String::new(),
-                                    });
-                                    continue;
-                                }
-                                PostApply::Revert => {
-                                    run_git(&project_root, &["reset", "--hard", &pre_head])?;
-                                    break Err("user reverted the commit".to_string());
-                                }
-                                PostApply::Quit => {
-                                    println!("Quitting without advancing. Re-run to resume.");
-                                    save_progress(&progress_path, &progress)?;
-                                    return Ok(());
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            attempts += 1;
-
-                            // In unattended (pending-consumer) mode, retry on
-                            // failure. Concurrent-build / lock-contention
-                            // errors get a 60s wait (another azul-doc process
-                            // is likely using the same target/ dir) and no
-                            // injected feedback — the patch is innocent, the
-                            // env is wrong. Real errors get a 5s wait + a
-                            // hint to the agent describing what failed.
-                            if unattended && attempts < config.retries {
-                                let lc = e.to_ascii_lowercase();
-                                let looks_transient = lc.contains("blocking waiting")
-                                    || lc.contains("file lock")
-                                    || lc.contains("could not acquire")
-                                    || lc.contains("enospc")
-                                    || lc.contains("no space left on device")
-                                    || lc.contains("resource temporarily unavailable")
-                                    || lc.contains("text file busy")
-                                    || lc.contains("is being used by another process");
-                                let sleep_secs: u64 = if looks_transient { 60 } else { 5 };
-                                let kind = if looks_transient { "transient/concurrent-build" } else { "real" };
-
-                                println!(
-                                    "\n[pending] attempt {}/{} failed ({} error): {}",
-                                    attempts, config.retries, kind, e
-                                );
-                                println!("[pending] waiting {}s, then retrying...", sleep_secs);
+                    // Apply + post-apply refine loop
+                    let final_outcome = loop {
+                        let outcome = run_apply_agent(
+                            &project_root,
+                            &next,
+                            &info,
+                            paired_docs.as_ref(),
+                            &plan,
+                            &pre_head,
+                            &config,
+                        );
+                        match outcome {
+                            Ok(applied) => {
+                                attempts = 0;
+                                print_applied_summary(&project_root, &pre_head, &applied.new_sha)?;
                                 if let Some(b) = bridge.as_ref() {
-                                    let _ = b.send_message(
+                                    if let Err(e) = send_applied_diff_to_phone(
+                                        b,
+                                        &project_root,
+                                        &pre_head,
+                                        &applied.new_sha,
+                                    ) {
+                                        eprintln!(
+                                            "[telegram] applied-diff sendDocument failed: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                                // Unattended (pending-consumer or full-auto): no
+                                // human to confirm — auto-accept the result. Diff
+                                // was already mirrored to phone above for review.
+                                if unattended {
+                                    break Ok(applied);
+                                }
+                                match prompt_post_apply(&input_channel)? {
+                                    PostApply::Accept => break Ok(applied),
+                                    PostApply::Refine(instr) => {
+                                        plan.iterations.push(PlanIteration {
+                                            user_feedback: Some(instr),
+                                            analyzer_output: String::new(),
+                                        });
+                                        continue;
+                                    }
+                                    PostApply::Revert => {
+                                        run_git(&project_root, &["reset", "--hard", &pre_head])?;
+                                        break Err("user reverted the commit".to_string());
+                                    }
+                                    PostApply::Quit => {
+                                        println!("Quitting without advancing. Re-run to resume.");
+                                        save_progress(&progress_path, &progress)?;
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                attempts += 1;
+
+                                // In unattended (pending-consumer) mode, retry on
+                                // failure. Concurrent-build / lock-contention
+                                // errors get a 60s wait (another azul-doc process
+                                // is likely using the same target/ dir) and no
+                                // injected feedback — the patch is innocent, the
+                                // env is wrong. Real errors get a 5s wait + a
+                                // hint to the agent describing what failed.
+                                if unattended && attempts < config.retries {
+                                    let lc = e.to_ascii_lowercase();
+                                    let looks_transient = lc.contains("blocking waiting")
+                                        || lc.contains("file lock")
+                                        || lc.contains("could not acquire")
+                                        || lc.contains("enospc")
+                                        || lc.contains("no space left on device")
+                                        || lc.contains("resource temporarily unavailable")
+                                        || lc.contains("text file busy")
+                                        || lc.contains("is being used by another process");
+                                    let sleep_secs: u64 = if looks_transient { 60 } else { 5 };
+                                    let kind = if looks_transient {
+                                        "transient/concurrent-build"
+                                    } else {
+                                        "real"
+                                    };
+
+                                    println!(
+                                        "\n[pending] attempt {}/{} failed ({} error): {}",
+                                        attempts, config.retries, kind, e
+                                    );
+                                    println!("[pending] waiting {}s, then retrying...", sleep_secs);
+                                    if let Some(b) = bridge.as_ref() {
+                                        let _ = b.send_message(
                                         &format!(
                                             "[pending] {} attempt {}/{} ({} err) — waiting {}s before retry\n{}",
                                             short(&next), attempts, config.retries,
@@ -727,87 +830,93 @@ pub fn run(config: Config) -> Result<(), String> {
                                         ),
                                         None,
                                     );
-                                }
+                                    }
 
-                                // Reset OUR scope for retry. Concurrent
-                                // codegen agents' uncommitted work in
-                                // lang_* / examples/ is preserved — a
-                                // global `reset --hard` would wipe it and
-                                // confuse the other agent. See
-                                // `cleanup_our_scope_to`.
-                                let _ = cleanup_our_scope_to(&project_root, &pre_head);
+                                    // Reset OUR scope for retry. Concurrent
+                                    // codegen agents' uncommitted work in
+                                    // lang_* / examples/ is preserved — a
+                                    // global `reset --hard` would wipe it and
+                                    // confuse the other agent. See
+                                    // `cleanup_our_scope_to`.
+                                    let _ = cleanup_our_scope_to(&project_root, &pre_head);
 
-                                std::thread::sleep(std::time::Duration::from_secs(sleep_secs));
+                                    std::thread::sleep(std::time::Duration::from_secs(sleep_secs));
 
-                                if !looks_transient {
-                                    plan.iterations.push(PlanIteration {
-                                        user_feedback: Some(format!(
+                                    if !looks_transient {
+                                        plan.iterations.push(PlanIteration {
+                                            user_feedback: Some(format!(
                                             "RETRY {}/{}: the previous attempt failed with:\n{}\n\
                                              Try a different approach.",
                                             attempts + 1, config.retries, e
                                         )),
-                                        analyzer_output: String::new(),
-                                    });
+                                            analyzer_output: String::new(),
+                                        });
+                                    }
+                                    continue;
                                 }
-                                continue;
-                            }
 
-                            if unattended {
-                                println!("\n[pending] apply failed after {} attempt(s): {}", attempts, e);
-                                println!("[pending] recording as rejected; moving on to next commit.");
-                                if let Some(b) = bridge.as_ref() {
-                                    let _ = b.send_message(
+                                if unattended {
+                                    println!(
+                                        "\n[pending] apply failed after {} attempt(s): {}",
+                                        attempts, e
+                                    );
+                                    println!("[pending] recording as rejected; moving on to next commit.");
+                                    if let Some(b) = bridge.as_ref() {
+                                        let _ = b.send_message(
                                         &format!(
                                             "[pending] {} APPLY FAILED after {} attempts — recorded as rejected: {}",
                                             short(&next), attempts, e
                                         ),
                                         None,
                                     );
+                                    }
+                                    break Err(format!(
+                                        "pending-apply failed after {} attempts: {}",
+                                        attempts, e
+                                    ));
                                 }
-                                break Err(format!("pending-apply failed after {} attempts: {}", attempts, e));
+                                println!("\n[ERROR] agent apply failed: {}\n", e);
+                                println!("Repository state left as-is. Resolve manually or quit.");
+                                return Err(e);
                             }
-                            println!("\n[ERROR] agent apply failed: {}\n", e);
-                            println!("Repository state left as-is. Resolve manually or quit.");
-                            return Err(e);
+                        }
+                    };
+
+                    match final_outcome {
+                        Ok(Applied { new_sha }) => {
+                            progress.current = None;
+                            let notes = if user_refinements.is_empty() {
+                                None
+                            } else {
+                                Some(user_refinements.join("\n---\n"))
+                            };
+                            progress.processed.push(Decision {
+                                sha: next.clone(),
+                                subject: info.subject.clone(),
+                                decision: if was_refined {
+                                    DecisionKind::AppliedEdited
+                                } else {
+                                    DecisionKind::AppliedByAgent
+                                },
+                                new_sha: Some(new_sha),
+                                notes,
+                            });
+                            save_progress(&progress_path, &progress)?;
+                            println!();
+                        }
+                        Err(reason) => {
+                            progress.current = None;
+                            progress.processed.push(Decision {
+                                sha: next.clone(),
+                                subject: info.subject.clone(),
+                                decision: DecisionKind::Rejected,
+                                new_sha: None,
+                                notes: Some(reason),
+                            });
+                            save_progress(&progress_path, &progress)?;
+                            println!();
                         }
                     }
-                };
-
-                match final_outcome {
-                    Ok(Applied { new_sha }) => {
-                        progress.current = None;
-                        let notes = if user_refinements.is_empty() {
-                            None
-                        } else {
-                            Some(user_refinements.join("\n---\n"))
-                        };
-                        progress.processed.push(Decision {
-                            sha: next.clone(),
-                            subject: info.subject.clone(),
-                            decision: if was_refined {
-                                DecisionKind::AppliedEdited
-                            } else {
-                                DecisionKind::AppliedByAgent
-                            },
-                            new_sha: Some(new_sha),
-                            notes,
-                        });
-                        save_progress(&progress_path, &progress)?;
-                        println!();
-                    }
-                    Err(reason) => {
-                        progress.current = None;
-                        progress.processed.push(Decision {
-                            sha: next.clone(),
-                            subject: info.subject.clone(),
-                            decision: DecisionKind::Rejected,
-                            new_sha: None,
-                            notes: Some(reason),
-                        });
-                        save_progress(&progress_path, &progress)?;
-                        println!();
-                    }
-                }
                 }
             }
             UserAction::Skip(notes) => {
@@ -891,7 +1000,10 @@ fn run_refresh_pending(
     commits: &[String],
     config: &Config,
 ) -> Result<(), String> {
-    let to_refresh: Vec<usize> = progress.pending.iter().enumerate()
+    let to_refresh: Vec<usize> = progress
+        .pending
+        .iter()
+        .enumerate()
         .filter(|(_, pd)| pd.iterations.is_empty())
         .map(|(i, _)| i)
         .collect();
@@ -920,7 +1032,9 @@ fn run_refresh_pending(
         println!("════════════════════════════════════════════════════════════════════════");
         println!(
             "Refreshing {}  ({} of {})",
-            short(&pd.sha), i + 1, to_refresh.len()
+            short(&pd.sha),
+            i + 1,
+            to_refresh.len()
         );
         println!("  Subject: {}", info.subject);
         println!("  Action:  {:?}", pd.action);
@@ -938,24 +1052,41 @@ fn run_refresh_pending(
         // Split the legacy `\n---\n`-joined feedback back into individual
         // refinement chunks so we re-walk the same analyzer iterations the
         // user originally saw.
-        let chunks: Vec<String> = legacy_comment.as_deref()
-            .map(|c| c.split("\n---\n").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        let chunks: Vec<String> = legacy_comment
+            .as_deref()
+            .map(|c| {
+                c.split("\n---\n")
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let mut plan = PlanSession { iterations: Vec::new() };
+        let mut plan = PlanSession {
+            iterations: Vec::new(),
+        };
         let mut failed = false;
 
         // Initial analyzer pass (no feedback yet).
         match run_analysis_agent(
-            project_root, &pd.sha, &info, paired_docs.as_ref(),
-            &plan, None, config,
+            project_root,
+            &pd.sha,
+            &info,
+            paired_docs.as_ref(),
+            &plan,
+            None,
+            config,
         ) {
             Ok(output) => plan.iterations.push(PlanIteration {
                 user_feedback: None,
                 analyzer_output: output,
             }),
             Err(e) => {
-                eprintln!("[refresh-pending] initial analyzer failed for {}: {}", short(&pd.sha), e);
+                eprintln!(
+                    "[refresh-pending] initial analyzer failed for {}: {}",
+                    short(&pd.sha),
+                    e
+                );
                 failed = true;
             }
         }
@@ -963,15 +1094,24 @@ fn run_refresh_pending(
         if !failed {
             for chunk in &chunks {
                 match run_analysis_agent(
-                    project_root, &pd.sha, &info, paired_docs.as_ref(),
-                    &plan, Some(chunk), config,
+                    project_root,
+                    &pd.sha,
+                    &info,
+                    paired_docs.as_ref(),
+                    &plan,
+                    Some(chunk),
+                    config,
                 ) {
                     Ok(output) => plan.iterations.push(PlanIteration {
                         user_feedback: Some(chunk.clone()),
                         analyzer_output: output,
                     }),
                     Err(e) => {
-                        eprintln!("[refresh-pending] refinement analyzer failed for {}: {}", short(&pd.sha), e);
+                        eprintln!(
+                            "[refresh-pending] refinement analyzer failed for {}: {}",
+                            short(&pd.sha),
+                            e
+                        );
                         failed = true;
                         break;
                     }
@@ -980,7 +1120,10 @@ fn run_refresh_pending(
         }
 
         if failed {
-            println!("[refresh-pending] {} left as legacy entry; continuing.", short(&pd.sha));
+            println!(
+                "[refresh-pending] {} left as legacy entry; continuing.",
+                short(&pd.sha)
+            );
         } else {
             progress.pending[idx].iterations = plan.iterations;
             // Drop the legacy `comment` blob — the iteration trace is now the
@@ -988,7 +1131,11 @@ fn run_refresh_pending(
             progress.pending[idx].comment = None;
             save_progress(progress_path, progress)?;
             refreshed += 1;
-            println!("[refresh-pending] saved analyzer trace for {} (rounds={}).", short(&pd.sha), progress.pending[idx].iterations.len());
+            println!(
+                "[refresh-pending] saved analyzer trace for {} (rounds={}).",
+                short(&pd.sha),
+                progress.pending[idx].iterations.len()
+            );
         }
         println!();
 
@@ -1121,14 +1268,12 @@ fn load_progress(path: &Path) -> Result<Progress, String> {
 }
 
 fn save_progress(path: &Path, progress: &Progress) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(progress)
-        .map_err(|e| format!("Serialize progress: {}", e))?;
+    let json =
+        serde_json::to_string_pretty(progress).map_err(|e| format!("Serialize progress: {}", e))?;
     // Write via tmp + rename for crash-safety
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, &json)
-        .map_err(|e| format!("Write progress tmp: {}", e))?;
-    fs::rename(&tmp, path)
-        .map_err(|e| format!("Rename progress tmp: {}", e))?;
+    fs::write(&tmp, &json).map_err(|e| format!("Write progress tmp: {}", e))?;
+    fs::rename(&tmp, path).map_err(|e| format!("Rename progress tmp: {}", e))?;
     Ok(())
 }
 
@@ -1155,11 +1300,12 @@ struct FileChange {
 fn load_commit_info(project_root: &Path, sha: &str) -> Result<CommitInfo, String> {
     let (subject, body) = git_commit_message(project_root, sha)?;
     let files = git_commit_numstat(project_root, sha)?;
-    let is_pure_md = !files.is_empty()
-        && files.iter().all(|f| f.path.ends_with(".md"));
+    let is_pure_md = !files.is_empty() && files.iter().all(|f| f.path.ends_with(".md"));
 
     // Heuristic: any token in the subject that looks like a source-file path
-    let source_exts = [".rs", ".toml", ".json", ".yaml", ".yml", ".h", ".hpp", ".c", ".cpp", ".py"];
+    let source_exts = [
+        ".rs", ".toml", ".json", ".yaml", ".yml", ".h", ".hpp", ".c", ".cpp", ".py",
+    ];
     let subject_source_path = subject
         .split(|c: char| c.is_whitespace() || c == ',' || c == ':')
         .find(|tok| source_exts.iter().any(|ext| tok.ends_with(ext)))
@@ -1187,7 +1333,9 @@ fn find_paired_docs(
         Some(i) => i,
         None => return Ok(None),
     };
-    let Some(next) = commits.get(idx + 1) else { return Ok(None); };
+    let Some(next) = commits.get(idx + 1) else {
+        return Ok(None);
+    };
 
     let info = load_commit_info(project_root, next)?;
     let is_docs = info.subject.starts_with("docs: update autoreview report")
@@ -1243,15 +1391,31 @@ fn build_phone_summary(
     total: usize,
     progress: &Progress,
 ) -> String {
-    let applied = progress.processed.iter().filter(|d| matches!(
-        d.decision,
-        DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
-    )).count();
-    let rejected = progress.processed.iter().filter(|d| d.decision == DecisionKind::Rejected).count();
-    let skipped = progress.processed.iter().filter(|d| matches!(
-        d.decision,
-        DecisionKind::SkippedMd | DecisionKind::SkippedByUser | DecisionKind::SkippedAuto
-    )).count();
+    let applied = progress
+        .processed
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.decision,
+                DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
+            )
+        })
+        .count();
+    let rejected = progress
+        .processed
+        .iter()
+        .filter(|d| d.decision == DecisionKind::Rejected)
+        .count();
+    let skipped = progress
+        .processed
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.decision,
+                DecisionKind::SkippedMd | DecisionKind::SkippedByUser | DecisionKind::SkippedAuto
+            )
+        })
+        .count();
 
     let mut s = String::new();
     s.push_str(&format!(
@@ -1268,7 +1432,10 @@ fn build_phone_summary(
 
     s.push_str("\nFiles:\n");
     for f in info.files.iter().take(8) {
-        s.push_str(&format!("  +{} -{}  {}\n", f.additions, f.deletions, f.path));
+        s.push_str(&format!(
+            "  +{} -{}  {}\n",
+            f.additions, f.deletions, f.path
+        ));
     }
     if info.files.len() > 8 {
         s.push_str(&format!("  …(+{} more)\n", info.files.len() - 8));
@@ -1336,7 +1503,9 @@ fn auto_decision(analyzer_output: &str, unclear_applies: bool) -> (UserAction, &
             "DONE",
         ),
         Some("REJECT") => (
-            UserAction::Reject(Some("auto: [REJECT] — analyzer flagged the fix as wrong/harmful".into())),
+            UserAction::Reject(Some(
+                "auto: [REJECT] — analyzer flagged the fix as wrong/harmful".into(),
+            )),
             "REJECT",
         ),
         Some("UNCLEAR") | None => {
@@ -1353,7 +1522,9 @@ fn auto_decision(analyzer_output: &str, unclear_applies: bool) -> (UserAction, &
             // classify_tag only returns the six known tags; defensively skip.
             let _ = other;
             (
-                UserAction::Skip(Some("auto: unrecognized classification — left for human".into())),
+                UserAction::Skip(Some(
+                    "auto: unrecognized classification — left for human".into(),
+                )),
                 "UNKNOWN",
             )
         }
@@ -1365,7 +1536,14 @@ fn auto_decision(analyzer_output: &str, unclear_applies: bool) -> (UserAction, &
 /// `[KEEP|DONE|WIRE|REFACTOR|REJECT|UNCLEAR]`; we find the LAST such tag and
 /// return everything from that line onward, capped at 1500 chars.
 fn extract_analyzer_summary(text: &str) -> String {
-    let tags = ["[KEEP]", "[DONE]", "[WIRE]", "[REFACTOR]", "[REJECT]", "[UNCLEAR]"];
+    let tags = [
+        "[KEEP]",
+        "[DONE]",
+        "[WIRE]",
+        "[REFACTOR]",
+        "[REJECT]",
+        "[UNCLEAR]",
+    ];
     let trimmed = text.trim_end();
 
     let mut last_byte: Option<usize> = None;
@@ -1415,24 +1593,45 @@ fn print_commit_summary(
     paired: Option<&CommitInfo>,
     reference: &str,
 ) {
-    let applied = progress.processed.iter().filter(|d| matches!(
-        d.decision,
-        DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
-    )).count();
-    let rejected = progress.processed.iter().filter(|d| d.decision == DecisionKind::Rejected).count();
-    let skipped  = progress.processed.iter().filter(|d| matches!(
-        d.decision,
-        DecisionKind::SkippedMd | DecisionKind::SkippedByUser | DecisionKind::SkippedAuto
-    )).count();
-    let remaining = total.saturating_sub(progress.processed.len()).saturating_sub(1);
+    let applied = progress
+        .processed
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.decision,
+                DecisionKind::AppliedByAgent | DecisionKind::AppliedEdited
+            )
+        })
+        .count();
+    let rejected = progress
+        .processed
+        .iter()
+        .filter(|d| d.decision == DecisionKind::Rejected)
+        .count();
+    let skipped = progress
+        .processed
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.decision,
+                DecisionKind::SkippedMd | DecisionKind::SkippedByUser | DecisionKind::SkippedAuto
+            )
+        })
+        .count();
+    let remaining = total
+        .saturating_sub(progress.processed.len())
+        .saturating_sub(1);
 
     let branch = git_current_branch(project_root).unwrap_or_else(|_| "?".into());
-    let head   = git_head(project_root).unwrap_or_else(|_| "?".into());
+    let head = git_head(project_root).unwrap_or_else(|_| "?".into());
 
     println!("════════════════════════════════════════════════════════════════════════");
     println!("  Reference: {}  →  commit {}/{}", reference, n, total);
     println!("  Replaying onto: branch {} @ {}", branch, short(&head));
-    println!("  Progress: applied={}  rejected={}  skipped={}  remaining={}", applied, rejected, skipped, remaining);
+    println!(
+        "  Progress: applied={}  rejected={}  skipped={}  remaining={}",
+        applied, rejected, skipped, remaining
+    );
     println!("────────────────────────────────────────────────────────────────────────");
     println!("  Next SHA: {}", &info.sha[..12]);
     println!("  Subject:  {}", info.subject);
@@ -1475,10 +1674,17 @@ fn open_commit_in_editor(
     run_git(project_root, &["checkout", "--detach", sha])?;
 
     println!();
-    println!("  ┌─ inspecting commit {} ({}) ─────────────────────", &sha[..12], info.subject);
+    println!(
+        "  ┌─ inspecting commit {} ({}) ─────────────────────",
+        &sha[..12],
+        info.subject
+    );
     println!("  │ Switch to your editor (VSCode etc.) — its git view should have");
     println!("  │ auto-refreshed to this commit's state. Poke around.");
-    println!("  │ Press Enter to restore branch `{}` and return to the prompt.", branch);
+    println!(
+        "  │ Press Enter to restore branch `{}` and return to the prompt.",
+        branch
+    );
     println!("  └──────────────────────────────────────────────────────────────────");
 
     if let Some(bridge) = input.bridge.as_ref() {
@@ -1508,7 +1714,10 @@ fn git_current_branch(project_root: &Path) -> Result<String, String> {
         .output()
         .map_err(|e| format!("git branch: {}", e))?;
     if !out.status.success() {
-        return Err(format!("git branch: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "git branch: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
@@ -1557,10 +1766,7 @@ fn prompt_post_apply(input: &InputChannel) -> Result<PostApply, String> {
         let kb_rows: &[&[&str]] = &[&["accept", "edit"], &["revert", "quit"]];
         // The applied diff was sent right before this prompt, so the
         // message itself can be terse — the reply keyboard names the actions.
-        let _ = bridge.send_message(
-            "Apply succeeded. Diff is attached above.",
-            Some(kb_rows),
-        );
+        let _ = bridge.send_message("Apply succeeded. Diff is attached above.", Some(kb_rows));
     }
 
     input.drain_stale();
@@ -1648,10 +1854,7 @@ fn send_applied_diff_to_phone(
         .output()
         .map_err(|e| format!("git log: {}", e))?;
     if !out.status.success() {
-        return Err(format!(
-            "git log: {}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
+        return Err(format!("git log: {}", String::from_utf8_lossy(&out.stderr)));
     }
     let filename = format!("applied-{}.patch", short(new_head));
     let caption = format!("Applied diff {}..{}", short(pre_head), short(new_head));
@@ -1674,7 +1877,11 @@ fn print_applied_summary(
 
     // Show the new commit's subject
     let out = Command::new("git")
-        .args(["log", "--format=%h %s", &format!("{}..{}", pre_head, new_head)])
+        .args([
+            "log",
+            "--format=%h %s",
+            &format!("{}..{}", pre_head, new_head),
+        ])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("git log: {}", e))?;
@@ -1685,10 +1892,7 @@ fn print_applied_summary(
     Ok(())
 }
 
-fn prompt_user(
-    input: &InputChannel,
-    phone_summary: Option<&str>,
-) -> Result<UserAction, String> {
+fn prompt_user(input: &InputChannel, phone_summary: Option<&str>) -> Result<UserAction, String> {
     println!("Decision?");
     println!("  apply  / y    — apply using the current plan");
     println!("  refine / p    — refine the plan: add feedback, analyzer revises");
@@ -1704,11 +1908,7 @@ fn prompt_user(
         // Phone message: just the summary. The reply keyboard names the
         // actions, so no inline legend is needed.
         let msg = phone_summary.unwrap_or("Decision?").to_string();
-        let kb_rows: &[&[&str]] = &[
-            &["apply", "refine"],
-            &["diff", "skip"],
-            &["reject", "quit"],
-        ];
+        let kb_rows: &[&[&str]] = &[&["apply", "refine"], &["diff", "skip"], &["reject", "quit"]];
         if let Err(e) = bridge.send_message(&msg, Some(kb_rows)) {
             eprintln!("[telegram] send failed: {}", e);
         }
@@ -1758,14 +1958,22 @@ fn prompt_user(
         }
         "skip" => {
             let notes = read_oneline(input, "Reason (one line, empty to skip prompt):")?;
-            Ok(UserAction::Skip(if notes.is_empty() { None } else { Some(notes) }))
+            Ok(UserAction::Skip(if notes.is_empty() {
+                None
+            } else {
+                Some(notes)
+            }))
         }
         "reject" => {
             let notes = read_oneline(
                 input,
                 "Reason for rejecting (one line, empty to skip prompt):",
             )?;
-            Ok(UserAction::Reject(if notes.is_empty() { None } else { Some(notes) }))
+            Ok(UserAction::Reject(if notes.is_empty() {
+                None
+            } else {
+                Some(notes)
+            }))
         }
         "diff" => {
             if was_remote {
@@ -1866,7 +2074,12 @@ fn git_commit_list(
     reference: &str,
 ) -> Result<Vec<String>, String> {
     let out = Command::new("git")
-        .args(["log", "--reverse", "--format=%H", &format!("{}..{}", base, reference)])
+        .args([
+            "log",
+            "--reverse",
+            "--format=%H",
+            &format!("{}..{}", base, reference),
+        ])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("git log: {}", e))?;
@@ -1887,7 +2100,11 @@ fn git_commit_message(project_root: &Path, sha: &str) -> Result<(String, String)
         .output()
         .map_err(|e| format!("git log -1 {}: {}", sha, e))?;
     if !out.status.success() {
-        return Err(format!("git log -1 {}: {}", sha, String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "git log -1 {}: {}",
+            sha,
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let text = String::from_utf8_lossy(&out.stdout);
     let mut iter = text.splitn(2, '\n');
@@ -1903,7 +2120,10 @@ fn git_commit_numstat(project_root: &Path, sha: &str) -> Result<Vec<FileChange>,
         .output()
         .map_err(|e| format!("git show --numstat: {}", e))?;
     if !out.status.success() {
-        return Err(format!("git show --numstat: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "git show --numstat: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     let mut changes = Vec::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {
@@ -1911,7 +2131,9 @@ fn git_commit_numstat(project_root: &Path, sha: &str) -> Result<Vec<FileChange>,
         let a = cols.next().unwrap_or("0");
         let d = cols.next().unwrap_or("0");
         let path = cols.next().unwrap_or("").to_string();
-        if path.is_empty() { continue; }
+        if path.is_empty() {
+            continue;
+        }
         changes.push(FileChange {
             path,
             additions: a.parse().unwrap_or(0),
@@ -1950,14 +2172,16 @@ struct PlanIteration {
 
 impl PlanSession {
     fn latest_plan(&self) -> Option<&str> {
-        self.iterations.iter()
+        self.iterations
+            .iter()
             .rev()
             .find(|it| !it.analyzer_output.is_empty())
             .map(|it| it.analyzer_output.as_str())
     }
 
     fn all_feedback(&self) -> Vec<&str> {
-        self.iterations.iter()
+        self.iterations
+            .iter()
             .filter_map(|it| it.user_feedback.as_deref())
             .collect()
     }
@@ -1992,7 +2216,10 @@ fn run_analysis_agent(
 
     println!();
     if is_refinement {
-        println!("┌── analyzer refining plan (iter #{}) ───────────────────────────────", iter_idx + 1);
+        println!(
+            "┌── analyzer refining plan (iter #{}) ───────────────────────────────",
+            iter_idx + 1
+        );
     } else {
         println!("┌── analyzer: initial plan ─────────────────────────────────────────");
     }
@@ -2016,19 +2243,31 @@ fn run_analysis_agent(
             "-p",
             "--dangerously-skip-permissions",
             "--verbose",
-            "--output-format", "stream-json",
+            "--output-format",
+            "stream-json",
             "--include-partial-messages",
-            "--session-id", &session_uuid,
-            "-n", &session_name,
-            "--disallowedTools", "mcp__*",
-            "--disallowedTools", "Edit",
-            "--disallowedTools", "Write",
-            "--disallowedTools", "NotebookEdit",
-            "--disallowedTools", "Bash(git commit*)",
-            "--disallowedTools", "Bash(git cherry-pick*)",
-            "--disallowedTools", "Bash(git reset*)",
-            "--disallowedTools", "Bash(cargo*)",
-            "--model", model,
+            "--session-id",
+            &session_uuid,
+            "-n",
+            &session_name,
+            "--disallowedTools",
+            "mcp__*",
+            "--disallowedTools",
+            "Edit",
+            "--disallowedTools",
+            "Write",
+            "--disallowedTools",
+            "NotebookEdit",
+            "--disallowedTools",
+            "Bash(git commit*)",
+            "--disallowedTools",
+            "Bash(git cherry-pick*)",
+            "--disallowedTools",
+            "Bash(git reset*)",
+            "--disallowedTools",
+            "Bash(cargo*)",
+            "--model",
+            model,
         ];
 
         println!("  session-id: {}", session_uuid);
@@ -2036,10 +2275,16 @@ fn run_analysis_agent(
         println!();
 
         match spawn_claude_streaming(
-            &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup, None,
+            &cmd_args,
+            prompt.as_bytes(),
+            project_root,
+            &path_with_rustup,
+            None,
         ) {
             Ok(out) => {
-                println!("└───────────────────────────────────────────────────────────────────────");
+                println!(
+                    "└───────────────────────────────────────────────────────────────────────"
+                );
                 return Ok(out.text);
             }
             Err(ClaudeError::SessionInUse) if attempt < max_retries => {
@@ -2051,7 +2296,9 @@ fn run_analysis_agent(
                 continue;
             }
             Err(e) => {
-                println!("└───────────────────────────────────────────────────────────────────────");
+                println!(
+                    "└───────────────────────────────────────────────────────────────────────"
+                );
                 return Err(e.to_string());
             }
         }
@@ -2116,35 +2363,47 @@ fn spawn_claude_streaming(
         }
     }
 
-    let mut child = cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .map_err(|e| ClaudeError::Other(format!("spawn claude: {}", e)))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(stdin_bytes)
+        stdin
+            .write_all(stdin_bytes)
             .map_err(|e| ClaudeError::Other(format!("write prompt stdin: {}", e)))?;
         drop(stdin);
     }
 
-    let stdout = child.stdout.take()
+    let stdout = child
+        .stdout
+        .take()
         .ok_or_else(|| ClaudeError::Other("failed to grab child stdout".to_string()))?;
-    let stderr = child.stderr.take()
+    let stderr = child
+        .stderr
+        .take()
         .ok_or_else(|| ClaudeError::Other("failed to grab child stderr".to_string()))?;
 
     let stdout_handle = std::thread::spawn(move || process_stream_events(stdout));
     let stderr_handle = std::thread::spawn(move || tee_stderr(stderr));
 
-    let status = child.wait()
+    let status = child
+        .wait()
         .map_err(|e| ClaudeError::Other(format!("wait claude: {}", e)))?;
-    let out = stdout_handle.join()
+    let out = stdout_handle
+        .join()
         .map_err(|_| ClaudeError::Other("stream thread panicked".to_string()))?;
-    let stderr_scan = stderr_handle.join()
-        .unwrap_or(StderrScan { session_in_use: false });
+    let stderr_scan = stderr_handle.join().unwrap_or(StderrScan {
+        session_in_use: false,
+    });
 
     if !status.success() {
         if stderr_scan.session_in_use {
             return Err(ClaudeError::SessionInUse);
         }
-        return Err(ClaudeError::Other(format!("claude exited with status {}", status)));
+        return Err(ClaudeError::Other(format!(
+            "claude exited with status {}",
+            status
+        )));
     }
     Ok(out)
 }
@@ -2161,10 +2420,11 @@ fn tee_stderr<R: std::io::Read + Send + 'static>(stderr: R) -> StderrScan {
     let reader = std::io::BufReader::new(stderr);
     let mut session_in_use = false;
     for line in reader.lines() {
-        let line = match line { Ok(l) => l, Err(_) => break };
-        if line.contains("is already in use")
-            && line.to_ascii_lowercase().contains("session id")
-        {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        if line.contains("is already in use") && line.to_ascii_lowercase().contains("session id") {
             session_in_use = true;
         }
         eprintln!("{}", line);
@@ -2179,8 +2439,13 @@ fn process_stream_events<R: std::io::Read + Send + 'static>(stdout: R) -> Stream
     let mut session_id: Option<String> = None;
 
     for line in reader.lines() {
-        let line = match line { Ok(l) => l, Err(_) => break };
-        if line.trim().is_empty() { continue; }
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
 
         let v: serde_json::Value = match serde_json::from_str(&line) {
             Ok(v) => v,
@@ -2201,7 +2466,8 @@ fn process_stream_events<R: std::io::Read + Send + 'static>(stdout: R) -> Stream
             // Live token-by-token text deltas + tool-call announcements.
             Some("stream_event") => {
                 let event = match v.get("event") {
-                    Some(e) => e, None => continue,
+                    Some(e) => e,
+                    None => continue,
                 };
                 match event.get("type").and_then(|t| t.as_str()) {
                     Some("content_block_delta") => {
@@ -2213,7 +2479,8 @@ fn process_stream_events<R: std::io::Read + Send + 'static>(stdout: R) -> Stream
                     Some("content_block_start") => {
                         if let Some(block) = event.get("content_block") {
                             if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
-                                let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                                let name =
+                                    block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
                                 println!("\n  ⚙ [{}]", name);
                             }
                         }
@@ -2233,7 +2500,8 @@ fn process_stream_events<R: std::io::Read + Send + 'static>(stdout: R) -> Stream
                                 }
                             }
                             Some("tool_use") => {
-                                let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                                let name =
+                                    block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
                                 let summary = summarize_tool_input(name, block.get("input"));
                                 if !summary.is_empty() {
                                     println!("    {}", summary);
@@ -2256,8 +2524,11 @@ fn process_stream_events<R: std::io::Read + Send + 'static>(stdout: R) -> Stream
 fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String {
     let Some(i) = input else { return String::new() };
     match name {
-        "Read" | "Edit" | "Write" | "NotebookEdit" => i.get("file_path")
-            .and_then(|v| v.as_str()).unwrap_or("").into(),
+        "Read" | "Edit" | "Write" | "NotebookEdit" => i
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .into(),
         "Bash" => {
             let cmd = i.get("command").and_then(|v| v.as_str()).unwrap_or("");
             cmd.chars().take(120).collect()
@@ -2267,7 +2538,11 @@ fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String
             let path = i.get("path").and_then(|v| v.as_str()).unwrap_or(".");
             format!("{:?} in {}", pat, path)
         }
-        "Glob" => i.get("pattern").and_then(|v| v.as_str()).unwrap_or("").into(),
+        "Glob" => i
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .into(),
         _ => String::new(),
     }
 }
@@ -2294,7 +2569,9 @@ fn claude_session_file(cwd: &Path, uuid: &str) -> Option<PathBuf> {
 
 /// Check if a session UUID is already taken by a prior `claude` run.
 fn claude_session_in_use(cwd: &Path, uuid: &str) -> bool {
-    claude_session_file(cwd, uuid).map(|p| p.exists()).unwrap_or(false)
+    claude_session_file(cwd, uuid)
+        .map(|p| p.exists())
+        .unwrap_or(false)
 }
 
 /// Pick a session UUID that is not already in use on disk. On the first
@@ -2340,17 +2617,17 @@ fn make_random_session_uuid() -> String {
         .unwrap_or(0);
     let pid = std::process::id() as u128;
     // Two independent 64-bit mixes so both halves of the UUID vary per call.
-    let lo = nanos
-        ^ pid.wrapping_mul(0x9E37_79B9_7F4A_7C15_u128)
-        ^ (pid << 64);
-    let hi = nanos.rotate_left(37)
-        ^ pid.wrapping_mul(0xBF58_476D_1CE4_E5B9_u128)
-        ^ (pid << 32);
+    let lo = nanos ^ pid.wrapping_mul(0x9E37_79B9_7F4A_7C15_u128) ^ (pid << 64);
+    let hi = nanos.rotate_left(37) ^ pid.wrapping_mul(0xBF58_476D_1CE4_E5B9_u128) ^ (pid << 32);
     let mixed = lo ^ hi.rotate_left(17);
     let hex = format!("{:032x}", mixed);
     format!(
         "{}-{}-{}-{}-{}",
-        &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32]
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
     )
 }
 
@@ -2358,21 +2635,35 @@ fn make_random_session_uuid() -> String {
 /// (analyzer iterations, apply retries) get predictable session IDs the user
 /// can copy-paste into `claude --resume`.
 fn make_session_uuid(sha: &str, suffix: &str) -> String {
-    let base: String = sha.chars().filter(|c| c.is_ascii_hexdigit()).take(32).collect();
+    let base: String = sha
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(32)
+        .collect();
     let padded: String = if base.len() < 32 {
         let mut b = base.clone();
-        while b.len() < 32 { b.push('0'); }
+        while b.len() < 32 {
+            b.push('0');
+        }
         b
     } else {
         base
     };
     let mut hash: u32 = 0;
-    for c in suffix.bytes() { hash = hash.wrapping_mul(31).wrapping_add(c as u32); }
+    for c in suffix.bytes() {
+        hash = hash.wrapping_mul(31).wrapping_add(c as u32);
+    }
     let suffix_hex = format!("{:02x}", (hash & 0xff) as u8);
     let mut out: String = padded.chars().take(30).collect();
     out.push_str(&suffix_hex);
-    format!("{}-{}-{}-{}-{}",
-        &out[0..8], &out[8..12], &out[12..16], &out[16..20], &out[20..32])
+    format!(
+        "{}-{}-{}-{}-{}",
+        &out[0..8],
+        &out[8..12],
+        &out[12..16],
+        &out[16..20],
+        &out[20..32]
+    )
 }
 
 fn build_analysis_prompt(
@@ -2549,9 +2840,7 @@ fn run_apply_agent(
     // Refuse to start if the tree is dirty — the agent needs a clean slate.
     let dirty = !index_is_empty(project_root)? || has_worktree_changes(project_root)?;
     if dirty {
-        return Err(
-            "working tree / index not clean. Commit or stash before continuing.".into(),
-        );
+        return Err("working tree / index not clean. Commit or stash before continuing.".into());
     }
 
     let prompt = build_agent_prompt(project_root, sha, info, paired, user_instruction, plan)?;
@@ -2589,9 +2878,11 @@ fn run_apply_agent(
 
     // Use the staged azul-doc binary (copied outside target/ at startup, so
     // `cargo clean` in the agent doesn't wipe it).
-    let azul_doc_bin = project_root.join(
-        if cfg!(windows) { ".apply-midlevel/azul-doc.exe" } else { ".apply-midlevel/azul-doc" }
-    );
+    let azul_doc_bin = project_root.join(if cfg!(windows) {
+        ".apply-midlevel/azul-doc.exe"
+    } else {
+        ".apply-midlevel/azul-doc"
+    });
 
     // Retry loop: on session-UUID collision (left over from a crashed/
     // restarted run, or a race), regenerate a fresh UUID and try again.
@@ -2603,12 +2894,17 @@ fn run_apply_agent(
             "-p",
             "--dangerously-skip-permissions",
             "--verbose",
-            "--output-format", "stream-json",
+            "--output-format",
+            "stream-json",
             "--include-partial-messages",
-            "--session-id", &session_uuid,
-            "-n", &session_name,
-            "--disallowedTools", "mcp__*",
-            "--model", model,
+            "--session-id",
+            &session_uuid,
+            "-n",
+            &session_name,
+            "--disallowedTools",
+            "mcp__*",
+            "--model",
+            model,
         ];
 
         println!("  session-id: {}", session_uuid);
@@ -2616,7 +2912,10 @@ fn run_apply_agent(
         println!();
 
         match spawn_claude_streaming(
-            &cmd_args, prompt.as_bytes(), project_root, &path_with_rustup,
+            &cmd_args,
+            prompt.as_bytes(),
+            project_root,
+            &path_with_rustup,
             Some(&[("AZ_DOC_BIN", azul_doc_bin.as_path())]),
         ) {
             Ok(_out) => break,
@@ -2650,8 +2949,8 @@ fn run_apply_agent(
     // the agent intentionally split the work per STEP 6 of the prompt and we
     // preserve all commits.
     let commit_count = count_commits(project_root, pre_head, &post_head)?;
-    let extras_are_followups = extra_commits_are_followups(project_root, pre_head, &post_head)
-        .unwrap_or(false);
+    let extras_are_followups =
+        extra_commits_are_followups(project_root, pre_head, &post_head).unwrap_or(false);
     let final_head = if (commit_count > 1 && !extras_are_followups) || is_refinement {
         if extras_are_followups && is_refinement {
             // Edge case: post-apply refinement on a commit that had follow-ups.
@@ -2676,7 +2975,9 @@ fn run_apply_agent(
         return Err(format!("agent committed .md files: {}", md_hits.join(", ")));
     }
 
-    Ok(Applied { new_sha: final_head })
+    Ok(Applied {
+        new_sha: final_head,
+    })
 }
 
 /// True iff the range `from..to` has at least 2 commits AND every commit after
@@ -2684,13 +2985,14 @@ fn run_apply_agent(
 /// `follow-up: `. Used to decide whether the agent's multi-commit output was
 /// intentional (per STEP 6 of the prompt) and should be preserved, vs. a
 /// stray multi-commit that should be squashed.
-fn extra_commits_are_followups(
-    project_root: &Path,
-    from: &str,
-    to: &str,
-) -> Result<bool, String> {
+fn extra_commits_are_followups(project_root: &Path, from: &str, to: &str) -> Result<bool, String> {
     let out = Command::new("git")
-        .args(["log", "--reverse", "--format=%s", &format!("{}..{}", from, to)])
+        .args([
+            "log",
+            "--reverse",
+            "--format=%s",
+            &format!("{}..{}", from, to),
+        ])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("git log subjects: {}", e))?;
@@ -2704,7 +3006,10 @@ fn extra_commits_are_followups(
     if subjects.len() < 2 {
         return Ok(false);
     }
-    Ok(subjects.iter().skip(1).all(|s| s.starts_with("follow-up: ")))
+    Ok(subjects
+        .iter()
+        .skip(1)
+        .all(|s| s.starts_with("follow-up: ")))
 }
 
 fn count_commits(project_root: &Path, from: &str, to: &str) -> Result<usize, String> {
@@ -2740,7 +3045,9 @@ fn squash_to_one_commit(
 
     let subject = info.subject.clone();
     let mut body = info.body.clone();
-    if !body.is_empty() { body.push_str("\n\n"); }
+    if !body.is_empty() {
+        body.push_str("\n\n");
+    }
     body.push_str(&format!("Replayed from {}", &info.sha[..12]));
     if user_instruction.is_some() {
         body.push_str(" (with user refinements).");
@@ -2941,11 +3248,15 @@ fn build_agent_prompt(
     p.push_str("    cargo check --release -p azul-dll --features build-dll                                    # host (darwin)\n");
     p.push_str("    cargo check --release --target x86_64-unknown-linux-gnu -p azul-dll --features build-dll   # linux\n");
     p.push_str("    cargo check --release --target x86_64-pc-windows-gnu    -p azul-dll --features build-dll   # windows\n\n");
-    p.push_str("If any of these targets isn't installed, install it with `rustup target add <t>`.\n");
+    p.push_str(
+        "If any of these targets isn't installed, install it with `rustup target add <t>`.\n",
+    );
     p.push_str("If any target FAILS TO COMPILE, investigate the error and fix it — the whole\n");
     p.push_str("point of this step is catching platform-specific regressions. Do NOT finish\n");
     p.push_str("with a broken cross-compile.\n\n");
-    p.push_str("If cross-compile introduces new changes (rare, but possible with generated code),\n");
+    p.push_str(
+        "If cross-compile introduces new changes (rare, but possible with generated code),\n",
+    );
     p.push_str("amend them into the commit the same way as step 4.\n\n");
     p.push_str("If the build fails with ENOSPC (disk full), you may need to run\n");
     p.push_str("`cargo clean --target <that-target>` between target checks to reclaim space.\n\n");
@@ -3029,7 +3340,10 @@ fn git_show_diff(project_root: &Path, sha: &str) -> Result<String, String> {
         .output()
         .map_err(|e| format!("git show: {}", e))?;
     if !out.status.success() {
-        return Err(format!("git show: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "git show: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
@@ -3053,7 +3367,9 @@ fn drop_md_changes(project_root: &Path) -> Result<(), String> {
         .map_err(|e| format!("git ls-files: {}", e))?;
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         let p = project_root.join(line.trim());
-        if p.is_file() { let _ = fs::remove_file(&p); }
+        if p.is_file() {
+            let _ = fs::remove_file(&p);
+        }
     }
     Ok(())
 }
@@ -3078,13 +3394,15 @@ fn index_is_empty(project_root: &Path) -> Result<bool, String> {
 /// startup — repeat runs will overwrite it with whatever version of azul-doc
 /// is currently launching the tool.
 fn stage_binary(project_root: &Path) -> Result<PathBuf, String> {
-    let src = std::env::current_exe()
-        .map_err(|e| format!("current_exe: {}", e))?;
+    let src = std::env::current_exe().map_err(|e| format!("current_exe: {}", e))?;
     // Use project_root/.apply-midlevel/ which is outside any cargo target dir.
     let dest_dir = project_root.join(".apply-midlevel");
-    fs::create_dir_all(&dest_dir)
-        .map_err(|e| format!("mkdir .apply-midlevel: {}", e))?;
-    let dest = dest_dir.join(if cfg!(windows) { "azul-doc.exe" } else { "azul-doc" });
+    fs::create_dir_all(&dest_dir).map_err(|e| format!("mkdir .apply-midlevel: {}", e))?;
+    let dest = dest_dir.join(if cfg!(windows) {
+        "azul-doc.exe"
+    } else {
+        "azul-doc"
+    });
 
     // Don't re-copy if it's already identical (avoid invalidating ETag, etc.)
     let src_meta = fs::metadata(&src).map_err(|e| format!("stat src: {}", e))?;
@@ -3101,8 +3419,7 @@ fn stage_binary(project_root: &Path) -> Result<PathBuf, String> {
                 .map_err(|e| format!("stat dest: {}", e))?
                 .permissions();
             perms.set_mode(0o755);
-            fs::set_permissions(&dest, perms)
-                .map_err(|e| format!("chmod: {}", e))?;
+            fs::set_permissions(&dest, perms).map_err(|e| format!("chmod: {}", e))?;
         }
     }
     Ok(dest)
@@ -3117,10 +3434,7 @@ fn rustup_prefixed_path() -> String {
     let rustup_bin = format!("{}/.cargo/bin", home);
     if existing.split(':').any(|p| p == rustup_bin) {
         // Already present — just reorder to put it first
-        let filtered: Vec<&str> = existing
-            .split(':')
-            .filter(|p| *p != rustup_bin)
-            .collect();
+        let filtered: Vec<&str> = existing.split(':').filter(|p| *p != rustup_bin).collect();
         format!("{}:{}", rustup_bin, filtered.join(":"))
     } else {
         format!("{}:{}", rustup_bin, existing)
@@ -3211,20 +3525,17 @@ fn has_worktree_changes(project_root: &Path) -> Result<bool, String> {
         .map_err(|e| format!("git status: {}", e))?;
     // Only flag dirtiness for paths in OUR scope — concurrent codegen agents'
     // uncommitted work in lang_* / examples/ should not block us.
-    let dirty = String::from_utf8_lossy(&out.stdout).lines().any(|line| {
-        match parse_porcelain_line(line) {
-            Some((_, path)) => !is_concurrent_agent_path(path),
-            None => false,
-        }
-    });
+    let dirty =
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .any(|line| match parse_porcelain_line(line) {
+                Some((_, path)) => !is_concurrent_agent_path(path),
+                None => false,
+            });
     Ok(dirty)
 }
 
-fn git_diff_touches_md(
-    project_root: &Path,
-    from: &str,
-    to: &str,
-) -> Result<Vec<String>, String> {
+fn git_diff_touches_md(project_root: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
     let out = Command::new("git")
         .args(["diff", "--name-only", &format!("{}..{}", from, to)])
         .current_dir(project_root)
@@ -3259,7 +3570,10 @@ fn commit_with_message(project_root: &Path, subject: &str, body: &str) -> Result
         .output()
         .map_err(|e| format!("git commit: {}", e))?;
     if !out.status.success() {
-        return Err(format!("git commit: {}", String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "git commit: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(())
 }
@@ -3271,7 +3585,11 @@ fn run_git(project_root: &Path, args: &[&str]) -> Result<(), String> {
         .output()
         .map_err(|e| format!("git {:?}: {}", args, e))?;
     if !out.status.success() {
-        return Err(format!("git {:?}: {}", args, String::from_utf8_lossy(&out.stderr)));
+        return Err(format!(
+            "git {:?}: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     Ok(())
 }

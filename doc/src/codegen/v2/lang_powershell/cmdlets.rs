@@ -55,14 +55,10 @@ pub fn generate_cmdlets(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line(
-        "# --------------------------------------------------------------------------",
-    );
+    builder.line("# --------------------------------------------------------------------------");
     builder.line("# Idiomatic PowerShell function shims (Verb-AzulNoun convention).");
     builder.line("# Each shim forwards to the embedded C# wrapper class via Add-Type.");
-    builder.line(
-        "# --------------------------------------------------------------------------",
-    );
+    builder.line("# --------------------------------------------------------------------------");
     builder.blank();
 
     let mut emitted: usize = 0;

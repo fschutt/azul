@@ -80,14 +80,14 @@ pub mod lang_nim;
 pub mod lang_node;
 pub mod lang_ocaml;
 pub mod lang_odin;
-pub mod lang_racket;
-pub mod lang_red;
 pub mod lang_pascal;
 pub mod lang_perl;
 pub mod lang_php;
 pub mod lang_php_ext;
 pub mod lang_powershell;
 pub mod lang_python;
+pub mod lang_racket;
+pub mod lang_red;
 pub mod lang_reexports;
 pub mod lang_ruby;
 pub mod lang_rust;
@@ -492,7 +492,9 @@ pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()
 
     println!("\n[OK] DLL API generated successfully!");
     println!("     To use this, update dll/src/lib.rs include!() path to:");
-    println!("     include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/codegen/dll_api.rs\"));");
+    println!(
+        "     include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/codegen/dll_api.rs\"));"
+    );
 
     Ok(())
 }

@@ -125,8 +125,7 @@ pub fn transform_german_quotes(content: &str) -> String {
                     let opens = match prev_ch {
                         None => true,
                         Some(p) => {
-                            p.is_whitespace()
-                                || matches!(p, '(' | '[' | '{' | '<' | '\u{00BB}')
+                            p.is_whitespace() || matches!(p, '(' | '[' | '{' | '<' | '\u{00BB}')
                         }
                     };
                     out.push(if opens { OPEN } else { CLOSE });
@@ -187,11 +186,7 @@ pub fn get_guide_list() -> Vec<Guide> {
     collected.into_iter().map(|(_, _, g)| g).collect()
 }
 
-fn walk_collect(
-    root: &Path,
-    dir: &Path,
-    out: &mut Vec<(Option<i32>, String, Guide)>,
-) {
+fn walk_collect(root: &Path, dir: &Path, out: &mut Vec<(Option<i32>, String, Guide)>) {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -309,9 +304,9 @@ fn strip_leading_h1(content: &str) -> String {
 /// chrome, alerts, prev/next footer, print layout) live in docs-guide.css.
 pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
     let prism_script = crate::docgen::get_prism_script();
-    let search_script = crate::docgen::get_search_init(
-        crate::docgen::PageKind::GuidePage(&guide.default_search_keys),
-    );
+    let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::GuidePage(
+        &guide.default_search_keys,
+    ));
 
     // Pre-process content: remove mermaid blocks and expand `azul-render`
     // fences into <figure>/slideshow HTML. Use an absolute URL prefix so
@@ -319,10 +314,8 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
     // resolve to the same screenshots directory.
     let processed_content = preprocess_markdown_content(&strip_leading_h1(&guide.content));
     let screenshot_prefix = format!("{HTML_ROOT}/guide/screenshots/");
-    let processed_content = crate::reftest::autodoc::expand_azul_render_blocks(
-        &processed_content,
-        &screenshot_prefix,
-    );
+    let processed_content =
+        crate::reftest::autodoc::expand_azul_render_blocks(&processed_content, &screenshot_prefix);
     // Rewrite cross-page markdown links: `[text](../dom.md)` becomes the
     // absolute URL of that page. Agents write relative `.md` targets per
     // markdown convention; the deployed page needs a link that means the same
@@ -376,14 +369,12 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
     let all = get_guide_list();
     let pos = all.iter().position(|g| g.file_name == guide.file_name);
     let (prev, next) = match pos {
-        Some(i) => (
-            if i > 0 { all.get(i - 1) } else { None },
-            all.get(i + 1),
-        ),
+        Some(i) => (if i > 0 { all.get(i - 1) } else { None }, all.get(i + 1)),
         None => (None, None),
     };
 
-    let mut footer = String::from("<div class=\"docs-guide-footer\">\n<div class=\"docs-guide-prevnext\">\n");
+    let mut footer =
+        String::from("<div class=\"docs-guide-footer\">\n<div class=\"docs-guide-prevnext\">\n");
     if let Some(p) = prev {
         footer.push_str(&format!(
             "<a class=\"docs-guide-prev\" href=\"{HTML_ROOT}/guide/{}\">&larr; {}</a>\n",
@@ -501,10 +492,8 @@ fn render_tree(pages: &[&Guide]) -> String {
     use std::collections::BTreeMap;
 
     // Index by file_name for O(1) parent lookup.
-    let by_name: BTreeMap<&str, &Guide> = pages
-        .iter()
-        .map(|g| (g.file_name.as_str(), *g))
-        .collect();
+    let by_name: BTreeMap<&str, &Guide> =
+        pages.iter().map(|g| (g.file_name.as_str(), *g)).collect();
 
     // Pages whose parent slug is also in this bucket are children; the rest
     // are top-level. Children get bucketed under their parent's file_name.
@@ -516,10 +505,7 @@ fn render_tree(pages: &[&Guide]) -> String {
         if let Some(idx) = g.file_name.rfind('/') {
             let parent_slug = &g.file_name[..idx];
             if by_name.contains_key(parent_slug) {
-                children
-                    .entry(parent_slug.to_string())
-                    .or_default()
-                    .push(g);
+                children.entry(parent_slug.to_string()).or_default().push(g);
                 continue;
             }
             // No parent page exists — promote, but group under the prefix.
@@ -614,7 +600,11 @@ fn render_list_item(
     // A card with a lot of articles (Hello World carries one per language)
     // takes the full row. In a column it wraps into a tower and leaves the
     // card beside it floating in whitespace.
-    let wide = if kids.len() > 8 { " guide-card-wide" } else { "" };
+    let wide = if kids.len() > 8 {
+        " guide-card-wide"
+    } else {
+        ""
+    };
     let mut s = format!("<div class=\"guide-card{wide}\">\n{head}");
     if let Some(desc) = &g.description {
         s.push_str(&format!(
@@ -638,10 +628,7 @@ fn render_list_item(
 }
 
 /// Sub-chapter bullet (nested pages like `hello-world/rust`).
-fn render_sub_li(
-    g: &Guide,
-    _children: &std::collections::BTreeMap<String, Vec<&Guide>>,
-) -> String {
+fn render_sub_li(g: &Guide, _children: &std::collections::BTreeMap<String, Vec<&Guide>>) -> String {
     // One button per article. The one-line description is dropped: the card's
     // own blurb already says what the group covers, and repeating a sentence
     // under every button is the prose this index is meant to be free of.

@@ -68,7 +68,11 @@ fn spans_are_inert_until_recording_is_switched_on() {
     {
         let _g = Probe::span("gate_off_again");
     }
-    assert_eq!(Probe::peek_len(), 0, "recording off again — buffer stays empty");
+    assert_eq!(
+        Probe::peek_len(),
+        0,
+        "recording off again — buffer stays empty"
+    );
 
     // Put the AMBIENT gate back before releasing the lock. In its own process
     // this did not matter — the process ended. Here, `frame_perf` and

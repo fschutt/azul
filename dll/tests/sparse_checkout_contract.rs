@@ -75,7 +75,12 @@ fn scripts_invoked_after_deploy_pages() -> Vec<String> {
         if t.starts_with('#') {
             continue;
         }
-        for pat in ["python3 scripts/", "bash scripts/", "sh scripts/", "./scripts/"] {
+        for pat in [
+            "python3 scripts/",
+            "bash scripts/",
+            "sh scripts/",
+            "./scripts/",
+        ] {
             if let Some(i) = t.find(pat) {
                 let tail = &t[i + pat.len()..];
                 let name: String = tail

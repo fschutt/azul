@@ -65,17 +65,33 @@ pub struct SpringCurve {
 
 impl SpringCurve {
     /// No overshoot, quick settle. The safe default for UI motion.
-    pub const SMOOTH: Self = Self { stiffness: 170.0, damping: 26.0, mass: 1.0 };
+    pub const SMOOTH: Self = Self {
+        stiffness: 170.0,
+        damping: 26.0,
+        mass: 1.0,
+    };
     /// Soft and slow; for large surfaces where snappiness reads as jarring.
-    pub const GENTLE: Self = Self { stiffness: 120.0, damping: 20.0, mass: 1.0 };
+    pub const GENTLE: Self = Self {
+        stiffness: 120.0,
+        damping: 20.0,
+        mass: 1.0,
+    };
     /// Fast with a slight overshoot; for small controls that should feel crisp.
-    pub const SNAPPY: Self = Self { stiffness: 260.0, damping: 20.0, mass: 1.0 };
+    pub const SNAPPY: Self = Self {
+        stiffness: 260.0,
+        damping: 20.0,
+        mass: 1.0,
+    };
 
     /// The damping ratio: < 1 under-damped (overshoots), 1 critical, > 1 over-damped.
     #[must_use]
     pub fn damping_ratio(&self) -> f32 {
         let denom = 2.0 * (self.stiffness * self.mass).sqrt();
-        if denom == 0.0 { 0.0 } else { self.damping / denom }
+        if denom == 0.0 {
+            0.0
+        } else {
+            self.damping / denom
+        }
     }
 
     /// One integration step. Returns the new `(value, velocity)`.
@@ -121,14 +137,14 @@ impl SpringCurve {
     pub const EPSILON_VELOCITY: f32 = 0.06;
 }
 
-
 impl Default for SpringCurve {
     fn default() -> Self {
         Self::SMOOTH
     }
 }
 
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents an animation timing function.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -190,13 +206,15 @@ impl_option!(
 impl SvgPoint {
     /// Creates a new `SvgPoint` from x and y coordinates
     #[inline]
-    #[must_use] pub const fn new(x: f32, y: f32) -> Self {
+    #[must_use]
+    pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
 
     /// Returns the Euclidean distance between this point and `other`.
     #[inline]
-    #[must_use] pub fn distance(&self, other: Self) -> f64 {
+    #[must_use]
+    pub fn distance(&self, other: Self) -> f64 {
         let dx = other.x - self.x;
         let dy = other.y - self.y;
         f64::from(libm::hypotf(dx, dy))
@@ -229,7 +247,8 @@ impl SvgRect {
 
     /// Note: does not incorporate rounded edges!
     /// Origin of x and y is assumed to be the top left corner
-    #[must_use] pub fn contains_point(&self, point: SvgPoint) -> bool {
+    #[must_use]
+    pub fn contains_point(&self, point: SvgPoint) -> bool {
         point.x > self.x
             && point.x < self.x + self.width
             && point.y > self.y
@@ -237,7 +256,8 @@ impl SvgRect {
     }
 
     /// Expands the rect with a certain amount of padding
-    #[must_use] pub fn expand(
+    #[must_use]
+    pub fn expand(
         &self,
         padding_top: f32,
         padding_bottom: f32,
@@ -254,7 +274,8 @@ impl SvgRect {
     }
 
     /// Returns the center point of the rect.
-    #[must_use] pub fn get_center(&self) -> SvgPoint {
+    #[must_use]
+    pub fn get_center(&self) -> SvgPoint {
         SvgPoint {
             x: self.x + (self.width / 2.0),
             y: self.y + (self.height / 2.0),
@@ -272,8 +293,14 @@ const STEP_SIZE_F64: f64 = 0.05;
 impl SvgCubicCurve {
     /// Creates a new `SvgCubicCurve` from start, two control points, and end point
     #[inline]
-    #[must_use] pub const fn new(start: SvgPoint, ctrl_1: SvgPoint, ctrl_2: SvgPoint, end: SvgPoint) -> Self {
-        Self { start, ctrl_1, ctrl_2, end }
+    #[must_use]
+    pub const fn new(start: SvgPoint, ctrl_1: SvgPoint, ctrl_2: SvgPoint, end: SvgPoint) -> Self {
+        Self {
+            start,
+            ctrl_1,
+            ctrl_2,
+            end,
+        }
     }
 
     /// Reverses the curve direction in place, swapping start/end and `ctrl_1/ctrl_2`.
@@ -283,16 +310,19 @@ impl SvgCubicCurve {
     }
 
     /// Returns the start point of the curve.
-    #[must_use] pub const fn get_start(&self) -> SvgPoint {
+    #[must_use]
+    pub const fn get_start(&self) -> SvgPoint {
         self.start
     }
     /// Returns the end point of the curve.
-    #[must_use] pub const fn get_end(&self) -> SvgPoint {
+    #[must_use]
+    pub const fn get_end(&self) -> SvgPoint {
         self.end
     }
 
     /// Evaluates the x coordinate of the curve at parameter `t` in [0, 1].
-    #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
+    #[must_use]
+    pub fn get_x_at_t(&self, t: f64) -> f64 {
         let c_x = 3.0 * (f64::from(self.ctrl_1.x) - f64::from(self.start.x));
         let b_x = 3.0 * (f64::from(self.ctrl_2.x) - f64::from(self.ctrl_1.x)) - c_x;
         let a_x = f64::from(self.end.x) - f64::from(self.start.x) - c_x - b_x;
@@ -301,7 +331,8 @@ impl SvgCubicCurve {
     }
 
     /// Evaluates the y coordinate of the curve at parameter `t` in [0, 1].
-    #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
+    #[must_use]
+    pub fn get_y_at_t(&self, t: f64) -> f64 {
         let c_y = 3.0 * (f64::from(self.ctrl_1.y) - f64::from(self.start.y));
         let b_y = 3.0 * (f64::from(self.ctrl_2.y) - f64::from(self.ctrl_1.y)) - c_y;
         let a_y = f64::from(self.end.y) - f64::from(self.start.y) - c_y - b_y;
@@ -310,7 +341,8 @@ impl SvgCubicCurve {
     }
 
     /// Returns the approximate arc length of the curve using linear sampling.
-    #[must_use] pub fn get_length(&self) -> f64 {
+    #[must_use]
+    pub fn get_length(&self) -> f64 {
         // NOTE: this arc length parametrization is not very precise, but fast
         let mut arc_length = 0.0;
         let mut prev_point = self.get_start();
@@ -329,7 +361,8 @@ impl SvgCubicCurve {
     }
 
     /// Returns the parameter `t` corresponding to a given arc-length `offset`.
-    #[must_use] pub fn get_t_at_offset(&self, offset: f64) -> f64 {
+    #[must_use]
+    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         // step through the line until the offset is reached,
         // then interpolate linearly between the
         // current at the last sampled point
@@ -362,7 +395,8 @@ impl SvgCubicCurve {
     }
 
     /// Returns the normalized tangent vector at parameter `t`.
-    #[must_use] pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
+    #[must_use]
+    pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         // 1. Calculate the derivative of the bezier curve.
         //
         // This means that we go from 4 points to 3 points and redistribute
@@ -406,7 +440,8 @@ impl SvgCubicCurve {
     }
 
     /// Returns the axis-aligned bounding box of the curve's control points.
-    #[must_use] pub fn get_bounds(&self) -> SvgRect {
+    #[must_use]
+    pub fn get_bounds(&self) -> SvgRect {
         let min_x = self
             .start
             .x
@@ -449,7 +484,8 @@ impl SvgCubicCurve {
 impl SvgVector {
     /// Returns the angle of the vector in degrees
     #[inline]
-    #[must_use] pub fn angle_degrees(&self) -> f64 {
+    #[must_use]
+    pub fn angle_degrees(&self) -> f64 {
         (-self.y).atan2(self.x).to_degrees()
     }
 
@@ -483,7 +519,8 @@ impl SvgVector {
 impl SvgQuadraticCurve {
     /// Creates a new `SvgQuadraticCurve` from start, control, and end points
     #[inline]
-    #[must_use] pub const fn new(start: SvgPoint, ctrl: SvgPoint, end: SvgPoint) -> Self {
+    #[must_use]
+    pub const fn new(start: SvgPoint, ctrl: SvgPoint, end: SvgPoint) -> Self {
         Self { start, ctrl, end }
     }
 
@@ -492,15 +529,18 @@ impl SvgQuadraticCurve {
         core::mem::swap(&mut self.start, &mut self.end);
     }
     /// Returns the start point of the curve.
-    #[must_use] pub const fn get_start(&self) -> SvgPoint {
+    #[must_use]
+    pub const fn get_start(&self) -> SvgPoint {
         self.start
     }
     /// Returns the end point of the curve.
-    #[must_use] pub const fn get_end(&self) -> SvgPoint {
+    #[must_use]
+    pub const fn get_end(&self) -> SvgPoint {
         self.end
     }
     /// Returns the axis-aligned bounding box of the curve's control points.
-    #[must_use] pub fn get_bounds(&self) -> SvgRect {
+    #[must_use]
+    pub fn get_bounds(&self) -> SvgRect {
         let min_x = self.start.x.min(self.end.x).min(self.ctrl.x);
         let max_x = self.start.x.max(self.end.x).max(self.ctrl.x);
 
@@ -520,7 +560,8 @@ impl SvgQuadraticCurve {
     }
 
     /// Evaluates the x coordinate of the curve at parameter `t` in [0, 1].
-    #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
+    #[must_use]
+    pub fn get_x_at_t(&self, t: f64) -> f64 {
         let one_minus = 1.0 - t;
         one_minus * one_minus * f64::from(self.start.x)
             + 2.0 * one_minus * t * f64::from(self.ctrl.x)
@@ -528,7 +569,8 @@ impl SvgQuadraticCurve {
     }
 
     /// Evaluates the y coordinate of the curve at parameter `t` in [0, 1].
-    #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
+    #[must_use]
+    pub fn get_y_at_t(&self, t: f64) -> f64 {
         let one_minus = 1.0 - t;
         one_minus * one_minus * f64::from(self.start.y)
             + 2.0 * one_minus * t * f64::from(self.ctrl.y)
@@ -536,17 +578,20 @@ impl SvgQuadraticCurve {
     }
 
     /// Returns the approximate arc length by converting to a cubic curve.
-    #[must_use] pub fn get_length(&self) -> f64 {
+    #[must_use]
+    pub fn get_length(&self) -> f64 {
         self.to_cubic().get_length()
     }
 
     /// Returns the parameter `t` corresponding to a given arc-length `offset`.
-    #[must_use] pub fn get_t_at_offset(&self, offset: f64) -> f64 {
+    #[must_use]
+    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         self.to_cubic().get_t_at_offset(offset)
     }
 
     /// Returns the normalized tangent vector at parameter `t`.
-    #[must_use] pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
+    #[must_use]
+    pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         self.to_cubic().get_tangent_vector_at_t(t)
     }
 
@@ -629,7 +674,8 @@ impl AnimationInterpolationFunction {
     /// For a spring this evaluates the ease-in-out stand-in from
     /// [`Self::get_curve`]; integrate the spring instead if you need its real
     /// trajectory.
-    #[must_use] pub fn evaluate(self, t: f64) -> f32 {
+    #[must_use]
+    pub fn evaluate(self, t: f64) -> f32 {
         f64_to_f32(self.get_curve().get_y_at_t(t))
     }
 }
@@ -849,11 +895,9 @@ mod autotest_generated {
         assert!(p(0.0, 0.0).distance(p(f32::NAN, 1.0)).is_nan());
         assert!(p(f32::NAN, f32::NAN).distance(p(0.0, 0.0)).is_nan());
         assert!(p(0.0, 0.0).distance(p(f32::INFINITY, 0.0)).is_infinite());
-        assert!(
-            p(0.0, 0.0)
-                .distance(p(f32::NAN, f32::INFINITY))
-                .is_infinite()
-        );
+        assert!(p(0.0, 0.0)
+            .distance(p(f32::NAN, f32::INFINITY))
+            .is_infinite());
     }
 
     // ---- 5. SvgRect::union_with (other) ------------------------------------
@@ -1219,13 +1263,11 @@ mod autotest_generated {
             let x = c.get_x_at_t(t);
             let y = c.get_y_at_t(t);
             assert!(
-                x >= f64::from(bounds.x) - 1e-9
-                    && x <= f64::from(bounds.x + bounds.width) + 1e-9,
+                x >= f64::from(bounds.x) - 1e-9 && x <= f64::from(bounds.x + bounds.width) + 1e-9,
                 "x left the hull at t = {t}: {x}"
             );
             assert!(
-                y >= f64::from(bounds.y) - 1e-9
-                    && y <= f64::from(bounds.y + bounds.height) + 1e-9,
+                y >= f64::from(bounds.y) - 1e-9 && y <= f64::from(bounds.y + bounds.height) + 1e-9,
                 "y left the hull at t = {t}: {y}"
             );
         }
@@ -1271,12 +1313,7 @@ mod autotest_generated {
 
     #[test]
     fn cubic_with_infinite_control_points_yields_nan_not_a_panic() {
-        let c = SvgCubicCurve::new(
-            p(f32::INFINITY, 0.0),
-            p(0.0, 0.0),
-            p(0.0, 0.0),
-            p(1.0, 1.0),
-        );
+        let c = SvgCubicCurve::new(p(f32::INFINITY, 0.0), p(0.0, 0.0), p(0.0, 0.0), p(1.0, 1.0));
         // inf appears in every coefficient -> inf - inf == NaN somewhere.
         assert!(!c.get_x_at_t(0.5).is_finite());
     }
@@ -1286,7 +1323,9 @@ mod autotest_generated {
     #[test]
     fn cubic_length_of_the_linear_timing_curve_is_the_unit_diagonal() {
         // The Linear curve traces y = x from (0,0) to (1,1) => length = sqrt(2).
-        let len = AnimationInterpolationFunction::Linear.get_curve().get_length();
+        let len = AnimationInterpolationFunction::Linear
+            .get_curve()
+            .get_length();
         assert!(
             approx(len, core::f64::consts::SQRT_2, 1e-4),
             "expected ~sqrt(2), got {len}"
@@ -1330,13 +1369,8 @@ mod autotest_generated {
         assert!(!inf.is_nan());
         assert!(inf > 0.0);
 
-        let nan = SvgCubicCurve::new(
-            p(f32::NAN, f32::NAN),
-            p(0.0, 0.0),
-            p(0.0, 0.0),
-            p(1.0, 1.0),
-        )
-        .get_length();
+        let nan = SvgCubicCurve::new(p(f32::NAN, f32::NAN), p(0.0, 0.0), p(0.0, 0.0), p(1.0, 1.0))
+            .get_length();
         assert!(nan.is_nan() || nan >= 0.0);
     }
 
@@ -1535,10 +1569,7 @@ mod autotest_generated {
         let b = c.get_bounds();
         for step in 1..20 {
             let t = f64::from(step) / 20.0;
-            let pt = p(
-                f64_to_f32(c.get_x_at_t(t)),
-                f64_to_f32(c.get_y_at_t(t)),
-            );
+            let pt = p(f64_to_f32(c.get_x_at_t(t)), f64_to_f32(c.get_y_at_t(t)));
             assert!(
                 pt.x >= b.x && pt.x <= b.x + b.width,
                 "x outside bounds at t = {t}"
@@ -1566,12 +1597,7 @@ mod autotest_generated {
     #[test]
     fn cubic_bounds_ignore_nan_control_points() {
         // f32::min/max discard NaN, so the box collapses onto the finite points.
-        let c = SvgCubicCurve::new(
-            p(0.0, 0.0),
-            p(f32::NAN, f32::NAN),
-            p(2.0, 4.0),
-            p(1.0, 1.0),
-        );
+        let c = SvgCubicCurve::new(p(0.0, 0.0), p(f32::NAN, f32::NAN), p(2.0, 4.0), p(1.0, 1.0));
         let b = c.get_bounds();
         assert!(!b.width.is_nan(), "NaN leaked into the bounds width");
         assert_eq!(b.x, 0.0);
@@ -1853,8 +1879,10 @@ mod autotest_generated {
     fn quadratic_midpoint_matches_the_closed_form() {
         // B(0.5) = (start + 2*ctrl + end) / 4
         let q = quad();
-        let expected_x = (2.0f64.mul_add(f64::from(q.ctrl.x), f64::from(q.start.x)) + f64::from(q.end.x)) / 4.0;
-        let expected_y = (2.0f64.mul_add(f64::from(q.ctrl.y), f64::from(q.start.y)) + f64::from(q.end.y)) / 4.0;
+        let expected_x =
+            (2.0f64.mul_add(f64::from(q.ctrl.x), f64::from(q.start.x)) + f64::from(q.end.x)) / 4.0;
+        let expected_y =
+            (2.0f64.mul_add(f64::from(q.ctrl.y), f64::from(q.start.y)) + f64::from(q.end.y)) / 4.0;
         assert!(approx(q.get_x_at_t(0.5), expected_x, 1e-12));
         assert!(approx(q.get_y_at_t(0.5), expected_y, 1e-12));
     }
@@ -2194,7 +2222,14 @@ mod autotest_generated {
     #[test]
     fn evaluate_at_extreme_t_never_panics_and_never_lies() {
         for f in ALL_VARIANTS {
-            for t in [f64::MAX, f64::MIN, 1e300, -1e300, f64::INFINITY, f64::NEG_INFINITY] {
+            for t in [
+                f64::MAX,
+                f64::MIN,
+                1e300,
+                -1e300,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+            ] {
                 let v = f.evaluate(t);
                 assert!(
                     !v.is_finite(),
@@ -2281,7 +2316,10 @@ mod autotest_generated {
         // default clipped).
         let n = parse_style_animation("slideOut 1s no-clip").unwrap();
         assert!(!n.clip);
-        assert!(parse_style_animation("slideOut 1s").unwrap().clip, "default clipped");
+        assert!(
+            parse_style_animation("slideOut 1s").unwrap().clip,
+            "default clipped"
+        );
 
         // A custom cubic-bezier POINT LIST, permille-encoded (Eq-safe), and
         // the paren-aware tokenizer keeps `cubic-bezier(0.4, 0, 0.2, 1)`
@@ -2361,7 +2399,10 @@ mod autotest_generated {
             current_rect_width: f32::INFINITY,
             current_rect_height: -0.0,
         };
-        assert_eq!(r.interpolate_func, AnimationInterpolationFunction::EaseInOut);
+        assert_eq!(
+            r.interpolate_func,
+            AnimationInterpolationFunction::EaseInOut
+        );
         assert_eq!(r.parent_rect_width, 100.0);
         assert!(r.parent_rect_height.is_nan());
         assert!(r.current_rect_width.is_infinite());
@@ -2442,20 +2483,18 @@ impl AnimationTiming {
             Self::Spring => AnimationInterpolationFunction::Spring(SpringCurve::SMOOTH),
             Self::SpringGentle => AnimationInterpolationFunction::Spring(SpringCurve::GENTLE),
             Self::SpringSnappy => AnimationInterpolationFunction::Spring(SpringCurve::SNAPPY),
-            Self::CubicBezier(b) => {
-                AnimationInterpolationFunction::CubicBezier(SvgCubicCurve {
-                    start: SvgPoint { x: 0.0, y: 0.0 },
-                    ctrl_1: SvgPoint {
-                        x: f32::from(b.x1) / 1000.0,
-                        y: f32::from(b.y1) / 1000.0,
-                    },
-                    ctrl_2: SvgPoint {
-                        x: f32::from(b.x2) / 1000.0,
-                        y: f32::from(b.y2) / 1000.0,
-                    },
-                    end: SvgPoint { x: 1.0, y: 1.0 },
-                })
-            }
+            Self::CubicBezier(b) => AnimationInterpolationFunction::CubicBezier(SvgCubicCurve {
+                start: SvgPoint { x: 0.0, y: 0.0 },
+                ctrl_1: SvgPoint {
+                    x: f32::from(b.x1) / 1000.0,
+                    y: f32::from(b.y1) / 1000.0,
+                },
+                ctrl_2: SvgPoint {
+                    x: f32::from(b.x2) / 1000.0,
+                    y: f32::from(b.y2) / 1000.0,
+                },
+                end: SvgPoint { x: 1.0, y: 1.0 },
+            }),
         }
     }
 
@@ -2616,9 +2655,7 @@ impl crate::css::PrintAsCssValue for StyleAnimation {
         if !self.clip {
             out.push_str(" no-clip");
         }
-        out
-        .trim()
-        .to_string()
+        out.trim().to_string()
     }
 }
 
@@ -2734,11 +2771,17 @@ pub fn parse_style_animation(input: &str) -> Result<StyleAnimation, StyleAnimati
                 return Err(StyleAnimationParseError::Empty(input));
             }
         } else if tok.eq_ignore_ascii_case("infinite") {
-            if iterations.replace(AnimationIterationCount::Infinite).is_some() {
+            if iterations
+                .replace(AnimationIterationCount::Infinite)
+                .is_some()
+            {
                 return Err(StyleAnimationParseError::Empty(input));
             }
         } else if let Ok(n) = tok.parse::<u16>() {
-            if iterations.replace(AnimationIterationCount::Count(n)).is_some() {
+            if iterations
+                .replace(AnimationIterationCount::Count(n))
+                .is_some()
+            {
                 return Err(StyleAnimationParseError::Empty(input));
             }
         } else if name.replace(tok).is_some() {
@@ -2791,7 +2834,11 @@ crate::impl_vec!(
     OptionStyleAnimation
 );
 crate::impl_vec_debug!(StyleAnimation, StyleAnimationVec);
-crate::impl_vec_clone!(StyleAnimation, StyleAnimationVec, StyleAnimationVecDestructor);
+crate::impl_vec_clone!(
+    StyleAnimation,
+    StyleAnimationVec,
+    StyleAnimationVecDestructor
+);
 crate::impl_vec_partialeq!(StyleAnimation, StyleAnimationVec);
 crate::impl_vec_eq!(StyleAnimation, StyleAnimationVec);
 crate::impl_vec_hash!(StyleAnimation, StyleAnimationVec);

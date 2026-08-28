@@ -19,11 +19,10 @@ use azul_core::{
 };
 use azul_css::system::SystemStyle;
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow,
-    window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 
 use super::debug_server::{self, LogCategory};
@@ -75,8 +74,12 @@ fn publish_scroll_state(layout_window: &mut LayoutWindow) {
             *dom_id,
             &layout_result.layout_tree,
             &system_callbacks,
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(SCROLLBAR_FADE_DELAY_MS)),
-            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(SCROLLBAR_FADE_DURATION_MS)),
+            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                SCROLLBAR_FADE_DELAY_MS,
+            )),
+            azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
+                SCROLLBAR_FADE_DURATION_MS,
+            )),
         );
     }
 }
@@ -157,7 +160,12 @@ impl PhaseTimer {
             azul_core::log_filter::Level::Debug,
         );
         let now = std::time::Instant::now();
-        Self { enabled, start: now, last: now, marks: Vec::new() }
+        Self {
+            enabled,
+            start: now,
+            last: now,
+            marks: Vec::new(),
+        }
     }
 
     fn mark(&mut self, name: &'static str) {
@@ -165,7 +173,8 @@ impl PhaseTimer {
             return;
         }
         let now = std::time::Instant::now();
-        self.marks.push((name, (now - self.last).as_secs_f64() * 1000.0));
+        self.marks
+            .push((name, (now - self.last).as_secs_f64() * 1000.0));
         self.last = now;
     }
 
@@ -179,7 +188,12 @@ impl PhaseTimer {
         let total = (self.last - self.start).as_secs_f64() * 1000.0;
         let mut sorted: Vec<_> = self.marks.iter().filter(|(_, ms)| *ms >= 0.5).collect();
         sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(core::cmp::Ordering::Equal));
-        let rest: f64 = self.marks.iter().filter(|(_, ms)| *ms < 0.5).map(|(_, ms)| ms).sum();
+        let rest: f64 = self
+            .marks
+            .iter()
+            .filter(|(_, ms)| *ms < 0.5)
+            .map(|(_, ms)| ms)
+            .sum();
         let mut line = format!("[phases] total {total:.1}ms |");
         for (name, ms) in sorted {
             line.push_str(&format!(" {name} {ms:.1}ms |"));
@@ -246,15 +260,17 @@ pub fn regenerate_layout(
     // `reset_frame_counters`) so that a test can assert an interaction did not
     // trigger a DOM rebuild storm.
     layout_window.sync_frame_report();
-    layout_window.frame_report.dom_regenerations =
-        layout_window.frame_report.dom_regenerations.saturating_add(1);
+    layout_window.frame_report.dom_regenerations = layout_window
+        .frame_report
+        .dom_regenerations
+        .saturating_add(1);
 
     // If the async font registry is available, request commonly-used fonts
     // and block until they are ready (eliminates FOUC). On cache hits this
     // is effectively free; on first run it blocks until the Scout + Builder
     // threads have parsed the needed fonts.
     azul_layout::probe::emit_phase_heap("before_registry_check");
-phases.mark("before_registry_check");
+    phases.mark("before_registry_check");
     if let Some(registry) = font_registry.as_ref() {
         // Avoid replacing a complete font cache (e.g. loaded from disk cache at
         // startup) with an incomplete snapshot while background builder threads
@@ -269,29 +285,50 @@ phases.mark("before_registry_check");
         // `should_request_fonts` above — where it is covered by a truth table
         // in `dll/tests/font_cache_regression.rs`.
         if should_request_fonts(build_complete, current_cache_empty) {
-            log_debug!(LogCategory::Layout, "[regenerate_layout] Requesting fonts from registry...");
-            let font_stacks = rust_fontconfig::config::tokenize_common_families(rust_fontconfig::OperatingSystem::current());
-            azul_layout::probe::emit_phase_heap_extra("after_tokenize", registry.chain_cache_len() as u64);
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Requesting fonts from registry..."
+            );
+            let font_stacks = rust_fontconfig::config::tokenize_common_families(
+                rust_fontconfig::OperatingSystem::current(),
+            );
+            azul_layout::probe::emit_phase_heap_extra(
+                "after_tokenize",
+                registry.chain_cache_len() as u64,
+            );
             registry.request_fonts(&font_stacks);
-            azul_layout::probe::emit_phase_heap_extra("after_request_fonts", registry.chain_cache_len() as u64);
+            azul_layout::probe::emit_phase_heap_extra(
+                "after_request_fonts",
+                registry.chain_cache_len() as u64,
+            );
             // Snapshot the registry into an FcFontCache for use during layout
-            layout_window.font_manager.replace_fc_cache(registry.shared_cache());
+            layout_window
+                .font_manager
+                .replace_fc_cache(registry.shared_cache());
             azul_layout::probe::emit_phase_heap("after_shared_cache");
-phases.mark("after_shared_cache");
-            log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
+            phases.mark("after_shared_cache");
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Font registry snapshot complete"
+            );
         } else {
-            log_debug!(LogCategory::Layout, "[regenerate_layout] Using existing font cache (build still in progress)");
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Using existing font cache (build still in progress)"
+            );
         }
     } else {
         azul_layout::probe::emit_phase_heap("before_fc_clone");
-phases.mark("before_fc_clone");
+        phases.mark("before_fc_clone");
         // Fallback: use the provided fc_cache directly
-        layout_window.font_manager.replace_fc_cache((**fc_cache).clone());
+        layout_window
+            .font_manager
+            .replace_fc_cache((**fc_cache).clone());
         azul_layout::probe::emit_phase_heap("after_fc_clone");
-phases.mark("after_fc_clone");
+        phases.mark("after_fc_clone");
     }
     azul_layout::probe::emit_phase_heap("after_font_snapshot");
-phases.mark("after_font_snapshot");
+    phases.mark("after_font_snapshot");
 
     // 1. Call user's layout callback to get new DOM
     log_debug!(
@@ -341,7 +378,7 @@ phases.mark("after_font_snapshot");
 
     let app_data_borrowed = app_data.borrow_mut();
     azul_layout::probe::emit_phase_heap("before_callback");
-phases.mark("before_callback");
+    phases.mark("before_callback");
 
     // Clear any stale recording from an earlier callback on this thread —
     // the drain below must see ONLY what this invocation queried.
@@ -349,9 +386,8 @@ phases.mark("before_callback");
 
     // The layout callback IS app code (DOM construction): give it a
     // cb:<name> span so "app builds the DOM" separates from engine solving.
-    let _cb_span = azul_layout::probe::Probe::span_for_fn(
-        current_window_state.layout_callback.cb as usize,
-    );
+    let _cb_span =
+        azul_layout::probe::Probe::span_for_fn(current_window_state.layout_callback.cb as usize);
     let user_dom =
         (current_window_state.layout_callback.cb)((*app_data_borrowed).clone(), callback_info);
     drop(_cb_span);
@@ -365,7 +401,7 @@ phases.mark("before_callback");
     // re-flows the existing DOM. See LayoutWindow::size_queries_would_flip.
     layout_window.recorded_size_queries = azul_core::callbacks::take_recorded_size_queries();
     azul_layout::probe::emit_phase_heap("after_callback");
-phases.mark("after_callback");
+    phases.mark("after_callback");
 
     // Software menu bar — the Linux fallback. Injected at the *Dom* level (before
     // `create_from_dom`) so the bar's `with_css` rules are scoped by
@@ -416,9 +452,7 @@ phases.mark("after_callback");
                 && layout_window
                     .layout_results
                     .get(&azul_core::dom::DomId::ROOT_ID)
-                    .is_some_and(|lr| {
-                        lr.styled_dom.node_data.as_ref().len() == fp.structure.len()
-                    })
+                    .is_some_and(|lr| lr.styled_dom.node_data.as_ref().len() == fp.structure.len())
         }
         _ => false,
     };
@@ -448,12 +482,12 @@ phases.mark("after_callback");
             let node_data_mut = retained.node_data.as_mut();
             for (idx, new_cb) in &transfers.image_callbacks {
                 if let Some(nd) = node_data_mut.get_mut(*idx) {
-                    nd.node_type = azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(
-                        azul_core::resources::ImageRef::callback(
+                    nd.node_type = azul_core::dom::NodeType::Image(
+                        azul_css::css::BoxOrStatic::heap(azul_core::resources::ImageRef::callback(
                             new_cb.callback.clone(),
                             new_cb.refany.clone(),
-                        ),
-                    ));
+                        )),
+                    );
                 }
             }
             for (idx, new_cbs) in &transfers.callbacks {
@@ -527,10 +561,7 @@ phases.mark("after_callback");
             // its point — no app flag), so this exit is exactly the one a
             // swatch click lands on. The reconcile is an empty diff when
             // nothing is open or forced.
-            reconcile_transient_windows(
-                layout_window,
-                current_window_state,
-            );
+            reconcile_transient_windows(layout_window, current_window_state);
             return Ok(LayoutRegenerateResult::LayoutUnchanged);
         }
 
@@ -578,10 +609,7 @@ phases.mark("after_callback");
         // continuity test first failed: passes 3 and 4 took this exit, the
         // manager was never told the popup was still open / now closed, and
         // the diff the backend reads went stale.
-        reconcile_transient_windows(
-            layout_window,
-            current_window_state,
-        );
+        reconcile_transient_windows(layout_window, current_window_state);
         return Ok(LayoutRegenerateResult::LayoutChanged);
     }
     let prev_dom_fingerprints = layout_window.last_dom_fingerprints.take();
@@ -607,7 +635,7 @@ phases.mark("after_callback");
     let mut user_dom = user_dom;
     azul_core::icon::resolve_icons_in_dom(&mut user_dom, icon_provider, system_style);
     azul_layout::probe::emit_phase_heap("after_icons");
-phases.mark("after_icons");
+    phases.mark("after_icons");
 
     let e2e_mount_xml = layout_window.e2e_mount.xml().map(str::to_string);
     let e2e_mount_dirty = layout_window.e2e_mount.take_dirty();
@@ -653,9 +681,7 @@ phases.mark("after_icons");
         None => azul_core::styled_dom::StyledDom::create_from_dom(user_dom),
     };
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
-phases.mark("after_create_from_dom");
-
-
+    phases.mark("after_create_from_dom");
 
     // 3. Conditionally inject Client-Side Decorations (CSD)
     //
@@ -703,16 +729,12 @@ phases.mark("after_create_from_dom");
             LogCategory::Layout,
             "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
         );
-        inject_software_titlebar(
-            user_styled_dom,
-            &current_window_state.title,
-            system_style,
-        )
+        inject_software_titlebar(user_styled_dom, &current_window_state.title, system_style)
     } else {
         user_styled_dom
     };
     azul_layout::probe::emit_phase_heap("after_csd");
-phases.mark("after_csd");
+    phases.mark("after_csd");
 
     // 3.4. Re-compute inheritance and compact cache on the composed tree.
     //
@@ -734,7 +756,7 @@ phases.mark("after_csd");
     // fixes both issues. Cost: one extra O(n) pass — acceptable for correctness.
     styled_dom.recompute_inheritance_and_compact_cache();
     azul_layout::probe::emit_phase_heap("after_recompute_cache");
-phases.mark("after_recompute_cache");
+    phases.mark("after_recompute_cache");
 
     // 3.5. STATE MIGRATION: Transfer heavy resources from old DOM to new DOM
     // This allows components like video players to preserve their decoder handles
@@ -779,13 +801,18 @@ phases.mark("after_recompute_cache");
         {
             Some(old_layout_result) => (
                 old_layout_result.styled_dom.node_data.as_ref().to_vec(),
-                old_layout_result.styled_dom.node_hierarchy.as_ref().to_vec(),
+                old_layout_result
+                    .styled_dom
+                    .node_hierarchy
+                    .as_ref()
+                    .to_vec(),
             ),
             None => (Vec::new(), Vec::new()),
         };
 
         // Get new node data (from current frame — now also includes titlebar)
-        let mut new_node_data: Vec<azul_core::dom::NodeData> = styled_dom.node_data.as_ref().to_vec();
+        let mut new_node_data: Vec<azul_core::dom::NodeData> =
+            styled_dom.node_data.as_ref().to_vec();
         let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
             styled_dom.node_hierarchy.as_ref().to_vec();
 
@@ -856,7 +883,8 @@ phases.mark("after_recompute_cache");
             .node_moves
             .iter()
             .filter_map(|m| {
-                let r = layout_window.get_node_bounds(azul_core::dom::DomId::ROOT_ID, m.old_node_id)?;
+                let r =
+                    layout_window.get_node_bounds(azul_core::dom::DomId::ROOT_ID, m.old_node_id)?;
                 Some((m.old_node_id, layout_rect_to_logical(r)))
             })
             .collect();
@@ -917,7 +945,7 @@ phases.mark("after_recompute_cache");
         }
     }
     azul_layout::probe::emit_phase_heap("after_state_migrate");
-phases.mark("after_state_migrate");
+    phases.mark("after_state_migrate");
 
     // NOTE: dirty_text_nodes is NOT applied to the StyledDom here.
     // The V3 architecture has two paths:
@@ -939,13 +967,10 @@ phases.mark("after_state_migrate");
     // The layout callback creates a fresh StyledDom with default states (focused=false, etc.)
     // We need to synchronize the StyledNodeState with the current runtime state
     // (FocusManager.focused_node, mouse hover position, etc.) BEFORE the display list is generated
-    let mut styled_dom = apply_runtime_states_before_layout(
-        styled_dom,
-        layout_window,
-        current_window_state,
-    );
+    let mut styled_dom =
+        apply_runtime_states_before_layout(styled_dom, layout_window, current_window_state);
     azul_layout::probe::emit_phase_heap("after_runtime_states");
-phases.mark("after_runtime_states");
+    phases.mark("after_runtime_states");
 
     // 3.7 OPTIMIZATION: Check if the new DOM is structurally identical to the old DOM.
     // If so, we can skip the expensive layout pipeline (CSS cascade, flexbox, display list)
@@ -972,7 +997,10 @@ phases.mark("after_runtime_states");
     // check and threw the fresh-but-identical DOM into a from-scratch layout.
     // The size decides what happens WITH the equivalence result (below), not
     // whether it is worth knowing.
-    if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
+    if let Some(old_layout_result) = layout_window
+        .layout_results
+        .get(&azul_core::dom::DomId::ROOT_ID)
+    {
         if azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom) {
             log_debug!(
                 LogCategory::Layout,
@@ -986,13 +1014,18 @@ phases.mark("after_runtime_states");
             let old_node_data = old_layout_result.styled_dom.node_data.as_ref();
             let new_node_data = styled_dom.node_data.as_ref();
             // Collect updates first to avoid borrow issues
-            let mut image_updates: Vec<(usize, azul_core::callbacks::CoreImageCallback)> = Vec::new();
-            for (idx, (old_nd, new_nd)) in old_node_data.iter().zip(new_node_data.iter()).enumerate() {
+            let mut image_updates: Vec<(usize, azul_core::callbacks::CoreImageCallback)> =
+                Vec::new();
+            for (idx, (old_nd, new_nd)) in
+                old_node_data.iter().zip(new_node_data.iter()).enumerate()
+            {
                 if let (
                     azul_core::dom::NodeType::Image(ref _old_img),
                     azul_core::dom::NodeType::Image(ref new_img),
-                ) = (&old_nd.node_type, &new_nd.node_type) {
-                    if let azul_core::resources::DecodedImage::Callback(new_cb) = new_img.get_data() {
+                ) = (&old_nd.node_type, &new_nd.node_type)
+                {
+                    if let azul_core::resources::DecodedImage::Callback(new_cb) = new_img.get_data()
+                    {
                         image_updates.push((idx, new_cb.clone()));
                     }
                 }
@@ -1000,14 +1033,20 @@ phases.mark("after_runtime_states");
 
             // Now apply image callback updates to old DOM's node data
             if !image_updates.is_empty() {
-                let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID)
+                let old_layout_result_mut = layout_window
+                    .layout_results
+                    .get_mut(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded");
                 let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
                 for (idx, new_cb) in image_updates {
                     if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
-                        old_nd.node_type = azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(
-                            azul_core::resources::ImageRef::callback(new_cb.callback.clone(), new_cb.refany.clone())
-                        ));
+                        old_nd.node_type =
+                            azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(
+                                azul_core::resources::ImageRef::callback(
+                                    new_cb.callback.clone(),
+                                    new_cb.refany.clone(),
+                                ),
+                            ));
                     }
                 }
             }
@@ -1032,19 +1071,32 @@ phases.mark("after_runtime_states");
                 Option<azul_core::refany::RefAny>,
             )> = Vec::new();
             {
-                let old_nd_ref = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID)
-                    .expect("layout_result must exist after get() succeeded").styled_dom.node_data.as_ref();
+                let old_nd_ref = layout_window
+                    .layout_results
+                    .get(&azul_core::dom::DomId::ROOT_ID)
+                    .expect("layout_result must exist after get() succeeded")
+                    .styled_dom
+                    .node_data
+                    .as_ref();
                 let new_nd_ref = styled_dom.node_data.as_ref();
-                for (idx, (_old_nd, new_nd)) in old_nd_ref.iter().zip(new_nd_ref.iter()).enumerate() {
+                for (idx, (_old_nd, new_nd)) in old_nd_ref.iter().zip(new_nd_ref.iter()).enumerate()
+                {
                     let dataset = new_nd.get_dataset().cloned();
-                    let vv_refany = new_nd.get_virtual_view_node_ref().map(|vv| vv.refany.clone());
-                    if !new_nd.callbacks.as_ref().is_empty() || dataset.is_some() || vv_refany.is_some() {
+                    let vv_refany = new_nd
+                        .get_virtual_view_node_ref()
+                        .map(|vv| vv.refany.clone());
+                    if !new_nd.callbacks.as_ref().is_empty()
+                        || dataset.is_some()
+                        || vv_refany.is_some()
+                    {
                         callback_updates.push((idx, new_nd.callbacks.clone(), dataset, vv_refany));
                     }
                 }
             }
             if !callback_updates.is_empty() {
-                let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID)
+                let old_layout_result_mut = layout_window
+                    .layout_results
+                    .get_mut(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded");
                 let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
                 for (idx, new_callbacks, dataset, vv_refany) in callback_updates {
@@ -1065,16 +1117,16 @@ phases.mark("after_runtime_states");
                 // equivalent, the transferred datasets / VirtualView refanys
                 // are not necessarily — re-invoke every view in place.
                 layout_window.queue_all_virtual_view_reinvoke();
-                log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE (layout unchanged)");
+                log_debug!(
+                    LogCategory::Layout,
+                    "[regenerate_layout] COMPLETE (layout unchanged)"
+                );
                 azul_layout::probe::emit_phase_heap("end_unchanged");
                 phases.mark("end_unchanged");
                 phases.report();
                 // Same reason as the pre-cascade exit above: the popup set can
                 // change while the tree does not.
-                reconcile_transient_windows(
-                    layout_window,
-                    current_window_state,
-                );
+                reconcile_transient_windows(layout_window, current_window_state);
                 return Ok(LayoutRegenerateResult::LayoutUnchanged);
             }
 
@@ -1106,7 +1158,7 @@ phases.mark("after_runtime_states");
         }
     }
     azul_layout::probe::emit_phase_heap("after_equivalence_check");
-phases.mark("after_equivalence_check");
+    phases.mark("after_equivalence_check");
 
     // GRANULAR DIFF (task #15b): the pre-cascade fingerprints name exactly
     // which pre-order nodes changed. Reconcile can skip re-hashing every
@@ -1146,7 +1198,7 @@ phases.mark("after_equivalence_check");
     // Update system style for resolving system color keywords (selection colors, accent, etc.)
     layout_window.set_system_style(system_style.clone());
     azul_layout::probe::emit_phase_heap("before_layout_dl");
-phases.mark("before_layout_dl");
+    phases.mark("before_layout_dl");
 
     layout_window
         .layout_and_generate_display_list(
@@ -1158,7 +1210,7 @@ phases.mark("before_layout_dl");
         )
         .map_err(|e| format!("Layout error: {:?}", e))?;
     azul_layout::probe::emit_phase_heap("after_layout_and_dl");
-phases.mark("after_layout_and_dl");
+    phases.mark("after_layout_and_dl");
 
     // CRITICAL: Update layout_window's cached window state so the next
     // regenerate_layout correctly detects size changes.  Without this,
@@ -1251,7 +1303,13 @@ phases.mark("after_layout_and_dl");
     )> = {
         let mut pairs = Vec::new();
         for (dom_id, layout_result) in layout_window.layout_results.iter() {
-            for (i, nd) in layout_result.styled_dom.node_data.as_ref().iter().enumerate() {
+            for (i, nd) in layout_result
+                .styled_dom
+                .node_data
+                .as_ref()
+                .iter()
+                .enumerate()
+            {
                 if let azul_core::dom::NodeType::GeolocationProbe(_) = nd.get_node_type() {
                     pairs.push((
                         azul_layout::managers::permission::Capability::Geolocation,
@@ -1283,8 +1341,12 @@ phases.mark("after_layout_and_dl");
         }
         pairs
     };
-    layout_window.gamepad_manager.set_has_listeners(wants_gamepad);
-    layout_window.sensor_manager.set_has_listeners(wants_sensors);
+    layout_window
+        .gamepad_manager
+        .set_has_listeners(wants_gamepad);
+    layout_window
+        .sensor_manager
+        .set_has_listeners(wants_sensors);
     layout_window.permission_manager.diff_layout(|emit| {
         for (capability, node_id) in &permission_bearing {
             emit(*capability, *node_id);
@@ -1360,7 +1422,7 @@ phases.mark("after_layout_and_dl");
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
-phases.mark("end");
+    phases.mark("end");
     phases.report();
 
     // A focus parked before the FIRST layout (a create callback, most
@@ -1382,10 +1444,7 @@ phases.mark("end");
     // re-opened — the flicker class the screenshare fix chased out of image
     // nodes, and far worse on a window. The backend reads the diff after
     // this returns and creates/moves/destroys surfaces accordingly.
-    reconcile_transient_windows(
-        layout_window,
-        current_window_state,
-    );
+    reconcile_transient_windows(layout_window, current_window_state);
 
     Ok(LayoutRegenerateResult::LayoutChanged)
 }
@@ -1566,10 +1625,10 @@ fn apply_runtime_states_before_layout(
     current_window_state: &FullWindowState,
 ) -> azul_core::styled_dom::StyledDom {
     use azul_core::dom::DomId;
-    
+
     // The styled_dom is the ROOT_ID DOM (after CSD injection)
     let dom_id = DomId::ROOT_ID;
-    
+
     // 1. Apply focus state
     if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
         // Only apply if the focused node is in the same DOM we're processing
@@ -1587,7 +1646,7 @@ fn apply_runtime_states_before_layout(
             }
         }
     }
-    
+
     // 2. Apply hover state based on hover manager
     if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
         if let Some(hit_test) = last_hit_test.hovered_nodes.get(&dom_id) {
@@ -1599,7 +1658,7 @@ fn apply_runtime_states_before_layout(
             }
         }
     }
-    
+
     // 3. Apply active state (mouse button down on a hovered element)
     if current_window_state.mouse_state.left_down {
         if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
@@ -1792,21 +1851,20 @@ fn inject_software_titlebar(
 ) -> azul_core::styled_dom::StyledDom {
     use azul_layout::widgets::titlebar::Titlebar;
 
-    let titlebar = Titlebar::from_system_style(
-        window_title.into(),
-        system_style,
-    );
+    let titlebar = Titlebar::from_system_style(window_title.into(), system_style);
     let mut titlebar_dom = titlebar.dom();
 
     // Style the titlebar DOM (all properties are inline — no external CSS needed)
-    let titlebar_styled = azul_core::styled_dom::StyledDom::create(&mut titlebar_dom, azul_css::css::Css::empty());
+    let titlebar_styled =
+        azul_core::styled_dom::StyledDom::create(&mut titlebar_dom, azul_css::css::Css::empty());
 
     // Use an Html root (not Body!) so we don't get double <body> nesting.
     // StyledDom::default() creates a Body root, and the user's DOM also starts
     // with Body — nesting body>body causes double 8px UA margin.
     // Html has display:block but no margin in the UA stylesheet.
     let mut container_dom = azul_core::dom::Dom::create_html();
-    let mut container = azul_core::styled_dom::StyledDom::create(&mut container_dom, azul_css::css::Css::empty());
+    let mut container =
+        azul_core::styled_dom::StyledDom::create(&mut container_dom, azul_css::css::Css::empty());
     container.append_child(titlebar_styled);
     container.append_child(user_dom);
     container
@@ -1849,7 +1907,6 @@ fn layout_rect_to_logical(r: azul_css::props::basic::LayoutRect) -> azul_core::g
         size: azul_core::geom::LogicalSize::new(r.size.width as f32, r.size.height as f32),
     }
 }
-
 
 /// Find the open `<transient-window>`s in the root dom, lay their content out,
 /// and reconcile the manager. Stores the resulting diff on the window so the
@@ -1910,13 +1967,15 @@ pub(crate) fn reconcile_transient_windows(
     // hears about it like it hears about a drag.
     for (node, torn, bounds) in &diff.torn_changes {
         let now = std::time::Instant::now().into();
-        layout_window.pending_lifecycle_events.push(azul_core::diff::create_tearoff_event(
-            *node,
-            DomId::ROOT_ID,
-            &now,
-            *torn,
-            *bounds,
-        ));
+        layout_window
+            .pending_lifecycle_events
+            .push(azul_core::diff::create_tearoff_event(
+                *node,
+                DomId::ROOT_ID,
+                &now,
+                *torn,
+                *bounds,
+            ));
     }
     if !diff.opened.is_empty() || !diff.closed.is_empty() || !diff.moved.is_empty() {
         log_debug!(
@@ -1959,7 +2018,9 @@ pub(crate) fn reconcile_transient_windows(
 /// Falls back to a private manager when there is no app-level one, which is the
 /// old behaviour and keeps this infallible to adopt.
 pub fn layout_window_sharing_fonts(
-    app_font_manager: Option<&std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    app_font_manager: Option<
+        &std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
     fc_cache: &rust_fontconfig::FcFontCache,
 ) -> Result<azul_layout::window::LayoutWindow, azul_layout::solver3::LayoutError> {
     match app_font_manager {

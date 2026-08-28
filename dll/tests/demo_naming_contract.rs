@@ -52,8 +52,12 @@ fn dir_of(package: &str) -> &'static str {
 
 /// The `[[bin]] name = "..."` a demo declares, if it declares one.
 fn declared_bin_name(root: &Path, package: &str) -> Option<String> {
-    let manifest = std::fs::read_to_string(root.join("examples").join(dir_of(package)).join("Cargo.toml"))
-        .unwrap_or_else(|e| panic!("{package} has no Cargo.toml: {e}"));
+    let manifest = std::fs::read_to_string(
+        root.join("examples")
+            .join(dir_of(package))
+            .join("Cargo.toml"),
+    )
+    .unwrap_or_else(|e| panic!("{package} has no Cargo.toml: {e}"));
     let mut in_bin = false;
     for line in manifest.lines() {
         let t = line.trim();
@@ -76,8 +80,12 @@ fn every_demo_the_workflow_builds_exists() {
     let root = repo_root();
     for d in DEMOS {
         assert!(
-            root.join("examples").join(dir_of(d)).join("Cargo.toml").is_file(),
-            "the workflow builds `{d}` but examples/{}/Cargo.toml does not exist", dir_of(d)
+            root.join("examples")
+                .join(dir_of(d))
+                .join("Cargo.toml")
+                .is_file(),
+            "the workflow builds `{d}` but examples/{}/Cargo.toml does not exist",
+            dir_of(d)
         );
     }
 }

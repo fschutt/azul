@@ -36,8 +36,8 @@ use std::time::Instant;
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     events::ProcessEventResult,
-    gl::OptionGlContextPtr,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
+    gl::OptionGlContextPtr,
     hit_test::ScrollPosition,
     refany::{OptionRefAny, RefAny},
     resources::RendererResources,
@@ -56,7 +56,7 @@ use azul_layout::{
 
 use super::cpu_backend::CpuBackend;
 use super::full::{
-    process_debug_event, e2e_pump_continuation, DebugEvent, DebugRequest, DebugResponseData,
+    e2e_pump_continuation, process_debug_event, DebugEvent, DebugRequest, DebugResponseData,
     E2eSession, E2eStepResult, E2eTest, E2eTestResult, ResponseData,
 };
 
@@ -174,8 +174,7 @@ impl Runner {
 
         Self {
             layout_window: {
-                let mut lw =
-                    LayoutWindow::new(app_fc_cache.clone()).expect("LayoutWindow::new");
+                let mut lw = LayoutWindow::new(app_fc_cache.clone()).expect("LayoutWindow::new");
                 // Tweens OFF unless the scenario asked for them (`setup.animations`).
                 // The default stays off so a scenario that never drives the clock
                 // cannot screenshot geometry mid-glide — but "off, always, with no
@@ -244,7 +243,10 @@ impl Runner {
         let mut callback_info = CallbackInfo::new(
             &ref_data,
             changes,
-            DomNodeId { dom: DomId::ROOT_ID, node: NodeHierarchyItemId::NONE },
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::NONE,
+            },
             azul_core::geom::OptionLogicalPosition::None,
             azul_core::geom::OptionLogicalPosition::None,
         );
@@ -298,11 +300,10 @@ impl Runner {
     ///   loudly — it silently answers with the WRONG node, which is worse than
     ///   the `unsupported` refusal this replaced.
     fn rebuild_hit_tester(&mut self) {
-        self.cpu_hit_tester
-            .rebuild_from_layout_with_gpu(
-                &self.layout_window.layout_results,
-                Some(&self.layout_window.gpu_state_manager),
-            );
+        self.cpu_hit_tester.rebuild_from_layout_with_gpu(
+            &self.layout_window.layout_results,
+            Some(&self.layout_window.gpu_state_manager),
+        );
     }
 
     /// Port of `PlatformWindow::update_hit_test_at`
@@ -384,9 +385,9 @@ impl Runner {
                         .and_then(|c| c.css_current_transform_values.get(&n))
                         .copied()
                 };
-                let hits = self
-                    .cpu_hit_tester
-                    .hit_test_scrolled(point.position, &resolve, &resolve_tf);
+                let hits =
+                    self.cpu_hit_tester
+                        .hit_test_scrolled(point.position, &resolve, &resolve_tf);
                 azul_layout::headless::convert_cpu_hit_test_to_full(
                     &self.cpu_hit_tester,
                     &hits,
@@ -525,10 +526,9 @@ impl Runner {
                 .current_window_state
                 .size
                 .get_logical_size();
-            let full = self.layout_window.resize_needs_full_regeneration(
-                old_logical,
-                self.window_state.size.dimensions,
-            );
+            let full = self
+                .layout_window
+                .resize_needs_full_regeneration(old_logical, self.window_state.size.dimensions);
             result = result.max(if full {
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
             } else {
@@ -563,7 +563,8 @@ impl Runner {
             // regeneration; a display-list rebuild is the floor, not the cap.)
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.layout_window.regenerate_display_list_for_dom(DomId::ROOT_ID);
+                self.layout_window
+                    .regenerate_display_list_for_dom(DomId::ROOT_ID);
                 self.render_and_record();
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => self.render_and_record(),
@@ -609,7 +610,10 @@ impl Runner {
         use azul_core::task::CARET_TWEEN_TIMER_ID;
 
         if !self.layout_window.text_edit_manager.tween.is_active()
-            || self.layout_window.timers.contains_key(&CARET_TWEEN_TIMER_ID)
+            || self
+                .layout_window
+                .timers
+                .contains_key(&CARET_TWEEN_TIMER_ID)
         {
             return;
         }
@@ -876,9 +880,7 @@ impl Runner {
         // changes (clipboard shortcuts, select-all) still flow through the
         // existing `CallbackChange` machinery.
         {
-            use azul_core::events::{
-                InputInterpreterInfo, InputInterpreterState, SystemChange,
-            };
+            use azul_core::events::{InputInterpreterInfo, InputInterpreterState, SystemChange};
             let pre_filter = {
                 let lw = &self.layout_window;
                 let info = InputInterpreterInfo {
@@ -916,8 +918,8 @@ impl Runner {
             for change in &pre_filter.system_changes {
                 if let SystemChange::ApplySelectionOp { target, op } = change {
                     if self.layout_window.apply_selection_op(*target, op) {
-                        result = result
-                            .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        result =
+                            result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                     }
                 }
             }
@@ -1011,7 +1013,9 @@ impl Runner {
                         .regular_hit_test_nodes
                         .iter()
                         .max_by_key(|(_, hit_item)| core::cmp::Reverse(hit_item.hit_depth));
-                    let Some((node_id, _)) = deepest else { continue };
+                    let Some((node_id, _)) = deepest else {
+                        continue;
+                    };
                     let Some(layout_result) = self.layout_window.layout_results.get(dom_id) else {
                         continue;
                     };
@@ -1019,7 +1023,10 @@ impl Runner {
                     let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
                     let mut current = Some(*node_id);
                     while let Some(nid) = current {
-                        if node_data.get(nid).is_some_and(azul_core::dom::NodeData::is_focusable) {
+                        if node_data
+                            .get(nid)
+                            .is_some_and(azul_core::dom::NodeData::is_focusable)
+                        {
                             found = Some(DomNodeId {
                                 dom: *dom_id,
                                 node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
@@ -1177,7 +1184,11 @@ impl Runner {
 
         let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
         if old_focus_node_id != new_focus_node_id {
-            result = result.max(apply_focus_restyle(lw, old_focus_node_id, new_focus_node_id));
+            result = result.max(apply_focus_restyle(
+                lw,
+                old_focus_node_id,
+                new_focus_node_id,
+            ));
         }
         result
     }
@@ -1293,7 +1304,9 @@ impl Runner {
                         }
                         EventFilter::Focus(_) => {
                             // Focus events fire on the focused node only.
-                            let Some(focused) = focused_node else { continue };
+                            let Some(focused) = focused_node else {
+                                continue;
+                            };
                             let Some(node_id) = focused.node.into_crate_internal() else {
                                 continue;
                             };
@@ -1696,8 +1709,7 @@ impl Runner {
                                 .accessibility
                                 .as_ref()
                                 .map_or_else(Default::default, |b| (**b).clone());
-                            info.accessibility_value =
-                                azul_css::OptionString::Some(value.clone());
+                            info.accessibility_value = azul_css::OptionString::Some(value.clone());
                             node.set_accessibility_info(info);
                         }
                     }
@@ -1720,19 +1732,16 @@ impl Runner {
                 // damage is `none` and `assert_damage {"kind":"none"}` passed
                 // while the engine did everything. That IS over-invalidation,
                 // and it was invisible to every assertion the harness had.
-                let unchanged = lw
-                    .layout_results
-                    .get(&dom_id)
-                    .is_some_and(|lr| {
-                        let nodes = lr.styled_dom.node_data.as_container();
-                        nodes.get(internal_node_id).is_some_and(|node| {
-                            matches!(
-                                node.get_node_type(),
-                                azul_core::dom::NodeType::Text(existing)
-                                    if existing.as_str() == text.as_str()
-                            )
-                        })
-                    });
+                let unchanged = lw.layout_results.get(&dom_id).is_some_and(|lr| {
+                    let nodes = lr.styled_dom.node_data.as_container();
+                    nodes.get(internal_node_id).is_some_and(|node| {
+                        matches!(
+                            node.get_node_type(),
+                            azul_core::dom::NodeType::Text(existing)
+                                if existing.as_str() == text.as_str()
+                        )
+                    })
+                });
                 if unchanged {
                     return ProcessEventResult::DoNothing;
                 }
@@ -1783,32 +1792,44 @@ impl Runner {
                 ProcessEventResult::DoNothing
             }
 
-            CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
+            CallbackChange::ChangeNodeImage {
+                dom_id,
+                node_id,
+                image,
+                update_type: _,
+            } => {
                 // The content chokepoint: overlay write + journal + in-place DL
                 // patch (paint tier) or incremental-cache reset (relayout
                 // tier). The StyledDom is NEVER mutated.
-                let result = self.layout_window.apply_content_change(
-                    crate::overlay::ContentChange::Image {
-                        dom_id: *dom_id,
-                        node_id: *node_id,
-                        image: image.clone(),
-                    },
-                );
+                let result =
+                    self.layout_window
+                        .apply_content_change(crate::overlay::ContentChange::Image {
+                            dom_id: *dom_id,
+                            node_id: *node_id,
+                            image: image.clone(),
+                        });
                 result.tier.to_process_event_result()
             }
 
-            CallbackChange::ChangeNodeImageMask { dom_id, node_id, mask } => {
-                self.layout_window
-                    .apply_content_change(crate::overlay::ContentChange::ImageMask {
-                        dom_id: *dom_id,
-                        node_id: *node_id,
-                        mask: mask.clone(),
-                    })
-                    .tier
-                    .to_process_event_result()
-            }
+            CallbackChange::ChangeNodeImageMask {
+                dom_id,
+                node_id,
+                mask,
+            } => self
+                .layout_window
+                .apply_content_change(crate::overlay::ContentChange::ImageMask {
+                    dom_id: *dom_id,
+                    node_id: *node_id,
+                    mask: mask.clone(),
+                })
+                .tier
+                .to_process_event_result(),
 
-            CallbackChange::ChangeNodeCssProperties { dom_id, node_id, properties } => {
+            CallbackChange::ChangeNodeCssProperties {
+                dom_id,
+                node_id,
+                properties,
+            } => {
                 // Same one-line delegation as the DLL host — the chokepoint
                 // owns inline-vec sync, cascade restyle, DL rebuild and tier.
                 self.layout_window
@@ -1822,17 +1843,20 @@ impl Runner {
                     .to_process_event_result()
             }
 
-            CallbackChange::OverrideNodeCssProperties { dom_id, node_id, properties } => {
-                self.layout_window
-                    .apply_content_change(crate::overlay::ContentChange::NodeCss {
-                        dom_id: *dom_id,
-                        node_id: *node_id,
-                        props: properties.as_ref().to_vec(),
-                        override_only: true,
-                    })
-                    .tier
-                    .to_process_event_result()
-            }
+            CallbackChange::OverrideNodeCssProperties {
+                dom_id,
+                node_id,
+                properties,
+            } => self
+                .layout_window
+                .apply_content_change(crate::overlay::ContentChange::NodeCss {
+                    dom_id: *dom_id,
+                    node_id: *node_id,
+                    props: properties.as_ref().to_vec(),
+                    override_only: true,
+                })
+                .tier
+                .to_process_event_result(),
 
             CallbackChange::UpdateVirtualView { dom_id, node_id } => {
                 let mut updates = BTreeMap::new();
@@ -1855,7 +1879,12 @@ impl Runner {
 
             // === DOM structure ===
             CallbackChange::InsertChildNode {
-                dom_id, parent_node_id, node_type_str, position, classes, id,
+                dom_id,
+                parent_node_id,
+                node_type_str,
+                position,
+                classes,
+                id,
             } => {
                 let lw = &mut self.layout_window;
                 if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
@@ -1994,7 +2023,11 @@ impl Runner {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
-            CallbackChange::SetNodeIdsAndClasses { dom_id, node_id, ids_and_classes } => {
+            CallbackChange::SetNodeIdsAndClasses {
+                dom_id,
+                node_id,
+                ids_and_classes,
+            } => {
                 if let Some(layout_result) = self.layout_window.layout_results.get_mut(dom_id) {
                     let idx = node_id.index();
                     if idx < layout_result.styled_dom.node_data.as_ref().len() {
@@ -2016,13 +2049,21 @@ impl Runner {
             }
 
             // === Scroll ===
-            CallbackChange::ScrollTo { dom_id, node_id, position, unclamped } => {
+            CallbackChange::ScrollTo {
+                dom_id,
+                node_id,
+                position,
+                unclamped,
+            } => {
                 let now = self.now();
                 if let Some(internal_node_id) = node_id.into_crate_internal() {
                     let lw = &mut self.layout_window;
                     if *unclamped {
                         lw.scroll_manager.set_scroll_position_unclamped(
-                            *dom_id, internal_node_id, *position, now,
+                            *dom_id,
+                            internal_node_id,
+                            *position,
+                            now,
                         );
                     } else {
                         lw.scroll_manager.scroll_to(
@@ -2125,7 +2166,11 @@ impl Runner {
             }
 
             // === Text editing ===
-            CallbackChange::InsertText { dom_id, node_id, text } => {
+            CallbackChange::InsertText {
+                dom_id,
+                node_id,
+                text,
+            } => {
                 use azul_layout::managers::text_input::TextInputSource;
                 let lw = &mut self.layout_window;
                 let dom_node_id = DomNodeId {
@@ -2155,12 +2200,20 @@ impl Runner {
             // pre-fix body the DLL already replaced. `extend_selection` is
             // false because this variant carries an absolute cursor, not a
             // movement.
-            CallbackChange::MoveCursor { dom_id, node_id, cursor } => {
+            CallbackChange::MoveCursor {
+                dom_id,
+                node_id,
+                cursor,
+            } => {
                 self.layout_window
                     .handle_cursor_movement(*dom_id, *node_id, *cursor, false);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
-            CallbackChange::SetSelection { dom_id: _, node_id: _, selection } => {
+            CallbackChange::SetSelection {
+                dom_id: _,
+                node_id: _,
+                selection,
+            } => {
                 use azul_core::selection::Selection;
                 if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
                     match selection {
@@ -2171,45 +2224,63 @@ impl Runner {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::SetTextChangeset { changeset } => {
-                self.layout_window.text_input_manager.set_changeset(changeset.clone());
+                self.layout_window
+                    .text_input_manager
+                    .set_changeset(changeset.clone());
                 ProcessEventResult::DoNothing
             }
 
             // === Cursor movement ===
-            CallbackChange::MoveCursorLeft { dom_id, node_id, extend_selection } => {
-                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                    layout.move_cursor_left(*cursor, &mut None)
-                })
-            }
-            CallbackChange::MoveCursorRight { dom_id, node_id, extend_selection } => {
-                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                    layout.move_cursor_right(*cursor, &mut None)
-                })
-            }
-            CallbackChange::MoveCursorUp { dom_id, node_id, extend_selection } => {
-                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                    layout.move_cursor_up(*cursor, &mut None, &mut None)
-                })
-            }
-            CallbackChange::MoveCursorDown { dom_id, node_id, extend_selection } => {
-                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                    layout.move_cursor_down(*cursor, &mut None, &mut None)
-                })
-            }
-            CallbackChange::MoveCursorToLineStart { dom_id, node_id, extend_selection } => {
-                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                    layout.move_cursor_to_line_start(*cursor, &mut None)
-                })
-            }
-            CallbackChange::MoveCursorToLineEnd { dom_id, node_id, extend_selection } => {
-                self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
-                    layout.move_cursor_to_line_end(*cursor, &mut None)
-                })
-            }
+            CallbackChange::MoveCursorLeft {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                layout.move_cursor_left(*cursor, &mut None)
+            }),
+            CallbackChange::MoveCursorRight {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                layout.move_cursor_right(*cursor, &mut None)
+            }),
+            CallbackChange::MoveCursorUp {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                layout.move_cursor_up(*cursor, &mut None, &mut None)
+            }),
+            CallbackChange::MoveCursorDown {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                layout.move_cursor_down(*cursor, &mut None, &mut None)
+            }),
+            CallbackChange::MoveCursorToLineStart {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                layout.move_cursor_to_line_start(*cursor, &mut None)
+            }),
+            CallbackChange::MoveCursorToLineEnd {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => self.move_cursor(*dom_id, *node_id, *extend_selection, |layout, cursor| {
+                layout.move_cursor_to_line_end(*cursor, &mut None)
+            }),
             // Document start/end are NOT a `move_cursor_in_node` movement in the
             // DLL either — they read the first/last cluster straight off the
             // inline layout.
-            CallbackChange::MoveCursorToDocumentStart { dom_id, node_id, extend_selection } => {
+            CallbackChange::MoveCursorToDocumentStart {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => {
                 use azul_core::selection::{CursorAffinity, TextCursor};
                 let lw = &mut self.layout_window;
                 let first = lw
@@ -2224,7 +2295,11 @@ impl Runner {
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
-            CallbackChange::MoveCursorToDocumentEnd { dom_id, node_id, extend_selection } => {
+            CallbackChange::MoveCursorToDocumentEnd {
+                dom_id,
+                node_id,
+                extend_selection,
+            } => {
                 use azul_core::selection::{CursorAffinity, TextCursor};
                 let lw = &mut self.layout_window;
                 let last = lw
@@ -2241,7 +2316,11 @@ impl Runner {
             }
 
             // === Multi-cursor / selection ===
-            CallbackChange::AddCursor { dom_id, node_id, cursor } => {
+            CallbackChange::AddCursor {
+                dom_id,
+                node_id,
+                cursor,
+            } => {
                 use azul_core::selection::MultiCursorState;
                 let lw = &mut self.layout_window;
                 if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
@@ -2257,7 +2336,11 @@ impl Runner {
                 lw.text_edit_manager.mark_dirty();
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
-            CallbackChange::AddSelectionRange { dom_id, node_id, range } => {
+            CallbackChange::AddSelectionRange {
+                dom_id,
+                node_id,
+                range,
+            } => {
                 use azul_core::selection::MultiCursorState;
                 let lw = &mut self.layout_window;
                 if let Some(mc) = lw.text_edit_manager.multi_cursor.as_mut() {
@@ -2340,7 +2423,9 @@ impl Runner {
                     .get_drag_context_mut()
                 {
                     if let Some(node_drag) = ctx.as_node_drag_mut() {
-                        node_drag.drag_data.set_data(mime_type.clone(), data.clone());
+                        node_drag
+                            .drag_data
+                            .set_data(mime_type.clone(), data.clone());
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -2478,13 +2563,13 @@ impl Runner {
                         // Synthetic pointer events carry the node's centre so a
                         // callback reading the cursor position sees an in-bounds
                         // point (same choice the DLL makes).
-                        let centre = self
-                            .layout_window
-                            .get_node_layout_rect(*node)
-                            .map_or(LogicalPosition { x: 0.0, y: 0.0 }, |r| LogicalPosition {
+                        let centre = self.layout_window.get_node_layout_rect(*node).map_or(
+                            LogicalPosition { x: 0.0, y: 0.0 },
+                            |r| LogicalPosition {
                                 x: r.origin.x + r.size.width / 2.0,
                                 y: r.origin.y + r.size.height / 2.0,
-                            });
+                            },
+                        );
                         let mouse_data = || {
                             EventData::Mouse(MouseEventData {
                                 position: centre,
@@ -2560,7 +2645,12 @@ impl Runner {
                 // Idempotent, like the DLL's arm: re-arming an already-running
                 // blink would reset `last_run` and stall the caret forever under
                 // a stream of input events.
-                if !self.layout_window.text_edit_manager.blink.is_blink_timer_active() {
+                if !self
+                    .layout_window
+                    .text_edit_manager
+                    .blink
+                    .is_blink_timer_active()
+                {
                     self.layout_window
                         .text_edit_manager
                         .blink
@@ -2573,7 +2663,12 @@ impl Runner {
             }
             CallbackChange::StopCursorBlinkTimer => {
                 use azul_core::task::CURSOR_BLINK_TIMER_ID;
-                if self.layout_window.text_edit_manager.blink.is_blink_timer_active() {
+                if self
+                    .layout_window
+                    .text_edit_manager
+                    .blink
+                    .is_blink_timer_active()
+                {
                     self.layout_window
                         .text_edit_manager
                         .blink
@@ -2584,9 +2679,10 @@ impl Runner {
             }
 
             // No thread pump: nothing polls thread writebacks.
-            CallbackChange::AddThread { .. } => {
-                self.unsupported("AddThread", "no thread pump — the writeback would never run")
-            }
+            CallbackChange::AddThread { .. } => self.unsupported(
+                "AddThread",
+                "no thread pump — the writeback would never run",
+            ),
             CallbackChange::RemoveThread { .. } => {
                 self.unsupported("RemoveThread", "no thread pump")
             }
@@ -2604,9 +2700,7 @@ impl Runner {
             CallbackChange::BeginInteractiveMove => {
                 self.unsupported("BeginInteractiveMove", "no window manager")
             }
-            CallbackChange::OpenMenu { .. } => {
-                self.unsupported("OpenMenu", "no native menu host")
-            }
+            CallbackChange::OpenMenu { .. } => self.unsupported("OpenMenu", "no native menu host"),
             // Pointer capture is pure engine state: mirror the DLL arm.
             CallbackChange::CapturePointer { node } => {
                 self.layout_window.pointer_capture = Some(*node);
@@ -2626,7 +2720,11 @@ impl Runner {
                 if node.dom != DomId::ROOT_ID {
                     return ProcessEventResult::DoNothing;
                 }
-                if self.layout_window.transient_windows.set_forced_open(node_id, *open) {
+                if self
+                    .layout_window
+                    .transient_windows
+                    .set_forced_open(node_id, *open)
+                {
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 } else {
                     ProcessEventResult::DoNothing
@@ -2650,10 +2748,12 @@ impl Runner {
                 // asked); there is no screen to read headless, so the answer
                 // is an immediate "cancelled" on the next pass.
                 let id = self.layout_window.eyedropper_manager.begin_request();
-                crate::managers::eyedropper::push_result(crate::managers::eyedropper::EyedropperResult {
-                    request_id: id,
-                    color: None,
-                });
+                crate::managers::eyedropper::push_result(
+                    crate::managers::eyedropper::EyedropperResult {
+                        request_id: id,
+                        color: None,
+                    },
+                );
                 ProcessEventResult::DoNothing
             }
             CallbackChange::ShowTooltip { .. } => {
@@ -2838,8 +2938,11 @@ impl Runner {
         self.refresh_font_snapshot();
 
         self.layout_window.sync_frame_report();
-        self.layout_window.frame_report.dom_regenerations =
-            self.layout_window.frame_report.dom_regenerations.saturating_add(1);
+        self.layout_window.frame_report.dom_regenerations = self
+            .layout_window
+            .frame_report
+            .dom_regenerations
+            .saturating_add(1);
 
         // E2E `mount` override: replace the DOM wholesale with the test's inline
         // XML+CSS document, but ONLY when the mount is dirty — otherwise keep the
@@ -3182,12 +3285,8 @@ impl Runner {
     /// call the same function now.
     fn register_scroll_nodes(&mut self) {
         let now = self.now();
-        crate::managers::scroll_registration::register_scroll_nodes(
-            &mut self.layout_window,
-            &now,
-        );
+        crate::managers::scroll_registration::register_scroll_nodes(&mut self.layout_window, &now);
     }
-
 }
 
 /// Port of the DLL's `apply_focus_restyle` (`.../common/event.rs`): apply the
@@ -3445,7 +3544,10 @@ fn run_e2e_test_keeping_runner(
     let (tx, rx) = std::sync::mpsc::channel();
     let request = DebugRequest {
         request_id: 1,
-        event: DebugEvent::RunE2eTests { tests: vec![test.clone()], snapshots: None },
+        event: DebugEvent::RunE2eTests {
+            tests: vec![test.clone()],
+            snapshots: None,
+        },
         window_id: None,
         wait_for_render: false,
         response_tx: tx,
@@ -3507,7 +3609,10 @@ fn run_e2e_test_keeping_runner(
     }
 
     let result = match rx.try_recv() {
-        Ok(DebugResponseData::Ok { data: Some(ResponseData::E2eResults(r)), .. }) => r
+        Ok(DebugResponseData::Ok {
+            data: Some(ResponseData::E2eResults(r)),
+            ..
+        }) => r
             .results
             .into_iter()
             .next()
@@ -3614,11 +3719,9 @@ mod tests {
         reset_test_clock();
         freeze_test_clock();
 
-        let mut editor = Dom::create_div()
-            .with_contenteditable(true)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
-                content,
-            ));
+        let mut editor = Dom::create_div().with_contenteditable(true).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(content),
+        );
         if let Some(cb) = on_key_down {
             editor = editor.with_callback(
                 EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
@@ -3642,7 +3745,11 @@ mod tests {
             NodeId::new(EDITOR),
             0,
         );
-        runner.layout_window.text_edit_manager.blink.set_visibility(true);
+        runner
+            .layout_window
+            .text_edit_manager
+            .blink
+            .set_visibility(true);
         runner
             .layout_window
             .regenerate_display_list_for_dom(DomId::ROOT_ID);
@@ -3786,7 +3893,11 @@ mod tests {
             .as_mut()
             .expect("editing session")
             .set_single_cursor(cursor(5));
-        runner.layout_window.text_edit_manager.blink.set_visibility(false);
+        runner
+            .layout_window
+            .text_edit_manager
+            .blink
+            .set_visibility(false);
         assert!(
             !runner
                 .layout_window
@@ -3888,7 +3999,9 @@ mod tests {
             runner.service(&changes, false);
 
             let t = Duration::from_millis(STEP_MS * step).div(&Duration::from_millis(DURATION_MS));
-            let expected = (azul_core::resources::SystemAnimations::default().caret_tween.cb)(
+            let expected = (azul_core::resources::SystemAnimations::default()
+                .caret_tween
+                .cb)(
                 RefAny::new(()),
                 CaretTweenInfo {
                     past: from,
@@ -4171,13 +4284,17 @@ mod tests {
             SelectionStep::Document,
             SelectionMode::Extend,
         );
-        runner.layout_window.apply_selection_op(focused, &select_all);
+        runner
+            .layout_window
+            .apply_selection_op(focused, &select_all);
         let delete_range = SelectionOp::new(
             SelectionDirection::Backward,
             SelectionStep::Character,
             SelectionMode::Delete,
         );
-        runner.layout_window.apply_selection_op(focused, &delete_range);
+        runner
+            .layout_window
+            .apply_selection_op(focused, &delete_range);
         assert_eq!(
             text_input_value(&runner, focused.dom, node_id),
             "",
@@ -4301,8 +4418,7 @@ mod tests {
         let mut seen: Vec<(f32, usize)> = Vec::new();
         for w in 380..=420 {
             let mut state = runner.window_state.clone();
-            state.size.dimensions =
-                azul_core::geom::LogicalSize::new(w as f32, 200.0);
+            state.size.dimensions = azul_core::geom::LogicalSize::new(w as f32, 200.0);
             let _ = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
             seen.push((w as f32, painted(&runner)));
         }
@@ -4379,9 +4495,7 @@ mod tests {
         assert_eq!(y, OverscrollBehavior::Auto, "default y");
 
         // The SHORTHAND sets both axes.
-        let (x, y) = overscroll_behavior_for(&format!(
-            "{BOX} overscroll-behavior: contain;"
-        ));
+        let (x, y) = overscroll_behavior_for(&format!("{BOX} overscroll-behavior: contain;"));
         assert_eq!(x, OverscrollBehavior::Contain, "shorthand must set x");
         assert_eq!(y, OverscrollBehavior::Contain, "shorthand must set y");
 
@@ -4472,7 +4586,10 @@ mod tests {
         // 250) was ever positioned and the tail did not exist to scroll to.
         // Every typed character must be laid out and reach the display list.
         {
-            let lr = runner.layout_window.get_layout_result(&dom).expect("layout result");
+            let lr = runner
+                .layout_window
+                .get_layout_result(&dom)
+                .expect("layout result");
             let painted: usize = lr
                 .display_list
                 .items

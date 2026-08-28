@@ -13,9 +13,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::spec::executor::{
-    self, AgentResult, SHUTDOWN_REQUESTED,
-};
+use crate::spec::executor::{self, AgentResult, SHUTDOWN_REQUESTED};
 
 // ── Configuration ──────────────────────────────────────────────────────
 
@@ -139,7 +137,7 @@ fn path_to_safe_name(rel_path: &Path) -> String {
 // ── Prompt builders ────────────────────────────────────────────────────
 
 fn build_review_prompt(
-    file_path: &Path,      // relative, e.g. "core/src/dom.rs"
+    file_path: &Path, // relative, e.g. "core/src/dom.rs"
     project_root: &Path,
     report_abs_path: &Path, // absolute path for the output report
 ) -> String {
@@ -166,7 +164,7 @@ fn build_review_prompt(
     let report_display = report_abs_path.display();
 
     format!(
-r#"# Code Review: {file_display}
+        r#"# Code Review: {file_display}
 
 You are reviewing the source file `{file_display}` in the Azul GUI toolkit codebase.
 Your job is to read it, use tools to verify every claim, and write a structured
@@ -364,7 +362,7 @@ fn build_merge_prompt(reports_dir: &Path, checklist_path: &Path) -> String {
     let cp = checklist_path.display();
 
     format!(
-r#"# Merge Autoreview Reports
+        r#"# Merge Autoreview Reports
 
 Read every `.md` report in `{rd}` and produce a single merged checklist.
 
@@ -430,7 +428,7 @@ fn build_process_prompt(checklist_path: &Path) -> String {
         .unwrap_or_else(|e| format!("(failed to read checklist: {})", e));
 
     format!(
-r#"# Autoreview: Process Checklist
+        r#"# Autoreview: Process Checklist
 
 You are implementing architectural improvements from the merged checklist.
 
@@ -510,7 +508,7 @@ fn build_smallfixes_prompt(
         .unwrap_or_else(|e| format!("(failed to read source: {})", e));
 
     format!(
-r#"# Small Fixes: {src}
+        r#"# Small Fixes: {src}
 
 You are fixing small issues in `{src}` based on its review report.
 
@@ -613,32 +611,41 @@ fn run_smallfixes_agent(
     model: Option<&str>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
-    let taken_path  = prompt_path.with_extension("md.taken");
+    let taken_path = prompt_path.with_extension("md.taken");
     let result_path = prompt_path.with_extension("md.result");
-    let done_path   = prompt_path.with_extension("md.done");
+    let done_path = prompt_path.with_extension("md.done");
     let failed_path = prompt_path.with_extension("md.failed");
 
     let prompt_text = match fs::read_to_string(prompt_path) {
         Ok(c) => c,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to read prompt: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to read prompt: {}", e)),
+            }
+        }
     };
 
     let result_file = match fs::File::create(&result_path) {
         Ok(f) => f,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to create .result file: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to create .result file: {}", e)),
+            }
+        }
     };
     let result_file_err = match result_file.try_clone() {
         Ok(f) => f,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to clone file handle: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to clone file handle: {}", e)),
+            }
+        }
     };
 
     // Allow Edit (for source + report), but block compilation and MCP.
@@ -646,17 +653,26 @@ fn run_smallfixes_agent(
         "-p",
         "--dangerously-skip-permissions",
         "--verbose",
-        "--output-format", "stream-json",
+        "--output-format",
+        "stream-json",
         // Block compilation
-        "--disallowedTools", "Bash(cargo *)",
-        "--disallowedTools", "Bash(rustc *)",
-        "--disallowedTools", "Bash(clang *)",
-        "--disallowedTools", "Bash(gcc *)",
-        "--disallowedTools", "Bash(make *)",
-        "--disallowedTools", "Bash(cmake *)",
+        "--disallowedTools",
+        "Bash(cargo *)",
+        "--disallowedTools",
+        "Bash(rustc *)",
+        "--disallowedTools",
+        "Bash(clang *)",
+        "--disallowedTools",
+        "Bash(gcc *)",
+        "--disallowedTools",
+        "Bash(make *)",
+        "--disallowedTools",
+        "Bash(cmake *)",
         // Block MCP / LSP leaks
-        "--disallowedTools", "mcp__*",
-        "--disallowedTools", "rust-analyzer-lsp",
+        "--disallowedTools",
+        "mcp__*",
+        "--disallowedTools",
+        "rust-analyzer-lsp",
     ];
     if let Some(m) = model {
         cmd_args.push("--model");
@@ -673,16 +689,23 @@ fn run_smallfixes_agent(
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to spawn claude: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to spawn claude: {}", e)),
+            }
+        }
     };
 
     let pid = child.id();
     if let Err(e) = executor::write_taken_file(&taken_path, slot_index, pid) {
         let _ = child.kill();
-        return AgentResult { success: false, patches: 0, error: Some(e) };
+        return AgentResult {
+            success: false,
+            patches: 0,
+            error: Some(e),
+        };
     }
 
     // Send prompt via stdin then close
@@ -701,7 +724,8 @@ fn run_smallfixes_agent(
             let _ = fs::remove_file(&taken_path);
             let _ = fs::remove_file(&progress_path);
             return AgentResult {
-                success: false, patches: 0,
+                success: false,
+                patches: 0,
                 error: Some("Shutdown requested".into()),
             };
         }
@@ -719,11 +743,14 @@ fn run_smallfixes_agent(
                         &failed_path,
                         format!(
                             "Agent timed out after {}s\nslot={}\n\n--- PARTIAL OUTPUT ---\n{}",
-                            timeout.as_secs(), slot_index, partial,
+                            timeout.as_secs(),
+                            slot_index,
+                            partial,
                         ),
                     );
                     return AgentResult {
-                        success: false, patches: 0,
+                        success: false,
+                        patches: 0,
                         error: Some("Timeout".into()),
                     };
                 }
@@ -731,8 +758,13 @@ fn run_smallfixes_agent(
                 let activity = executor::read_stream_json_activity(&result_path);
                 let status_line = format!(
                     "{}:{:02} | {}",
-                    elapsed / 60, elapsed % 60,
-                    if activity.is_empty() { "working..." } else { &activity },
+                    elapsed / 60,
+                    elapsed % 60,
+                    if activity.is_empty() {
+                        "working..."
+                    } else {
+                        &activity
+                    },
                 );
                 on_progress(&status_line);
                 let _ = fs::write(&progress_path, &status_line);
@@ -743,7 +775,8 @@ fn run_smallfixes_agent(
                 let _ = fs::remove_file(&progress_path);
                 let _ = fs::write(&failed_path, format!("Wait error: {}\n", e));
                 return AgentResult {
-                    success: false, patches: 0,
+                    success: false,
+                    patches: 0,
                     error: Some(format!("Wait error: {}", e)),
                 };
             }
@@ -760,15 +793,17 @@ fn run_smallfixes_agent(
 
     if !exit_status.success() && result_content.trim().is_empty() {
         let code = exit_status.code().unwrap_or(-1);
-        let _ = fs::write(
-            &failed_path,
-            format!(
+        let _ =
+            fs::write(
+                &failed_path,
+                format!(
                 "Agent exited with code {}\nelapsed_secs={}\nslot={}\n\n--- AGENT OUTPUT ---\n{}",
                 code, elapsed.as_secs(), slot_index, result_content,
             ),
-        );
+            );
         return AgentResult {
-            success: false, patches: 0,
+            success: false,
+            patches: 0,
             error: Some(format!("Exit code {}", code)),
         };
     }
@@ -778,11 +813,17 @@ fn run_smallfixes_agent(
         &done_path,
         format!(
             "action=SMALL_FIXES\nslot={}\nelapsed_secs={}\n\n--- AGENT OUTPUT ---\n{}",
-            slot_index, elapsed.as_secs(), result_content,
+            slot_index,
+            elapsed.as_secs(),
+            result_content,
         ),
     );
 
-    AgentResult { success: true, patches: 0, error: None }
+    AgentResult {
+        success: true,
+        patches: 0,
+        error: None,
+    }
 }
 
 // ── Review-agent runner (no worktree) ──────────────────────────────────
@@ -797,34 +838,43 @@ fn run_review_agent(
     model: Option<&str>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
-    let taken_path  = prompt_path.with_extension("md.taken");
+    let taken_path = prompt_path.with_extension("md.taken");
     let result_path = prompt_path.with_extension("md.result");
-    let done_path   = prompt_path.with_extension("md.done");
+    let done_path = prompt_path.with_extension("md.done");
     let failed_path = prompt_path.with_extension("md.failed");
 
     // Read prompt text
     let prompt_text = match fs::read_to_string(prompt_path) {
         Ok(c) => c,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to read prompt: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to read prompt: {}", e)),
+            }
+        }
     };
 
     // Open result file
     let result_file = match fs::File::create(&result_path) {
         Ok(f) => f,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to create .result file: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to create .result file: {}", e)),
+            }
+        }
     };
     let result_file_err = match result_file.try_clone() {
         Ok(f) => f,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to clone file handle: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to clone file handle: {}", e)),
+            }
+        }
     };
 
     // Build CLI args — block editing, compilation, and MCP tools.
@@ -832,20 +882,31 @@ fn run_review_agent(
         "-p",
         "--dangerously-skip-permissions",
         "--verbose",
-        "--output-format", "stream-json",
+        "--output-format",
+        "stream-json",
         // Review agents must not edit source
-        "--disallowedTools", "Edit",
-        "--disallowedTools", "NotebookEdit",
+        "--disallowedTools",
+        "Edit",
+        "--disallowedTools",
+        "NotebookEdit",
         // Block compilation
-        "--disallowedTools", "Bash(cargo *)",
-        "--disallowedTools", "Bash(rustc *)",
-        "--disallowedTools", "Bash(clang *)",
-        "--disallowedTools", "Bash(gcc *)",
-        "--disallowedTools", "Bash(make *)",
-        "--disallowedTools", "Bash(cmake *)",
+        "--disallowedTools",
+        "Bash(cargo *)",
+        "--disallowedTools",
+        "Bash(rustc *)",
+        "--disallowedTools",
+        "Bash(clang *)",
+        "--disallowedTools",
+        "Bash(gcc *)",
+        "--disallowedTools",
+        "Bash(make *)",
+        "--disallowedTools",
+        "Bash(cmake *)",
         // Block MCP / LSP leaks
-        "--disallowedTools", "mcp__*",
-        "--disallowedTools", "rust-analyzer-lsp",
+        "--disallowedTools",
+        "mcp__*",
+        "--disallowedTools",
+        "rust-analyzer-lsp",
     ];
     if let Some(m) = model {
         cmd_args.push("--model");
@@ -862,16 +923,23 @@ fn run_review_agent(
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to spawn claude: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to spawn claude: {}", e)),
+            }
+        }
     };
 
     let pid = child.id();
     if let Err(e) = executor::write_taken_file(&taken_path, slot_index, pid) {
         let _ = child.kill();
-        return AgentResult { success: false, patches: 0, error: Some(e) };
+        return AgentResult {
+            success: false,
+            patches: 0,
+            error: Some(e),
+        };
     }
 
     // Send prompt via stdin then close
@@ -890,7 +958,8 @@ fn run_review_agent(
             let _ = fs::remove_file(&taken_path);
             let _ = fs::remove_file(&progress_path);
             return AgentResult {
-                success: false, patches: 0,
+                success: false,
+                patches: 0,
                 error: Some("Shutdown requested".into()),
             };
         }
@@ -908,11 +977,14 @@ fn run_review_agent(
                         &failed_path,
                         format!(
                             "Agent timed out after {}s\nslot={}\n\n--- PARTIAL OUTPUT ---\n{}",
-                            timeout.as_secs(), slot_index, partial,
+                            timeout.as_secs(),
+                            slot_index,
+                            partial,
                         ),
                     );
                     return AgentResult {
-                        success: false, patches: 0,
+                        success: false,
+                        patches: 0,
                         error: Some("Timeout".into()),
                     };
                 }
@@ -920,8 +992,13 @@ fn run_review_agent(
                 let activity = executor::read_stream_json_activity(&result_path);
                 let status_line = format!(
                     "{}:{:02} | {}",
-                    elapsed / 60, elapsed % 60,
-                    if activity.is_empty() { "working..." } else { &activity },
+                    elapsed / 60,
+                    elapsed % 60,
+                    if activity.is_empty() {
+                        "working..."
+                    } else {
+                        &activity
+                    },
                 );
                 on_progress(&status_line);
                 let _ = fs::write(&progress_path, &status_line);
@@ -932,7 +1009,8 @@ fn run_review_agent(
                 let _ = fs::remove_file(&progress_path);
                 let _ = fs::write(&failed_path, format!("Wait error: {}\n", e));
                 return AgentResult {
-                    success: false, patches: 0,
+                    success: false,
+                    patches: 0,
                     error: Some(format!("Wait error: {}", e)),
                 };
             }
@@ -946,15 +1024,17 @@ fn run_review_agent(
         let code = exit_status.code().unwrap_or(-1);
         let result_content = executor::extract_result_text(&result_path);
         let elapsed = start.elapsed();
-        let _ = fs::write(
-            &failed_path,
-            format!(
+        let _ =
+            fs::write(
+                &failed_path,
+                format!(
                 "Agent exited with code {}\nelapsed_secs={}\nslot={}\n\n--- AGENT OUTPUT ---\n{}",
                 code, elapsed.as_secs(), slot_index, result_content,
             ),
-        );
+            );
         return AgentResult {
-            success: false, patches: 0,
+            success: false,
+            patches: 0,
             error: Some(format!("Exit code {}", code)),
         };
     }
@@ -966,11 +1046,17 @@ fn run_review_agent(
         &done_path,
         format!(
             "action=REVIEWED\nslot={}\nelapsed_secs={}\n\n--- AGENT OUTPUT ---\n{}",
-            slot_index, elapsed.as_secs(), result_content,
+            slot_index,
+            elapsed.as_secs(),
+            result_content,
         ),
     );
 
-    AgentResult { success: true, patches: 0, error: None }
+    AgentResult {
+        success: true,
+        patches: 0,
+        error: None,
+    }
 }
 
 // ── Cargo / rust-analyzer kill loop ───────────────────────────────────
@@ -990,7 +1076,13 @@ fn run_review_agent(
 fn spawn_cargo_kill_loop() -> std::thread::JoinHandle<()> {
     std::thread::spawn(|| {
         while !SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
-            for proc in &["cargo", "rustc", "rust-analyzer", "ra-multiplex", "ra_multiplex"] {
+            for proc in &[
+                "cargo",
+                "rustc",
+                "rust-analyzer",
+                "ra-multiplex",
+                "ra_multiplex",
+            ] {
                 let _ = Command::new("pkill").arg("-9").arg(proc).output();
             }
             std::thread::sleep(Duration::from_secs(5));
@@ -1004,12 +1096,14 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
     let project_root = &config.project_root;
     let prompts = prompts_dir(project_root);
 
-    let (pending, done, failed, taken) =
-        executor::scan_prompts_dir(&prompts, config.retry_failed);
+    let (pending, done, failed, taken) = executor::scan_prompts_dir(&prompts, config.retry_failed);
 
     println!(
         "Prompt status: {} pending, {} done, {} failed, {} in-progress",
-        pending.len(), done, failed, taken,
+        pending.len(),
+        done,
+        failed,
+        taken,
     );
 
     if pending.is_empty() {
@@ -1031,8 +1125,7 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
         .map(|i| spinner.add(format!("[AGENT {:03}] idle", i)))
         .collect();
 
-    let results: Arc<Mutex<Vec<(String, AgentResult)>>> =
-        Arc::new(Mutex::new(Vec::new()));
+    let results: Arc<Mutex<Vec<(String, AgentResult)>>> = Arc::new(Mutex::new(Vec::new()));
 
     let mut handles = Vec::with_capacity(agent_count);
 
@@ -1073,17 +1166,18 @@ fn dispatch_review_agents(config: &AutoreviewConfig) -> Result<(), String> {
                     timeout,
                     model.as_deref(),
                     &|status| {
-                        line.update(format!(
-                            "[AGENT {:03}] {} | {}", slot_idx, name, status,
-                        ));
+                        line.update(format!("[AGENT {:03}] {} | {}", slot_idx, name, status,));
                     },
                 );
 
                 let msg = if result.success {
                     format!("{}: done", name)
                 } else {
-                    format!("{}: FAILED ({})",
-                        name, result.error.as_deref().unwrap_or("unknown"))
+                    format!(
+                        "{}: FAILED ({})",
+                        name,
+                        result.error.as_deref().unwrap_or("unknown")
+                    )
                 };
                 line.update(format!("[AGENT {:03}] {}", slot_idx, msg));
 
@@ -1133,8 +1227,7 @@ fn run_review(config: AutoreviewConfig) -> Result<(), String> {
         reports_dir(&project_root),
         merge_dir(&project_root),
     ] {
-        fs::create_dir_all(d)
-            .map_err(|e| format!("Failed to create {}: {}", d.display(), e))?;
+        fs::create_dir_all(d).map_err(|e| format!("Failed to create {}: {}", d.display(), e))?;
     }
 
     // Phase 1: discover files
@@ -1169,12 +1262,15 @@ fn run_review(config: AutoreviewConfig) -> Result<(), String> {
         }
 
         let text = build_review_prompt(file_path, &project_root, &report_path);
-        fs::write(&prompt_path, &text)
-            .map_err(|e| format!("Failed to write prompt: {}", e))?;
+        fs::write(&prompt_path, &text).map_err(|e| format!("Failed to write prompt: {}", e))?;
         prompt_count += 1;
     }
 
-    println!("Generated {} prompts in {}", prompt_count, prompts.display());
+    println!(
+        "Generated {} prompts in {}",
+        prompt_count,
+        prompts.display()
+    );
 
     if config.dry_run {
         println!("\n--dry-run: stopping after prompt generation.");
@@ -1204,8 +1300,7 @@ fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
     let reports = reports_dir(project_root);
     let merge = merge_dir(project_root);
 
-    fs::create_dir_all(&merge)
-        .map_err(|e| format!("Failed to create merge dir: {}", e))?;
+    fs::create_dir_all(&merge).map_err(|e| format!("Failed to create merge dir: {}", e))?;
 
     if !reports.is_dir() {
         return Err("No reports directory. Run `autoreview` first.".into());
@@ -1227,7 +1322,10 @@ fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
         .map_err(|e| format!("Failed to write merge prompt: {}", e))?;
 
     if config.dry_run {
-        println!("--dry-run: merge prompt written to {}", merge_prompt_path.display());
+        println!(
+            "--dry-run: merge prompt written to {}",
+            merge_prompt_path.display()
+        );
         return Ok(());
     }
 
@@ -1244,7 +1342,9 @@ fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
         &merge_prompt_path,
         config.timeout,
         config.model.as_deref(),
-        &|status| { line.update(format!("[MERGE] {}", status)); },
+        &|status| {
+            line.update(format!("[MERGE] {}", status));
+        },
     );
 
     if result.success {
@@ -1255,11 +1355,15 @@ fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
             println!("\nNext step: run `azul-doc autoreview process` to implement improvements.");
         } else {
             println!("\n\nMerge agent finished but checklist was not created at expected path.");
-            println!("Check agent output: {}", merge_prompt_path.with_extension("md.result").display());
+            println!(
+                "Check agent output: {}",
+                merge_prompt_path.with_extension("md.result").display()
+            );
         }
     } else {
         line.update(format!(
-            "[MERGE] FAILED: {}", result.error.as_deref().unwrap_or("unknown"),
+            "[MERGE] FAILED: {}",
+            result.error.as_deref().unwrap_or("unknown"),
         ));
         return Err("Merge agent failed".into());
     }
@@ -1282,15 +1386,17 @@ fn run_process(config: AutoreviewConfig) -> Result<(), String> {
     let prompt_text = build_process_prompt(&checklist_path);
 
     let pdir = process_prompts_dir(&project_root);
-    fs::create_dir_all(&pdir)
-        .map_err(|e| format!("Failed to create process dir: {}", e))?;
+    fs::create_dir_all(&pdir).map_err(|e| format!("Failed to create process dir: {}", e))?;
 
     let process_prompt_path = pdir.join("process.md");
     fs::write(&process_prompt_path, &prompt_text)
         .map_err(|e| format!("Failed to write process prompt: {}", e))?;
 
     if config.dry_run {
-        println!("--dry-run: process prompt written to {}", process_prompt_path.display());
+        println!(
+            "--dry-run: process prompt written to {}",
+            process_prompt_path.display()
+        );
         return Ok(());
     }
 
@@ -1315,8 +1421,10 @@ fn run_process(config: AutoreviewConfig) -> Result<(), String> {
     if result.success {
         println!("\n\nProcess complete!");
     } else {
-        println!("\n\nProcess FAILED: {}",
-            result.error.as_deref().unwrap_or("unknown"));
+        println!(
+            "\n\nProcess FAILED: {}",
+            result.error.as_deref().unwrap_or("unknown")
+        );
         return Err("Process agent failed".into());
     }
 
@@ -1387,11 +1495,7 @@ fn run_small_fixes(config: AutoreviewConfig) -> Result<(), String> {
             }
         }
 
-        let prompt_text = build_smallfixes_prompt(
-            &source_path,
-            &report_path,
-            &project_root,
-        );
+        let prompt_text = build_smallfixes_prompt(&source_path, &report_path, &project_root);
         fs::write(&prompt_path, &prompt_text)
             .map_err(|e| format!("Failed to write prompt: {}", e))?;
         prompt_count += 1;
@@ -1411,8 +1515,7 @@ fn run_small_fixes(config: AutoreviewConfig) -> Result<(), String> {
     // Phase 3: summary
     println!("\n=== Phase 3: Summary ===\n");
 
-    let (pending, done, failed, taken) =
-        executor::scan_prompts_dir(&sf_prompts, false);
+    let (pending, done, failed, taken) = executor::scan_prompts_dir(&sf_prompts, false);
     let total = pending.len() + done + failed + taken;
 
     println!("Small-fixes Status");
@@ -1429,12 +1532,14 @@ fn dispatch_smallfixes_agents(config: &AutoreviewConfig) -> Result<(), String> {
     let project_root = &config.project_root;
     let prompts = smallfixes_prompts_dir(project_root);
 
-    let (pending, done, failed, taken) =
-        executor::scan_prompts_dir(&prompts, config.retry_failed);
+    let (pending, done, failed, taken) = executor::scan_prompts_dir(&prompts, config.retry_failed);
 
     println!(
         "Prompt status: {} pending, {} done, {} failed, {} in-progress",
-        pending.len(), done, failed, taken,
+        pending.len(),
+        done,
+        failed,
+        taken,
     );
 
     if pending.is_empty() {
@@ -1443,7 +1548,10 @@ fn dispatch_smallfixes_agents(config: &AutoreviewConfig) -> Result<(), String> {
     }
 
     let agent_count = config.agents.min(pending.len());
-    println!("Launching {} concurrent small-fixes agents...\n", agent_count);
+    println!(
+        "Launching {} concurrent small-fixes agents...\n",
+        agent_count
+    );
 
     executor::install_sigint_handler();
     let kill_loop = spawn_cargo_kill_loop();
@@ -1456,8 +1564,7 @@ fn dispatch_smallfixes_agents(config: &AutoreviewConfig) -> Result<(), String> {
         .map(|i| spinner.add(format!("[FIX {:03}] idle", i)))
         .collect();
 
-    let results: Arc<Mutex<Vec<(String, AgentResult)>>> =
-        Arc::new(Mutex::new(Vec::new()));
+    let results: Arc<Mutex<Vec<(String, AgentResult)>>> = Arc::new(Mutex::new(Vec::new()));
 
     let mut handles = Vec::with_capacity(agent_count);
 
@@ -1498,17 +1605,18 @@ fn dispatch_smallfixes_agents(config: &AutoreviewConfig) -> Result<(), String> {
                     timeout,
                     model.as_deref(),
                     &|status| {
-                        line.update(format!(
-                            "[FIX {:03}] {} | {}", slot_idx, name, status,
-                        ));
+                        line.update(format!("[FIX {:03}] {} | {}", slot_idx, name, status,));
                     },
                 );
 
                 let msg = if result.success {
                     format!("{}: done", name)
                 } else {
-                    format!("{}: FAILED ({})",
-                        name, result.error.as_deref().unwrap_or("unknown"))
+                    format!(
+                        "{}: FAILED ({})",
+                        name,
+                        result.error.as_deref().unwrap_or("unknown")
+                    )
                 };
                 line.update(format!("[FIX {:03}] {}", slot_idx, msg));
 
@@ -1555,7 +1663,7 @@ fn build_midlevel_prompt(
         .unwrap_or_else(|e| format!("(failed to read report: {})", e));
 
     format!(
-r#"# Midlevel Fixes: {src}
+        r#"# Midlevel Fixes: {src}
 
 You are fixing mid-level issues in `{src}` based on its review report.
 Mid-level fixes include de-duplications across files, minimal refactoring,
@@ -1652,32 +1760,41 @@ fn run_midlevel_agent(
     model: Option<&str>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
-    let taken_path  = prompt_path.with_extension("md.taken");
+    let taken_path = prompt_path.with_extension("md.taken");
     let result_path = prompt_path.with_extension("md.result");
-    let done_path   = prompt_path.with_extension("md.done");
+    let done_path = prompt_path.with_extension("md.done");
     let failed_path = prompt_path.with_extension("md.failed");
 
     let prompt_text = match fs::read_to_string(prompt_path) {
         Ok(c) => c,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to read prompt: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to read prompt: {}", e)),
+            }
+        }
     };
 
     let result_file = match fs::File::create(&result_path) {
         Ok(f) => f,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to create .result file: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to create .result file: {}", e)),
+            }
+        }
     };
     let result_file_err = match result_file.try_clone() {
         Ok(f) => f,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to clone file handle: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to clone file handle: {}", e)),
+            }
+        }
     };
 
     // Compilation is ALLOWED for midlevel-fixes.
@@ -1686,10 +1803,13 @@ fn run_midlevel_agent(
         "-p",
         "--dangerously-skip-permissions",
         "--verbose",
-        "--output-format", "stream-json",
+        "--output-format",
+        "stream-json",
         // Block MCP / LSP leaks
-        "--disallowedTools", "mcp__*",
-        "--disallowedTools", "rust-analyzer-lsp",
+        "--disallowedTools",
+        "mcp__*",
+        "--disallowedTools",
+        "rust-analyzer-lsp",
     ];
     if let Some(m) = model {
         cmd_args.push("--model");
@@ -1706,16 +1826,23 @@ fn run_midlevel_agent(
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => return AgentResult {
-            success: false, patches: 0,
-            error: Some(format!("Failed to spawn claude: {}", e)),
-        },
+        Err(e) => {
+            return AgentResult {
+                success: false,
+                patches: 0,
+                error: Some(format!("Failed to spawn claude: {}", e)),
+            }
+        }
     };
 
     let pid = child.id();
     if let Err(e) = executor::write_taken_file(&taken_path, slot_index, pid) {
         let _ = child.kill();
-        return AgentResult { success: false, patches: 0, error: Some(e) };
+        return AgentResult {
+            success: false,
+            patches: 0,
+            error: Some(e),
+        };
     }
 
     if let Some(mut stdin) = child.stdin.take() {
@@ -1732,7 +1859,8 @@ fn run_midlevel_agent(
             let _ = fs::remove_file(&taken_path);
             let _ = fs::remove_file(&progress_path);
             return AgentResult {
-                success: false, patches: 0,
+                success: false,
+                patches: 0,
                 error: Some("Shutdown requested".into()),
             };
         }
@@ -1750,11 +1878,14 @@ fn run_midlevel_agent(
                         &failed_path,
                         format!(
                             "Agent timed out after {}s\nslot={}\n\n--- PARTIAL OUTPUT ---\n{}",
-                            timeout.as_secs(), slot_index, partial,
+                            timeout.as_secs(),
+                            slot_index,
+                            partial,
                         ),
                     );
                     return AgentResult {
-                        success: false, patches: 0,
+                        success: false,
+                        patches: 0,
                         error: Some("Timeout".into()),
                     };
                 }
@@ -1762,8 +1893,13 @@ fn run_midlevel_agent(
                 let activity = executor::read_stream_json_activity(&result_path);
                 let status_line = format!(
                     "{}:{:02} | {}",
-                    elapsed / 60, elapsed % 60,
-                    if activity.is_empty() { "working..." } else { &activity },
+                    elapsed / 60,
+                    elapsed % 60,
+                    if activity.is_empty() {
+                        "working..."
+                    } else {
+                        &activity
+                    },
                 );
                 on_progress(&status_line);
                 let _ = fs::write(&progress_path, &status_line);
@@ -1774,7 +1910,8 @@ fn run_midlevel_agent(
                 let _ = fs::remove_file(&progress_path);
                 let _ = fs::write(&failed_path, format!("Wait error: {}\n", e));
                 return AgentResult {
-                    success: false, patches: 0,
+                    success: false,
+                    patches: 0,
                     error: Some(format!("Wait error: {}", e)),
                 };
             }
@@ -1789,15 +1926,17 @@ fn run_midlevel_agent(
 
     if !exit_status.success() && result_content.trim().is_empty() {
         let code = exit_status.code().unwrap_or(-1);
-        let _ = fs::write(
-            &failed_path,
-            format!(
+        let _ =
+            fs::write(
+                &failed_path,
+                format!(
                 "Agent exited with code {}\nelapsed_secs={}\nslot={}\n\n--- AGENT OUTPUT ---\n{}",
                 code, elapsed.as_secs(), slot_index, result_content,
             ),
-        );
+            );
         return AgentResult {
-            success: false, patches: 0,
+            success: false,
+            patches: 0,
             error: Some(format!("Exit code {}", code)),
         };
     }
@@ -1806,11 +1945,17 @@ fn run_midlevel_agent(
         &done_path,
         format!(
             "action=MIDLEVEL_FIXES\nslot={}\nelapsed_secs={}\n\n--- AGENT OUTPUT ---\n{}",
-            slot_index, elapsed.as_secs(), result_content,
+            slot_index,
+            elapsed.as_secs(),
+            result_content,
         ),
     );
 
-    AgentResult { success: true, patches: 0, error: None }
+    AgentResult {
+        success: true,
+        patches: 0,
+        error: None,
+    }
 }
 
 // ── Subcommand: midlevel-fixes ────────────────────────────────────────
@@ -1873,11 +2018,7 @@ fn run_midlevel_fixes(config: AutoreviewConfig) -> Result<(), String> {
             }
         }
 
-        let prompt_text = build_midlevel_prompt(
-            &source_path,
-            &report_path,
-            &project_root,
-        );
+        let prompt_text = build_midlevel_prompt(&source_path, &report_path, &project_root);
         fs::write(&prompt_path, &prompt_text)
             .map_err(|e| format!("Failed to write prompt: {}", e))?;
         prompt_count += 1;
@@ -1898,7 +2039,10 @@ fn run_midlevel_fixes(config: AutoreviewConfig) -> Result<(), String> {
 
     println!(
         "Prompt status: {} pending, {} done, {} failed, {} in-progress",
-        pending.len(), done, failed, taken,
+        pending.len(),
+        done,
+        failed,
+        taken,
     );
 
     if pending.is_empty() {
@@ -1942,8 +2086,10 @@ fn run_midlevel_fixes(config: AutoreviewConfig) -> Result<(), String> {
             println!("\r  done                                    ");
             success_count += 1;
         } else {
-            println!("\r  FAILED: {}",
-                result.error.as_deref().unwrap_or("unknown"));
+            println!(
+                "\r  FAILED: {}",
+                result.error.as_deref().unwrap_or("unknown")
+            );
             fail_count += 1;
         }
     }
@@ -1969,15 +2115,21 @@ fn show_status(project_root: &Path, retry_failed: bool) -> Result<(), String> {
         return Ok(());
     }
 
-    let (pending, done, failed, taken) =
-        executor::scan_prompts_dir(&prompts, retry_failed);
+    let (pending, done, failed, taken) = executor::scan_prompts_dir(&prompts, retry_failed);
 
     let total = pending.len() + done + failed + taken;
     println!("Autoreview Status");
     println!("=================\n");
     println!("  Total prompts:  {}", total);
-    println!("  Done:           {} ({:.0}%)", done,
-        if total > 0 { done as f64 / total as f64 * 100.0 } else { 0.0 });
+    println!(
+        "  Done:           {} ({:.0}%)",
+        done,
+        if total > 0 {
+            done as f64 / total as f64 * 100.0
+        } else {
+            0.0
+        }
+    );
     println!("  Failed:         {}", failed);
     println!("  In-progress:    {}", taken);
     println!("  Pending:        {}", pending.len());
@@ -2023,21 +2175,17 @@ fn preflight_checks(project_root: &Path, dry_run: bool) -> Result<(), String> {
 
     if !dry_run {
         if std::env::var("CLAUDECODE").is_ok() {
-            return Err(
-                "Cannot run inside a Claude Code session.\n\
+            return Err("Cannot run inside a Claude Code session.\n\
                  Run from a regular terminal:\n\n\
                  ./target/release/azul-doc autoreview"
-                    .into(),
-            );
+                .into());
         }
         println!("  [OK] Not running inside Claude Code");
 
         if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-            return Err(
-                "ANTHROPIC_API_KEY is set.\n\
+            return Err("ANTHROPIC_API_KEY is set.\n\
                  Unset it first: unset ANTHROPIC_API_KEY"
-                    .into(),
-            );
+                .into());
         }
         println!("  [OK] No ANTHROPIC_API_KEY set");
 
@@ -2095,17 +2243,18 @@ fn highlevel_progress_path(project_root: &Path) -> PathBuf {
 /// while the mid-level fixes are applied by other agents in parallel.
 fn run_summarize_highlevel(config: AutoreviewConfig) -> Result<(), String> {
     let project_root = config.project_root.clone();
-    let reference = config.reference.clone()
+    let reference = config
+        .reference
+        .clone()
         .unwrap_or_else(|| "midlevel-fixes-reference".to_string());
 
     // Resolve the reference up-front so a typo fails fast.
     let ref_sha = git_rev_parse(&project_root, &reference)?;
 
     // List the committed reports on the reference branch.
-    let all_reports = git_list_tree_files(
-        &project_root, &reference, HIGHLEVEL_REPORTS_PREFIX,
-    )?;
-    let all_reports: Vec<String> = all_reports.into_iter()
+    let all_reports = git_list_tree_files(&project_root, &reference, HIGHLEVEL_REPORTS_PREFIX)?;
+    let all_reports: Vec<String> = all_reports
+        .into_iter()
         .filter(|p| p.ends_with(".md"))
         .collect();
     if all_reports.is_empty() {
@@ -2126,7 +2275,8 @@ fn run_summarize_highlevel(config: AutoreviewConfig) -> Result<(), String> {
         .filter(|l| !l.is_empty())
         .collect();
 
-    let todo: Vec<String> = all_reports.iter()
+    let todo: Vec<String> = all_reports
+        .iter()
         .filter(|p| !done.contains(*p))
         .cloned()
         .collect();
@@ -2145,7 +2295,8 @@ fn run_summarize_highlevel(config: AutoreviewConfig) -> Result<(), String> {
              hand into the final cleanup plan.\n\
              \n\
              ## Items\n\n",
-            reference, &ref_sha[..ref_sha.len().min(12)],
+            reference,
+            &ref_sha[..ref_sha.len().min(12)],
         );
         fs::write(&superplan, header)
             .map_err(|e| format!("Failed to create {}: {}", superplan.display(), e))?;
@@ -2153,7 +2304,10 @@ fn run_summarize_highlevel(config: AutoreviewConfig) -> Result<(), String> {
 
     println!(
         "summarize-highlevel: {} report(s) on '{}', {} already done, {} to process.",
-        all_reports.len(), reference, done.len(), todo.len()
+        all_reports.len(),
+        reference,
+        done.len(),
+        todo.len()
     );
     if let Some(n) = config.limit {
         println!("Session limit: will stop after {} report(s) this run.", n);
@@ -2172,7 +2326,10 @@ fn run_summarize_highlevel(config: AutoreviewConfig) -> Result<(), String> {
 
     for (i, report) in todo.iter().enumerate() {
         if SHUTDOWN_REQUESTED.load(Ordering::Relaxed) {
-            println!("\nInterrupted — {} processed this run. Re-run to resume.", processed_this_run);
+            println!(
+                "\nInterrupted — {} processed this run. Re-run to resume.",
+                processed_this_run
+            );
             break;
         }
         if let Some(n) = config.limit {
@@ -2196,18 +2353,31 @@ fn run_summarize_highlevel(config: AutoreviewConfig) -> Result<(), String> {
         };
 
         let prompt = build_highlevel_prompt(name, &content);
-        let result = run_highlevel_agent(&project_root, &work_dir, name, &prompt, model, config.timeout);
+        let result = run_highlevel_agent(
+            &project_root,
+            &work_dir,
+            name,
+            &prompt,
+            model,
+            config.timeout,
+        );
 
         match result {
             Ok(text) => {
                 match parse_highlevel_verdict(&text) {
                     Some(HighlevelVerdict::Relevant(bullet)) => {
-                        append_superplan_line(&superplan, &format!("- {}  _(from {})_", bullet, name))?;
+                        append_superplan_line(
+                            &superplan,
+                            &format!("- {}  _(from {})_", bullet, name),
+                        )?;
                         println!("  → RELEVANT: {}", bullet);
                         relevant += 1;
                     }
                     Some(HighlevelVerdict::Uncertain(bullet)) => {
-                        append_superplan_line(&superplan, &format!("- [UNCERTAIN] {}  _(from {})_", bullet, name))?;
+                        append_superplan_line(
+                            &superplan,
+                            &format!("- [UNCERTAIN] {}  _(from {})_", bullet, name),
+                        )?;
                         println!("  → UNCERTAIN: {}", bullet);
                         uncertain += 1;
                     }
@@ -2245,8 +2415,11 @@ fn run_summarize_highlevel(config: AutoreviewConfig) -> Result<(), String> {
         "\nDone. This run: {} processed ({} relevant, {} uncertain, {} obsolete, {} errored).",
         processed_this_run, relevant, uncertain, obsolete, errored
     );
-    println!("Super-plan ({} total report(s) across all runs): {}",
-        done.len(), superplan.display());
+    println!(
+        "Super-plan ({} total report(s) across all runs): {}",
+        done.len(),
+        superplan.display()
+    );
     Ok(())
 }
 
@@ -2268,7 +2441,11 @@ fn parse_highlevel_verdict(text: &str) -> Option<HighlevelVerdict> {
             Some((k, p)) => (k.trim().to_ascii_uppercase(), p.trim().to_string()),
             None => (rest.to_ascii_uppercase(), String::new()),
         };
-        let payload = if payload.is_empty() { "(no detail given)".to_string() } else { payload };
+        let payload = if payload.is_empty() {
+            "(no detail given)".to_string()
+        } else {
+            payload
+        };
         return Some(match kind.as_str() {
             "RELEVANT" => HighlevelVerdict::Relevant(payload),
             "OBSOLETE" => HighlevelVerdict::Obsolete(payload),
@@ -2332,9 +2509,10 @@ fn run_highlevel_agent(
     let safe = report_name.replace(['/', '.'], "_");
     let result_path = work_dir.join(format!("{}.result", safe));
 
-    let result_file = fs::File::create(&result_path)
-        .map_err(|e| format!("create result file: {}", e))?;
-    let result_file_err = result_file.try_clone()
+    let result_file =
+        fs::File::create(&result_path).map_err(|e| format!("create result file: {}", e))?;
+    let result_file_err = result_file
+        .try_clone()
         .map_err(|e| format!("clone file handle: {}", e))?;
 
     // Read-only: block all edits, MCP/LSP leaks, and any git/cargo mutation.
@@ -2342,17 +2520,28 @@ fn run_highlevel_agent(
         "-p",
         "--dangerously-skip-permissions",
         "--verbose",
-        "--output-format", "stream-json",
-        "--model", model,
-        "--disallowedTools", "mcp__*",
-        "--disallowedTools", "rust-analyzer-lsp",
-        "--disallowedTools", "Edit",
-        "--disallowedTools", "Write",
-        "--disallowedTools", "NotebookEdit",
-        "--disallowedTools", "Bash(git commit*)",
-        "--disallowedTools", "Bash(git push*)",
-        "--disallowedTools", "Bash(git add*)",
-        "--disallowedTools", "Bash(cargo*)",
+        "--output-format",
+        "stream-json",
+        "--model",
+        model,
+        "--disallowedTools",
+        "mcp__*",
+        "--disallowedTools",
+        "rust-analyzer-lsp",
+        "--disallowedTools",
+        "Edit",
+        "--disallowedTools",
+        "Write",
+        "--disallowedTools",
+        "NotebookEdit",
+        "--disallowedTools",
+        "Bash(git commit*)",
+        "--disallowedTools",
+        "Bash(git push*)",
+        "--disallowedTools",
+        "Bash(git add*)",
+        "--disallowedTools",
+        "Bash(cargo*)",
     ];
 
     let mut child = Command::new("claude")
@@ -2381,7 +2570,10 @@ fn run_highlevel_agent(
             Ok(Some(status)) => {
                 let text = executor::extract_result_text(&result_path);
                 if !status.success() && text.trim().is_empty() {
-                    return Err(format!("claude exited with code {}", status.code().unwrap_or(-1)));
+                    return Err(format!(
+                        "claude exited with code {}",
+                        status.code().unwrap_or(-1)
+                    ));
                 }
                 return Ok(text);
             }
@@ -2393,9 +2585,16 @@ fn run_highlevel_agent(
                 }
                 let elapsed = start.elapsed().as_secs();
                 let activity = executor::read_stream_json_activity(&result_path);
-                print!("\r  {:02}:{:02} | {}\x1b[K",
-                    elapsed / 60, elapsed % 60,
-                    if activity.is_empty() { "working..." } else { &activity });
+                print!(
+                    "\r  {:02}:{:02} | {}\x1b[K",
+                    elapsed / 60,
+                    elapsed % 60,
+                    if activity.is_empty() {
+                        "working..."
+                    } else {
+                        &activity
+                    }
+                );
                 let _ = std::io::stdout().flush();
                 std::thread::sleep(Duration::from_secs(2));
             }
@@ -2412,8 +2611,7 @@ fn append_superplan_line(path: &Path, line: &str) -> Result<(), String> {
         .append(true)
         .open(path)
         .map_err(|e| format!("open {} for append: {}", path.display(), e))?;
-    writeln!(f, "{}", line)
-        .map_err(|e| format!("append to {}: {}", path.display(), e))
+    writeln!(f, "{}", line).map_err(|e| format!("append to {}: {}", path.display(), e))
 }
 
 // ── small git helpers (summarize-highlevel) ──────────────────────────────
@@ -2425,19 +2623,31 @@ fn git_rev_parse(project_root: &Path, refname: &str) -> Result<String, String> {
         .output()
         .map_err(|e| format!("git rev-parse: {}", e))?;
     if !out.status.success() {
-        return Err(format!("git rev-parse {}: {}", refname, String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "git rev-parse {}: {}",
+            refname,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn git_list_tree_files(project_root: &Path, refname: &str, prefix: &str) -> Result<Vec<String>, String> {
+fn git_list_tree_files(
+    project_root: &Path,
+    refname: &str,
+    prefix: &str,
+) -> Result<Vec<String>, String> {
     let out = Command::new("git")
         .args(["ls-tree", "-r", "--name-only", refname, "--", prefix])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("git ls-tree: {}", e))?;
     if !out.status.success() {
-        return Err(format!("git ls-tree {}: {}", refname, String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "git ls-tree {}: {}",
+            refname,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout)
         .lines()
@@ -2453,7 +2663,12 @@ fn git_show_file(project_root: &Path, refname: &str, path: &str) -> Result<Strin
         .output()
         .map_err(|e| format!("git show: {}", e))?;
     if !out.status.success() {
-        return Err(format!("git show {}:{}: {}", refname, path, String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "git show {}:{}: {}",
+            refname,
+            path,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
@@ -2481,48 +2696,43 @@ pub fn parse_autoreview_args(
 
     for arg in args {
         match *arg {
-            "merge"          => config.subcommand = AutoreviewSubcommand::Merge,
-            "process"        => config.subcommand = AutoreviewSubcommand::Process,
-            "small-fixes"    => config.subcommand = AutoreviewSubcommand::SmallFixes,
+            "merge" => config.subcommand = AutoreviewSubcommand::Merge,
+            "process" => config.subcommand = AutoreviewSubcommand::Process,
+            "small-fixes" => config.subcommand = AutoreviewSubcommand::SmallFixes,
             "midlevel-fixes" => config.subcommand = AutoreviewSubcommand::MidlevelFixes,
             "summarize-highlevel" => config.subcommand = AutoreviewSubcommand::SummarizeHighlevel,
-            "autodoc"        => config.subcommand = AutoreviewSubcommand::Autodoc,
-            "autodoc-check"  => config.subcommand = AutoreviewSubcommand::AutodocCheck,
+            "autodoc" => config.subcommand = AutoreviewSubcommand::Autodoc,
+            "autodoc-check" => config.subcommand = AutoreviewSubcommand::AutodocCheck,
             "autodoc-screenshots" => config.subcommand = AutoreviewSubcommand::AutodocScreenshots,
             "--retry-failed" => config.retry_failed = true,
-            "--dry-run"      => config.dry_run = true,
-            "--status"       => config.status_only = true,
-            "--strict"       => config.strict = true,
+            "--dry-run" => config.dry_run = true,
+            "--status" => config.status_only = true,
+            "--strict" => config.strict = true,
             _ if arg.starts_with("--agents=") => {
                 let n = arg.strip_prefix("--agents=").unwrap();
-                config.agents = n.parse()
+                config.agents = n
+                    .parse()
                     .map_err(|_| format!("Invalid --agents: {}", arg))?;
             }
             _ if arg.starts_with("--timeout=") => {
                 let s = arg.strip_prefix("--timeout=").unwrap();
-                let secs: u64 = s.parse()
+                let secs: u64 = s
+                    .parse()
                     .map_err(|_| format!("Invalid --timeout: {}", arg))?;
                 config.timeout = Duration::from_secs(secs);
             }
             _ if arg.starts_with("--model=") => {
-                config.model = Some(
-                    arg.strip_prefix("--model=").unwrap().to_string(),
-                );
+                config.model = Some(arg.strip_prefix("--model=").unwrap().to_string());
             }
             _ if arg.starts_with("--file=") => {
-                config.file_filter = Some(
-                    arg.strip_prefix("--file=").unwrap().to_string(),
-                );
+                config.file_filter = Some(arg.strip_prefix("--file=").unwrap().to_string());
             }
             _ if arg.starts_with("--limit=") => {
                 let s = arg.strip_prefix("--limit=").unwrap();
-                config.limit = Some(s.parse()
-                    .map_err(|_| format!("Invalid --limit: {}", arg))?);
+                config.limit = Some(s.parse().map_err(|_| format!("Invalid --limit: {}", arg))?);
             }
             _ if arg.starts_with("--reference=") => {
-                config.reference = Some(
-                    arg.strip_prefix("--reference=").unwrap().to_string(),
-                );
+                config.reference = Some(arg.strip_prefix("--reference=").unwrap().to_string());
             }
             _ if arg.starts_with('-') => {
                 return Err(format!("Unknown option: {}", arg));
@@ -2536,15 +2746,16 @@ pub fn parse_autoreview_args(
 
 pub fn run_autoreview(config: AutoreviewConfig) -> Result<(), String> {
     match config.subcommand {
-        AutoreviewSubcommand::Run        => run_review(config),
-        AutoreviewSubcommand::Merge      => run_merge(config),
-        AutoreviewSubcommand::Process    => run_process(config),
-        AutoreviewSubcommand::SmallFixes   => run_small_fixes(config),
+        AutoreviewSubcommand::Run => run_review(config),
+        AutoreviewSubcommand::Merge => run_merge(config),
+        AutoreviewSubcommand::Process => run_process(config),
+        AutoreviewSubcommand::SmallFixes => run_small_fixes(config),
         AutoreviewSubcommand::MidlevelFixes => run_midlevel_fixes(config),
-        AutoreviewSubcommand::Autodoc       => crate::reftest::autodoc::run_autodoc(&config),
-        AutoreviewSubcommand::AutodocCheck  => crate::reftest::autodoc::run_autodoc_check(&config),
-        AutoreviewSubcommand::AutodocScreenshots =>
-            crate::reftest::autodoc::run_autodoc_screenshots(&config),
+        AutoreviewSubcommand::Autodoc => crate::reftest::autodoc::run_autodoc(&config),
+        AutoreviewSubcommand::AutodocCheck => crate::reftest::autodoc::run_autodoc_check(&config),
+        AutoreviewSubcommand::AutodocScreenshots => {
+            crate::reftest::autodoc::run_autodoc_screenshots(&config)
+        }
         AutoreviewSubcommand::SummarizeHighlevel => run_summarize_highlevel(config),
     }
 }

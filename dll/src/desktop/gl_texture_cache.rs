@@ -195,7 +195,10 @@ pub fn get_texture(external_image_id: &ExternalImageId) -> Option<(u32, (f32, f3
             if let Some(entry) = doc_storage.get(external_image_id) {
                 return Some((
                     entry.texture.texture_id,
-                    (entry.texture.size.width as f32, entry.texture.size.height as f32),
+                    (
+                        entry.texture.size.width as f32,
+                        entry.texture.size.height as f32,
+                    ),
                 ));
             }
         }

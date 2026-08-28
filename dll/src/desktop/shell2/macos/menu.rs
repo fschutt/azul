@@ -263,7 +263,13 @@ fn create_nsmenu(
     let mut command_map = HashMap::new();
 
     // Build menu items recursively
-    build_menu_items(menu.items.as_slice(), &ns_menu, &mut command_map, next_tag, mtm);
+    build_menu_items(
+        menu.items.as_slice(),
+        &ns_menu,
+        &mut command_map,
+        next_tag,
+        mtm,
+    );
 
     (ns_menu, command_map)
 }
@@ -354,7 +360,13 @@ fn create_menubar_nsmenu(
     build_edit_submenu(&menubar, mtm);
 
     // Then the user's menu_bar items become the remaining top-level menus.
-    build_menu_items(menu.items.as_slice(), &menubar, &mut command_map, next_tag, mtm);
+    build_menu_items(
+        menu.items.as_slice(),
+        &menubar,
+        &mut command_map,
+        next_tag,
+        mtm,
+    );
 
     (menubar, command_map)
 }
@@ -391,7 +403,13 @@ pub(crate) fn build_menu_items(
                     // disabled item inside a submenu re-enables itself on open.
                     submenu.setAutoenablesItems(false);
                     submenu.setTitle(&title);
-                    build_menu_items(string_item.children.as_slice(), &submenu, command_map, next_tag, mtm);
+                    build_menu_items(
+                        string_item.children.as_slice(),
+                        &submenu,
+                        command_map,
+                        next_tag,
+                        mtm,
+                    );
                     menu_item.setSubmenu(Some(&submenu));
                 } else {
                     // EVERY leaf gets a tag, a target and an action - not just

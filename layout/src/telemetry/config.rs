@@ -269,7 +269,8 @@ impl TelemetryConfig {
             // A pin (env or executable-adjacent) that says "off" also
             // suppresses the consent dialog — an employee under a corporate
             // policy should never be asked a question they cannot answer.
-            if tier == TelemetryTier::Off && matches!(source, TierSource::Env | TierSource::Pinned) {
+            if tier == TelemetryTier::Off && matches!(source, TierSource::Env | TierSource::Pinned)
+            {
                 self.pinned_off = true;
             }
         }
@@ -341,10 +342,7 @@ pub fn tier() -> TelemetryTier {
 /// A copy of the current configuration.
 #[must_use]
 pub fn snapshot() -> TelemetryConfig {
-    config_cell()
-        .read()
-        .map(|c| c.clone())
-        .unwrap_or_default()
+    config_cell().read().map(|c| c.clone()).unwrap_or_default()
 }
 
 /// What a [`set_tier`] call implies for data already on the server.
@@ -444,10 +442,7 @@ pub fn load_with_channel(app_id: &str, channel: &str) -> TelemetryConfig {
             Err(e) => {
                 // Loud, once: a malformed consent file that silently reverts
                 // to "off" is indistinguishable from a working one.
-                eprintln!(
-                    "[azul][telemetry] ignoring {}: {e}",
-                    path.display()
-                );
+                eprintln!("[azul][telemetry] ignoring {}: {e}", path.display());
             }
         }
     }
@@ -615,7 +610,11 @@ fn fallback_dir(config: bool) -> Option<PathBuf> {
     }
     if cfg!(target_os = "macos") {
         let home = std::env::var_os("HOME")?;
-        return Some(PathBuf::from(home).join("Library").join("Application Support"));
+        return Some(
+            PathBuf::from(home)
+                .join("Library")
+                .join("Application Support"),
+        );
     }
     let (xdg, suffix) = if config {
         ("XDG_CONFIG_HOME", ".config")
@@ -649,7 +648,10 @@ mod tests {
             assert_eq!(TelemetryTier::from_name(tier.as_str()), Some(tier));
             assert_eq!(TelemetryTier::from_u8(tier as u8), tier);
         }
-        assert_eq!(TelemetryTier::from_name("MeTrIcS"), Some(TelemetryTier::Metrics));
+        assert_eq!(
+            TelemetryTier::from_name("MeTrIcS"),
+            Some(TelemetryTier::Metrics)
+        );
         assert_eq!(TelemetryTier::from_name("yes-please"), None);
     }
 

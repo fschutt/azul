@@ -24,7 +24,12 @@ use super::SpecConfig;
 /// Categorizes each commit as CODE (has non-comment code changes) or ANNOT
 /// (annotation-only), includes full diffs for CODE commits, flags misleading
 /// commits, and appends the full solver3/text3 source for refactoring context.
-pub fn cmd_review_md(target: &str, workspace_root: &Path, no_src: bool, no_spec: bool) -> Result<(), String> {
+pub fn cmd_review_md(
+    target: &str,
+    workspace_root: &Path,
+    no_src: bool,
+    no_spec: bool,
+) -> Result<(), String> {
     use std::io::Write as _;
 
     // Resolve relative paths: try as-is first, then relative to workspace_root
@@ -34,7 +39,11 @@ pub fn cmd_review_md(target: &str, workspace_root: &Path, no_src: bool, no_spec:
             p
         } else {
             let resolved = workspace_root.join(target);
-            if resolved.is_dir() { resolved } else { p }
+            if resolved.is_dir() {
+                resolved
+            } else {
+                p
+            }
         }
     };
     if target_path.is_dir() {
@@ -83,19 +92,48 @@ fn categorize_diff_text(diff_text: &str) -> (usize, usize, usize, usize) {
 fn write_review_header(f: &mut fs::File, count: usize) {
     use std::io::Write as _;
 
-    writeln!(f, "# Agent Run Code Review — Refactoring & Lazy Commit Analysis\n").unwrap();
-    writeln!(f, "You are reviewing {} patches made by AI agents to a CSS layout engine (Rust).", count).unwrap();
-    writeln!(f, "The agents were tasked with reading W3C CSS spec paragraphs and either:").unwrap();
+    writeln!(
+        f,
+        "# Agent Run Code Review — Refactoring & Lazy Commit Analysis\n"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "You are reviewing {} patches made by AI agents to a CSS layout engine (Rust).",
+        count
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "The agents were tasked with reading W3C CSS spec paragraphs and either:"
+    )
+    .unwrap();
     writeln!(f, "1. Annotating the source code with `// +spec:feature-HASH` markers where behavior is already implemented").unwrap();
-    writeln!(f, "2. Implementing missing behavior described by the spec paragraph\n").unwrap();
+    writeln!(
+        f,
+        "2. Implementing missing behavior described by the spec paragraph\n"
+    )
+    .unwrap();
 
     writeln!(f, "## Your Tasks\n").unwrap();
     writeln!(f, "### Task A: Identify patches that need refactoring").unwrap();
     writeln!(f, "Look for:").unwrap();
     writeln!(f, "- **Code duplication**: same logic repeated in multiple places (should be extracted to a helper)").unwrap();
-    writeln!(f, "- **Comment concatenation bugs**: two comments merged on one line").unwrap();
-    writeln!(f, "- **Spaghetti if/else**: unnecessary branching that makes code harder to follow").unwrap();
-    writeln!(f, "- **Wrong abstractions**: code added in the wrong place architecturally").unwrap();
+    writeln!(
+        f,
+        "- **Comment concatenation bugs**: two comments merged on one line"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- **Spaghetti if/else**: unnecessary branching that makes code harder to follow"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- **Wrong abstractions**: code added in the wrong place architecturally"
+    )
+    .unwrap();
     writeln!(f, "- **Conflicting patches**: multiple patches that modify the same code region independently\n").unwrap();
     writeln!(f, "For each issue, specify:").unwrap();
     writeln!(f, "- Which patch(es) introduced it").unwrap();
@@ -103,12 +141,32 @@ fn write_review_header(f: &mut fs::File, count: usize) {
     writeln!(f, "- What refactoring is needed (be specific)\n").unwrap();
 
     writeln!(f, "### Task B: Identify lazy/misleading patches").unwrap();
-    writeln!(f, "Some patches claim to \"implement\" or \"fix\" behavior but only add annotation comments.").unwrap();
-    writeln!(f, "For each, specify: patch name, what it claims, what it actually does,").unwrap();
-    writeln!(f, "and whether the claimed implementation is genuinely needed.\n").unwrap();
+    writeln!(
+        f,
+        "Some patches claim to \"implement\" or \"fix\" behavior but only add annotation comments."
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "For each, specify: patch name, what it claims, what it actually does,"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "and whether the claimed implementation is genuinely needed.\n"
+    )
+    .unwrap();
 
-    writeln!(f, "### Task C: Identify genuinely good implementation patches").unwrap();
-    writeln!(f, "List patches that made real, correct code changes. Note any conflicts.\n").unwrap();
+    writeln!(
+        f,
+        "### Task C: Identify genuinely good implementation patches"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "List patches that made real, correct code changes. Note any conflicts.\n"
+    )
+    .unwrap();
 }
 
 fn write_review_response_format(f: &mut fs::File) {
@@ -120,8 +178,16 @@ fn write_review_response_format(f: &mut fs::File) {
     writeln!(f, "|-----------|-------|---------------------|").unwrap();
     writeln!(f, "| ... | ... | ... |\n").unwrap();
     writeln!(f, "### B. Lazy/Misleading Patches to Redo").unwrap();
-    writeln!(f, "| Patch | Claims | Actually Does | Implementation Needed? |").unwrap();
-    writeln!(f, "|-------|--------|---------------|----------------------|").unwrap();
+    writeln!(
+        f,
+        "| Patch | Claims | Actually Does | Implementation Needed? |"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "|-------|--------|---------------|----------------------|"
+    )
+    .unwrap();
     writeln!(f, "| ... | ... | ... | Yes/No (explain) |\n").unwrap();
     writeln!(f, "### C. Good Implementation Patches").unwrap();
     writeln!(f, "| Patch | What it does | Quality | Notes |").unwrap();
@@ -189,10 +255,19 @@ fn extract_spec_paragraph(prompt_content: &str) -> Option<String> {
     }
 
     let trimmed = result.trim().to_string();
-    if trimmed.is_empty() { None } else { Some(trimmed) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
-fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_spec: bool) -> Result<(), String> {
+fn cmd_review_md_from_dir(
+    dir: &Path,
+    workspace_root: &Path,
+    no_src: bool,
+    no_spec: bool,
+) -> Result<(), String> {
     use std::io::Write as _;
 
     let mut patches: Vec<PathBuf> = fs::read_dir(dir)
@@ -215,7 +290,11 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_sp
     for patch_path in &patches {
         let content = fs::read_to_string(patch_path)
             .map_err(|e| format!("Failed to read {}: {}", patch_path.display(), e))?;
-        let name = patch_path.file_name().unwrap().to_string_lossy().to_string();
+        let name = patch_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
         let (total_adds, total_dels, real_adds, real_dels) = categorize_diff_text(&content);
         let is_code = real_adds > 0 || real_dels > 0;
@@ -223,7 +302,11 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_sp
         let entry = format!(
             "{} {}  [+{}/-{}, code:+{}/-{}]",
             if is_code { "CODE " } else { "ANNOT" },
-            name, total_adds, total_dels, real_adds, real_dels,
+            name,
+            total_adds,
+            total_dels,
+            real_adds,
+            real_dels,
         );
 
         if is_code {
@@ -231,7 +314,8 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_sp
         } else {
             let lower = name.to_lowercase();
             // Extract subject from patch
-            let subject = content.lines()
+            let subject = content
+                .lines()
                 .find(|l| l.starts_with("Subject:"))
                 .unwrap_or("")
                 .to_lowercase();
@@ -253,8 +337,18 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_sp
     writeln!(f, "## Patch Summary\n").unwrap();
     writeln!(f, "- Source directory: `{}`", dir.display()).unwrap();
     writeln!(f, "- Total patches: {}", patches.len()).unwrap();
-    writeln!(f, "- CODE patches (contain real code changes): {}", code_patches.len()).unwrap();
-    writeln!(f, "- ANNOT patches (annotation-only): {}\n", annot_patches.len()).unwrap();
+    writeln!(
+        f,
+        "- CODE patches (contain real code changes): {}",
+        code_patches.len()
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- ANNOT patches (annotation-only): {}\n",
+        annot_patches.len()
+    )
+    .unwrap();
 
     // All patches categorized
     writeln!(f, "## All Patches (categorized)\n").unwrap();
@@ -269,13 +363,19 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_sp
 
     // CODE patch diffs
     writeln!(f, "## CODE Patches — Full Diffs\n").unwrap();
-    writeln!(f, "Focus your review on these {} patches:\n", code_patches.len()).unwrap();
+    writeln!(
+        f,
+        "Focus your review on these {} patches:\n",
+        code_patches.len()
+    )
+    .unwrap();
 
     // Find prompts directory containing the original .md prompt files.
     // Patches are named <feature>_<num>.md.done.001.patch,
     // prompts are <feature>_<num>.md. Search: same dir, parent/prompts,
     // grandparent/prompts, or anywhere up with a "prompts" subdir.
-    let sample_prompt_name = patches.first()
+    let sample_prompt_name = patches
+        .first()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
         .map(|n| n.split(".done.").next().unwrap_or(""))
@@ -308,10 +408,13 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_sp
         // Try to include the spec paragraph from the prompt file
         if !no_spec {
             let prompt_name = name.split(".done.").next().unwrap_or(name);
-            let spec_para = prompts_dir.as_ref().and_then(|pd| {
-                let prompt_path = pd.join(prompt_name);
-                fs::read_to_string(&prompt_path).ok()
-            }).and_then(|content| extract_spec_paragraph(&content));
+            let spec_para = prompts_dir
+                .as_ref()
+                .and_then(|pd| {
+                    let prompt_path = pd.join(prompt_name);
+                    fs::read_to_string(&prompt_path).ok()
+                })
+                .and_then(|content| extract_spec_paragraph(&content));
 
             if let Some(para) = spec_para {
                 writeln!(f, "**W3C Spec Paragraph:**\n").unwrap();
@@ -334,7 +437,11 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_sp
 
     // Misleading patches
     if !misleading.is_empty() {
-        writeln!(f, "## Misleading Patches (claim implement/fix but annotation-only)\n").unwrap();
+        writeln!(
+            f,
+            "## Misleading Patches (claim implement/fix but annotation-only)\n"
+        )
+        .unwrap();
         writeln!(f, "```").unwrap();
         for entry in &misleading {
             writeln!(f, "{}", entry).unwrap();
@@ -354,18 +461,29 @@ fn cmd_review_md_from_dir(dir: &Path, workspace_root: &Path, no_src: bool, no_sp
     let est_tokens = file_size / 4;
 
     println!("Review prompt generated: {}", out_path.display());
-    println!("  {} patches analyzed ({} CODE, {} ANNOT)",
-        patches.len(), code_patches.len(), annot_patches.len());
+    println!(
+        "  {} patches analyzed ({} CODE, {} ANNOT)",
+        patches.len(),
+        code_patches.len(),
+        annot_patches.len()
+    );
     if !misleading.is_empty() {
         println!("  {} misleading patches flagged", misleading.len());
     }
-    println!("  File size: {:.1} MB (~{:.0}K tokens)",
-        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+    println!(
+        "  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0,
+        est_tokens as f64 / 1000.0
+    );
 
     Ok(())
 }
 
-fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: bool) -> Result<(), String> {
+fn cmd_review_md_from_commits(
+    base_commit: &str,
+    workspace_root: &Path,
+    no_src: bool,
+) -> Result<(), String> {
     use std::io::Write as _;
 
     // Verify the base commit exists
@@ -381,7 +499,12 @@ fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: 
 
     // Get all commits in range
     let output = Command::new("git")
-        .args(["log", "--oneline", "--reverse", &format!("{}..HEAD", base_sha)])
+        .args([
+            "log",
+            "--oneline",
+            "--reverse",
+            &format!("{}..HEAD", base_sha),
+        ])
         .current_dir(workspace_root)
         .output()
         .map_err(|e| format!("git log failed: {}", e))?;
@@ -426,7 +549,11 @@ fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: 
         let entry = format!(
             "{} {}  [+{}/-{}, code:+{}/-{}]",
             if is_code { "CODE " } else { "ANNOT" },
-            line, total_adds, total_dels, real_adds, real_dels,
+            line,
+            total_adds,
+            total_dels,
+            real_adds,
+            real_dels,
         );
 
         if is_code {
@@ -451,8 +578,18 @@ fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: 
     writeln!(f, "## Commit Summary\n").unwrap();
     writeln!(f, "- Base: `{}`", base_sha).unwrap();
     writeln!(f, "- Total commits: {}", all_commits.len()).unwrap();
-    writeln!(f, "- CODE commits (contain real code changes): {}", code_commits.len()).unwrap();
-    writeln!(f, "- ANNOT commits (annotation-only): {}", annot_commits.len()).unwrap();
+    writeln!(
+        f,
+        "- CODE commits (contain real code changes): {}",
+        code_commits.len()
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- ANNOT commits (annotation-only): {}",
+        annot_commits.len()
+    )
+    .unwrap();
     writeln!(f, "\n### Diff stats\n```\n{}```\n", diff_stat).unwrap();
 
     // All commits categorized
@@ -468,7 +605,12 @@ fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: 
 
     // CODE commit diffs
     writeln!(f, "## CODE Commits — Full Diffs\n").unwrap();
-    writeln!(f, "Focus your review on these {} commits:\n", code_commits.len()).unwrap();
+    writeln!(
+        f,
+        "Focus your review on these {} commits:\n",
+        code_commits.len()
+    )
+    .unwrap();
 
     for (_hash, line, diff_text) in &code_commits {
         writeln!(f, "---\n").unwrap();
@@ -488,7 +630,11 @@ fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: 
 
     // Misleading commits
     if !misleading.is_empty() {
-        writeln!(f, "## Misleading Commits (claim implement/fix but annotation-only)\n").unwrap();
+        writeln!(
+            f,
+            "## Misleading Commits (claim implement/fix but annotation-only)\n"
+        )
+        .unwrap();
         writeln!(f, "```").unwrap();
         for entry in &misleading {
             writeln!(f, "{}", entry).unwrap();
@@ -508,13 +654,20 @@ fn cmd_review_md_from_commits(base_commit: &str, workspace_root: &Path, no_src: 
     let est_tokens = file_size / 4;
 
     println!("Review prompt generated: {}", out_path.display());
-    println!("  {} commits analyzed ({} CODE, {} ANNOT)",
-        all_commits.len(), code_commits.len(), annot_commits.len());
+    println!(
+        "  {} commits analyzed ({} CODE, {} ANNOT)",
+        all_commits.len(),
+        code_commits.len(),
+        annot_commits.len()
+    );
     if !misleading.is_empty() {
         println!("  {} misleading commits flagged", misleading.len());
     }
-    println!("  File size: {:.1} MB (~{:.0}K tokens)",
-        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+    println!(
+        "  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0,
+        est_tokens as f64 / 1000.0
+    );
 
     Ok(())
 }
@@ -538,9 +691,13 @@ pub fn cmd_review_arch(
     // Resolve patch dir
     let patch_dir = {
         let p = PathBuf::from(patch_dir);
-        if p.is_dir() { p } else {
+        if p.is_dir() {
+            p
+        } else {
             let resolved = workspace_root.join(patch_dir);
-            if resolved.is_dir() { resolved } else {
+            if resolved.is_dir() {
+                resolved
+            } else {
                 return Err(format!("Patch directory not found: {}", patch_dir));
             }
         }
@@ -549,10 +706,19 @@ pub fn cmd_review_arch(
     // Read review file
     let review_path = {
         let p = PathBuf::from(review_path);
-        if p.is_file() { p } else { workspace_root.join(review_path) }
+        if p.is_file() {
+            p
+        } else {
+            workspace_root.join(review_path)
+        }
     };
-    let review_content = fs::read_to_string(&review_path)
-        .map_err(|e| format!("Failed to read review file {}: {}", review_path.display(), e))?;
+    let review_content = fs::read_to_string(&review_path).map_err(|e| {
+        format!(
+            "Failed to read review file {}: {}",
+            review_path.display(),
+            e
+        )
+    })?;
 
     // Scan patches
     let mut patches: Vec<PathBuf> = fs::read_dir(&patch_dir)
@@ -579,8 +745,11 @@ pub fn cmd_review_arch(
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().map(|e| e == "md").unwrap_or(false) {
-                    let stem = path.file_stem().and_then(|s| s.to_str())
-                        .unwrap_or("").to_string();
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string();
                     if let Ok(content) = fs::read_to_string(&path) {
                         // Extract the spec paragraph: text between "> " lines after
                         // "## Spec Paragraph to Verify"
@@ -597,7 +766,9 @@ pub fn cmd_review_arch(
                                 // Truncate very long paragraphs
                                 let truncated = if para_text.len() > 600 {
                                     let mut end = 600;
-                                    while !para_text.is_char_boundary(end) { end -= 1; }
+                                    while !para_text.is_char_boundary(end) {
+                                        end -= 1;
+                                    }
                                     format!("{}...", &para_text[..end])
                                 } else {
                                     para_text
@@ -619,48 +790,145 @@ pub fn cmd_review_arch(
     writeln!(f, "# Architecture Review — Cross-Patch Analysis\n").unwrap();
     writeln!(f, "## Background\n").unwrap();
     writeln!(f, "You are reviewing {} patches generated by parallel AI agents against a CSS layout engine (Rust).", patches.len()).unwrap();
-    writeln!(f, "Each agent worked on ONE spec paragraph in isolation ('tunnel vision'). This means:").unwrap();
-    writeln!(f, "- Agents didn't see each other's patches or spec paragraphs").unwrap();
-    writeln!(f, "- Multiple agents may have solved the same problem differently").unwrap();
-    writeln!(f, "- Patches may contradict each other or make incompatible assumptions").unwrap();
-    writeln!(f, "- No agent considered how their changes interact with changes from other paragraphs\n").unwrap();
-    writeln!(f, "Your job is to review the patches WITH the original spec paragraphs and identify").unwrap();
-    writeln!(f, "what needs to change in the architecture of the patches before they can be applied.\n").unwrap();
+    writeln!(
+        f,
+        "Each agent worked on ONE spec paragraph in isolation ('tunnel vision'). This means:"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Agents didn't see each other's patches or spec paragraphs"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Multiple agents may have solved the same problem differently"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Patches may contradict each other or make incompatible assumptions"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- No agent considered how their changes interact with changes from other paragraphs\n"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "Your job is to review the patches WITH the original spec paragraphs and identify"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "what needs to change in the architecture of the patches before they can be applied.\n"
+    )
+    .unwrap();
 
     writeln!(f, "## Your Tasks\n").unwrap();
     writeln!(f, "### 1. Cross-patch contradictions").unwrap();
-    writeln!(f, "Find patches that make incompatible changes to the same code. For each conflict:").unwrap();
-    writeln!(f, "- Which spec paragraphs are involved? (check the original text below)").unwrap();
+    writeln!(
+        f,
+        "Find patches that make incompatible changes to the same code. For each conflict:"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Which spec paragraphs are involved? (check the original text below)"
+    )
+    .unwrap();
     writeln!(f, "- Which patch is more correct per the spec?").unwrap();
     writeln!(f, "- How should the conflict be resolved?\n").unwrap();
 
     writeln!(f, "### 2. Tunnel vision gaps").unwrap();
-    writeln!(f, "Identify cases where an agent implemented a narrow fix for their paragraph but").unwrap();
-    writeln!(f, "missed the broader context visible only when reading multiple paragraphs together:").unwrap();
-    writeln!(f, "- A patch adds a special case that another paragraph's rule already covers generally").unwrap();
-    writeln!(f, "- A patch hardcodes assumptions that break under conditions described in other paragraphs").unwrap();
-    writeln!(f, "- Related spec requirements split across paragraphs that need a unified implementation\n").unwrap();
+    writeln!(
+        f,
+        "Identify cases where an agent implemented a narrow fix for their paragraph but"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "missed the broader context visible only when reading multiple paragraphs together:"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- A patch adds a special case that another paragraph's rule already covers generally"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- A patch hardcodes assumptions that break under conditions described in other paragraphs"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Related spec requirements split across paragraphs that need a unified implementation\n"
+    )
+    .unwrap();
 
     writeln!(f, "### 3. Architectural changes needed").unwrap();
-    writeln!(f, "What structural changes to the PATCHES (not the codebase) are needed?").unwrap();
-    writeln!(f, "- Patches that should be merged into one coherent implementation").unwrap();
-    writeln!(f, "- Patches that need to be rewritten to use a shared abstraction").unwrap();
-    writeln!(f, "- Ordering constraints: which patches must be applied before others\n").unwrap();
+    writeln!(
+        f,
+        "What structural changes to the PATCHES (not the codebase) are needed?"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Patches that should be merged into one coherent implementation"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Patches that need to be rewritten to use a shared abstraction"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Ordering constraints: which patches must be applied before others\n"
+    )
+    .unwrap();
 
     writeln!(f, "### 4. ABI and regression concerns").unwrap();
-    writeln!(f, "- Patches that modify `#[repr(C)]` structs or public FFI types").unwrap();
-    writeln!(f, "- Patches that replace better code with worse code (regressions)").unwrap();
-    writeln!(f, "- Patches with hallucinated APIs or fundamentally wrong logic\n").unwrap();
+    writeln!(
+        f,
+        "- Patches that modify `#[repr(C)]` structs or public FFI types"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Patches that replace better code with worse code (regressions)"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Patches with hallucinated APIs or fundamentally wrong logic\n"
+    )
+    .unwrap();
 
     writeln!(f, "## Response Format\n").unwrap();
-    writeln!(f, "Produce a structured markdown document. Be specific: reference patch names,").unwrap();
+    writeln!(
+        f,
+        "Produce a structured markdown document. Be specific: reference patch names,"
+    )
+    .unwrap();
     writeln!(f, "spec paragraph IDs, file names, and function names.\n").unwrap();
 
     // Include original spec paragraphs
     if !para_map.is_empty() {
         writeln!(f, "---\n").unwrap();
-        writeln!(f, "## APPENDIX A: Original Spec Paragraphs ({} total)\n", para_count).unwrap();
-        writeln!(f, "These are the W3C spec paragraphs that the agents were tasked with implementing.\n").unwrap();
+        writeln!(
+            f,
+            "## APPENDIX A: Original Spec Paragraphs ({} total)\n",
+            para_count
+        )
+        .unwrap();
+        writeln!(
+            f,
+            "These are the W3C spec paragraphs that the agents were tasked with implementing.\n"
+        )
+        .unwrap();
 
         // Group by feature
         let mut by_feature: std::collections::BTreeMap<&str, Vec<(&str, &str)>> =
@@ -693,10 +961,20 @@ pub fn cmd_review_arch(
     let file_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
     let est_tokens = file_size / 4;
 
-    println!("Architecture review prompt generated: {}", out_path.display());
-    println!("  {} patches referenced, {} spec paragraphs included", patches.len(), para_count);
-    println!("  File size: {:.1} MB (~{:.0}K tokens)",
-        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+    println!(
+        "Architecture review prompt generated: {}",
+        out_path.display()
+    );
+    println!(
+        "  {} patches referenced, {} spec paragraphs included",
+        patches.len(),
+        para_count
+    );
+    println!(
+        "  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0,
+        est_tokens as f64 / 1000.0
+    );
 
     Ok(())
 }
@@ -719,9 +997,13 @@ pub fn cmd_refactor_md(
     // Resolve patch dir
     let patch_dir = {
         let p = PathBuf::from(patch_dir);
-        if p.is_dir() { p } else {
+        if p.is_dir() {
+            p
+        } else {
             let resolved = workspace_root.join(patch_dir);
-            if resolved.is_dir() { resolved } else {
+            if resolved.is_dir() {
+                resolved
+            } else {
                 return Err(format!("Patch directory not found: {}", patch_dir));
             }
         }
@@ -730,17 +1012,32 @@ pub fn cmd_refactor_md(
     // Read review file
     let review_path = {
         let p = PathBuf::from(review_path);
-        if p.is_file() { p } else { workspace_root.join(review_path) }
+        if p.is_file() {
+            p
+        } else {
+            workspace_root.join(review_path)
+        }
     };
-    let review_content = fs::read_to_string(&review_path)
-        .map_err(|e| format!("Failed to read review file {}: {}", review_path.display(), e))?;
+    let review_content = fs::read_to_string(&review_path).map_err(|e| {
+        format!(
+            "Failed to read review file {}: {}",
+            review_path.display(),
+            e
+        )
+    })?;
 
     // Read optional arch file
     let arch_content = if let Some(ap) = arch_path {
         let p = PathBuf::from(ap);
-        let resolved = if p.is_file() { p } else { workspace_root.join(ap) };
-        Some(fs::read_to_string(&resolved)
-            .map_err(|e| format!("Failed to read arch file {}: {}", resolved.display(), e))?)
+        let resolved = if p.is_file() {
+            p
+        } else {
+            workspace_root.join(ap)
+        };
+        Some(
+            fs::read_to_string(&resolved)
+                .map_err(|e| format!("Failed to read arch file {}: {}", resolved.display(), e))?,
+        )
     } else {
         None
     };
@@ -751,22 +1048,58 @@ pub fn cmd_refactor_md(
 
     writeln!(f, "# Refactoring Groundwork Plan\n").unwrap();
     writeln!(f, "You are planning refactoring work needed before applying patches to a CSS layout engine (Rust).\n").unwrap();
-    writeln!(f, "A review of the patches identified conflict clusters and architectural issues.").unwrap();
-    writeln!(f, "Your job is to produce a **refactoring plan** (GROUNDWORK.md): a list of abstractions,").unwrap();
-    writeln!(f, "helpers, and structural changes that should be made BEFORE applying patches.\n").unwrap();
+    writeln!(
+        f,
+        "A review of the patches identified conflict clusters and architectural issues."
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "Your job is to produce a **refactoring plan** (GROUNDWORK.md): a list of abstractions,"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "helpers, and structural changes that should be made BEFORE applying patches.\n"
+    )
+    .unwrap();
 
     writeln!(f, "## Your Tasks\n").unwrap();
     writeln!(f, "For each refactoring item, specify:").unwrap();
     writeln!(f, "1. **What**: The abstraction/helper/refactor to create").unwrap();
-    writeln!(f, "2. **Why**: Why it's needed (which conflict clusters or patches benefit)").unwrap();
+    writeln!(
+        f,
+        "2. **Why**: Why it's needed (which conflict clusters or patches benefit)"
+    )
+    .unwrap();
     writeln!(f, "3. **Where**: Which files and functions to modify").unwrap();
-    writeln!(f, "4. **Needed for patches**: List specific patch names that depend on this groundwork\n").unwrap();
+    writeln!(
+        f,
+        "4. **Needed for patches**: List specific patch names that depend on this groundwork\n"
+    )
+    .unwrap();
 
     writeln!(f, "## Guidelines\n").unwrap();
-    writeln!(f, "- Focus on abstractions that prevent multiple patches from scattering ad-hoc logic").unwrap();
-    writeln!(f, "- Prioritize helpers that reduce merge conflicts between patches").unwrap();
-    writeln!(f, "- Keep it concrete: name specific functions, types, and files").unwrap();
-    writeln!(f, "- Number the items (## 1, ## 2, ...) for easy reference\n").unwrap();
+    writeln!(
+        f,
+        "- Focus on abstractions that prevent multiple patches from scattering ad-hoc logic"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Prioritize helpers that reduce merge conflicts between patches"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Keep it concrete: name specific functions, types, and files"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Number the items (## 1, ## 2, ...) for easy reference\n"
+    )
+    .unwrap();
 
     // Include review
     writeln!(f, "---\n").unwrap();
@@ -791,8 +1124,11 @@ pub fn cmd_refactor_md(
     let est_tokens = file_size / 4;
 
     println!("Refactoring plan prompt generated: {}", out_path.display());
-    println!("  File size: {:.1} MB (~{:.0}K tokens)",
-        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+    println!(
+        "  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0,
+        est_tokens as f64 / 1000.0
+    );
 
     Ok(())
 }
@@ -817,9 +1153,13 @@ pub fn cmd_groups_json(
     // Resolve patch dir
     let patch_dir = {
         let p = PathBuf::from(patch_dir);
-        if p.is_dir() { p } else {
+        if p.is_dir() {
+            p
+        } else {
             let resolved = workspace_root.join(patch_dir);
-            if resolved.is_dir() { resolved } else {
+            if resolved.is_dir() {
+                resolved
+            } else {
                 return Err(format!("Patch directory not found: {}", patch_dir));
             }
         }
@@ -828,25 +1168,42 @@ pub fn cmd_groups_json(
     // Read review file (resolve relative to workspace root if needed)
     let review_path = {
         let p = PathBuf::from(review_path);
-        if p.is_file() { p } else { workspace_root.join(review_path) }
+        if p.is_file() {
+            p
+        } else {
+            workspace_root.join(review_path)
+        }
     };
-    let review_content = fs::read_to_string(&review_path)
-        .map_err(|e| format!("Failed to read review file {}: {}", review_path.display(), e))?;
+    let review_content = fs::read_to_string(&review_path).map_err(|e| {
+        format!(
+            "Failed to read review file {}: {}",
+            review_path.display(),
+            e
+        )
+    })?;
 
     // Read optional context files from previous pipeline steps
     let resolve = |path: &str| -> PathBuf {
         let p = PathBuf::from(path);
-        if p.is_file() { p } else { workspace_root.join(path) }
+        if p.is_file() {
+            p
+        } else {
+            workspace_root.join(path)
+        }
     };
     let arch_content = if let Some(ap) = arch_path {
-        Some(fs::read_to_string(&resolve(ap))
-            .map_err(|e| format!("Failed to read --review-arch {}: {}", ap, e))?)
+        Some(
+            fs::read_to_string(&resolve(ap))
+                .map_err(|e| format!("Failed to read --review-arch {}: {}", ap, e))?,
+        )
     } else {
         None
     };
     let refactor_content = if let Some(rp) = refactor_path {
-        Some(fs::read_to_string(&resolve(rp))
-            .map_err(|e| format!("Failed to read --refactor-md {}: {}", rp, e))?)
+        Some(
+            fs::read_to_string(&resolve(rp))
+                .map_err(|e| format!("Failed to read --refactor-md {}: {}", rp, e))?,
+        )
     } else {
         None
     };
@@ -879,7 +1236,11 @@ pub fn cmd_groups_json(
     for patch_path in &patches {
         let content = fs::read_to_string(patch_path)
             .map_err(|e| format!("Failed to read {}: {}", patch_path.display(), e))?;
-        let name = patch_path.file_name().unwrap().to_string_lossy().to_string();
+        let name = patch_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
         // Extract feature and paragraph number from name
         // e.g. "block-formatting-context_023.md.done.001.patch"
@@ -939,54 +1300,147 @@ pub fn cmd_groups_json(
         .map_err(|e| format!("Failed to create {}: {}", out_path.display(), e))?;
 
     writeln!(f, "# Architecture Review — Patch Merge Planning\n").unwrap();
-    writeln!(f, "You are planning how to apply {} patches to a CSS layout engine (Rust).", patches.len()).unwrap();
-    writeln!(f, "A previous review identified code quality issues and conflicts.").unwrap();
-    writeln!(f, "Your job is to produce a **merge plan**: group patches into ordered merge groups.\n").unwrap();
+    writeln!(
+        f,
+        "You are planning how to apply {} patches to a CSS layout engine (Rust).",
+        patches.len()
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "A previous review identified code quality issues and conflicts."
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "Your job is to produce a **merge plan**: group patches into ordered merge groups.\n"
+    )
+    .unwrap();
 
     writeln!(f, "## Your Tasks\n").unwrap();
     writeln!(f, "### Task 1: Produce merge groups").unwrap();
-    writeln!(f, "Group patches that touch the same code regions or implement the same spec feature.").unwrap();
+    writeln!(
+        f,
+        "Group patches that touch the same code regions or implement the same spec feature."
+    )
+    .unwrap();
     writeln!(f, "For each group, specify:").unwrap();
     writeln!(f, "- **Group ID** (sequential number)").unwrap();
     writeln!(f, "- **Patches** in this group (by filename)").unwrap();
-    writeln!(f, "- **Action**: `APPLY` (apply as-is), `MERGE` (agent must merge conflicting patches),").unwrap();
-    writeln!(f, "  `PICK_ONE` (choose best, skip others), `SKIP` (don't apply)").unwrap();
+    writeln!(
+        f,
+        "- **Action**: `APPLY` (apply as-is), `MERGE` (agent must merge conflicting patches),"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "  `PICK_ONE` (choose best, skip others), `SKIP` (don't apply)"
+    )
+    .unwrap();
     writeln!(f, "- **Preferred patch** (for PICK_ONE groups)").unwrap();
     writeln!(f, "- **`agent_context`**: A DETAILED instruction block for the applying agent. THIS IS CRITICAL.\n").unwrap();
 
-    writeln!(f, "### Task 2: Write thorough `agent_context` for each group").unwrap();
-    writeln!(f, "The `agent_context` field is passed VERBATIM to the agent that will apply this group.").unwrap();
-    writeln!(f, "The agent will NOT see any other groups, the review, or the architecture plan —").unwrap();
-    writeln!(f, "it ONLY sees: the patch diff(s), the agent_context, and the current source code.").unwrap();
-    writeln!(f, "Therefore, `agent_context` MUST include everything the agent needs:\n").unwrap();
-    writeln!(f, "- **What the patch does**: 1-2 sentence summary of the semantic intent").unwrap();
-    writeln!(f, "- **Which W3C spec section** it implements (e.g., \"CSS 2.2 §10.3.7\")").unwrap();
+    writeln!(
+        f,
+        "### Task 2: Write thorough `agent_context` for each group"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "The `agent_context` field is passed VERBATIM to the agent that will apply this group."
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "The agent will NOT see any other groups, the review, or the architecture plan —"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "it ONLY sees: the patch diff(s), the agent_context, and the current source code."
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "Therefore, `agent_context` MUST include everything the agent needs:\n"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- **What the patch does**: 1-2 sentence summary of the semantic intent"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- **Which W3C spec section** it implements (e.g., \"CSS 2.2 §10.3.7\")"
+    )
+    .unwrap();
     writeln!(f, "- **Known bugs in the patch** from the review (e.g., \"uses width > 0.0 as auto proxy — fix this\")").unwrap();
     writeln!(f, "- **Refactoring needed**: if the patch duplicates existing helpers, name the helper to reuse").unwrap();
     writeln!(f, "- **Functions/types to reuse**: specific existing functions the agent should call instead of adding new ones").unwrap();
-    writeln!(f, "- **ABI concerns**: if the patch modifies `#[repr(C)]` structs, warn about FFI breakage").unwrap();
+    writeln!(
+        f,
+        "- **ABI concerns**: if the patch modifies `#[repr(C)]` structs, warn about FFI breakage"
+    )
+    .unwrap();
     writeln!(f, "- **For MERGE groups**: which parts of each patch to take, where they conflict, how to combine them").unwrap();
-    writeln!(f, "- **For PICK_ONE groups**: why the preferred patch is better, what the others got wrong").unwrap();
+    writeln!(
+        f,
+        "- **For PICK_ONE groups**: why the preferred patch is better, what the others got wrong"
+    )
+    .unwrap();
     writeln!(f, "- **Compilation notes**: if missing imports or signature changes are needed, mention them\n").unwrap();
 
     writeln!(f, "### Task 3: Order the groups").unwrap();
     writeln!(f, "Order groups so that:").unwrap();
-    writeln!(f, "- Independent patches come first (fewer conflicts, establish base)").unwrap();
-    writeln!(f, "- ANNOT-only patches come last (they just add comments, easy to adapt)").unwrap();
-    writeln!(f, "- Complex MERGE groups come after their dependencies are applied").unwrap();
-    writeln!(f, "- Patches that add new types/enums come before patches that use them\n").unwrap();
+    writeln!(
+        f,
+        "- Independent patches come first (fewer conflicts, establish base)"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- ANNOT-only patches come last (they just add comments, easy to adapt)"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Complex MERGE groups come after their dependencies are applied"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- Patches that add new types/enums come before patches that use them\n"
+    )
+    .unwrap();
 
     writeln!(f, "### Task 4: Flag patches to skip").unwrap();
     writeln!(f, "Based on the patch review below, flag patches that:").unwrap();
     writeln!(f, "- Are regressions (replace better code with worse code)").unwrap();
-    writeln!(f, "- Are completely superseded by another patch in the same group").unwrap();
+    writeln!(
+        f,
+        "- Are completely superseded by another patch in the same group"
+    )
+    .unwrap();
     writeln!(f, "- Have hallucinated APIs or fundamentally wrong logic\n").unwrap();
 
     writeln!(f, "### Task 5: Size limits").unwrap();
     writeln!(f, "- No group should contain more than 15 CODE patches.").unwrap();
-    writeln!(f, "- If >15 independent CODE patches remain, split them by feature prefix").unwrap();
-    writeln!(f, "  (e.g. all `width-calculation_*` in one group, all `line-breaking_*` in another).").unwrap();
-    writeln!(f, "- ANNOT-only groups may be arbitrarily large (they use a fast-path).\n").unwrap();
+    writeln!(
+        f,
+        "- If >15 independent CODE patches remain, split them by feature prefix"
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "  (e.g. all `width-calculation_*` in one group, all `line-breaking_*` in another)."
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "- ANNOT-only groups may be arbitrarily large (they use a fast-path).\n"
+    )
+    .unwrap();
 
     // Stats
     writeln!(f, "## Patch Inventory\n").unwrap();
@@ -1009,22 +1463,37 @@ pub fn cmd_groups_json(
     writeln!(f, "| Feature | CODE | ANNOT | Total |").unwrap();
     writeln!(f, "|---------|------|-------|-------|").unwrap();
     for (feature, (code, annot)) in &feature_counts {
-        writeln!(f, "| {} | {} | {} | {} |", feature, code, annot, code + annot).unwrap();
+        writeln!(
+            f,
+            "| {} | {} | {} | {} |",
+            feature,
+            code,
+            annot,
+            code + annot
+        )
+        .unwrap();
     }
 
     // Conflict map
     writeln!(f, "\n## File Conflict Map\n").unwrap();
-    writeln!(f, "These files are touched by multiple patches (potential merge conflicts):\n").unwrap();
+    writeln!(
+        f,
+        "These files are touched by multiple patches (potential merge conflicts):\n"
+    )
+    .unwrap();
     for (file, patches) in &conflict_files {
         writeln!(f, "### `{}`  ({} patches)\n", file, patches.len()).unwrap();
         for p in *patches {
             let info = patch_infos.iter().find(|pi| &pi.name == p).unwrap();
-            writeln!(f, "- `{}` [{}] +{}/-{}",
+            writeln!(
+                f,
+                "- `{}` [{}] +{}/-{}",
                 p,
                 if info.is_code { "CODE" } else { "ANNOT" },
                 info.added,
                 info.removed,
-            ).unwrap();
+            )
+            .unwrap();
         }
         writeln!(f).unwrap();
     }
@@ -1033,37 +1502,67 @@ pub fn cmd_groups_json(
     writeln!(f, "## All Patches\n").unwrap();
     writeln!(f, "```").unwrap();
     for pi in &patch_infos {
-        writeln!(f, "{} {} {} [+{}/-{}] files: {}",
+        writeln!(
+            f,
+            "{} {} {} [+{}/-{}] files: {}",
             if pi.is_code { "CODE " } else { "ANNOT" },
             pi.name,
             pi.feature,
             pi.added,
             pi.removed,
             pi.files_touched.join(", "),
-        ).unwrap();
+        )
+        .unwrap();
     }
     writeln!(f, "```\n").unwrap();
 
     // Include prior analysis from previous pipeline steps
     let mut appendix = b'A';
     writeln!(f, "---\n").unwrap();
-    writeln!(f, "## APPENDIX {}: Patch Review (from review-md)\n", appendix as char).unwrap();
-    writeln!(f, "This review was produced by a prior analysis pass. Use it to inform your grouping.\n").unwrap();
+    writeln!(
+        f,
+        "## APPENDIX {}: Patch Review (from review-md)\n",
+        appendix as char
+    )
+    .unwrap();
+    writeln!(
+        f,
+        "This review was produced by a prior analysis pass. Use it to inform your grouping.\n"
+    )
+    .unwrap();
     writeln!(f, "{}\n", review_content).unwrap();
     appendix += 1;
 
     if let Some(arch) = &arch_content {
         writeln!(f, "---\n").unwrap();
-        writeln!(f, "## APPENDIX {}: Architecture Review (from review-arch)\n", appendix as char).unwrap();
-        writeln!(f, "Cross-patch analysis identifying tunnel-vision issues and architectural concerns.\n").unwrap();
+        writeln!(
+            f,
+            "## APPENDIX {}: Architecture Review (from review-arch)\n",
+            appendix as char
+        )
+        .unwrap();
+        writeln!(
+            f,
+            "Cross-patch analysis identifying tunnel-vision issues and architectural concerns.\n"
+        )
+        .unwrap();
         writeln!(f, "{}\n", arch).unwrap();
         appendix += 1;
     }
 
     if let Some(refactor) = &refactor_content {
         writeln!(f, "---\n").unwrap();
-        writeln!(f, "## APPENDIX {}: Refactoring Plan (from refactor-md)\n", appendix as char).unwrap();
-        writeln!(f, "Groundwork abstractions to implement before applying patches.\n").unwrap();
+        writeln!(
+            f,
+            "## APPENDIX {}: Refactoring Plan (from refactor-md)\n",
+            appendix as char
+        )
+        .unwrap();
+        writeln!(
+            f,
+            "Groundwork abstractions to implement before applying patches.\n"
+        )
+        .unwrap();
         writeln!(f, "{}\n", refactor).unwrap();
         appendix += 1;
     }
@@ -1078,7 +1577,11 @@ pub fn cmd_groups_json(
     writeln!(f, "---\n").unwrap();
     writeln!(f, "## Required Response Format\n").unwrap();
     writeln!(f, "Respond with a JSON array of merge groups. The `agent_context` field is the most important —").unwrap();
-    writeln!(f, "it will be passed verbatim to the applying agent as its sole instruction context.\n").unwrap();
+    writeln!(
+        f,
+        "it will be passed verbatim to the applying agent as its sole instruction context.\n"
+    )
+    .unwrap();
     writeln!(f, "```json").unwrap();
     writeln!(f, "[").unwrap();
     writeln!(f, "  {{").unwrap();
@@ -1092,23 +1595,39 @@ pub fn cmd_groups_json(
     writeln!(f, "    \"group_id\": 2,").unwrap();
     writeln!(f, "    \"action\": \"PICK_ONE\",").unwrap();
     writeln!(f, "    \"patches\": [\"line-breaking_008.md.done.001.patch\", \"line-breaking_015.md.done.001.patch\", \"line-breaking_040.md.done.001.patch\"],").unwrap();
-    writeln!(f, "    \"preferred\": \"line-breaking_008.md.done.001.patch\",").unwrap();
+    writeln!(
+        f,
+        "    \"preferred\": \"line-breaking_008.md.done.001.patch\","
+    )
+    .unwrap();
     writeln!(f, "    \"agent_context\": \"## Intent\\nAdd `word-break` CSS property (CSS Text 3 §5.2): break-all, keep-all, normal.\\n\\n## Why _008 is preferred\\n- Correctly suppresses hyphenation for break-all (spec: 'Hyphenation is not applied')\\n- Has proper Hash/Eq derives needed for caching\\n- Clean 3-way match in peek_next_unit_with_word_break\\n- _015 misses hyphenation suppression; _040 also misses it and has less explicit CJK detection\\n\\n## Known Issues to Fix\\n- No CSS property wiring: `word_break` field in UnifiedConstraints defaults to Normal but is never read from CSS. You must add wiring in fc.rs where UnifiedConstraints is built — read word-break from the style and map to the WordBreak enum.\\n- The `break_one_line` signature changes — update ALL callers.\\n\\n## Existing Code to Reuse\\n- `is_word_separator()` already exists in cache.rs — the patch correctly uses it.\\n- `UnifiedConstraints` is built in `translate_to_text3_constraints()` in fc.rs — add word_break there.\"").unwrap();
     writeln!(f, "  }},").unwrap();
     writeln!(f, "  {{").unwrap();
     writeln!(f, "    \"group_id\": 3,").unwrap();
     writeln!(f, "    \"action\": \"SKIP\",").unwrap();
-    writeln!(f, "    \"patches\": [\"display-property_001.md.done.001.patch\"],").unwrap();
+    writeln!(
+        f,
+        "    \"patches\": [\"display-property_001.md.done.001.patch\"],"
+    )
+    .unwrap();
     writeln!(f, "    \"preferred\": null,").unwrap();
     writeln!(f, "    \"agent_context\": \"SKIP — regression: replaces comprehensive get_display_type() blockification (handles TableRowGroup, RunIn, etc.) with a simpler version that loses these mappings.\"").unwrap();
     writeln!(f, "  }}").unwrap();
     writeln!(f, "]").unwrap();
     writeln!(f, "```\n").unwrap();
     writeln!(f, "IMPORTANT:").unwrap();
-    writeln!(f, "- Every patch file must appear in exactly one group. Do not omit any patches.").unwrap();
+    writeln!(
+        f,
+        "- Every patch file must appear in exactly one group. Do not omit any patches."
+    )
+    .unwrap();
     writeln!(f, "- The `agent_context` must be SELF-CONTAINED. The applying agent sees ONLY this field + the patch diffs.").unwrap();
     writeln!(f, "  It does NOT see the review, the conflict map, or any other groups. Include everything it needs.").unwrap();
-    writeln!(f, "- Use markdown formatting in `agent_context` (## headings, bullet points) for clarity.").unwrap();
+    writeln!(
+        f,
+        "- Use markdown formatting in `agent_context` (## headings, bullet points) for clarity."
+    )
+    .unwrap();
     writeln!(f, "- For ANNOT-only groups, `agent_context` can be brief: just say what spec paragraph to annotate.").unwrap();
 
     drop(f);
@@ -1116,11 +1635,25 @@ pub fn cmd_groups_json(
     let file_size = fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
     let est_tokens = file_size / 4;
 
-    println!("Architecture review prompt generated: {}", out_path.display());
-    println!("  {} patches inventoried ({} CODE, {} ANNOT)", patches.len(), code_count, annot_count);
-    println!("  {} files with multi-patch conflicts", conflict_files.len());
-    println!("  File size: {:.1} MB (~{:.0}K tokens)",
-        file_size as f64 / 1_048_576.0, est_tokens as f64 / 1000.0);
+    println!(
+        "Architecture review prompt generated: {}",
+        out_path.display()
+    );
+    println!(
+        "  {} patches inventoried ({} CODE, {} ANNOT)",
+        patches.len(),
+        code_count,
+        annot_count
+    );
+    println!(
+        "  {} files with multi-patch conflicts",
+        conflict_files.len()
+    );
+    println!(
+        "  File size: {:.1} MB (~{:.0}K tokens)",
+        file_size as f64 / 1_048_576.0,
+        est_tokens as f64 / 1000.0
+    );
 
     Ok(())
 }
@@ -1141,21 +1674,23 @@ pub struct AgentApplyArgs {
     pub review_arch: Option<String>,
 }
 
-pub fn cmd_agent_apply(
-    args: &AgentApplyArgs,
-    workspace_root: &Path,
-) -> Result<(), String> {
-
+pub fn cmd_agent_apply(args: &AgentApplyArgs, workspace_root: &Path) -> Result<(), String> {
     // Helper: resolve a path relative to workspace_root if not absolute/found
     let resolve = |path: &str| -> PathBuf {
         let p = PathBuf::from(path);
-        if p.exists() { p } else { workspace_root.join(path) }
+        if p.exists() {
+            p
+        } else {
+            workspace_root.join(path)
+        }
     };
 
     // Resolve patch dir
     let patch_dir = {
         let resolved = resolve(&args.patch_dir);
-        if resolved.is_dir() { resolved } else {
+        if resolved.is_dir() {
+            resolved
+        } else {
             return Err(format!("Patch directory not found: {}", args.patch_dir));
         }
     };
@@ -1165,9 +1700,15 @@ pub fn cmd_agent_apply(
         match path {
             Some(p) => {
                 let resolved = resolve(p);
-                let content = fs::read_to_string(&resolved)
-                    .map_err(|e| format!("Failed to read {} {}: {}", label, resolved.display(), e))?;
-                println!("Loaded {}: {} ({} bytes)", label, resolved.display(), content.len());
+                let content = fs::read_to_string(&resolved).map_err(|e| {
+                    format!("Failed to read {} {}: {}", label, resolved.display(), e)
+                })?;
+                println!(
+                    "Loaded {}: {} ({} bytes)",
+                    label,
+                    resolved.display(),
+                    content.len()
+                );
                 Ok(Some(content))
             }
             None => Ok(None),
@@ -1180,15 +1721,24 @@ pub fn cmd_agent_apply(
 
     // Read and parse the groups JSON
     let groups_path = resolve(&args.groups_json);
-    let plan_content = fs::read_to_string(&groups_path)
-        .map_err(|e| format!("Failed to read groups JSON {}: {}", groups_path.display(), e))?;
+    let plan_content = fs::read_to_string(&groups_path).map_err(|e| {
+        format!(
+            "Failed to read groups JSON {}: {}",
+            groups_path.display(),
+            e
+        )
+    })?;
 
     let json_str = extract_json_from_plan(&plan_content)?;
 
     let groups: Vec<MergeGroup> = serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to parse merge groups JSON: {}", e))?;
 
-    println!("Loaded {} merge groups from {}", groups.len(), groups_path.display());
+    println!(
+        "Loaded {} merge groups from {}",
+        groups.len(),
+        groups_path.display()
+    );
 
     // Progress tracking: record group outcomes in a status file.
     // Original .patch files are NEVER moved or deleted — we use
@@ -1223,13 +1773,19 @@ pub fn cmd_agent_apply(
                         "failed" => failed += prev.patch_count,
                         _ => {}
                     }
-                    println!("  [group {}] already {} (previous run)", group.group_id, prev.outcome);
+                    println!(
+                        "  [group {}] already {} (previous run)",
+                        group.group_id, prev.outcome
+                    );
                     continue;
                 }
                 // "partial" or "in_progress" — remove stale entry and re-process
                 // (sub-group tags handle fine-grained resume)
                 other => {
-                    println!("  [group {}] previous run was '{}', re-processing...", group.group_id, other);
+                    println!(
+                        "  [group {}] previous run was '{}', re-processing...",
+                        group.group_id, other
+                    );
                     group_results.retain(|r| r.group_id != group.group_id);
                 }
             }
@@ -1237,8 +1793,11 @@ pub fn cmd_agent_apply(
 
         match group.action.as_str() {
             "SKIP" => {
-                println!("  [group {}] SKIP: {}", group.group_id,
-                    group.patches.join(", "));
+                println!(
+                    "  [group {}] SKIP: {}",
+                    group.group_id,
+                    group.patches.join(", ")
+                );
                 skipped += group.patches.len();
                 group_results.push(AgentApplyGroupResult {
                     group_id: group.group_id,
@@ -1255,7 +1814,10 @@ pub fn cmd_agent_apply(
             }
             "APPLY" | "PICK_ONE" | "MERGE" => {}
             other => {
-                eprintln!("  [group {}] Unknown action '{}', skipping", group.group_id, other);
+                eprintln!(
+                    "  [group {}] Unknown action '{}', skipping",
+                    group.group_id, other
+                );
                 skipped += group.patches.len();
                 group_results.push(AgentApplyGroupResult {
                     group_id: group.group_id,
@@ -1276,7 +1838,9 @@ pub fn cmd_agent_apply(
         let active_patches: Vec<String> = match group.action.as_str() {
             "PICK_ONE" => {
                 // Use preferred if specified, otherwise first
-                let preferred = group.preferred.as_deref()
+                let preferred = group
+                    .preferred
+                    .as_deref()
                     .unwrap_or_else(|| &group.patches[0]);
                 vec![preferred.to_string()]
             }
@@ -1313,7 +1877,9 @@ pub fn cmd_agent_apply(
         }
 
         // Detect annotation-only group (same logic as build_apply_prompt)
-        let is_annot_only = group.agent_context.as_deref()
+        let is_annot_only = group
+            .agent_context
+            .as_deref()
             .map(|ctx| ctx.contains("annotation comment") || ctx.contains("// +spec:"))
             .unwrap_or(false)
             && group.action == "APPLY"
@@ -1323,22 +1889,35 @@ pub fn cmd_agent_apply(
         if group.action == "APPLY" && patch_contents.len() > 15 && !is_annot_only {
             use std::collections::BTreeMap;
 
-            println!("  [group {}] APPLY {} patches (splitting by feature prefix)",
-                group.group_id, patch_contents.len());
+            println!(
+                "  [group {}] APPLY {} patches (splitting by feature prefix)",
+                group.group_id,
+                patch_contents.len()
+            );
 
             // Group patches by feature prefix
             let mut by_feature: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
             for (name, content) in &patch_contents {
-                let feature = name.find('_')
+                let feature = name
+                    .find('_')
                     .map(|i| name[..i].to_string())
                     .unwrap_or_else(|| "misc".to_string());
-                by_feature.entry(feature).or_default().push((name.clone(), content.clone()));
+                by_feature
+                    .entry(feature)
+                    .or_default()
+                    .push((name.clone(), content.clone()));
             }
 
             let feature_names: Vec<String> = by_feature.keys().cloned().collect();
-            println!("    -> {} sub-groups: {}", feature_names.len(),
-                feature_names.iter().map(|f| format!("{}({})", f, by_feature[f].len()))
-                    .collect::<Vec<_>>().join(", "));
+            println!(
+                "    -> {} sub-groups: {}",
+                feature_names.len(),
+                feature_names
+                    .iter()
+                    .map(|f| format!("{}({})", f, by_feature[f].len()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
 
             // Run refactoring prep agent first (if refactor content is available)
             let refactor_tag = format!("agent-apply/group-{}-refactor", group.group_id);
@@ -1358,18 +1937,22 @@ pub fn cmd_agent_apply(
                     workspace_root,
                 );
                 let head_before_refactor = get_git_head(workspace_root);
-                let refactor_ok = run_apply_agent(
-                    &refactor_prompt, workspace_root, group.group_id,
-                )?;
+                let refactor_ok =
+                    run_apply_agent(&refactor_prompt, workspace_root, group.group_id)?;
                 let refactor_commits = count_commits_since(workspace_root, &head_before_refactor);
                 if refactor_ok && refactor_commits > 0 {
                     let _ = Command::new("git")
                         .args(["tag", &refactor_tag])
                         .current_dir(workspace_root)
                         .output();
-                    println!("    -> refactor prep: {} commit(s), tagged as {}", refactor_commits, refactor_tag);
+                    println!(
+                        "    -> refactor prep: {} commit(s), tagged as {}",
+                        refactor_commits, refactor_tag
+                    );
                 } else {
-                    println!("    -> refactor prep: no commits (ok, continuing with feature sub-groups)");
+                    println!(
+                        "    -> refactor prep: no commits (ok, continuing with feature sub-groups)"
+                    );
                 }
             } else if refactor_done {
                 println!("    -> refactor prep already done (tag exists)");
@@ -1397,7 +1980,11 @@ pub fn cmd_agent_apply(
                     continue;
                 }
 
-                println!("    [sub:{}] applying {} patches...", feature, sub_patches.len());
+                println!(
+                    "    [sub:{}] applying {} patches...",
+                    feature,
+                    sub_patches.len()
+                );
 
                 let head_before_sub = get_git_head(workspace_root);
 
@@ -1433,7 +2020,10 @@ pub fn cmd_agent_apply(
                         .args(["tag", &sub_tag_name])
                         .current_dir(workspace_root)
                         .output();
-                    println!("    [sub:{}] -> {} commit(s), tagged {}", feature, sub_commit_count, sub_tag_name);
+                    println!(
+                        "    [sub:{}] -> {} commit(s), tagged {}",
+                        feature, sub_commit_count, sub_tag_name
+                    );
 
                     sub_results.push(SubGroupResult {
                         feature: feature.clone(),
@@ -1452,7 +2042,10 @@ pub fn cmd_agent_apply(
                             .args(["tag", &sub_tag_name])
                             .current_dir(workspace_root)
                             .output();
-                        format!("partial: agent failed but made {} commit(s)", sub_commit_count)
+                        format!(
+                            "partial: agent failed but made {} commit(s)",
+                            sub_commit_count
+                        )
                     } else {
                         total_sub_failed += sub_patches.len();
                         "Agent exited without making any commits".to_string()
@@ -1462,9 +2055,17 @@ pub fn cmd_agent_apply(
                     sub_results.push(SubGroupResult {
                         feature: feature.clone(),
                         patches: sub_patches.iter().map(|(n, _)| n.clone()).collect(),
-                        outcome: if sub_commit_count > 0 { "partial".to_string() } else { "failed".to_string() },
+                        outcome: if sub_commit_count > 0 {
+                            "partial".to_string()
+                        } else {
+                            "failed".to_string()
+                        },
                         commits: sub_commit_count,
-                        tag: if sub_commit_count > 0 { Some(sub_tag_name) } else { None },
+                        tag: if sub_commit_count > 0 {
+                            Some(sub_tag_name)
+                        } else {
+                            None
+                        },
                         reason: Some(reason),
                     });
                 }
@@ -1498,8 +2099,10 @@ pub fn cmd_agent_apply(
             applied += total_sub_applied;
             failed += total_sub_failed;
 
-            println!("    [group {}] split complete: {} applied, {} failed, {} total commits",
-                group.group_id, total_sub_applied, total_sub_failed, total_sub_commits);
+            println!(
+                "    [group {}] split complete: {} applied, {} failed, {} total commits",
+                group.group_id, total_sub_applied, total_sub_failed, total_sub_commits
+            );
 
             group_results.push(AgentApplyGroupResult {
                 group_id: group.group_id,
@@ -1516,7 +2119,8 @@ pub fn cmd_agent_apply(
         }
 
         // ── Normal (non-split) path ──────────────────────────────────
-        println!("  [group {}] {} {} patches: {}",
+        println!(
+            "  [group {}] {} {} patches: {}",
             group.group_id,
             group.action,
             active_patches.len(),
@@ -1576,7 +2180,10 @@ pub fn cmd_agent_apply(
             let reason = if commit_count == 0 {
                 "Agent exited without making any commits".to_string()
             } else {
-                format!("Agent failed (exit code) but made {} commit(s)", commit_count)
+                format!(
+                    "Agent failed (exit code) but made {} commit(s)",
+                    commit_count
+                )
             };
             println!("    -> FAILED: {}", reason);
             group_results.push(AgentApplyGroupResult {
@@ -1584,7 +2191,11 @@ pub fn cmd_agent_apply(
                 action: group.action.clone(),
                 patches: group.patches.clone(),
                 patch_count: active_patches.len(),
-                outcome: if commit_count > 0 { "partial".to_string() } else { "failed".to_string() },
+                outcome: if commit_count > 0 {
+                    "partial".to_string()
+                } else {
+                    "failed".to_string()
+                },
                 commits: commit_count,
                 reason: Some(reason),
                 sub_results: None,
@@ -1653,10 +2264,14 @@ fn get_git_head(workspace_root: &Path) -> String {
         .current_dir(workspace_root)
         .output()
         .ok()
-        .and_then(|o| if o.status.success() {
-            String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
-        } else {
-            None
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
         })
         .unwrap_or_default()
 }
@@ -1670,11 +2285,14 @@ fn count_commits_since(workspace_root: &Path, since_ref: &str) -> usize {
         .current_dir(workspace_root)
         .output()
         .ok()
-        .and_then(|o| if o.status.success() {
-            String::from_utf8(o.stdout).ok()
-                .and_then(|s| s.trim().parse::<usize>().ok())
-        } else {
-            None
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .and_then(|s| s.trim().parse::<usize>().ok())
+            } else {
+                None
+            }
         })
         .unwrap_or(0)
 }
@@ -1710,7 +2328,10 @@ fn build_refactor_prep_prompt(
 ) -> String {
     let mut prompt = String::new();
     prompt.push_str("You are preparing a CSS layout engine (Rust) for a batch of spec patches.\n");
-    prompt.push_str(&format!("Working directory: {}\n\n", workspace_root.display()));
+    prompt.push_str(&format!(
+        "Working directory: {}\n\n",
+        workspace_root.display()
+    ));
 
     prompt.push_str("## CRITICAL RULES\n\n");
     prompt.push_str("1. DO NOT cd TO ANY OTHER DIRECTORY. Stay in the working directory.\n");
@@ -1718,7 +2339,9 @@ fn build_refactor_prep_prompt(
     prompt.push_str("3. Commit messages: `refactor(<area>): <what it does>`\n\n");
 
     prompt.push_str("## Task\n\n");
-    prompt.push_str("Perform structural refactoring to prepare the codebase for the following features:\n\n");
+    prompt.push_str(
+        "Perform structural refactoring to prepare the codebase for the following features:\n\n",
+    );
     for f in features {
         prompt.push_str(&format!("- `{}`\n", f));
     }
@@ -1801,31 +2424,48 @@ fn build_apply_prompt(
     let mut prompt = String::new();
 
     prompt.push_str("You are applying patches to a CSS layout engine written in Rust.\n");
-    prompt.push_str(&format!("Working directory: {}\n\n", workspace_root.display()));
+    prompt.push_str(&format!(
+        "Working directory: {}\n\n",
+        workspace_root.display()
+    ));
 
     prompt.push_str("## CRITICAL RULES\n\n");
     prompt.push_str("1. DO NOT cd TO ANY OTHER DIRECTORY. Stay in the working directory.\n");
     prompt.push_str("2. Apply the SEMANTIC INTENT of the patches, not the literal diff.\n");
     prompt.push_str("   The patches were generated against a different version of the code.\n");
-    prompt.push_str("   Read the current source files, understand what the patches want to change,\n");
+    prompt.push_str(
+        "   Read the current source files, understand what the patches want to change,\n",
+    );
     prompt.push_str("   and make the equivalent change to the current code.\n");
     prompt.push_str("3. Compile with: `cargo check -p azul-dll --features build-dll`\n");
-    prompt.push_str("   This is the ONLY valid compilation check. Do NOT use `cargo check -p azul-layout`.\n");
+    prompt.push_str(
+        "   This is the ONLY valid compilation check. Do NOT use `cargo check -p azul-layout`.\n",
+    );
     prompt.push_str("4. If compilation fails, fix the errors. Do NOT leave broken code.\n");
     prompt.push_str("5. Commit messages should follow: `spec(<feature>): <what it does>`\n");
-    prompt.push_str("   Example: `spec(line-breaking): implement word-break and line-break CSS properties`\n\n");
+    prompt.push_str(
+        "   Example: `spec(line-breaking): implement word-break and line-break CSS properties`\n\n",
+    );
 
     // ── 5-Phase Workflow ───────────────────────────────────────────────
     prompt.push_str("## Workflow (5 phases, in order)\n\n");
 
     prompt.push_str("### Phase 1: Refactoring Groundwork\n\n");
-    prompt.push_str("Before touching the patches, perform any refactoring needed to prepare the codebase.\n");
-    prompt.push_str("This ensures patches plug into clean abstractions rather than scattering ad-hoc logic.\n");
+    prompt.push_str(
+        "Before touching the patches, perform any refactoring needed to prepare the codebase.\n",
+    );
+    prompt.push_str(
+        "This ensures patches plug into clean abstractions rather than scattering ad-hoc logic.\n",
+    );
     prompt.push_str("Do NOT commit yet — all committing happens in Phase 5.\n\n");
 
     prompt.push_str("### Phase 2: Apply Patches (LLM-apply)\n\n");
-    prompt.push_str("Read each patch diff below. Understand the semantic intent. Apply the changes to the\n");
-    prompt.push_str("current codebase, adapting line numbers, function signatures, and context as needed.\n");
+    prompt.push_str(
+        "Read each patch diff below. Understand the semantic intent. Apply the changes to the\n",
+    );
+    prompt.push_str(
+        "current codebase, adapting line numbers, function signatures, and context as needed.\n",
+    );
     prompt.push_str("For MERGE groups: combine the best parts of all patches into one coherent implementation.\n");
     prompt.push_str("For PICK_ONE groups: apply the preferred patch, verify nothing unique is lost from others.\n");
     prompt.push_str("Do NOT commit yet.\n\n");
@@ -1843,18 +2483,27 @@ fn build_apply_prompt(
     prompt.push_str("  `cargo check -p azul-dll --features build-dll`\n\n");
 
     prompt.push_str("### Phase 5: Commit (semantic, by hunk)\n\n");
-    prompt.push_str("Now that all changes are made and compiling, create CLEAN SEMANTIC commits.\n");
-    prompt.push_str("Use `git add -p` (patch mode) to stage hunks selectively, creating multiple\n");
+    prompt
+        .push_str("Now that all changes are made and compiling, create CLEAN SEMANTIC commits.\n");
+    prompt
+        .push_str("Use `git add -p` (patch mode) to stage hunks selectively, creating multiple\n");
     prompt.push_str("smaller commits that each represent one logical change. The goal is ~2-5\n");
     prompt.push_str("well-structured commits per group, NOT one giant commit.\n\n");
     prompt.push_str("For example:\n");
-    prompt.push_str("  1. `refactor(fc): extract float overlap check into helper` (if Phase 1 refactored)\n");
-    prompt.push_str("  2. `spec(block-formatting-context): implement BFC float clearance per §9.5.2`\n");
+    prompt.push_str(
+        "  1. `refactor(fc): extract float overlap check into helper` (if Phase 1 refactored)\n",
+    );
+    prompt.push_str(
+        "  2. `spec(block-formatting-context): implement BFC float clearance per §9.5.2`\n",
+    );
     prompt.push_str("  3. `spec(block-formatting-context): annotate float positioning rules`\n\n");
-    prompt.push_str("Each commit must compile on its own. Use `git stash` to verify if needed.\n\n");
+    prompt
+        .push_str("Each commit must compile on its own. Use `git stash` to verify if needed.\n\n");
 
     // ── Detect annotation-only group ───────────────────────────────────
-    let is_annot_only = group.agent_context.as_deref()
+    let is_annot_only = group
+        .agent_context
+        .as_deref()
         .map(|ctx| ctx.contains("annotation comment") || ctx.contains("// +spec:"))
         .unwrap_or(false)
         && group.action == "APPLY"
@@ -1864,36 +2513,51 @@ fn build_apply_prompt(
     match group.action.as_str() {
         "APPLY" if is_annot_only => {
             prompt.push_str("## Task Type: APPLY (annotation-only fast path)\n\n");
-            prompt.push_str("These patches ONLY add `// +spec:` annotation comments. They do NOT change\n");
+            prompt.push_str(
+                "These patches ONLY add `// +spec:` annotation comments. They do NOT change\n",
+            );
             prompt.push_str("any runtime behaviour.\n\n");
             prompt.push_str("### Fast-path instructions\n\n");
             prompt.push_str("Use `git am` to apply these patches ONE BY ONE. For each patch:\n");
             prompt.push_str("1. Run `git am --3way <patch-file>`\n");
             prompt.push_str("2. If it fails, run `git am --abort`, skip that patch, and continue with the next\n");
-            prompt.push_str("3. Do NOT spend time manually resolving conflicts — just skip failed patches\n\n");
-            prompt.push_str("After applying all patches, SQUASH all the resulting commits into ONE commit:\n");
+            prompt.push_str(
+                "3. Do NOT spend time manually resolving conflicts — just skip failed patches\n\n",
+            );
+            prompt.push_str(
+                "After applying all patches, SQUASH all the resulting commits into ONE commit:\n",
+            );
             prompt.push_str("```\n");
             prompt.push_str("git reset --soft <HEAD-before-first-am>\n");
             prompt.push_str("git commit -m \"spec: add +spec annotation comments (batch)\"\n");
             prompt.push_str("```\n\n");
-            prompt.push_str("This is the ONLY group where `git am` is allowed. All other groups must use\n");
+            prompt.push_str(
+                "This is the ONLY group where `git am` is allowed. All other groups must use\n",
+            );
             prompt.push_str("the semantic LLM-apply workflow (Phase 1-5 above).\n\n");
             prompt.push_str("Report how many patches applied vs skipped at the end.\n\n");
         }
         "APPLY" => {
             prompt.push_str("## Task Type: APPLY\n\n");
-            prompt.push_str("Apply the following patch(es) to the codebase. These are independent patches\n");
+            prompt.push_str(
+                "Apply the following patch(es) to the codebase. These are independent patches\n",
+            );
             prompt.push_str("that don't conflict with each other.\n\n");
         }
         "PICK_ONE" => {
             prompt.push_str("## Task Type: PICK_ONE\n\n");
             prompt.push_str("Multiple patches implement the same feature. The preferred patch has been selected.\n");
-            prompt.push_str("Apply it, but review the others to ensure no unique logic is lost.\n\n");
+            prompt
+                .push_str("Apply it, but review the others to ensure no unique logic is lost.\n\n");
         }
         "MERGE" => {
             prompt.push_str("## Task Type: MERGE\n\n");
-            prompt.push_str("Multiple patches modify the same code region with overlapping changes.\n");
-            prompt.push_str("Read ALL patches, understand the combined intent, and produce a single\n");
+            prompt.push_str(
+                "Multiple patches modify the same code region with overlapping changes.\n",
+            );
+            prompt.push_str(
+                "Read ALL patches, understand the combined intent, and produce a single\n",
+            );
             prompt.push_str("coherent implementation incorporating the best parts of each.\n\n");
         }
         _ => {}
@@ -1906,22 +2570,34 @@ fn build_apply_prompt(
         prompt.push_str("For any code change spanning more than 5 lines, pause and verify:\n");
         prompt.push_str("- Does the logic actually match the referenced W3C spec section?\n");
         prompt.push_str("- Are there off-by-one errors in box model math?\n");
-        prompt.push_str("- Does the patch use APIs/functions that actually exist in the current code?\n");
-        prompt.push_str("  (Remember: patches were generated by agents that may have hallucinated APIs.)\n\n");
+        prompt.push_str(
+            "- Does the patch use APIs/functions that actually exist in the current code?\n",
+        );
+        prompt.push_str(
+            "  (Remember: patches were generated by agents that may have hallucinated APIs.)\n\n",
+        );
         prompt.push_str("### Cross-crate changes are allowed\n");
-        prompt.push_str("If a patch requires changes outside `layout/`, you may modify other crates:\n");
+        prompt.push_str(
+            "If a patch requires changes outside `layout/`, you may modify other crates:\n",
+        );
         prompt.push_str("- `css/src/` — CSS property types, parsing, enums\n");
         prompt.push_str("- `core/src/` — core types, callbacks, DOM structures\n");
         prompt.push_str("- `dll/src/` — FFI layer (if new types need to be exposed)\n");
         prompt.push_str("The compilation check (`cargo check -p azul-dll --features build-dll`) covers all of these.\n\n");
         prompt.push_str("### Learn from recent git history\n");
-        prompt.push_str("Before making changes, run `git log --oneline -20` to understand what refactoring\n");
-        prompt.push_str("has already been done on this branch. This helps you understand the current state\n");
+        prompt.push_str(
+            "Before making changes, run `git log --oneline -20` to understand what refactoring\n",
+        );
+        prompt.push_str(
+            "has already been done on this branch. This helps you understand the current state\n",
+        );
         prompt.push_str("of the code and avoid reverting recent improvements.\n\n");
     }
 
     // ── Collect feature names for this group (for filtering context) ──
-    let group_features: Vec<String> = group.patches.iter()
+    let group_features: Vec<String> = group
+        .patches
+        .iter()
         .filter_map(|p| {
             // "line-breaking_040.md.done.001.patch" → "line-breaking"
             p.find('_').map(|i| p[..i].to_string())
@@ -1947,10 +2623,11 @@ fn build_apply_prompt(
                 include_section = group_features.iter().any(|f| {
                     line.to_lowercase().contains(&f.replace('-', " "))
                         || line.to_lowercase().contains(&f.replace('-', "-"))
-                }) || line.contains("Cluster") && group_features.iter().any(|f| {
-                    // Also match if the section body mentions our patches
-                    true // will be refined by patch name matching below
-                });
+                }) || line.contains("Cluster")
+                    && group_features.iter().any(|f| {
+                        // Also match if the section body mentions our patches
+                        true // will be refined by patch name matching below
+                    });
                 // Always include top-level headings for structure
                 if line.starts_with("## ") && !line.starts_with("### ") {
                     result.push_str(line);
@@ -2032,20 +2709,25 @@ fn build_apply_prompt(
         let end = after.find("## Instructions").unwrap_or(after.len());
         let section = &after[..end];
         // Skip the heading line itself
-        let body: String = section.lines()
-            .skip(1)
-            .collect::<Vec<&str>>()
-            .join("\n");
+        let body: String = section.lines().skip(1).collect::<Vec<&str>>().join("\n");
         let trimmed = body.trim().to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     };
 
     // ── Patch diffs ────────────────────────────────────────────────────
     if is_annot_only {
         // For annotation-only groups, just list the patch file paths
         // (the agent will use `git am` directly on the files)
-        let patch_dir_display = workspace_root.join("doc/target/skill_tree/all_patches/run2_patches");
-        prompt.push_str(&format!("## Patch Directory\n\n`{}`\n\n", patch_dir_display.display()));
+        let patch_dir_display =
+            workspace_root.join("doc/target/skill_tree/all_patches/run2_patches");
+        prompt.push_str(&format!(
+            "## Patch Directory\n\n`{}`\n\n",
+            patch_dir_display.display()
+        ));
         prompt.push_str("## Patch Files (apply in this order)\n\n");
         for (name, _) in patch_contents {
             prompt.push_str(&format!("- `{}`\n", name));
@@ -2081,19 +2763,14 @@ fn build_apply_prompt(
     prompt
 }
 
-fn run_apply_agent(
-    prompt: &str,
-    workspace_root: &Path,
-    group_id: usize,
-) -> Result<bool, String> {
-
+fn run_apply_agent(prompt: &str, workspace_root: &Path, group_id: usize) -> Result<bool, String> {
     // Write prompt to temp file
     let prompt_path = workspace_root.join(format!(".claude-agents/apply-group-{}.md", group_id));
     let _ = fs::create_dir_all(prompt_path.parent().unwrap());
-    fs::write(&prompt_path, prompt)
-        .map_err(|e| format!("Failed to write prompt: {}", e))?;
+    fs::write(&prompt_path, prompt).map_err(|e| format!("Failed to write prompt: {}", e))?;
 
-    let result_path = workspace_root.join(format!(".claude-agents/apply-group-{}.result", group_id));
+    let result_path =
+        workspace_root.join(format!(".claude-agents/apply-group-{}.result", group_id));
 
     let start = Instant::now();
 
@@ -2102,10 +2779,14 @@ fn run_apply_agent(
             "-p",
             "--dangerously-skip-permissions",
             "--verbose",
-            "--output-format", "stream-json",
+            "--output-format",
+            "stream-json",
             "--disallowedTools",
-            "Bash(cargo build*)", "Bash(cargo run*)", "Bash(cargo test*)",
-            "mcp__*", "rust-analyzer-lsp",
+            "Bash(cargo build*)",
+            "Bash(cargo run*)",
+            "Bash(cargo test*)",
+            "mcp__*",
+            "rust-analyzer-lsp",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2127,7 +2808,9 @@ fn run_apply_agent(
         match child.try_wait() {
             Ok(Some(status)) => {
                 let elapsed = start.elapsed().as_secs();
-                let stdout = child.stdout.take()
+                let stdout = child
+                    .stdout
+                    .take()
                     .map(|mut s| {
                         let mut buf = String::new();
                         std::io::Read::read_to_string(&mut s, &mut buf).ok();
@@ -2146,7 +2829,11 @@ fn run_apply_agent(
                     println!("    -> OK ({}s)", elapsed);
                     return Ok(true);
                 } else {
-                    println!("    -> FAILED exit={} ({}s)", status.code().unwrap_or(-1), elapsed);
+                    println!(
+                        "    -> FAILED exit={} ({}s)",
+                        status.code().unwrap_or(-1),
+                        elapsed
+                    );
                     return Ok(false);
                 }
             }
@@ -2241,10 +2928,7 @@ pub fn get_head_sha(workspace_root: &Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn create_worktree_pool(
-    workspace_root: &Path,
-    count: usize,
-) -> Result<Vec<WorktreeSlot>, String> {
+fn create_worktree_pool(workspace_root: &Path, count: usize) -> Result<Vec<WorktreeSlot>, String> {
     create_worktree_pool_internal(workspace_root, count, "spec-agent")
 }
 
@@ -2268,8 +2952,7 @@ pub fn create_worktree_pool_internal(
     branch_prefix: &str,
 ) -> Result<Vec<WorktreeSlot>, String> {
     let base = worktrees_dir(workspace_root);
-    fs::create_dir_all(&base)
-        .map_err(|e| format!("Failed to create .claude-agents dir: {}", e))?;
+    fs::create_dir_all(&base).map_err(|e| format!("Failed to create .claude-agents dir: {}", e))?;
 
     let head_sha = get_head_sha(workspace_root)?;
     let mut slots = Vec::with_capacity(count);
@@ -2357,7 +3040,10 @@ pub fn cleanup_worktrees_autoreview(workspace_root: &Path) -> Result<(), String>
     cleanup_worktrees_internal(workspace_root, "autoreview-agent-*")
 }
 
-pub fn cleanup_worktrees_internal(workspace_root: &Path, branch_pattern: &str) -> Result<(), String> {
+pub fn cleanup_worktrees_internal(
+    workspace_root: &Path,
+    branch_pattern: &str,
+) -> Result<(), String> {
     let base = worktrees_dir(workspace_root);
     if !base.exists() {
         println!("No .claude-agents directory found.");
@@ -2580,13 +3266,15 @@ The layout solver is in `layout/src/solver3/`.
 "#;
 
 fn build_agent_instructions(feature_id: &str, spec_tags: &[String]) -> String {
-    let grep_pattern = spec_tags.iter()
+    let grep_pattern = spec_tags
+        .iter()
         .map(|t| format!("+spec:{}", t))
         .collect::<Vec<_>>()
         .join("\\|");
     let grep_cmd = format!("grep -rn \"{}\" layout/src/", grep_pattern);
 
-    let marker_instructions = spec_tags.iter()
+    let marker_instructions = spec_tags
+        .iter()
         .map(|t| format!("  `// +spec:{} - <brief description>`", t))
         .collect::<Vec<_>>()
         .join("\n");
@@ -2743,7 +3431,7 @@ fn extract_spec_context_from_md(prompt_content: &str) -> String {
         "## Feature Context",
         "## Source Files to Read",
         "## Relevant Types",
-        "## Spec Paragraph",  // matches "## Spec Paragraph to Verify" and "## Spec Paragraph N"
+        "## Spec Paragraph", // matches "## Spec Paragraph to Verify" and "## Spec Paragraph N"
     ];
 
     let mut result = String::new();
@@ -2763,7 +3451,10 @@ fn extract_spec_context_from_md(prompt_content: &str) -> String {
 }
 
 /// Public wrapper for preview: builds the full prompt using workspace_root as working dir.
-pub fn build_full_prompt_preview(prompt_path: &Path, workspace_root: &Path) -> Result<String, String> {
+pub fn build_full_prompt_preview(
+    prompt_path: &Path,
+    workspace_root: &Path,
+) -> Result<String, String> {
     build_full_prompt(prompt_path, workspace_root)
 }
 
@@ -2784,7 +3475,8 @@ fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, S
     };
     // hash_part may be "a3f2c1" or "a3f2c1+b4e7d2" (grouped)
     // Tag format: "feature:hash" — colon separator so humans can grep by feature
-    let spec_tags: Vec<String> = hash_part.split('+')
+    let spec_tags: Vec<String> = hash_part
+        .split('+')
         .map(|h| format!("{}:{}", feature_id, h))
         .collect();
 
@@ -2792,8 +3484,7 @@ fn build_full_prompt(prompt_path: &Path, working_dir: &Path) -> Result<String, S
     // review-framed .md file, discarding review instructions/response format.
     let spec_context = extract_spec_context_from_md(&paragraph_content);
 
-    let mut full_prompt =
-        String::with_capacity(CODEBASE_CONTEXT.len() + spec_context.len() + 4096);
+    let mut full_prompt = String::with_capacity(CODEBASE_CONTEXT.len() + spec_context.len() + 4096);
 
     full_prompt.push_str(CODEBASE_CONTEXT);
     full_prompt.push('\n');
@@ -2951,8 +3642,7 @@ pub fn extract_patches(
     }
 
     // Use git format-patch to extract each commit
-    let tmp_dir = tempfile::tempdir()
-        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    let tmp_dir = tempfile::tempdir().map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
     let range = format!("{}..HEAD", base_sha);
     let output = Command::new("git")
@@ -2982,8 +3672,7 @@ pub fn extract_patches(
     let done_path = prompt_path.with_extension("md.done");
     for (i, patch_file) in patch_files.iter().enumerate() {
         let dest = PathBuf::from(format!("{}.{:03}.patch", done_path.display(), i + 1));
-        fs::copy(patch_file, &dest)
-            .map_err(|e| format!("Failed to copy patch: {}", e))?;
+        fs::copy(patch_file, &dest).map_err(|e| format!("Failed to copy patch: {}", e))?;
     }
 
     Ok(patch_files.len())
@@ -2998,7 +3687,16 @@ fn run_agent_in_slot(
     model: Option<&str>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
-    run_agent_in_slot_internal(slot, slot_index, prompt_path, timeout, base_sha, model, on_progress, false)
+    run_agent_in_slot_internal(
+        slot,
+        slot_index,
+        prompt_path,
+        timeout,
+        base_sha,
+        model,
+        on_progress,
+        false,
+    )
 }
 
 pub fn run_agent_in_slot_autodebug(
@@ -3010,7 +3708,16 @@ pub fn run_agent_in_slot_autodebug(
     model: Option<&str>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
-    run_agent_in_slot_internal(slot, slot_index, prompt_path, timeout, base_sha, model, on_progress, true)
+    run_agent_in_slot_internal(
+        slot,
+        slot_index,
+        prompt_path,
+        timeout,
+        base_sha,
+        model,
+        on_progress,
+        true,
+    )
 }
 
 pub fn run_agent_in_slot_autoreview(
@@ -3022,7 +3729,16 @@ pub fn run_agent_in_slot_autoreview(
     model: Option<&str>,
     on_progress: &dyn Fn(&str),
 ) -> AgentResult {
-    run_agent_in_slot_internal(slot, slot_index, prompt_path, timeout, base_sha, model, on_progress, true)
+    run_agent_in_slot_internal(
+        slot,
+        slot_index,
+        prompt_path,
+        timeout,
+        base_sha,
+        model,
+        on_progress,
+        true,
+    )
 }
 
 fn run_agent_in_slot_internal(
@@ -3202,7 +3918,9 @@ fn run_agent_in_slot_internal(
                         &failed_path,
                         format!(
                             "Agent timed out after {}s\nslot={}\n\n--- PARTIAL OUTPUT ---\n{}",
-                            timeout.as_secs(), slot_index, partial,
+                            timeout.as_secs(),
+                            slot_index,
+                            partial,
                         ),
                     );
                     return AgentResult {
@@ -3221,7 +3939,11 @@ fn run_agent_in_slot_internal(
                     "{}:{:02} | {}",
                     elapsed / 60,
                     elapsed % 60,
-                    if activity.is_empty() { "working..." } else { &activity },
+                    if activity.is_empty() {
+                        "working..."
+                    } else {
+                        &activity
+                    },
                 );
                 on_progress(&status_line);
                 let _ = fs::write(&progress_path, &status_line);
@@ -3249,13 +3971,14 @@ fn run_agent_in_slot_internal(
         let code = exit_status.code().unwrap_or(-1);
         let result_content = extract_result_text(&result_path);
         let elapsed = start.elapsed();
-        let _ = fs::write(
-            &failed_path,
-            format!(
+        let _ =
+            fs::write(
+                &failed_path,
+                format!(
                 "Agent exited with code {}\nelapsed_secs={}\nslot={}\n\n--- AGENT OUTPUT ---\n{}",
                 code, elapsed.as_secs(), slot_index, result_content
             ),
-        );
+            );
         return AgentResult {
             success: false,
             patches: 0,
@@ -3290,7 +4013,11 @@ fn run_agent_in_slot_internal(
     // Write .done with full details: summary header + full agent output
     let done_content = format!(
         "action={}\npatches={}\nslot={}\nelapsed_secs={}\n\n--- AGENT OUTPUT ---\n{}",
-        action, patches, slot_index, elapsed.as_secs(), result_content,
+        action,
+        patches,
+        slot_index,
+        elapsed.as_secs(),
+        result_content,
     );
     let _ = fs::write(&done_path, done_content);
 
@@ -3395,27 +4122,23 @@ fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), St
 
     // 1. Refuse to run inside an existing Claude Code session
     if std::env::var("CLAUDECODE").is_ok() {
-        return Err(
-            "Cannot run inside a Claude Code session.\n\
+        return Err("Cannot run inside a Claude Code session.\n\
              The executor spawns claude CLI subprocesses which would conflict.\n\
              Run this command from a regular terminal:\n\
              \n\
              ./target/release/azul-doc spec claude-exec"
-                .to_string(),
-        );
+            .to_string());
     }
     println!("  [OK] Not running inside Claude Code");
 
     // 2. Check that ANTHROPIC_API_KEY is NOT set (avoid accidental API billing)
     if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-        return Err(
-            "ANTHROPIC_API_KEY is set in environment.\n\
+        return Err("ANTHROPIC_API_KEY is set in environment.\n\
              This would route claude CLI through the paid API instead of your \
              Pro/Max subscription.\n\
              Unset it first:  unset ANTHROPIC_API_KEY\n\
              Or pass --force-api to override this check."
-                .to_string(),
-        );
+            .to_string());
     }
     println!("  [OK] No ANTHROPIC_API_KEY set (using subscription plan)");
 
@@ -3479,11 +4202,9 @@ fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), St
             println!("  [OK] claude CLI: {}", version);
         }
         _ => {
-            return Err(
-                "claude CLI not found or not working.\n\
+            return Err("claude CLI not found or not working.\n\
                  Install: https://docs.anthropic.com/en/docs/claude-code"
-                    .to_string(),
-            );
+                .to_string());
         }
     }
 
@@ -3525,7 +4246,10 @@ fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), St
         }
 
         let response = String::from_utf8_lossy(&output.stdout);
-        println!("  [OK] claude responded: {}", response.trim().chars().take(40).collect::<String>());
+        println!(
+            "  [OK] claude responded: {}",
+            response.trim().chars().take(40).collect::<String>()
+        );
     }
 
     // 6. Rebuild prompts (ensures they're fresh, not stale)
@@ -3640,7 +4364,10 @@ pub fn run_executor(
     println!("  Failed:          {}", failed_count);
     println!("  Agent slots:     {}", agent_count);
     println!("  Timeout:         {}s", ea.timeout_secs);
-    println!("  Model:           {}", ea.model.as_deref().unwrap_or("(default)"));
+    println!(
+        "  Model:           {}",
+        ea.model.as_deref().unwrap_or("(default)")
+    );
     println!();
 
     // Record base SHA before creating worktrees
@@ -3652,8 +4379,7 @@ pub fn run_executor(
     println!();
 
     // Shared state
-    let queue: Arc<Mutex<VecDeque<PathBuf>>> =
-        Arc::new(Mutex::new(VecDeque::from(pending)));
+    let queue: Arc<Mutex<VecDeque<PathBuf>>> = Arc::new(Mutex::new(VecDeque::from(pending)));
     let completed = Arc::new(Mutex::new(0usize));
     let failed = Arc::new(Mutex::new(0usize));
 
@@ -3712,7 +4438,11 @@ pub fn run_executor(
                 }
 
                 let result = run_agent_in_slot(
-                    &slot, i, &prompt_path, timeout, &base_sha,
+                    &slot,
+                    i,
+                    &prompt_path,
+                    timeout,
+                    &base_sha,
                     model.as_deref(),
                     &|msg| {
                         line.update(format!("[{}] {} | {}", i, prompt_name, msg));
@@ -3723,10 +4453,7 @@ pub fn run_executor(
                     let mut c = completed.lock().unwrap();
                     *c += 1;
                     done_count += 1;
-                    prev_summary = format!(
-                        "prev: {} OK {}p",
-                        prompt_name, result.patches
-                    );
+                    prev_summary = format!("prev: {} OK {}p", prompt_name, result.patches);
                 } else {
                     let mut f = failed.lock().unwrap();
                     *f += 1;
@@ -3839,9 +4566,16 @@ mod tests {
         assert_eq!(groups.len(), 3);
         assert_eq!(groups[0].action, "APPLY");
         assert_eq!(groups[0].patches, vec!["floats_004.md.done.001.patch"]);
-        assert!(groups[0].agent_context.as_ref().unwrap().contains("margin-box"));
+        assert!(groups[0]
+            .agent_context
+            .as_ref()
+            .unwrap()
+            .contains("margin-box"));
         assert_eq!(groups[1].action, "PICK_ONE");
-        assert_eq!(groups[1].preferred.as_deref(), Some("line-breaking_008.md.done.001.patch"));
+        assert_eq!(
+            groups[1].preferred.as_deref(),
+            Some("line-breaking_008.md.done.001.patch")
+        );
         assert_eq!(groups[2].action, "SKIP");
     }
 
@@ -3878,7 +4612,11 @@ Note: I've grouped the box-model patches because they conflict on InlineBorderIn
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].action, "MERGE");
         assert_eq!(groups[0].patches.len(), 2);
-        assert!(groups[0].agent_context.as_ref().unwrap().contains("RTL awareness"));
+        assert!(groups[0]
+            .agent_context
+            .as_ref()
+            .unwrap()
+            .contains("RTL awareness"));
         assert_eq!(groups[1].action, "APPLY");
     }
 
@@ -3942,8 +4680,14 @@ diff --git a/layout/src/solver3/fc.rs b/layout/src/solver3/fc.rs
 2.43.0
 "###;
         let (total_adds, total_dels, real_adds, real_dels) = categorize_diff_text(patch);
-        assert_eq!(real_adds, 0, "annotation-only patch should have 0 real adds");
-        assert_eq!(real_dels, 0, "annotation-only patch should have 0 real dels");
+        assert_eq!(
+            real_adds, 0,
+            "annotation-only patch should have 0 real adds"
+        );
+        assert_eq!(
+            real_dels, 0,
+            "annotation-only patch should have 0 real dels"
+        );
         assert!(total_adds > 0, "should have comment additions");
     }
 
@@ -4077,7 +4821,10 @@ pub fn cmd_test_models(
     println!();
 
     for p in &selected {
-        println!("  - {}", p.file_name().unwrap_or_default().to_string_lossy());
+        println!(
+            "  - {}",
+            p.file_name().unwrap_or_default().to_string_lossy()
+        );
     }
     println!();
 
@@ -4085,8 +4832,7 @@ pub fn cmd_test_models(
     let total_slots = models.len() * selected.len();
     let base_sha = get_head_sha(workspace_root)?;
     let test_dir = workspace_root.join(".claude-test-models");
-    fs::create_dir_all(&test_dir)
-        .map_err(|e| format!("Failed to create test dir: {}", e))?;
+    fs::create_dir_all(&test_dir).map_err(|e| format!("Failed to create test dir: {}", e))?;
 
     // Create all worktrees
     let mut slots: Vec<(String, String, PathBuf)> = Vec::new(); // (model, prompt_name, path)
@@ -4132,7 +4878,11 @@ pub fn cmd_test_models(
         let results = Arc::clone(&results);
         let workspace_root = workspace_root.to_path_buf();
         // Store result file OUTSIDE the worktree so agents can't `git add` it
-        let result_path = test_dir.join(format!("{}_{}.stream.json", model, prompt_path.file_stem().unwrap().to_string_lossy()));
+        let result_path = test_dir.join(format!(
+            "{}_{}.stream.json",
+            model,
+            prompt_path.file_stem().unwrap().to_string_lossy()
+        ));
 
         let handle = std::thread::spawn(move || {
             let start = Instant::now();
@@ -4161,9 +4911,14 @@ pub fn cmd_test_models(
                 Ok(f) => f,
                 Err(e) => {
                     results.lock().unwrap().push(ModelTestResult {
-                        model, prompt_name, wall_secs: 0, patches: 0,
-                        diff: String::new(), agent_output: String::new(),
-                        success: false, error: Some(format!("File create: {}", e)),
+                        model,
+                        prompt_name,
+                        wall_secs: 0,
+                        patches: 0,
+                        diff: String::new(),
+                        agent_output: String::new(),
+                        success: false,
+                        error: Some(format!("File create: {}", e)),
                     });
                     return;
                 }
@@ -4175,16 +4930,26 @@ pub fn cmd_test_models(
                     "-p",
                     "--dangerously-skip-permissions",
                     "--verbose",
-                    "--output-format", "stream-json",
-                    "--model", &model,
-                    "--disallowedTools", "Bash(cargo *)",
-                    "--disallowedTools", "Bash(rustc *)",
-                    "--disallowedTools", "Bash(clang *)",
-                    "--disallowedTools", "Bash(gcc *)",
-                    "--disallowedTools", "Bash(make *)",
-                    "--disallowedTools", "Bash(cmake *)",
-                    "--disallowedTools", "mcp__*",
-                    "--disallowedTools", "rust-analyzer-lsp",
+                    "--output-format",
+                    "stream-json",
+                    "--model",
+                    &model,
+                    "--disallowedTools",
+                    "Bash(cargo *)",
+                    "--disallowedTools",
+                    "Bash(rustc *)",
+                    "--disallowedTools",
+                    "Bash(clang *)",
+                    "--disallowedTools",
+                    "Bash(gcc *)",
+                    "--disallowedTools",
+                    "Bash(make *)",
+                    "--disallowedTools",
+                    "Bash(cmake *)",
+                    "--disallowedTools",
+                    "mcp__*",
+                    "--disallowedTools",
+                    "rust-analyzer-lsp",
                 ])
                 .env_remove("CLAUDECODE")
                 .env("GIT_DIR", slot_path.join(".git"))
@@ -4198,9 +4963,14 @@ pub fn cmd_test_models(
                 Ok(c) => c,
                 Err(e) => {
                     results.lock().unwrap().push(ModelTestResult {
-                        model, prompt_name, wall_secs: 0, patches: 0,
-                        diff: String::new(), agent_output: String::new(),
-                        success: false, error: Some(format!("Spawn: {}", e)),
+                        model,
+                        prompt_name,
+                        wall_secs: 0,
+                        patches: 0,
+                        diff: String::new(),
+                        agent_output: String::new(),
+                        success: false,
+                        error: Some(format!("Spawn: {}", e)),
                     });
                     return;
                 }
@@ -4220,9 +4990,11 @@ pub fn cmd_test_models(
                             let _ = child.kill();
                             let _ = child.wait();
                             results.lock().unwrap().push(ModelTestResult {
-                                model, prompt_name,
+                                model,
+                                prompt_name,
                                 wall_secs: start.elapsed().as_secs(),
-                                patches: 0, diff: String::new(),
+                                patches: 0,
+                                diff: String::new(),
                                 agent_output: String::new(),
                                 success: false,
                                 error: Some("Timeout".to_string()),
@@ -4233,9 +5005,14 @@ pub fn cmd_test_models(
                     }
                     Err(e) => {
                         results.lock().unwrap().push(ModelTestResult {
-                            model, prompt_name, wall_secs: start.elapsed().as_secs(),
-                            patches: 0, diff: String::new(), agent_output: String::new(),
-                            success: false, error: Some(format!("Wait: {}", e)),
+                            model,
+                            prompt_name,
+                            wall_secs: start.elapsed().as_secs(),
+                            patches: 0,
+                            diff: String::new(),
+                            agent_output: String::new(),
+                            success: false,
+                            error: Some(format!("Wait: {}", e)),
                         });
                         return;
                     }
@@ -4258,7 +5035,12 @@ pub fn cmd_test_models(
                 .args(["rev-list", "--count", &format!("{}..HEAD", base_sha)])
                 .current_dir(&slot_path)
                 .output()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().parse().unwrap_or(0))
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .trim()
+                        .parse()
+                        .unwrap_or(0)
+                })
                 .unwrap_or(0);
 
             // Extract usage from stream-json
@@ -4270,9 +5052,14 @@ pub fn cmd_test_models(
             }
 
             results.lock().unwrap().push(ModelTestResult {
-                model, prompt_name, wall_secs, patches, diff,
+                model,
+                prompt_name,
+                wall_secs,
+                patches,
+                diff,
                 agent_output: output_with_usage,
-                success: exit_ok, error: None,
+                success: exit_ok,
+                error: None,
             });
         });
 
@@ -4289,8 +5076,7 @@ pub fn cmd_test_models(
 
     // Save results to files
     let output_dir = config.skill_tree_dir.join("test-models");
-    fs::create_dir_all(&output_dir)
-        .map_err(|e| format!("Failed to create output dir: {}", e))?;
+    fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
 
     // Clean old results
     if let Ok(entries) = fs::read_dir(&output_dir) {
@@ -4309,28 +5095,46 @@ pub fn cmd_test_models(
              - **Error**: {}\n\n\
              ## Agent Output\n\n```\n{}\n```\n\n\
              ## Diff\n\n```diff\n{}\n```\n",
-            r.model, r.prompt_name,
-            r.success, r.wall_secs, r.patches,
+            r.model,
+            r.prompt_name,
+            r.success,
+            r.wall_secs,
+            r.patches,
             r.error.as_deref().unwrap_or("none"),
             r.agent_output,
-            if r.diff.is_empty() { "(no changes)" } else { &r.diff },
+            if r.diff.is_empty() {
+                "(no changes)"
+            } else {
+                &r.diff
+            },
         );
         let _ = fs::write(output_dir.join(&fname), &content);
     }
 
     // Print comparison table
     println!("\n{}", "=".repeat(90));
-    println!("{:<10} {:<40} {:>6} {:>8} {:>7} {:<10}",
-        "MODEL", "PROMPT", "SECS", "PATCHES", "DIFF", "STATUS");
+    println!(
+        "{:<10} {:<40} {:>6} {:>8} {:>7} {:<10}",
+        "MODEL", "PROMPT", "SECS", "PATCHES", "DIFF", "STATUS"
+    );
     println!("{}", "-".repeat(90));
 
     // Sort by prompt then model for easy comparison
     let mut sorted: Vec<&ModelTestResult> = results.iter().collect();
-    sorted.sort_by(|a, b| a.prompt_name.cmp(&b.prompt_name).then(a.model.cmp(&b.model)));
+    sorted.sort_by(|a, b| {
+        a.prompt_name
+            .cmp(&b.prompt_name)
+            .then(a.model.cmp(&b.model))
+    });
 
     for r in &sorted {
-        let diff_lines = if r.diff.is_empty() { 0 } else {
-            r.diff.lines().filter(|l| l.starts_with('+') || l.starts_with('-')).count()
+        let diff_lines = if r.diff.is_empty() {
+            0
+        } else {
+            r.diff
+                .lines()
+                .filter(|l| l.starts_with('+') || l.starts_with('-'))
+                .count()
         };
         let status = if let Some(ref e) = r.error {
             e.as_str()
@@ -4339,10 +5143,18 @@ pub fn cmd_test_models(
         } else {
             "FAIL"
         };
-        println!("{:<10} {:<40} {:>5}s {:>8} {:>5}L {:<10}",
+        println!(
+            "{:<10} {:<40} {:>5}s {:>8} {:>5}L {:<10}",
             r.model,
-            if r.prompt_name.len() > 40 { &r.prompt_name[..40] } else { &r.prompt_name },
-            r.wall_secs, r.patches, diff_lines, status,
+            if r.prompt_name.len() > 40 {
+                &r.prompt_name[..40]
+            } else {
+                &r.prompt_name
+            },
+            r.wall_secs,
+            r.patches,
+            diff_lines,
+            status,
         );
     }
     println!("{}", "=".repeat(90));

@@ -160,7 +160,10 @@ mod tests {
         // pixel (1, 1): v = 3 → B=13 G=23 R=33 → RGBA (33, 23, 13, 255)
         assert_eq!(&out[12..16], &[33, 23, 13, 255]);
         assert_eq!(&out[0..4], &[30, 20, 10, 255]);
-        assert!(!unsafe { slot.publish_bgra(p.as_ptr(), 2, 2, 12) }, "later frames are not 'first'");
+        assert!(
+            !unsafe { slot.publish_bgra(p.as_ptr(), 2, 2, 12) },
+            "later frames are not 'first'"
+        );
     }
 
     #[test]
@@ -170,13 +173,19 @@ mod tests {
         unsafe { slot.publish_bgra(p.as_ptr(), 2, 2, 12) };
         let mut out = Vec::new();
         let mut seq = 0;
-        assert!(slot.read_newer(&mut seq, &mut out, Duration::from_millis(10)).is_some());
+        assert!(slot
+            .read_newer(&mut seq, &mut out, Duration::from_millis(10))
+            .is_some());
         let t0 = Instant::now();
         assert!(
-            slot.read_newer(&mut seq, &mut out, Duration::from_millis(30)).is_none(),
+            slot.read_newer(&mut seq, &mut out, Duration::from_millis(30))
+                .is_none(),
             "the same frame is not served twice as 'newer'"
         );
-        assert!(t0.elapsed() >= Duration::from_millis(25), "the wait is a timed condvar wait");
+        assert!(
+            t0.elapsed() >= Duration::from_millis(25),
+            "the wait is a timed condvar wait"
+        );
         // The idle path still hands out the last frame.
         assert_eq!(slot.read_last(&mut out), Some((2, 2)));
         assert_eq!(out.len(), 16);
@@ -196,7 +205,10 @@ mod tests {
         let t0 = Instant::now();
         let dims = slot.read_newer(&mut seq, &mut out, Duration::from_secs(5));
         assert_eq!(dims, Some((2, 2)));
-        assert!(t0.elapsed() < Duration::from_secs(4), "woken by the publish, not by the deadline");
+        assert!(
+            t0.elapsed() < Duration::from_secs(4),
+            "woken by the publish, not by the deadline"
+        );
         handle.join().unwrap();
     }
 
@@ -206,7 +218,10 @@ mod tests {
         let p = plane();
         assert!(!unsafe { slot.publish_bgra(core::ptr::null(), 2, 2, 12) });
         assert!(!unsafe { slot.publish_bgra(p.as_ptr(), 0, 2, 12) });
-        assert!(!unsafe { slot.publish_bgra(p.as_ptr(), 2, 2, 4) }, "stride shorter than a row");
+        assert!(
+            !unsafe { slot.publish_bgra(p.as_ptr(), 2, 2, 4) },
+            "stride shorter than a row"
+        );
         let mut out = Vec::new();
         assert!(slot.read_last(&mut out).is_none());
     }

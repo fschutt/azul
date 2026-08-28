@@ -35,7 +35,9 @@ fn dark_pixels(pm: &AzulPixmap) -> usize {
 fn render_text_in(family: &str) -> usize {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("t".to_string().into())].into())
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("HELLO WORLD"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "HELLO WORLD",
+        ));
     let style = css(&format!(
         "font-family: {family}; font-size: 40px; color: #000000;"
     ));

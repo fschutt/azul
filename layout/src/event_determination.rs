@@ -261,7 +261,8 @@ fn get_all_hovered_nodes(
 /// ## Returns
 ///
 /// - Deduplicated vector of `SyntheticEvents` ready for dispatch
-#[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
+#[allow(clippy::cast_precision_loss)]
+// bounded graphics/coord/counter/fixed-point cast
 // Instant is a ref-counted FFI clock handle threaded through the event loop by value.
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
@@ -332,16 +333,22 @@ pub fn determine_all_events(
 
     // Helper: compute mouse buttons bitmask
     let buttons: u8 = u8::from(current_state.mouse_state.left_down)
-        | (if current_state.mouse_state.right_down { 2 } else { 0 })
-        | (if current_state.mouse_state.middle_down { 4 } else { 0 });
+        | (if current_state.mouse_state.right_down {
+            2
+        } else {
+            0
+        })
+        | (if current_state.mouse_state.middle_down {
+            4
+        } else {
+            0
+        });
 
     // Helper: get deepest hovered node as the event target for mouse events.
     // Multi-DOM aware: targets VirtualView / iframe child DOMs (higher DomId,
     // composited on top) when the cursor is over them, not just the root DOM.
     // For single-DOM apps only DomId 0 is ever hit, so this is unchanged.
-    let mouse_target = hover_manager
-        .current_hover_node_full()
-        .unwrap_or(root_node);
+    let mouse_target = hover_manager.current_hover_node_full().unwrap_or(root_node);
 
     // Helper: build MouseEventData for a specific button
     let make_mouse_data = |button: MouseButton| -> EventData {
@@ -899,16 +906,15 @@ pub fn determine_all_events(
         let drag_source = manager.drag_source_node().unwrap_or(mouse_target);
 
         // Detect DragStart (on the drag source)
-        if manager.detect_drag().is_some()
-            && !manager.is_dragging() {
-                events.push(SyntheticEvent::new(
-                    EventType::DragStart,
-                    EventSource::User,
-                    drag_source,
-                    timestamp.clone(),
-                    make_mouse_data(MouseButton::Left),
-                ));
-            }
+        if manager.detect_drag().is_some() && !manager.is_dragging() {
+            events.push(SyntheticEvent::new(
+                EventType::DragStart,
+                EventSource::User,
+                drag_source,
+                timestamp.clone(),
+                make_mouse_data(MouseButton::Left),
+            ));
+        }
 
         // Detect Drag (continuous movement, on the drag source)
         if manager.is_dragging() && current_mouse_down {
@@ -1127,12 +1133,11 @@ pub fn determine_all_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use azul_core::window::{
-        VirtualKeyCode, VirtualKeyCodeVec,
-        OptionVirtualKeyCode,
-    };
+    use azul_core::window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec};
 
-    fn ts() -> Instant { Instant::Tick(SystemTick::new(0)) }
+    fn ts() -> Instant {
+        Instant::Tick(SystemTick::new(0))
+    }
 
     fn default_state() -> FullWindowState {
         FullWindowState::default()
@@ -1158,17 +1163,26 @@ mod tests {
         s
     }
 
-    fn empty_providers() -> Vec<&'static dyn EventProvider> { vec![] }
+    fn empty_providers() -> Vec<&'static dyn EventProvider> {
+        vec![]
+    }
 
-    fn run_determine(
-        current: &FullWindowState,
-        previous: &FullWindowState,
-    ) -> Vec<SyntheticEvent> {
+    fn run_determine(current: &FullWindowState, previous: &FullWindowState) -> Vec<SyntheticEvent> {
         let focus = crate::managers::focus_cursor::FocusManager::new();
         let hover = crate::managers::hover::HoverManager::new();
         let filedrop = crate::managers::file_drop::FileDropManager::new();
         let providers = empty_providers();
-        determine_all_events(current, previous, &hover, &focus, &filedrop, None, &providers, None, ts())
+        determine_all_events(
+            current,
+            previous,
+            &hover,
+            &focus,
+            &filedrop,
+            None,
+            &providers,
+            None,
+            ts(),
+        )
     }
 
     // === Touch tests ===
@@ -1222,7 +1236,10 @@ mod tests {
 
         let moved = state_with_touch(&[(1, 11.0, 20.0)]);
         assert_eq!(n_of(&run_determine(&moved, &held), EventType::TouchMove), 1);
-        assert_eq!(n_of(&run_determine(&moved, &held), EventType::TouchStart), 0);
+        assert_eq!(
+            n_of(&run_determine(&moved, &held), EventType::TouchStart),
+            0
+        );
     }
 
     #[test]
@@ -1273,7 +1290,10 @@ mod tests {
     #[test]
     fn keydown_fires_when_key_newly_pressed() {
         let events = run_determine(&state_with_key(VirtualKeyCode::A), &default_state());
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
+        let kd: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyDown)
+            .collect();
         assert_eq!(kd.len(), 1);
         assert!(matches!(kd[0].data, EventData::Keyboard(_)));
     }
@@ -1282,7 +1302,10 @@ mod tests {
     fn keydown_skipped_when_same_key_held() {
         let s = state_with_key(VirtualKeyCode::A);
         let events = run_determine(&s, &s);
-        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        let kd = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyDown)
+            .count();
         assert_eq!(kd, 0, "KeyDown should not fire when same key held");
     }
 
@@ -1292,14 +1315,20 @@ mod tests {
             &state_with_key(VirtualKeyCode::B),
             &state_with_key(VirtualKeyCode::A),
         );
-        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        let kd = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyDown)
+            .count();
         assert_eq!(kd, 1);
     }
 
     #[test]
     fn keyup_fires_when_key_released() {
         let events = run_determine(&default_state(), &state_with_key(VirtualKeyCode::A));
-        let ku: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyUp).collect();
+        let ku: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyUp)
+            .collect();
         assert_eq!(ku.len(), 1);
         assert!(matches!(ku[0].data, EventData::Keyboard(_)));
     }
@@ -1307,7 +1336,10 @@ mod tests {
     #[test]
     fn backspace_keydown_has_keyboard_data() {
         let events = run_determine(&state_with_key(VirtualKeyCode::Back), &default_state());
-        let kd: Vec<_> = events.iter().filter(|e| e.event_type == EventType::KeyDown).collect();
+        let kd: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyDown)
+            .collect();
         assert_eq!(kd.len(), 1);
         match &kd[0].data {
             EventData::Keyboard(kb) => assert_eq!(kb.key_code, VirtualKeyCode::Back as u32),
@@ -1323,7 +1355,10 @@ mod tests {
             &state_with_left_down(100.0, 200.0),
             &state_with_cursor(100.0, 200.0),
         );
-        let md = events.iter().filter(|e| e.event_type == EventType::MouseDown).count();
+        let md = events
+            .iter()
+            .filter(|e| e.event_type == EventType::MouseDown)
+            .count();
         assert_eq!(md, 1);
     }
 
@@ -1333,7 +1368,10 @@ mod tests {
             &state_with_cursor(100.0, 200.0),
             &state_with_left_down(100.0, 200.0),
         );
-        let mu = events.iter().filter(|e| e.event_type == EventType::MouseUp).count();
+        let mu = events
+            .iter()
+            .filter(|e| e.event_type == EventType::MouseUp)
+            .count();
         assert_eq!(mu, 1);
     }
 
@@ -1341,7 +1379,11 @@ mod tests {
     fn no_events_when_state_unchanged() {
         let s = default_state();
         let events = run_determine(&s, &s);
-        assert!(events.is_empty(), "Got {} events when state unchanged", events.len());
+        assert!(
+            events.is_empty(),
+            "Got {} events when state unchanged",
+            events.len()
+        );
     }
 
     #[test]
@@ -1350,7 +1392,10 @@ mod tests {
             &state_with_cursor(150.0, 250.0),
             &state_with_cursor(100.0, 200.0),
         );
-        let mo = events.iter().filter(|e| e.event_type == EventType::MouseOver).count();
+        let mo = events
+            .iter()
+            .filter(|e| e.event_type == EventType::MouseOver)
+            .count();
         assert_eq!(mo, 1);
     }
 
@@ -1367,8 +1412,14 @@ mod tests {
         let current = state_with_key(VirtualKeyCode::Left);
 
         let events = run_determine(&current, &previous);
-        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
-        assert_eq!(kd, 1, "Key repeat should fire KeyDown when previous is cleared");
+        let kd = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyDown)
+            .count();
+        assert_eq!(
+            kd, 1,
+            "Key repeat should fire KeyDown when previous is cleared"
+        );
     }
 
     #[test]
@@ -1380,7 +1431,10 @@ mod tests {
         let current = state_with_key(VirtualKeyCode::Left);
 
         let events = run_determine(&current, &previous);
-        let kd = events.iter().filter(|e| e.event_type == EventType::KeyDown).count();
+        let kd = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyDown)
+            .count();
         assert_eq!(kd, 0, "Without platform clearing, repeat is not detected");
     }
 }
@@ -1391,9 +1445,7 @@ mod autotest_generated {
     use azul_core::{
         geom::{LogicalSize, PhysicalPositionI32},
         hit_test::{FullHitTest, HitTest, HitTestItem},
-        window::{
-            OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec, WindowTheme,
-        },
+        window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec, WindowTheme},
     };
     use azul_css::{corety::OptionU32, AzString};
 
@@ -1845,7 +1897,11 @@ mod autotest_generated {
     fn from_managers_collapses_a_flood_of_identical_events() {
         let s = state();
         let target = node(0, 4);
-        let provider = StaticProvider((0..5_000).map(|i| ev(EventType::Scroll, target, i)).collect());
+        let provider = StaticProvider(
+            (0..5_000)
+                .map(|i| ev(EventType::Scroll, target, i))
+                .collect(),
+        );
         let providers: Vec<&dyn EventProvider> = vec![&provider];
         let events = determine_events_from_managers(&s, &s, &providers, ts(0));
         assert_eq!(events.len(), 1, "same (target, type) must coalesce");
@@ -2000,7 +2056,9 @@ mod autotest_generated {
         let down = only(&events, EventType::MouseDown);
         match down.data {
             EventData::Mouse(m) => {
-                assert!(m.modifiers.shift && m.modifiers.ctrl && m.modifiers.alt && m.modifiers.meta);
+                assert!(
+                    m.modifiers.shift && m.modifiers.ctrl && m.modifiers.alt && m.modifiers.meta
+                );
             }
             other => panic!("expected Mouse data, got {other:?}"),
         }
@@ -2027,7 +2085,10 @@ mod autotest_generated {
     fn wheel_delta_none_emits_no_scroll() {
         let s = state();
         assert_eq!(
-            count(&run(&s, &s, &HoverManager::new(), None, None), EventType::Scroll),
+            count(
+                &run(&s, &s, &HoverManager::new(), None, None),
+                EventType::Scroll
+            ),
             0
         );
     }
@@ -2105,13 +2166,7 @@ mod autotest_generated {
     fn wheel_scroll_targets_the_hovered_node_not_the_root() {
         let s = state();
         let hm = hover_with(hits(&[(2, 6)]), hits(&[(2, 6)]));
-        let events = run(
-            &s,
-            &s,
-            &hm,
-            None,
-            Some(LogicalPosition::new(0.0, -120.0)),
-        );
+        let events = run(&s, &s, &hm, None, Some(LogicalPosition::new(0.0, -120.0)));
         let scroll = only(&events, EventType::Scroll);
         assert_eq!(scroll.target, node(2, 6));
     }
@@ -2142,7 +2197,10 @@ mod autotest_generated {
 
     #[test]
     fn mouseover_nan_cursor_positions_do_not_panic_or_thrash() {
-        let events = run_plain(&cursor_at(f32::NAN, f32::NAN), &cursor_at(f32::NAN, f32::NAN));
+        let events = run_plain(
+            &cursor_at(f32::NAN, f32::NAN),
+            &cursor_at(f32::NAN, f32::NAN),
+        );
         assert_eq!(
             count(&events, EventType::MouseOver),
             0,
@@ -2578,9 +2636,8 @@ mod autotest_generated {
         let mut fd = FileDropManager::new();
         fd.set_dropped_file(Some(AzString::from(String::from("/tmp/x"))));
         let providers: Vec<&dyn EventProvider> = Vec::new();
-        let events = determine_all_events(
-            &s, &s, &hover, &focus, &fd, None, &providers, None, ts(0),
-        );
+        let events =
+            determine_all_events(&s, &s, &hover, &focus, &fd, None, &providers, None, ts(0));
         let drop = only(&events, EventType::FileDrop);
         assert_eq!(drop.target, node(1, 4));
     }
@@ -2633,7 +2690,7 @@ mod autotest_generated {
     fn drag_and_drag_end_fire_on_the_source_not_the_node_under_the_cursor() {
         let source = node(0, 1);
         let over = node(0, 9); // the cursor is over a DIFFERENT node now
-        // The hover reports node 9 as current; the drag moved (pos changed).
+                               // The hover reports node 9 as current; the drag moved (pos changed).
         let hover = hover_with(hits(&[(0, 1)]), hits(&[(0, 9)]));
         let mut prev = cursor_at(5.0, 5.0);
         prev.mouse_state.left_down = true;
@@ -2642,14 +2699,29 @@ mod autotest_generated {
         let g = dragging_from(source);
 
         let drag = only(&run(&cur, &prev, &hover, Some(&g), None), EventType::Drag);
-        assert_eq!(drag.target, source, "Drag sticks to the source, not {over:?}");
+        assert_eq!(
+            drag.target, source,
+            "Drag sticks to the source, not {over:?}"
+        );
 
         // Release: DragEnd on the source; Drop (node-drag) on the hover.
-        let up_prev = { let mut s = cursor_at(400.0, 400.0); s.mouse_state.left_down = true; s };
+        let up_prev = {
+            let mut s = cursor_at(400.0, 400.0);
+            s.mouse_state.left_down = true;
+            s
+        };
         let up_cur = cursor_at(400.0, 400.0); // left_down false = release
         let ev = run(&up_cur, &up_prev, &hover, Some(&g), None);
-        assert_eq!(only(&ev, EventType::DragEnd).target, source, "DragEnd on the source");
-        assert_eq!(only(&ev, EventType::Drop).target, over, "Drop on the node under the cursor");
+        assert_eq!(
+            only(&ev, EventType::DragEnd).target,
+            source,
+            "DragEnd on the source"
+        );
+        assert_eq!(
+            only(&ev, EventType::Drop).target,
+            over,
+            "Drop on the node under the cursor"
+        );
     }
 
     #[test]
@@ -2850,7 +2922,15 @@ mod autotest_generated {
     fn pen_events_require_the_pending_flag() {
         let s = state();
         let mut g = GestureAndDragManager::new();
-        g.update_pen_state(LogicalPosition::new(1.0, 1.0), 0.5, (0.0, 0.0), true, false, false, 1);
+        g.update_pen_state(
+            LogicalPosition::new(1.0, 1.0),
+            0.5,
+            (0.0, 0.0),
+            true,
+            false,
+            false,
+            1,
+        );
         g.clear_pen_event_pending();
 
         let events = run(&s, &s, &HoverManager::new(), Some(&g), None);
@@ -2862,7 +2942,15 @@ mod autotest_generated {
     fn pen_entering_proximity_emits_pen_enter() {
         let s = state();
         let mut g = GestureAndDragManager::new();
-        g.update_pen_state(LogicalPosition::new(1.0, 1.0), 0.0, (0.0, 0.0), false, false, false, 1);
+        g.update_pen_state(
+            LogicalPosition::new(1.0, 1.0),
+            0.0,
+            (0.0, 0.0),
+            false,
+            false,
+            false,
+            1,
+        );
         let events = run(&s, &s, &HoverManager::new(), Some(&g), None);
         assert_eq!(count(&events, EventType::PenEnter), 1);
         assert_eq!(count(&events, EventType::PenLeave), 0);
@@ -2872,7 +2960,15 @@ mod autotest_generated {
     fn pen_leaving_proximity_emits_pen_leave() {
         let s = state();
         let mut g = GestureAndDragManager::new();
-        g.update_pen_state(LogicalPosition::new(1.0, 1.0), 0.0, (0.0, 0.0), false, false, false, 1);
+        g.update_pen_state(
+            LogicalPosition::new(1.0, 1.0),
+            0.0,
+            (0.0, 0.0),
+            false,
+            false,
+            false,
+            1,
+        );
         g.clear_pen_state();
         let events = run(&s, &s, &HoverManager::new(), Some(&g), None);
         assert_eq!(count(&events, EventType::PenLeave), 1);
@@ -2883,13 +2979,41 @@ mod autotest_generated {
     fn pen_contact_transitions_emit_pen_down_then_pen_up() {
         let s = state();
         let mut g = GestureAndDragManager::new();
-        g.update_pen_state(LogicalPosition::new(1.0, 1.0), 0.0, (0.0, 0.0), false, false, false, 1);
-        g.update_pen_state(LogicalPosition::new(1.0, 1.0), 1.0, (0.0, 0.0), true, false, false, 1);
+        g.update_pen_state(
+            LogicalPosition::new(1.0, 1.0),
+            0.0,
+            (0.0, 0.0),
+            false,
+            false,
+            false,
+            1,
+        );
+        g.update_pen_state(
+            LogicalPosition::new(1.0, 1.0),
+            1.0,
+            (0.0, 0.0),
+            true,
+            false,
+            false,
+            1,
+        );
         let down = run(&s, &s, &HoverManager::new(), Some(&g), None);
         assert_eq!(count(&down, EventType::PenDown), 1);
-        assert_eq!(count(&down, EventType::PenMove), 0, "position did not change");
+        assert_eq!(
+            count(&down, EventType::PenMove),
+            0,
+            "position did not change"
+        );
 
-        g.update_pen_state(LogicalPosition::new(1.0, 1.0), 0.0, (0.0, 0.0), false, false, false, 1);
+        g.update_pen_state(
+            LogicalPosition::new(1.0, 1.0),
+            0.0,
+            (0.0, 0.0),
+            false,
+            false,
+            false,
+            1,
+        );
         let up = run(&s, &s, &HoverManager::new(), Some(&g), None);
         assert_eq!(count(&up, EventType::PenUp), 1);
         assert_eq!(count(&up, EventType::PenDown), 0);
@@ -2899,8 +3023,24 @@ mod autotest_generated {
     fn pen_movement_emits_pen_move() {
         let s = state();
         let mut g = GestureAndDragManager::new();
-        g.update_pen_state(LogicalPosition::new(1.0, 1.0), 1.0, (0.0, 0.0), true, false, false, 1);
-        g.update_pen_state(LogicalPosition::new(40.0, 90.0), 1.0, (0.0, 0.0), true, false, false, 1);
+        g.update_pen_state(
+            LogicalPosition::new(1.0, 1.0),
+            1.0,
+            (0.0, 0.0),
+            true,
+            false,
+            false,
+            1,
+        );
+        g.update_pen_state(
+            LogicalPosition::new(40.0, 90.0),
+            1.0,
+            (0.0, 0.0),
+            true,
+            false,
+            false,
+            1,
+        );
         let events = run(&s, &s, &HoverManager::new(), Some(&g), None);
         assert_eq!(count(&events, EventType::PenMove), 1);
     }
@@ -2922,7 +3062,15 @@ mod autotest_generated {
     #[test]
     fn a_pen_in_contact_emits_touch_move_when_the_cursor_moves() {
         let mut g = GestureAndDragManager::new();
-        g.update_pen_state(LogicalPosition::new(1.0, 1.0), 1.0, (0.0, 0.0), true, false, false, 1);
+        g.update_pen_state(
+            LogicalPosition::new(1.0, 1.0),
+            1.0,
+            (0.0, 0.0),
+            true,
+            false,
+            false,
+            1,
+        );
         g.clear_pen_event_pending(); // isolate the TouchMove path from PenEnter
 
         let events = run(

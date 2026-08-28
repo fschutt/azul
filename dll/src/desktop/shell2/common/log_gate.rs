@@ -32,10 +32,10 @@
 //! 2026-08-07 case — a buffer that is drained at the end of the frame has
 //! nothing to say. These spans stream.
 
-use azul_core::log_filter::{self};
 /// Re-exported so the exported `log_*!` macros can name a level through
 /// `$crate::…` and downstream users do not need `azul_core` in scope.
 pub use azul_core::log_filter::Level;
+use azul_core::log_filter::{self};
 
 use super::debug_server::{LogCategory, LogLevel};
 
@@ -252,7 +252,11 @@ impl LogSpan {
             return;
         }
         let indent = span_indent();
-        emit(LogLevel::Debug, self.category, format!("{indent}· {message}"));
+        emit(
+            LogLevel::Debug,
+            self.category,
+            format!("{indent}· {message}"),
+        );
     }
 }
 
@@ -294,12 +298,7 @@ pub fn emit(level: LogLevel, category: LogCategory, message: String) {
 /// `azul_core::log_filter::STDERR_ECHO`) and the debug server's queue, so
 /// `AZ_DEBUG=<port>` gives you a terminal log AND a populated debugger UI
 /// rather than a silent one and an invisible other.
-pub fn emit_at(
-    level: LogLevel,
-    category: LogCategory,
-    message: String,
-    window_id: Option<&str>,
-) {
+pub fn emit_at(level: LogLevel, category: LogCategory, message: String, window_id: Option<&str>) {
     // Timestamp FIRST. A log without one cannot answer "why was it slow",
     // which is the question these traces exist for: the 2026-08-07 mouse-resize
     // capture recorded 373 configures and 4 258 lines and could not say how
@@ -325,7 +324,10 @@ pub fn emit_at(
 #[cfg(feature = "std")]
 pub fn micros_since_start() -> u128 {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    START.get_or_init(std::time::Instant::now).elapsed().as_micros()
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_micros()
 }
 
 #[cfg(not(feature = "std"))]
@@ -392,17 +394,29 @@ mod tests {
     #[test]
     fn every_category_maps_to_a_distinct_filter_category() {
         let all = [
-            LogCategory::General, LogCategory::Window, LogCategory::EventLoop,
-            LogCategory::Input, LogCategory::Layout, LogCategory::Text,
-            LogCategory::DisplayList, LogCategory::Rendering, LogCategory::Resources,
-            LogCategory::Callbacks, LogCategory::Timer, LogCategory::DebugServer,
+            LogCategory::General,
+            LogCategory::Window,
+            LogCategory::EventLoop,
+            LogCategory::Input,
+            LogCategory::Layout,
+            LogCategory::Text,
+            LogCategory::DisplayList,
+            LogCategory::Rendering,
+            LogCategory::Resources,
+            LogCategory::Callbacks,
+            LogCategory::Timer,
+            LogCategory::DebugServer,
             LogCategory::Platform,
         ];
         assert_eq!(all.len(), log_filter::CATEGORY_COUNT);
         let mut seen = 0u32;
         for c in all {
             let bit = 1u32 << (category_of(c) as u8);
-            assert_eq!(seen & bit, 0, "two LogCategory values map to one filter category: {c:?}");
+            assert_eq!(
+                seen & bit,
+                0,
+                "two LogCategory values map to one filter category: {c:?}"
+            );
             seen |= bit;
         }
     }
@@ -472,7 +486,11 @@ mod tests {
             }
             assert_eq!(span_depth(), before + 1);
         }
-        assert_eq!(span_depth(), before, "depth must return to where it started");
+        assert_eq!(
+            span_depth(),
+            before,
+            "depth must return to where it started"
+        );
         log_filter::set_stderr_echo(false);
     }
 

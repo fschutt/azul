@@ -9,7 +9,6 @@
 //! Fake metrics @ size 20: 'a' 600u => 12px · space 250u => 5px · line-height
 //! normal 20px · default tab-size 8 * (0.5*20px space approx) => 80px tab stops.
 
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -18,9 +17,9 @@ use azul_layout::font::parsed::ParsedFont;
 use azul_layout::parsed_font_to_font_ref;
 use azul_layout::text3::cache::{
     create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent, LoadedFonts,
-    OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
-    UnifiedLayout, WhiteSpaceMode,
+    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+    UnifiedConstraints, UnifiedLayout, WhiteSpaceMode,
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
@@ -77,10 +76,14 @@ fn layout_content(
 
     let logical = create_logical_items(content, &[], &mut None);
     if logical.is_empty() {
-        return UnifiedLayout { items: Vec::new(), overflow: OverflowInfo::default() };
+        return UnifiedLayout {
+            items: Vec::new(),
+            overflow: OverflowInfo::default(),
+        };
     }
-    let visual = reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
-        .expect("bidi reorder");
+    let visual =
+        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+            .expect("bidi reorder");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
     let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
@@ -127,7 +130,11 @@ fn line0_width(layout: &UnifiedLayout) -> f32 {
             mx = mx.max(it.position.x + c.advance);
         }
     }
-    if mx < mn { 0.0 } else { mx - mn }
+    if mx < mn {
+        0.0
+    } else {
+        mx - mn
+    }
 }
 
 /// The x of the first cluster whose text equals `needle`.
@@ -150,7 +157,11 @@ fn cluster_x(layout: &UnifiedLayout, needle: &str) -> f32 {
 fn normal_wraps_at_space() {
     // CSS Text §3: white-space:normal wraps at soft-wrap opportunities. "aaaa aaaa"
     // (101px) breaks in a 60px box.
-    let l = layout("aaaa aaaa", WhiteSpaceMode::Normal, AvailableSpace::Definite(60.0));
+    let l = layout(
+        "aaaa aaaa",
+        WhiteSpaceMode::Normal,
+        AvailableSpace::Definite(60.0),
+    );
     assert_eq!(line_count(&l), 2, "normal must wrap at the space");
 }
 
@@ -158,28 +169,44 @@ fn normal_wraps_at_space() {
 fn nowrap_suppresses_wrapping() {
     // CSS Text §3: white-space:nowrap suppresses soft wraps; the content stays on a
     // single line even though it overflows the 60px box.
-    let l = layout("aaaa aaaa", WhiteSpaceMode::Nowrap, AvailableSpace::Definite(60.0));
+    let l = layout(
+        "aaaa aaaa",
+        WhiteSpaceMode::Nowrap,
+        AvailableSpace::Definite(60.0),
+    );
     assert_eq!(line_count(&l), 1, "nowrap must not wrap");
 }
 
 #[test]
 fn pre_suppresses_wrapping() {
     // CSS Text §3: white-space:pre neither collapses nor wraps; single line, overflows.
-    let l = layout("aaaa aaaa", WhiteSpaceMode::Pre, AvailableSpace::Definite(60.0));
+    let l = layout(
+        "aaaa aaaa",
+        WhiteSpaceMode::Pre,
+        AvailableSpace::Definite(60.0),
+    );
     assert_eq!(line_count(&l), 1, "pre must not wrap");
 }
 
 #[test]
 fn pre_wrap_wraps_at_space() {
     // CSS Text §3: white-space:pre-wrap preserves spaces but DOES wrap; 2 lines @60px.
-    let l = layout("aaaa aaaa", WhiteSpaceMode::PreWrap, AvailableSpace::Definite(60.0));
+    let l = layout(
+        "aaaa aaaa",
+        WhiteSpaceMode::PreWrap,
+        AvailableSpace::Definite(60.0),
+    );
     assert_eq!(line_count(&l), 2, "pre-wrap must wrap at the space");
 }
 
 #[test]
 fn pre_line_wraps_at_space() {
     // CSS Text §3: white-space:pre-line collapses spaces but DOES wrap; 2 lines @60px.
-    let l = layout("aaaa aaaa", WhiteSpaceMode::PreLine, AvailableSpace::Definite(60.0));
+    let l = layout(
+        "aaaa aaaa",
+        WhiteSpaceMode::PreLine,
+        AvailableSpace::Definite(60.0),
+    );
     assert_eq!(line_count(&l), 2, "pre-line must wrap at the space");
 }
 
@@ -246,10 +273,17 @@ fn tab_advances_to_next_default_stop() {
     let font_ref = fake_font_ref();
     let content = vec![
         text_run("a", &font_ref),
-        InlineContent::Tab { style: style_of(&font_ref) },
+        InlineContent::Tab {
+            style: style_of(&font_ref),
+        },
         text_run("b", &font_ref),
     ];
-    let l = layout_content(&content, &font_ref, WhiteSpaceMode::Pre, AvailableSpace::MaxContent);
+    let l = layout_content(
+        &content,
+        &font_ref,
+        WhiteSpaceMode::Pre,
+        AvailableSpace::MaxContent,
+    );
     assert_px(cluster_x(&l, "a"), 0.0);
     assert_px(cluster_x(&l, "b"), 80.0);
 }
@@ -260,10 +294,17 @@ fn tab_from_line_start_is_one_full_stop() {
     // following 'a' begins at x=80.
     let font_ref = fake_font_ref();
     let content = vec![
-        InlineContent::Tab { style: style_of(&font_ref) },
+        InlineContent::Tab {
+            style: style_of(&font_ref),
+        },
         text_run("a", &font_ref),
     ];
-    let l = layout_content(&content, &font_ref, WhiteSpaceMode::Pre, AvailableSpace::MaxContent);
+    let l = layout_content(
+        &content,
+        &font_ref,
+        WhiteSpaceMode::Pre,
+        AvailableSpace::MaxContent,
+    );
     assert_px(cluster_x(&l, "a"), 80.0);
 }
 
@@ -282,6 +323,11 @@ fn tab_size_zero_collapses_tab_to_zero_width() {
         InlineContent::Tab { style: tab_style },
         text_run("b", &font_ref),
     ];
-    let l = layout_content(&content, &font_ref, WhiteSpaceMode::Pre, AvailableSpace::MaxContent);
+    let l = layout_content(
+        &content,
+        &font_ref,
+        WhiteSpaceMode::Pre,
+        AvailableSpace::MaxContent,
+    );
     assert_px(cluster_x(&l, "b"), 12.0);
 }

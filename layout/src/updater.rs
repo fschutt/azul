@@ -159,9 +159,7 @@ pub fn within_shared_maintenance_window(now_unix: u64) -> bool {
     let shared = crate::telemetry::sharedconfig::SharedConfig::load();
     let app = crate::telemetry::sharedconfig::app_key().unwrap_or_default();
     match shared.updates_for(&app).maintenance_window {
-        Some(rule) => {
-            crate::telemetry::sharedconfig::within_maintenance_window(&rule, now_unix)
-        }
+        Some(rule) => crate::telemetry::sharedconfig::within_maintenance_window(&rule, now_unix),
         None => true,
     }
 }
@@ -355,8 +353,8 @@ impl UpdateState {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos());
-        let bucket = u8::try_from((u64::from(nanos) ^ u64::from(std::process::id())) % 100)
-            .unwrap_or(0);
+        let bucket =
+            u8::try_from((u64::from(nanos) ^ u64::from(std::process::id())) % 100).unwrap_or(0);
         self.rollout_bucket = Some(bucket);
         bucket
     }
@@ -371,7 +369,10 @@ impl UpdateState {
             "key_generation": self.key_generation,
         });
         drop(std::fs::create_dir_all(dir));
-        drop(std::fs::write(dir.join("update-state.json"), value.to_string()));
+        drop(std::fs::write(
+            dir.join("update-state.json"),
+            value.to_string(),
+        ));
     }
 }
 
@@ -411,10 +412,22 @@ impl RolloutPlan {
     pub fn default_ladder(release_unix: u64) -> Self {
         const DAY: u64 = 86_400;
         Self::Staged(vec![
-            RolloutStage { percent: 10, at_unix: release_unix + DAY },
-            RolloutStage { percent: 30, at_unix: release_unix + 2 * DAY },
-            RolloutStage { percent: 50, at_unix: release_unix + 3 * DAY },
-            RolloutStage { percent: 100, at_unix: release_unix + 4 * DAY },
+            RolloutStage {
+                percent: 10,
+                at_unix: release_unix + DAY,
+            },
+            RolloutStage {
+                percent: 30,
+                at_unix: release_unix + 2 * DAY,
+            },
+            RolloutStage {
+                percent: 50,
+                at_unix: release_unix + 3 * DAY,
+            },
+            RolloutStage {
+                percent: 100,
+                at_unix: release_unix + 4 * DAY,
+            },
         ])
     }
 
@@ -433,7 +446,11 @@ impl RolloutPlan {
                     .max()
                     .unwrap_or(0);
                 let last_open = stages.iter().all(|st| st.at_unix <= now_unix);
-                if last_open { 100 } else { reached }
+                if last_open {
+                    100
+                } else {
+                    reached
+                }
             }
         }
     }
@@ -505,9 +522,7 @@ pub fn parse_manifest_datetime(v: &serde_json::Value) -> Option<u64> {
 /// when there is no `release_date` to ladder from.
 #[must_use]
 pub fn parse_rollout(latest: &serde_json::Value) -> RolloutPlan {
-    let release_date = latest
-        .get("release_date")
-        .and_then(parse_manifest_datetime);
+    let release_date = latest.get("release_date").and_then(parse_manifest_datetime);
     match latest.get("slow") {
         Some(serde_json::Value::String(s)) if s.eq_ignore_ascii_case("off") => {
             RolloutPlan::Immediate
@@ -516,7 +531,11 @@ pub fn parse_rollout(latest: &serde_json::Value) -> RolloutPlan {
             let mut stages: Vec<RolloutStage> = map
                 .iter()
                 .filter_map(|(percent, when)| {
-                    let percent: u8 = percent.trim().parse().ok().filter(|p| (1..=100).contains(p))?;
+                    let percent: u8 = percent
+                        .trim()
+                        .parse()
+                        .ok()
+                        .filter(|p| (1..=100).contains(p))?;
                     let at_unix = parse_manifest_datetime(when)?;
                     Some(RolloutStage { percent, at_unix })
                 })
@@ -770,11 +789,10 @@ pub fn normalize_update_url(url: &str) -> NormalizedUrl {
 /// challenge asks the client to use when fetching a token.
 #[must_use]
 pub fn parse_www_authenticate(header: &str) -> Option<(String, String, String)> {
-    let rest = header.trim().strip_prefix("Bearer ").or_else(|| {
-        header
-            .trim()
-            .strip_prefix("bearer ")
-    })?;
+    let rest = header
+        .trim()
+        .strip_prefix("Bearer ")
+        .or_else(|| header.trim().strip_prefix("bearer "))?;
     let mut realm = None;
     let mut service = String::new();
     let mut scope = String::new();
@@ -1085,14 +1103,20 @@ pub fn parse_release_document(
     }
 
     // A flat, hand-written object.
-    if value.get("version").and_then(serde_json::Value::as_str).is_some() {
+    if value
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .is_some()
+    {
         let mut resolved = manifest_entry_to_release(&value);
         resolved.kind = UpdateSourceKind::FlatJson;
         return Ok(vec![resolved]);
     }
 
-    Err("the update URL returned JSON with no `latest`, `channels`, `tag_name` or `version`"
-        .to_owned())
+    Err(
+        "the update URL returned JSON with no `latest`, `channels`, `tag_name` or `version`"
+            .to_owned(),
+    )
 }
 
 /// One manifest entry (the object under `latest`, inside `releases`, or
@@ -1260,7 +1284,9 @@ fn is_sidecar_name(name: &str) -> bool {
         ".minisig", ".sig", ".asc", ".pem", ".sha256", ".sha512", ".sum", ".txt", ".json",
     ];
     let lower = name.to_ascii_lowercase();
-    SIDECAR_SUFFIXES.iter().any(|suffix| lower.ends_with(suffix))
+    SIDECAR_SUFFIXES
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
         || lower.contains("checksum")
         || lower.contains("sha256sums")
 }
@@ -1278,7 +1304,9 @@ pub fn select_github_asset<'a>(
     pattern: Option<&str>,
 ) -> Option<&'a serde_json::Value> {
     if let Some(pat) = pattern {
-        return assets.iter().find(|a| glob_match(pat, &asset_str(a, "name")));
+        return assets
+            .iter()
+            .find(|a| glob_match(pat, &asset_str(a, "name")));
     }
     let os_tokens: &[&str] = match std::env::consts::OS {
         "linux" => &["linux"],
@@ -1286,10 +1314,12 @@ pub fn select_github_asset<'a>(
         "windows" => &["windows", "win"],
         "android" => &["android"],
         "ios" => &["ios"],
-        other => return assets.iter().find(|a| {
-            let n = asset_str(a, "name").to_ascii_lowercase();
-            !is_sidecar_name(&n) && n.contains(other)
-        }),
+        other => {
+            return assets.iter().find(|a| {
+                let n = asset_str(a, "name").to_ascii_lowercase();
+                !is_sidecar_name(&n) && n.contains(other)
+            })
+        }
     };
     let arch_tokens: &[&str] = match std::env::consts::ARCH {
         "x86_64" => &["x86_64", "amd64", "x64"],
@@ -1394,9 +1424,8 @@ fn resolve_oci(
         let token_url = format!("{realm}?service={service}&scope={scope}");
         let token_response = crate::http::http_get_with_config(&token_url, &base)
             .map_err(|e| format!("registry token fetch: {e:?}"))?;
-        let token_json: serde_json::Value =
-            serde_json::from_slice(token_response.body.as_ref())
-                .map_err(|e| format!("registry token is not JSON: {e}"))?;
+        let token_json: serde_json::Value = serde_json::from_slice(token_response.body.as_ref())
+            .map_err(|e| format!("registry token is not JSON: {e}"))?;
         token.clear();
         token.push_str(
             token_json
@@ -1447,12 +1476,11 @@ fn resolve_oci(
 
     let mut resolved = parse_oci_manifest(&manifest, oci, layer_selector)?;
     if !token.is_empty() {
-        resolved.release.download_headers =
-            vec![azul_core::window::AzStringPair {
-                key: "Authorization".into(),
-                value: format!("Bearer {token}").into(),
-            }]
-            .into();
+        resolved.release.download_headers = vec![azul_core::window::AzStringPair {
+            key: "Authorization".into(),
+            value: format!("Bearer {token}").into(),
+        }]
+        .into();
     }
     Ok(resolved)
 }
@@ -1471,11 +1499,15 @@ pub fn resolve_release_candidates(
 ) -> Result<Vec<ResolvedRelease>, String> {
     let normalized = normalize_update_url(url);
     if let Some(oci) = &normalized.oci {
-        return resolve_oci(&normalized.fetch_url, oci, normalized.asset_pattern.as_deref())
-            .map(|r| vec![r]);
+        return resolve_oci(
+            &normalized.fetch_url,
+            oci,
+            normalized.asset_pattern.as_deref(),
+        )
+        .map(|r| vec![r]);
     }
-    let config = crate::http::HttpRequestConfig::new()
-        .with_header("Accept", "application/vnd.github+json");
+    let config =
+        crate::http::HttpRequestConfig::new().with_header("Accept", "application/vnd.github+json");
     let response = crate::http::http_get_with_config(&normalized.fetch_url, &config)
         .map_err(|e| format!("update source fetch: {e:?}"))?;
     if !(200..300).contains(&response.status_code) {
@@ -1496,8 +1528,8 @@ pub fn resolve_release_candidates(
 /// unsigned, which is the correct outcome.
 #[cfg(feature = "http")]
 pub fn hydrate_sidecars(resolved: &mut ResolvedRelease) {
-    let config = crate::http::HttpRequestConfig::new()
-        .with_header("Accept", "application/vnd.github+json");
+    let config =
+        crate::http::HttpRequestConfig::new().with_header("Accept", "application/vnd.github+json");
     for sidecar in core::mem::take(&mut resolved.sidecars) {
         let Ok(r) = crate::http::http_get_with_config(&sidecar.url, &config) else {
             continue;
@@ -1511,8 +1543,7 @@ pub fn hydrate_sidecars(resolved: &mut ResolvedRelease) {
             SidecarField::Statement => {
                 // The statement is signed as exact bytes; the file may end
                 // with the newline an editor added.
-                resolved.release.signing_key_statement =
-                    text.trim_end_matches(['\n', '\r']).into();
+                resolved.release.signing_key_statement = text.trim_end_matches(['\n', '\r']).into();
             }
             SidecarField::StatementSig => {
                 resolved.release.signing_key_statement_sig = text.trim().into();
@@ -1555,9 +1586,7 @@ pub fn select_update_candidate<'a>(
     let mut best: Option<&ResolvedRelease> = None;
     for candidate in candidates {
         let version = candidate.release.version.as_str();
-        if version.is_empty()
-            || compare_versions(version, current_version) != Ordering::Greater
-        {
+        if version.is_empty() || compare_versions(version, current_version) != Ordering::Greater {
             continue;
         }
         let eligible = match audience {
@@ -1746,7 +1775,9 @@ pub fn verify_digest(path: &Path, digest: &str) -> Result<(), String> {
         .unwrap_or(digest)
         .to_ascii_lowercase();
     if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(format!("unsupported digest format: {digest:?} (expected sha256 hex)"));
+        return Err(format!(
+            "unsupported digest format: {digest:?} (expected sha256 hex)"
+        ));
     }
     use sha2::Digest as _;
     let bytes = std::fs::read(path).map_err(|e| format!("digest read: {e}"))?;
@@ -1799,11 +1830,15 @@ pub fn parse_signing_key_statement(statement: &str) -> Result<SigningKeyStatemen
         if let Some(v) = part.strip_prefix("pubkey=") {
             pubkey_b64 = Some(v.to_owned());
         } else if let Some(v) = part.strip_prefix("expires=") {
-            expires_unix =
-                Some(v.parse::<u64>().map_err(|e| format!("statement expires: {e}"))?);
+            expires_unix = Some(
+                v.parse::<u64>()
+                    .map_err(|e| format!("statement expires: {e}"))?,
+            );
         } else if let Some(v) = part.strip_prefix("generation=") {
-            generation =
-                Some(v.parse::<u64>().map_err(|e| format!("statement generation: {e}"))?);
+            generation = Some(
+                v.parse::<u64>()
+                    .map_err(|e| format!("statement generation: {e}"))?,
+            );
         } else {
             return Err(format!("signing-key statement: unknown field {part:?}"));
         }
@@ -1974,7 +2009,9 @@ pub fn download_update(
         // a stale or corrupted staging file must re-download, not install.
         if let Err(e) = verify_digest(&final_path, release.digest.as_str()) {
             drop(std::fs::remove_file(&final_path));
-            return Err(format!("cached artifact failed verification ({e}); removed — retry the download"));
+            return Err(format!(
+                "cached artifact failed verification ({e}); removed — retry the download"
+            ));
         }
         return Ok(DownloadOutcome {
             path: final_path,
@@ -2000,17 +2037,14 @@ pub fn download_update(
     let mut written_this_call = 0u64;
     let mut honored = false;
     loop {
-        let mut config = crate::http::HttpRequestConfig::new().with_header(
-            "Range",
-            format!("bytes={offset}-{}", offset + CHUNK - 1),
-        );
+        let mut config = crate::http::HttpRequestConfig::new()
+            .with_header("Range", format!("bytes={offset}-{}", offset + CHUNK - 1));
         // A registry blob needs the bearer token the manifest request got.
         for pair in release.download_headers.as_ref() {
             config = config.with_header(pair.key.as_str(), pair.value.as_str());
         }
-        let response =
-            crate::http::http_get_with_config(release.download_url.as_str(), &config)
-                .map_err(|e| format!("download: {e:?}"))?;
+        let response = crate::http::http_get_with_config(release.download_url.as_str(), &config)
+            .map_err(|e| format!("download: {e:?}"))?;
         match response.status_code {
             206 => {
                 honored = true;
@@ -2084,10 +2118,11 @@ pub fn download_and_verify(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let outcome = download_update(release, staging_dir)?;
-    if let Err(e) = verify_release_signature(&outcome.path, release, root_public_key, state, now)
-    {
+    if let Err(e) = verify_release_signature(&outcome.path, release, root_public_key, state, now) {
         drop(std::fs::remove_file(&outcome.path));
-        return Err(format!("staged artifact failed signature verification ({e}); removed"));
+        return Err(format!(
+            "staged artifact failed signature verification ({e}); removed"
+        ));
     }
     Ok(outcome)
 }
@@ -2185,7 +2220,11 @@ impl UpdateCheckCallback {
 
 impl core::fmt::Debug for UpdateCheckCallback {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "UpdateCheckCallback {{ cb: {:p} }}", self.cb as *const ())
+        write!(
+            f,
+            "UpdateCheckCallback {{ cb: {:p} }}",
+            self.cb as *const ()
+        )
     }
 }
 
@@ -2264,8 +2303,7 @@ struct CheckOutcome {
 #[must_use]
 pub fn default_state_dir(app_name: &str) -> PathBuf {
     #[cfg(target_os = "windows")]
-    let base = std::env::var_os("APPDATA")
-        .map_or_else(std::env::temp_dir, PathBuf::from);
+    let base = std::env::var_os("APPDATA").map_or_else(std::env::temp_dir, PathBuf::from);
     #[cfg(target_os = "macos")]
     let base = std::env::var_os("HOME").map_or_else(std::env::temp_dir, |h| {
         PathBuf::from(h).join("Library").join("Application Support")
@@ -2631,10 +2669,18 @@ mod tests {
             gh_asset(&format!("app-{os}.bin"), None),
         ];
         let picked = select_github_asset(&assets, None).expect("an artifact must be picked");
-        assert_eq!(picked.get("name").unwrap().as_str().unwrap(), format!("app-{os}.bin"));
+        assert_eq!(
+            picked.get("name").unwrap().as_str().unwrap(),
+            format!("app-{os}.bin")
+        );
         // An explicit pattern wins outright, globs included.
         let picked = select_github_asset(&assets, Some("*.sha256")).unwrap();
-        assert!(picked.get("name").unwrap().as_str().unwrap().ends_with(".sha256"));
+        assert!(picked
+            .get("name")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .ends_with(".sha256"));
     }
 
     /// GitHub leaves `digest` null on older uploads, so a checksum file has
@@ -2734,16 +2780,26 @@ mod tests {
             "https://ghcr.io/v2/o/app/blobs/sha256:dead"
         );
         assert_eq!(r.release.digest.as_str(), "sha256:dead");
-        assert!(matches!(r.rollout, RolloutPlan::Staged(_)), "created -> ladder");
+        assert!(
+            matches!(r.rollout, RolloutPlan::Staged(_)),
+            "created -> ladder"
+        );
 
         // `latest` with no version annotation cannot name a version, and
         // saying "you are up to date" there would be a lie.
         let bare = serde_json::json!({"layers": []});
         assert!(parse_oci_manifest(&bare, &oci, None).is_err());
         // …but an explicit tag IS the version.
-        let tagged = OciRef { reference: "2.1.0".to_owned(), ..oci };
+        let tagged = OciRef {
+            reference: "2.1.0".to_owned(),
+            ..oci
+        };
         assert_eq!(
-            parse_oci_manifest(&bare, &tagged, None).unwrap().release.version.as_str(),
+            parse_oci_manifest(&bare, &tagged, None)
+                .unwrap()
+                .release
+                .version
+                .as_str(),
             "2.1.0"
         );
     }
@@ -2792,7 +2848,10 @@ mod tests {
         let err = download_update(&release, std::path::Path::new("/tmp"))
             .expect_err("an empty download URL must be refused");
         assert!(err.contains("names no download"), "{err}");
-        assert!(err.contains("5.0.0"), "the message must name the version: {err}");
+        assert!(
+            err.contains("5.0.0"),
+            "the message must name the version: {err}"
+        );
     }
 
     // ---- channels + the eligibility walk ----------------------------------
@@ -2823,25 +2882,32 @@ mod tests {
         let now = REL + 2 * DAY;
         // 2.0.0: both stages past => fully open.
         let open = RolloutPlan::Staged(vec![
-            RolloutStage { percent: 10, at_unix: REL },
-            RolloutStage { percent: 100, at_unix: REL + DAY },
+            RolloutStage {
+                percent: 10,
+                at_unix: REL,
+            },
+            RolloutStage {
+                percent: 100,
+                at_unix: REL + DAY,
+            },
         ]);
         // 2.1.0: just published, 10% open, 100% still days away.
         let fresh = RolloutPlan::Staged(vec![
-            RolloutStage { percent: 10, at_unix: now },
-            RolloutStage { percent: 100, at_unix: now + 4 * DAY },
+            RolloutStage {
+                percent: 10,
+                at_unix: now,
+            },
+            RolloutStage {
+                percent: 100,
+                at_unix: now + 4 * DAY,
+            },
         ]);
         let candidates = vec![candidate("2.0.0", open), candidate("2.1.0", fresh.clone())];
 
         // Bucket 50: outside 2.1.0's 10% cohort, inside 2.0.0's.
-        let chosen = select_update_candidate(
-            &candidates,
-            "1.0.0",
-            50,
-            UpdateAudience::AutoUpdate,
-            now,
-        )
-        .expect("an eligible release exists and must be offered");
+        let chosen =
+            select_update_candidate(&candidates, "1.0.0", 50, UpdateAudience::AutoUpdate, now)
+                .expect("an eligible release exists and must be offered");
         assert_eq!(
             chosen.release.version.as_str(),
             "2.0.0",
@@ -2849,47 +2915,43 @@ mod tests {
         );
 
         // Bucket 5 IS inside 2.1.0's cohort and must get the newer one.
-        let chosen = select_update_candidate(
-            &candidates,
-            "1.0.0",
-            5,
-            UpdateAudience::AutoUpdate,
-            now,
-        )
-        .unwrap();
+        let chosen =
+            select_update_candidate(&candidates, "1.0.0", 5, UpdateAudience::AutoUpdate, now)
+                .unwrap();
         assert_eq!(chosen.release.version.as_str(), "2.1.0");
 
         // Nothing open at all => None, which the caller reports as
         // `staggered` rather than as an error.
         let all_gated = vec![candidate("2.1.0", fresh)];
-        assert!(select_update_candidate(
-            &all_gated,
-            "1.0.0",
-            50,
-            UpdateAudience::AutoUpdate,
-            now
-        )
-        .is_none());
+        assert!(
+            select_update_candidate(&all_gated, "1.0.0", 50, UpdateAudience::AutoUpdate, now)
+                .is_none()
+        );
 
         // Already current => nothing to offer.
-        assert!(select_update_candidate(
-            &candidates,
-            "2.1.0",
-            5,
-            UpdateAudience::AutoUpdate,
-            now
-        )
-        .is_none());
+        assert!(
+            select_update_candidate(&candidates, "2.1.0", 5, UpdateAudience::AutoUpdate, now)
+                .is_none()
+        );
     }
 
     /// Notify-only installs wait for 100%, per release.
     #[test]
     fn notify_only_waits_for_the_rollout_to_finish() {
         let half = RolloutPlan::Staged(vec![
-            RolloutStage { percent: 50, at_unix: REL },
-            RolloutStage { percent: 100, at_unix: REL + 4 * DAY },
+            RolloutStage {
+                percent: 50,
+                at_unix: REL,
+            },
+            RolloutStage {
+                percent: 100,
+                at_unix: REL + 4 * DAY,
+            },
         ]);
-        let done = RolloutPlan::Staged(vec![RolloutStage { percent: 100, at_unix: REL }]);
+        let done = RolloutPlan::Staged(vec![RolloutStage {
+            percent: 100,
+            at_unix: REL,
+        }]);
         let candidates = vec![candidate("2.0.0", done), candidate("2.1.0", half)];
         let chosen = select_update_candidate(
             &candidates,
@@ -2994,10 +3056,7 @@ mod tests {
         .unwrap()
         .to_string();
 
-        let dir = std::env::temp_dir().join(format!(
-            "azul-sigchain-{tag}-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("azul-sigchain-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let artifact = dir.join("update-2.0.0.bin");
         std::fs::write(&artifact, b"the update artifact bytes").unwrap();
@@ -3035,15 +3094,27 @@ mod tests {
     fn signature_chain_verifies_and_advances_the_generation_high_water() {
         let f = chain_fixture(CHAIN_NOW + DAY, 3, "ok");
         let mut state = UpdateState::default();
-        verify_release_signature(&f.artifact, &f.release, &f.root_pub_b64, &mut state, CHAIN_NOW)
-            .expect("a well-formed chain must verify");
-        assert_eq!(state.key_generation, 3, "success must advance the high-water mark");
+        verify_release_signature(
+            &f.artifact,
+            &f.release,
+            &f.root_pub_b64,
+            &mut state,
+            CHAIN_NOW,
+        )
+        .expect("a well-formed chain must verify");
+        assert_eq!(
+            state.key_generation, 3,
+            "success must advance the high-water mark"
+        );
 
         // An UNARMED root key verifies trivially even for garbage fields.
         let mut fresh = UpdateState::default();
         verify_release_signature(&f.artifact, &f.release, "", &mut fresh, CHAIN_NOW)
             .expect("empty root key = chain not in use");
-        assert_eq!(fresh.key_generation, 0, "unarmed chain must not touch state");
+        assert_eq!(
+            fresh.key_generation, 0,
+            "unarmed chain must not touch state"
+        );
         drop(std::fs::remove_dir_all(&f._dir));
     }
 
@@ -3055,24 +3126,45 @@ mod tests {
         // (a) tampered artifact
         std::fs::write(&f.artifact, b"EVIL bytes").unwrap();
         let err = verify_release_signature(
-            &f.artifact, &f.release, &f.root_pub_b64, &mut state, CHAIN_NOW,
+            &f.artifact,
+            &f.release,
+            &f.root_pub_b64,
+            &mut state,
+            CHAIN_NOW,
         )
         .expect_err("tampered artifact MUST fail");
-        assert!(err.contains("artifact signature"), "wrong link blamed: {err}");
-        assert_eq!(state.key_generation, 0, "a failed chain must not advance the mark");
+        assert!(
+            err.contains("artifact signature"),
+            "wrong link blamed: {err}"
+        );
+        assert_eq!(
+            state.key_generation, 0,
+            "a failed chain must not advance the mark"
+        );
         std::fs::write(&f.artifact, b"the update artifact bytes").unwrap();
 
         // (b) expired statement
         let err = verify_release_signature(
-            &f.artifact, &f.release, &f.root_pub_b64, &mut state, CHAIN_NOW + 2 * DAY,
+            &f.artifact,
+            &f.release,
+            &f.root_pub_b64,
+            &mut state,
+            CHAIN_NOW + 2 * DAY,
         )
         .expect_err("expired statement MUST fail");
         assert!(err.contains("expired"), "wrong link blamed: {err}");
 
         // (c) generation rollback
-        let mut rolled = UpdateState { key_generation: 9, ..UpdateState::default() };
+        let mut rolled = UpdateState {
+            key_generation: 9,
+            ..UpdateState::default()
+        };
         let err = verify_release_signature(
-            &f.artifact, &f.release, &f.root_pub_b64, &mut rolled, CHAIN_NOW,
+            &f.artifact,
+            &f.release,
+            &f.root_pub_b64,
+            &mut rolled,
+            CHAIN_NOW,
         )
         .expect_err("generation rollback MUST fail");
         assert!(err.contains("ROLLBACK"), "wrong link blamed: {err}");
@@ -3081,7 +3173,11 @@ mod tests {
         // (d) statement not signed by the ROOT key: swap in a foreign root.
         let foreign = minisign::KeyPair::generate_unencrypted_keypair().unwrap();
         let err = verify_release_signature(
-            &f.artifact, &f.release, &foreign.pk.to_base64(), &mut state, CHAIN_NOW,
+            &f.artifact,
+            &f.release,
+            &foreign.pk.to_base64(),
+            &mut state,
+            CHAIN_NOW,
         )
         .expect_err("statement by a non-root key MUST fail");
         assert!(err.contains("statement"), "wrong link blamed: {err}");
@@ -3094,7 +3190,11 @@ mod tests {
             ..f.release.clone()
         };
         let err = verify_release_signature(
-            &f.artifact, &unsigned, &f.root_pub_b64, &mut state, CHAIN_NOW,
+            &f.artifact,
+            &unsigned,
+            &f.root_pub_b64,
+            &mut state,
+            CHAIN_NOW,
         )
         .expect_err("unsigned release with an armed root MUST fail");
         assert!(err.contains("UNSIGNED"), "wrong link blamed: {err}");
@@ -3116,10 +3216,19 @@ mod tests {
             }
         );
         // Every deviation is an error, not a default.
-        assert!(parse_signing_key_statement("azul-signing-key-v2|pubkey=a|expires=1|generation=1").is_err());
+        assert!(
+            parse_signing_key_statement("azul-signing-key-v2|pubkey=a|expires=1|generation=1")
+                .is_err()
+        );
         assert!(parse_signing_key_statement("azul-signing-key-v1|pubkey=a|expires=1").is_err());
-        assert!(parse_signing_key_statement("azul-signing-key-v1|pubkey=a|expires=soon|generation=1").is_err());
-        assert!(parse_signing_key_statement("azul-signing-key-v1|pubkey=a|expires=1|generation=1|extra=x").is_err());
+        assert!(parse_signing_key_statement(
+            "azul-signing-key-v1|pubkey=a|expires=soon|generation=1"
+        )
+        .is_err());
+        assert!(parse_signing_key_statement(
+            "azul-signing-key-v1|pubkey=a|expires=1|generation=1|extra=x"
+        )
+        .is_err());
     }
 
     // ---- slow rollout -----------------------------------------------------
@@ -3152,8 +3261,8 @@ mod tests {
 
     #[test]
     fn slow_off_means_immediate_and_absent_release_date_means_immediate() {
-        let (_, plan) = parse_manifest_v1(&manifest_with(r#", "slow": "off""#))
-            .expect("manifest parses");
+        let (_, plan) =
+            parse_manifest_v1(&manifest_with(r#", "slow": "off""#)).expect("manifest parses");
         assert_eq!(plan, RolloutPlan::Immediate);
         // No slow AND no release_date: nothing to ladder from.
         let (_, plan) = parse_manifest_v1(&manifest_with("")).expect("manifest parses");
@@ -3163,11 +3272,13 @@ mod tests {
     #[test]
     fn default_ladder_is_on_by_default_when_release_date_exists() {
         // THE default: 1d/10, 2d/30, 3d/50, 4d/100 — no "slow" key needed.
-        let (_, plan) = parse_manifest_v1(&manifest_with(&format!(
-            r#", "release_date": {REL}"#
-        )))
-        .expect("manifest parses");
-        assert_eq!(plan.allowed_percent(REL + DAY / 2), 0, "release day: nobody");
+        let (_, plan) = parse_manifest_v1(&manifest_with(&format!(r#", "release_date": {REL}"#)))
+            .expect("manifest parses");
+        assert_eq!(
+            plan.allowed_percent(REL + DAY / 2),
+            0,
+            "release day: nobody"
+        );
         assert_eq!(plan.allowed_percent(REL + DAY), 10);
         assert_eq!(plan.allowed_percent(REL + 2 * DAY), 30);
         assert_eq!(plan.allowed_percent(REL + 3 * DAY), 50);
@@ -3180,7 +3291,7 @@ mod tests {
     fn auto_audience_gates_by_bucket_and_notify_waits_for_full_rollout() {
         let plan = RolloutPlan::default_ladder(REL);
         let day1 = REL + DAY; // 10% open
-        // Cohort bucket 5 is inside the first 10%; bucket 42 is not.
+                              // Cohort bucket 5 is inside the first 10%; bucket 42 is not.
         assert!(5 < plan.allowed_percent(day1));
         assert!(42 >= plan.allowed_percent(day1));
         // bucket 42 opens at day 3 (50%)...
@@ -3207,16 +3318,29 @@ mod tests {
     #[test]
     fn manifest_datetime_accepts_unix_and_iso_forms() {
         use serde_json::json;
-        assert_eq!(parse_manifest_datetime(&json!(1_800_000_000_u64)), Some(1_800_000_000));
-        assert_eq!(parse_manifest_datetime(&json!("1800000000")), Some(1_800_000_000));
+        assert_eq!(
+            parse_manifest_datetime(&json!(1_800_000_000_u64)),
+            Some(1_800_000_000)
+        );
+        assert_eq!(
+            parse_manifest_datetime(&json!("1800000000")),
+            Some(1_800_000_000)
+        );
         // 2026-08-18 00:00:00 UTC = 1787011200 (python datetime oracle).
-        assert_eq!(parse_manifest_datetime(&json!("2026-08-18")), Some(1_787_011_200));
+        assert_eq!(
+            parse_manifest_datetime(&json!("2026-08-18")),
+            Some(1_787_011_200)
+        );
         assert_eq!(
             parse_manifest_datetime(&json!("2026-08-18T01:30:00Z")),
             Some(1_787_011_200 + 5400)
         );
         assert_eq!(parse_manifest_datetime(&json!("not a date")), None);
-        assert_eq!(parse_manifest_datetime(&json!("2026-13-01")), None, "month 13");
+        assert_eq!(
+            parse_manifest_datetime(&json!("2026-13-01")),
+            None,
+            "month 13"
+        );
     }
 
     // ---- digest verification -------------------------------------------
@@ -3251,4 +3375,3 @@ mod tests {
         drop(std::fs::remove_dir_all(&dir));
     }
 }
-

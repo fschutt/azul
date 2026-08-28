@@ -21,14 +21,14 @@
 
 use azul_core::keyring::KeyringRequest;
 
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-pub mod apple;
 #[cfg(target_os = "android")]
 pub mod android;
-#[cfg(target_os = "windows")]
-pub mod windows;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub mod apple;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 /// Dispatch one keyring op to the native keyring. Called from the
 /// capability pump for each request drained from the channel.

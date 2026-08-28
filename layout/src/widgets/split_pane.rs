@@ -50,25 +50,35 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, FloatValue, PixelValue},
-        layout::{LayoutFlexGrow, LayoutFlexDirection, LayoutDisplay, LayoutWidth, LayoutHeight, LayoutOverflow, LayoutFlexBasis, LayoutMinWidth, LayoutMinHeight, LayoutFlexShrink},
-        property::{CssProperty, LayoutFlexGrowValue, LayoutWidthValue, LayoutHeightValue, LayoutFlexBasisValue},
+        layout::{
+            LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink,
+            LayoutHeight, LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutWidth,
+        },
+        property::{
+            CssProperty, LayoutFlexBasisValue, LayoutFlexGrowValue, LayoutHeightValue,
+            LayoutWidthValue,
+        },
         style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleCursor},
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::CallbackInfo;
 
 static SPLIT_PANE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-split-pane"))];
-static SPLIT_PANE_FIRST_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-split-pane-first"))];
-static SPLIT_PANE_DIVIDER_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-split-pane-divider"))];
-static SPLIT_PANE_SECOND_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-split-pane-second"))];
+static SPLIT_PANE_FIRST_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-split-pane-first",
+))];
+static SPLIT_PANE_DIVIDER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-split-pane-divider",
+))];
+static SPLIT_PANE_SECOND_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-split-pane-second",
+))];
 
 /// Orientation of a [`SplitPane`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -164,7 +174,12 @@ const MAX_RATIO: f32 = 0.95;
 
 // ---- colours ----
 /// Divider colour (#adb5bd, mid grey).
-const DIVIDER_COLOR: ColorU = ColorU { r: 173, g: 181, b: 189, a: 255 };
+const DIVIDER_COLOR: ColorU = ColorU {
+    r: 173,
+    g: 181,
+    b: 189,
+    a: 255,
+};
 
 const DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DIVIDER_COLOR)];
 const DIVIDER_BG: StyleBackgroundContentVec =
@@ -203,7 +218,9 @@ fn container_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![
         CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
         CssPropertyWithConditions::simple(CssProperty::const_flex_direction(flex_dir)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            1,
+        ))),
         CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
             LayoutWidth::Px(PixelValue::percent(100.0)),
         ))),
@@ -225,10 +242,12 @@ fn pane_style(grow: f32) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::FlexBasis(LayoutFlexBasisValue::Exact(
             LayoutFlexBasis::Exact(PixelValue::const_px(0)),
         ))),
-        CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(0))),
-        CssPropertyWithConditions::simple(CssProperty::const_min_height(LayoutMinHeight::const_px(
+        CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
             0,
         ))),
+        CssPropertyWithConditions::simple(CssProperty::const_min_height(
+            LayoutMinHeight::const_px(0),
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
         CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     ])
@@ -249,7 +268,9 @@ fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
         ),
     };
     CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_flex_shrink(LayoutFlexShrink {
             inner: FloatValue::const_new(0),
         })),
@@ -261,7 +282,8 @@ fn divider_style(dir: SplitDirection) -> CssPropertyWithConditionsVec {
 
 impl SplitPane {
     /// Creates a split pane with the two child `Dom`s, split 50/50.
-    #[must_use] pub fn create(direction: SplitDirection, first: Dom, second: Dom) -> Self {
+    #[must_use]
+    pub fn create(direction: SplitDirection, first: Dom, second: Dom) -> Self {
         Self {
             split_pane_state: SplitPaneStateWrapper {
                 inner: SplitPaneState {
@@ -284,7 +306,8 @@ impl SplitPane {
 
     /// Builder-style setter for the first-pane fraction.
     #[inline]
-    #[must_use] pub const fn with_ratio(mut self, ratio: f32) -> Self {
+    #[must_use]
+    pub const fn with_ratio(mut self, ratio: f32) -> Self {
         self.set_ratio(ratio);
         self
     }
@@ -298,20 +321,23 @@ impl SplitPane {
 
     /// Builder-style setter for the orientation.
     #[inline]
-    #[must_use] pub fn with_direction(mut self, direction: SplitDirection) -> Self {
+    #[must_use]
+    pub fn with_direction(mut self, direction: SplitDirection) -> Self {
         self.set_direction(direction);
         self
     }
 
     /// Replaces the default container style.
     #[inline]
-    #[must_use] pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
         self.container_style = css;
         self
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(
             SplitDirection::Horizontal,
             Dom::create_div(),
@@ -322,7 +348,11 @@ impl SplitPane {
     }
 
     #[inline]
-    pub fn set_on_resize<C: Into<SplitPaneOnResizeCallback>>(&mut self, data: RefAny, on_resize: C) {
+    pub fn set_on_resize<C: Into<SplitPaneOnResizeCallback>>(
+        &mut self,
+        data: RefAny,
+        on_resize: C,
+    ) {
         self.split_pane_state.on_resize = Some(SplitPaneOnResize {
             callback: on_resize.into(),
             refany: data,
@@ -331,7 +361,8 @@ impl SplitPane {
     }
 
     #[inline]
-    #[must_use] pub fn with_on_resize<C: Into<SplitPaneOnResizeCallback>>(
+    #[must_use]
+    pub fn with_on_resize<C: Into<SplitPaneOnResizeCallback>>(
         mut self,
         data: RefAny,
         on_resize: C,
@@ -340,7 +371,8 @@ impl SplitPane {
         self
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -538,9 +570,7 @@ mod autotest_generated {
     };
 
     use azul_core::{
-        dom::{
-            DomId, DomNodeId, EventFilter, FormattingContext, HoverEventFilter, NodeId,
-        },
+        dom::{DomId, DomNodeId, EventFilter, FormattingContext, HoverEventFilter, NodeId},
         geom::{LogicalPosition, LogicalRect, OptionLogicalPosition},
         gl::OptionGlContextPtr,
         hit_test::ScrollPosition,
@@ -724,7 +754,9 @@ mod autotest_generated {
     }
 
     /// `(overflow-x, overflow-y)` declarations, if any.
-    fn overflows(v: &CssPropertyWithConditionsVec) -> (Option<LayoutOverflow>, Option<LayoutOverflow>) {
+    fn overflows(
+        v: &CssPropertyWithConditionsVec,
+    ) -> (Option<LayoutOverflow>, Option<LayoutOverflow>) {
         (
             find(v, |p| match p {
                 CssProperty::OverflowX(o) => o.get_property().copied(),
@@ -825,9 +857,10 @@ mod autotest_generated {
             scroll_id_to_node_id: HashMap::new(),
         };
         for (layout_index, (node_index, used)) in boxes.iter().enumerate() {
-            lr.layout_tree
-                .dom_to_layout
-                .insert(NodeId::new(*node_index), vec![LayoutNodeId::new(layout_index)]);
+            lr.layout_tree.dom_to_layout.insert(
+                NodeId::new(*node_index),
+                vec![LayoutNodeId::new(layout_index)],
+            );
             lr.layout_tree.nodes.push(LayoutNodeHot {
                 box_props: PackedBoxProps::default(),
                 dom_node_id: Some(NodeId::new(*node_index)),
@@ -882,13 +915,7 @@ mod autotest_generated {
         };
 
         let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
-        let info = CallbackInfo::new(
-            &ref_data,
-            &changes,
-            hit,
-            cur,
-            OptionLogicalPosition::None,
-        );
+        let info = CallbackInfo::new(&ref_data, &changes, hit, cur, OptionLogicalPosition::None);
 
         let out = f(info);
         let recorded = core::mem::take(&mut *changes.lock().expect("change log poisoned"));
@@ -919,7 +946,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => properties
                     .as_ref()
                     .first()
@@ -1001,7 +1030,10 @@ mod autotest_generated {
 
     #[test]
     fn flex_grow_prop_infinities_saturate_to_the_isize_bounds() {
-        assert_eq!(flex_grow_raw(&flex_grow_prop(f32::INFINITY)), Some(isize::MAX));
+        assert_eq!(
+            flex_grow_raw(&flex_grow_prop(f32::INFINITY)),
+            Some(isize::MAX)
+        );
         assert_eq!(
             flex_grow_raw(&flex_grow_prop(f32::NEG_INFINITY)),
             Some(isize::MIN)
@@ -1076,7 +1108,10 @@ mod autotest_generated {
             f32::NEG_INFINITY
         );
         // The *other* axis being NaN must not leak into the selected one.
-        assert_eq!(main_axis(SplitDirection::Horizontal, pos(5.0, f32::NAN)), 5.0);
+        assert_eq!(
+            main_axis(SplitDirection::Horizontal, pos(5.0, f32::NAN)),
+            5.0
+        );
         assert_eq!(main_axis(SplitDirection::Vertical, pos(f32::NAN, 5.0)), 5.0);
     }
 
@@ -1104,7 +1139,10 @@ mod autotest_generated {
         // The callers - not this helper - reject non-positive sizes.
         assert_eq!(main_size(SplitDirection::Horizontal, size(0.0, 5.0)), 0.0);
         assert_eq!(main_size(SplitDirection::Vertical, size(5.0, 0.0)), 0.0);
-        assert_eq!(main_size(SplitDirection::Horizontal, size(-40.0, 5.0)), -40.0);
+        assert_eq!(
+            main_size(SplitDirection::Horizontal, size(-40.0, 5.0)),
+            -40.0
+        );
         assert_eq!(main_size(SplitDirection::Vertical, size(5.0, -40.0)), -40.0);
     }
 
@@ -1183,18 +1221,20 @@ mod autotest_generated {
         // Same declarations, same order — only the direction value differs.
         assert_eq!(kinds(&h), kinds(&v));
         let (ph, pv) = (properties(&h), properties(&v));
-        let differing = ph
-            .iter()
-            .zip(pv.iter())
-            .filter(|(a, b)| a != b)
-            .count();
-        assert_eq!(differing, 1, "exactly one declaration may depend on the axis");
+        let differing = ph.iter().zip(pv.iter()).filter(|(a, b)| a != b).count();
+        assert_eq!(
+            differing, 1,
+            "exactly one declaration may depend on the axis"
+        );
     }
 
     #[test]
     fn container_style_is_deterministic() {
         for dir in BOTH_DIRECTIONS {
-            assert_eq!(properties(&container_style(dir)), properties(&container_style(dir)));
+            assert_eq!(
+                properties(&container_style(dir)),
+                properties(&container_style(dir))
+            );
         }
     }
 
@@ -1270,7 +1310,13 @@ mod autotest_generated {
 
     #[test]
     fn pane_style_extreme_grows_do_not_panic() {
-        for g in [f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN, -1.0e30] {
+        for g in [
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            f32::MIN,
+            -1.0e30,
+        ] {
             let got = grow(&pane_style(g)).expect("flex-grow");
             assert!(got.is_finite(), "pane_style({g}) declared {got}");
         }
@@ -1345,7 +1391,10 @@ mod autotest_generated {
         let d = SplitPane::default();
         let c = plain(SplitDirection::Horizontal);
         assert_eq!(d.split_pane_state, c.split_pane_state);
-        assert_eq!(properties(&d.container_style), properties(&c.container_style));
+        assert_eq!(
+            properties(&d.container_style),
+            properties(&c.container_style)
+        );
     }
 
     #[test]
@@ -1434,7 +1483,10 @@ mod autotest_generated {
         let mut sp = plain(SplitDirection::Vertical);
         let before = properties(&sp.container_style);
         sp.set_ratio(0.2);
-        assert_eq!(sp.split_pane_state.inner.direction, SplitDirection::Vertical);
+        assert_eq!(
+            sp.split_pane_state.inner.direction,
+            SplitDirection::Vertical
+        );
         assert!(!sp.split_pane_state.is_dragging);
         assert_eq!(properties(&sp.container_style), before);
     }
@@ -1455,8 +1507,7 @@ mod autotest_generated {
             let mut mutated = plain(SplitDirection::Horizontal);
             mutated.set_ratio(r);
             assert_eq!(
-                built.split_pane_state.inner.ratio,
-                mutated.split_pane_state.inner.ratio,
+                built.split_pane_state.inner.ratio, mutated.split_pane_state.inner.ratio,
                 "input {r}"
             );
         }
@@ -1471,7 +1522,10 @@ mod autotest_generated {
         )
         .with_ratio(0.25);
         assert_eq!(sp.split_pane_state.inner.ratio, 0.25);
-        assert_eq!(sp.split_pane_state.inner.direction, SplitDirection::Vertical);
+        assert_eq!(
+            sp.split_pane_state.inner.direction,
+            SplitDirection::Vertical
+        );
         assert_eq!(dom_classes(&sp.first), vec!["alpha".to_string()]);
         assert_eq!(dom_classes(&sp.second), vec!["beta".to_string()]);
         assert_eq!(
@@ -1488,7 +1542,10 @@ mod autotest_generated {
     fn set_direction_updates_both_the_state_and_the_container_style() {
         let mut sp = plain(SplitDirection::Horizontal);
         sp.set_direction(SplitDirection::Vertical);
-        assert_eq!(sp.split_pane_state.inner.direction, SplitDirection::Vertical);
+        assert_eq!(
+            sp.split_pane_state.inner.direction,
+            SplitDirection::Vertical
+        );
         assert_eq!(
             flex_direction(&sp.container_style),
             Some(LayoutFlexDirection::Column),
@@ -1544,9 +1601,10 @@ mod autotest_generated {
 
     #[test]
     fn with_container_style_replaces_the_default_verbatim() {
-        let custom = CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-        ]);
+        let custom =
+            CssPropertyWithConditionsVec::from_vec(vec![CssPropertyWithConditions::simple(
+                CssProperty::const_display(LayoutDisplay::Block),
+            )]);
         let sp = plain(SplitDirection::Horizontal).with_container_style(custom.clone());
         assert_eq!(properties(&sp.container_style), properties(&custom));
         assert_eq!(display(&sp.container_style), Some(LayoutDisplay::Block));
@@ -1579,7 +1637,10 @@ mod autotest_generated {
         let old = sp.swap_with_default();
 
         assert_eq!(old.split_pane_state.inner.ratio, 0.8);
-        assert_eq!(old.split_pane_state.inner.direction, SplitDirection::Vertical);
+        assert_eq!(
+            old.split_pane_state.inner.direction,
+            SplitDirection::Vertical
+        );
         assert_eq!(dom_classes(&old.first), vec!["alpha".to_string()]);
         assert_eq!(dom_classes(&old.second), vec!["beta".to_string()]);
 
@@ -1652,8 +1713,16 @@ mod autotest_generated {
             record_resize as SplitPaneOnResizeCallbackType,
         );
         assert_eq!(
-            built.split_pane_state.on_resize.as_ref().map(|h| h.callback.cb as usize),
-            mutated.split_pane_state.on_resize.as_ref().map(|h| h.callback.cb as usize),
+            built
+                .split_pane_state
+                .on_resize
+                .as_ref()
+                .map(|h| h.callback.cb as usize),
+            mutated
+                .split_pane_state
+                .on_resize
+                .as_ref()
+                .map(|h| h.callback.cb as usize),
         );
         // ...and it changes nothing else.
         assert_eq!(built.split_pane_state.inner, mutated.split_pane_state.inner);
@@ -1666,7 +1735,10 @@ mod autotest_generated {
     #[test]
     fn dom_is_first_pane_divider_second_pane_in_that_order() {
         let dom = plain(SplitDirection::Horizontal).dom();
-        assert_eq!(dom_classes(&dom), vec!["__azul-native-split-pane".to_string()]);
+        assert_eq!(
+            dom_classes(&dom),
+            vec!["__azul-native-split-pane".to_string()]
+        );
         assert_eq!(dom.root.get_tab_index(), Some(TabIndex::Auto));
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 3);
@@ -1855,8 +1927,14 @@ mod autotest_generated {
         let via_into: Dom = plain(SplitDirection::Vertical).with_ratio(0.3).into();
         let direct = plain(SplitDirection::Vertical).with_ratio(0.3).dom();
         assert_eq!(dom_classes(&via_into), dom_classes(&direct));
-        assert_eq!(via_into.children.as_ref().len(), direct.children.as_ref().len());
-        assert_eq!(inline_grow(child(&via_into, 0)), inline_grow(child(&direct, 0)));
+        assert_eq!(
+            via_into.children.as_ref().len(),
+            direct.children.as_ref().len()
+        );
+        assert_eq!(
+            inline_grow(child(&via_into, 0)),
+            inline_grow(child(&direct, 0))
+        );
     }
 
     // ==================================================================
@@ -2083,13 +2161,9 @@ mod autotest_generated {
     ) -> (Update, Vec<CallbackChange>, RefAny) {
         let (sd, state) = laid_out(sp);
         let down_sd = sd.clone();
-        let (_, _) = drive(
-            down_sd,
-            boxes,
-            node(0),
-            cursor(press.0, press.1),
-            |info| on_split_pointer_down(state.clone(), info),
-        );
+        let (_, _) = drive(down_sd, boxes, node(0), cursor(press.0, press.1), |info| {
+            on_split_pointer_down(state.clone(), info)
+        });
         let (update, changes) = drive(sd, boxes, node(0), cursor(to.0, to.1), |info| {
             on_split_pointer_move(state.clone(), info)
         });
@@ -2129,7 +2203,10 @@ mod autotest_generated {
         assert_eq!(writes.len(), 2, "exactly one flex-grow per pane");
         assert_eq!(writes[0].1, 0.75);
         assert_eq!(writes[1].1, 0.25);
-        assert_ne!(writes[0].0, writes[1].0, "the two panes must be distinct nodes");
+        assert_ne!(
+            writes[0].0, writes[1].0,
+            "the two panes must be distinct nodes"
+        );
     }
 
     #[test]
@@ -2187,7 +2264,10 @@ mod autotest_generated {
             let writes = css_changes(&changes);
             assert_eq!(writes.len(), 2);
             assert!(writes[0].1 > 0.0 && writes[1].1 > 0.0, "moved to {to_x}");
-            assert!((writes[0].1 + writes[1].1 - 1.0).abs() < 3e-3, "moved to {to_x}");
+            assert!(
+                (writes[0].1 + writes[1].1 - 1.0).abs() < 3e-3,
+                "moved to {to_x}"
+            );
         }
     }
 
@@ -2246,7 +2326,11 @@ mod autotest_generated {
             on_split_pointer_move(state.clone(), info)
         });
         let mut state = state;
-        assert_eq!(wrapper(&mut state).inner.ratio, 0.4, "the drag is not cumulative");
+        assert_eq!(
+            wrapper(&mut state).inner.ratio,
+            0.4,
+            "the drag is not cumulative"
+        );
         assert_eq!(css_changes(&changes)[0].1, 0.4);
     }
 
@@ -2274,7 +2358,11 @@ mod autotest_generated {
         let sp = plain(SplitDirection::Horizontal)
             .with_on_resize(log.clone(), record_resize as SplitPaneOnResizeCallbackType);
         let (update, _, _) = press_then_move(sp, &boxes, (100.0, 50.0), (150.0, 50.0));
-        assert_eq!(update, Update::RefreshDom, "the hook's Update is returned verbatim");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the hook's Update is returned verbatim"
+        );
         let seen = logged(&mut log);
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0].ratio, 0.75);
@@ -2301,7 +2389,11 @@ mod autotest_generated {
             .with_on_resize(log.clone(), record_resize as SplitPaneOnResizeCallbackType);
         let (_, changes, mut state) = press_then_move(sp, &boxes, (100.0, 50.0), (100.0, 50.0));
         assert_eq!(wrapper(&mut state).inner.ratio, 0.5);
-        assert_eq!(logged(&mut log).len(), 1, "a zero-delta move still notifies");
+        assert_eq!(
+            logged(&mut log).len(),
+            1,
+            "a zero-delta move still notifies"
+        );
         assert_eq!(css_changes(&changes).len(), 2);
     }
 
@@ -2326,7 +2418,10 @@ mod autotest_generated {
         assert!(c1.is_empty() && c2.is_empty());
         let mut state = state;
         let w = wrapper(&mut state);
-        assert!(w.is_dragging, "a dropped move event must not cancel the drag");
+        assert!(
+            w.is_dragging,
+            "a dropped move event must not cancel the drag"
+        );
         assert_eq!(w.inner.ratio, 0.5);
     }
 
@@ -2437,7 +2532,14 @@ mod autotest_generated {
     #[test]
     fn pointer_move_with_extreme_cursors_stays_inside_the_clamp() {
         let boxes = [(0, size(200.0, 100.0))];
-        for x in [f32::MAX, f32::MIN, 1.0e30, -1.0e30, f32::INFINITY, f32::NEG_INFINITY] {
+        for x in [
+            f32::MAX,
+            f32::MIN,
+            1.0e30,
+            -1.0e30,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+        ] {
             let (_, _, mut state) = press_then_move(
                 plain(SplitDirection::Horizontal),
                 &boxes,

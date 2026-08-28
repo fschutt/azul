@@ -67,4 +67,3 @@ pub fn load_first_available<L: DynamicLibrary>(names: &[&str]) -> Result<L, DlEr
         ),
     })
 }
-

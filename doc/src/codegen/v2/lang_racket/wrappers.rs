@@ -143,10 +143,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, class: &str, func: &FunctionDef, has_
         .zip(params.iter())
         .map(|(a, p)| match a.callback_info.as_ref() {
             Some(cb) if HOST_INVOKER_KINDS.contains(&cb.callback_wrapper_name.as_str()) => {
-                format!(
-                    "(register-callback \"{}\" {})",
-                    cb.callback_wrapper_name, p
-                )
+                format!("(register-callback \"{}\" {})", cb.callback_wrapper_name, p)
             }
             _ => p.clone(),
         })
@@ -155,11 +152,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, class: &str, func: &FunctionDef, has_
     for d in &func.doc {
         builder.line(&format!(";; {}", d.replace('\n', " ")));
     }
-    builder.line(&format!(
-        "(define ({} {})",
-        public_name,
-        params.join(" ")
-    ));
+    builder.line(&format!("(define ({} {})", public_name, params.join(" ")));
     builder.indent();
     builder.line(&format!("({} {}))", func.c_name, call_args.join(" ")));
     builder.dedent();
@@ -175,8 +168,7 @@ fn public_name(class: &str, func: &FunctionDef, has_new: bool) -> String {
         // twice (a duplicate `define` that fails to load). When both exist,
         // `new` wins and `default` falls back to `<class>-default`.
         FunctionKind::Constructor | FunctionKind::Default
-            if func.method_name == "new"
-                || (func.method_name == "default" && !has_new) =>
+            if func.method_name == "new" || (func.method_name == "default" && !has_new) =>
         {
             format!("make-{}", class)
         }

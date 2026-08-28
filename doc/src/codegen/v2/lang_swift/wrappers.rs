@@ -181,7 +181,9 @@ fn emit_static_factory(
         b.line(&format!("/// {}", d.replace('\n', " ")));
     }
     let params = format_params(&f.args, /* skip_self */ false);
-    let call = format_call_args(&f.args, /* skip_self */ false, /* self_expr */ None);
+    let call = format_call_args(
+        &f.args, /* skip_self */ false, /* self_expr */ None,
+    );
     let ret = return_clause(f, class, ffi_type);
     b.line(&format!("static func {}({}){} {{", name, params, ret.0));
     b.indent();
@@ -216,7 +218,10 @@ fn emit_instance_method(
     let call = format_call_args(&f.args, /* skip_self */ true, Some(self_expr));
     let ret = return_clause(f, class, ffi_type);
 
-    b.line(&format!("{}func {}({}){} {{", modifier, name, params, ret.0));
+    b.line(&format!(
+        "{}func {}({}){} {{",
+        modifier, name, params, ret.0
+    ));
     b.indent();
     b.line(&format!("{}{}({})", ret.1, f.c_name, call));
     b.dedent();
@@ -242,9 +247,15 @@ fn return_clause(f: &FunctionDef, class: &str, ffi_type: &str) -> (String, Strin
 
 fn format_params(args: &[FunctionArg], skip_self: bool) -> String {
     let iter = args.iter().skip(if skip_self { 1 } else { 0 });
-    iter.map(|a| format!("_ {}: {}", param_name(&a.name), map_arg_type(&a.type_name, a.ref_kind)))
-        .collect::<Vec<_>>()
-        .join(", ")
+    iter.map(|a| {
+        format!(
+            "_ {}: {}",
+            param_name(&a.name),
+            map_arg_type(&a.type_name, a.ref_kind)
+        )
+    })
+    .collect::<Vec<_>>()
+    .join(", ")
 }
 
 fn format_call_args(args: &[FunctionArg], skip_self: bool, self_expr: Option<&str>) -> String {

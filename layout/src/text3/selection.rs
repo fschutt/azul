@@ -4,15 +4,14 @@
 
 use azul_core::selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor};
 
-use crate::text3::cache::{
-    is_word_char, BreakType, ShapedCluster, ShapedItem, UnifiedLayout,
-};
+use crate::text3::cache::{is_word_char, BreakType, ShapedCluster, ShapedItem, UnifiedLayout};
 
 /// Select the word at the given cursor position
 ///
 /// Uses a simple word character heuristic (alphanumeric and underscore)
 /// to determine word start/end. Returns a `SelectionRange` covering the entire word.
-#[must_use] pub fn select_word_at_cursor(
+#[must_use]
+pub fn select_word_at_cursor(
     cursor: &TextCursor,
     layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
@@ -67,7 +66,8 @@ use crate::text3::cache::{
 /// Same gathering discipline as [`extract_line_text_and_clusters`], which fixed
 /// this class for WORD selection: work on the logical sequence, not on one
 /// visual line.
-#[must_use] pub fn select_paragraph_at_cursor(
+#[must_use]
+pub fn select_paragraph_at_cursor(
     cursor: &TextCursor,
     layout: &UnifiedLayout,
 ) -> Option<SelectionRange> {
@@ -105,7 +105,11 @@ use crate::text3::cache::{
     // orders by (source_run, start_byte_in_run), which IS logical order.
     let mut first: Option<GraphemeClusterId> = None;
     let mut last: Option<GraphemeClusterId> = None;
-    for cluster in layout.items.iter().filter_map(|item| item.item.as_cluster()) {
+    for cluster in layout
+        .items
+        .iter()
+        .filter_map(|item| item.item.as_cluster())
+    {
         let id = cluster.source_cluster_id;
         if before.is_some_and(|b| id.source_run <= b) || after.is_some_and(|a| id.source_run >= a) {
             continue;
@@ -344,9 +348,18 @@ mod tests {
 
     #[test]
     fn test_byte_offset_to_cluster_id_basic() {
-        let id0 = GraphemeClusterId { source_run: 0, start_byte_in_run: 0 };
-        let id1 = GraphemeClusterId { source_run: 0, start_byte_in_run: 5 };
-        let id2 = GraphemeClusterId { source_run: 0, start_byte_in_run: 6 };
+        let id0 = GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: 0,
+        };
+        let id1 = GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: 5,
+        };
+        let id2 = GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: 6,
+        };
         let map = vec![(id0, 5), (id1, 1), (id2, 5)];
 
         assert_eq!(byte_offset_to_cluster_id(&map, 0), Some(id0));
@@ -410,7 +423,9 @@ mod autotest_generated {
                 // yields exactly `text` (production stamps a shared Arc
                 // whose offsets are real; tests mint ids freely).
                 let mut s = String::new();
-                for _ in 0..id.start_byte_in_run { s.push(' '); }
+                for _ in 0..id.start_byte_in_run {
+                    s.push(' ');
+                }
                 s.push_str(text);
                 Arc::from(s.as_str())
             },
@@ -746,7 +761,10 @@ mod autotest_generated {
         assert_eq!(byte_offset_to_cluster_id(&pair, 0), Some(gid(0, 0)));
         assert_eq!(byte_offset_to_cluster_id(&pair, half - 1), Some(gid(0, 0)));
         assert_eq!(byte_offset_to_cluster_id(&pair, half), Some(gid(0, 1)));
-        assert_eq!(byte_offset_to_cluster_id(&pair, usize::MAX), Some(gid(0, 1)));
+        assert_eq!(
+            byte_offset_to_cluster_id(&pair, usize::MAX),
+            Some(gid(0, 1))
+        );
     }
 
     // ------------------------------------------------------------------
@@ -842,7 +860,9 @@ mod autotest_generated {
         let (text, map) = extract_line_text_and_clusters(0, &layout);
         assert_eq!(text, "Hello", "visual order must not leak into the text");
         assert_eq!(
-            map.iter().map(|(id, _)| id.start_byte_in_run).collect::<Vec<_>>(),
+            map.iter()
+                .map(|(id, _)| id.start_byte_in_run)
+                .collect::<Vec<_>>(),
             vec![0, 1, 2, 3, 4]
         );
     }
@@ -967,10 +987,8 @@ mod autotest_generated {
     fn select_word_invariants_hold_for_every_cursor_of_nasty_unicode() {
         for &text in NASTY {
             let layout = layout_from_str(text, 0);
-            let ids: Vec<GraphemeClusterId> = text
-                .char_indices()
-                .map(|(b, _)| gid(0, b as u32))
-                .collect();
+            let ids: Vec<GraphemeClusterId> =
+                text.char_indices().map(|(b, _)| gid(0, b as u32)).collect();
 
             for id in &ids {
                 let range = select_word_at_cursor(&cursor_at(*id), &layout)
@@ -1063,9 +1081,7 @@ mod autotest_generated {
     fn select_paragraph_unknown_cursor_is_none() {
         let layout = layout_from_str("abc", 0);
         assert!(select_paragraph_at_cursor(&cursor_at(gid(9, 9)), &layout).is_none());
-        assert!(
-            select_paragraph_at_cursor(&cursor_at(gid(u32::MAX, u32::MAX)), &layout).is_none()
-        );
+        assert!(select_paragraph_at_cursor(&cursor_at(gid(u32::MAX, u32::MAX)), &layout).is_none());
     }
 
     #[test]

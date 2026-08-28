@@ -124,8 +124,7 @@ pub fn emit_azul_class_members(builder: &mut CodeBuilder, ir: &CodegenIR) {
     // PHP extension via ext-php-rs), this probe will succeed.
     builder.line("// Probe: can php-ffi cast a closure to a C function pointer?");
     builder.line("// Standard php-ffi rejects this with a TypeError; only the planned");
-    builder.line("// `php-extension` build (azul-dll loaded as a PHP native extension")
-;
+    builder.line("// `php-extension` build (azul-dll loaded as a PHP native extension");
     builder.line("// via ext-php-rs) supports closure callbacks. See the internals");
     builder.line("// doc 'host-invoker > Why PHP is different' for the full picture.");
     builder.line("try {");
@@ -180,7 +179,8 @@ pub fn emit_azul_class_members(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line(" * @param callable $fn  User callback; signature matches the kind.");
     builder.line(" * @return \\FFI\\CData  A cdata struct of FFI type `Az<Kind>`.");
     builder.line(" */");
-    builder.line("public static function registerCallback(string $kind, callable $fn): \\FFI\\CData");
+    builder
+        .line("public static function registerCallback(string $kind, callable $fn): \\FFI\\CData");
     builder.line("{");
     builder.indent();
     builder.line("self::ensureHostInvokerInit();");
@@ -288,16 +288,10 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::Callb
     let user_args: Vec<String> = arg_names.iter().map(|nm| format!("${}", nm)).collect();
 
     builder.line(&format!("// {} invoker", wrapper));
-    builder.line(&format!(
-        "${}_invoker = $ffi->cast(",
-        snake_lower(wrapper)
-    ));
+    builder.line(&format!("${}_invoker = $ffi->cast(", snake_lower(wrapper)));
     builder.indent();
     builder.line(&format!("'Az{}Invoker',", wrapper));
-    builder.line(&format!(
-        "static function ({}): void {{",
-        params.join(", ")
-    ));
+    builder.line(&format!("static function ({}): void {{", params.join(", ")));
     builder.indent();
     builder.line("$fn = Azul::$_handles[$id] ?? null;");
     builder.line("if ($fn === null) { return; }");
@@ -314,9 +308,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::Callb
         builder.dedent();
         builder.line("} elseif ($ret instanceof \\FFI\\CData) {");
         builder.indent();
-        builder.line(
-            "FFI::memcpy(FFI::addr($out[0]), FFI::addr($ret), FFI::sizeof($ret));",
-        );
+        builder.line("FFI::memcpy(FFI::addr($out[0]), FFI::addr($ret), FFI::sizeof($ret));");
         builder.dedent();
         builder.line("}");
     } else {

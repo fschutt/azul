@@ -229,11 +229,11 @@ mod autotest_generated {
             format!("{}px", i64::MAX),
             "1e400px".to_string(),
             "\u{1F600}".to_string(),
-            "#\u{1F600}".to_string(),           // 4 *bytes* -> hits the #rgba branch
-            "#\u{e9}1".to_string(),             // 3 *bytes* -> hits the #rgb branch
+            "#\u{1F600}".to_string(), // 4 *bytes* -> hits the #rgba branch
+            "#\u{e9}1".to_string(),   // 3 *bytes* -> hits the #rgb branch
             "a\u{0301}\u{0301}\u{0301}".to_string(), // stacked combining marks
-            "\u{202e}der".to_string(),          // RTL override
-            "\u{130}".to_string(),              // dotted capital I: to_lowercase() expands
+            "\u{202e}der".to_string(), // RTL override
+            "\u{130}".to_string(),    // dotted capital I: to_lowercase() expands
             "RED".to_string(),
             "red red".to_string(),
         ]
@@ -298,8 +298,23 @@ mod autotest_generated {
     #[test]
     fn malformed_color_input_is_rejected_without_panicking() {
         for bad in [
-            "#", "##", "#f", "#ff", "#fffff", "#zzz", "#gggggg", "rgb(", "rgb()", "rgb(1,2)",
-            "rgb(1,2,3", "rgba(1,2,3)", "hsl(1,2)", "not-a-color", "}{", ";", ")rgb(",
+            "#",
+            "##",
+            "#f",
+            "#ff",
+            "#fffff",
+            "#zzz",
+            "#gggggg",
+            "rgb(",
+            "rgb()",
+            "rgb(1,2)",
+            "rgb(1,2,3",
+            "rgba(1,2,3)",
+            "hsl(1,2)",
+            "not-a-color",
+            "}{",
+            ";",
+            ")rgb(",
             "rgb (0,0,0)", // CSS forbids a space before the paren
         ] {
             assert!(
@@ -338,7 +353,9 @@ mod autotest_generated {
     fn surrounding_whitespace_is_trimmed_but_trailing_junk_is_rejected() {
         // Trimmed, deterministically.
         assert_eq!(
-            parse_selection_background_color("  #ff0000ff  ").unwrap().inner,
+            parse_selection_background_color("  #ff0000ff  ")
+                .unwrap()
+                .inner,
             ColorU::new(255, 0, 0, 255)
         );
         assert_eq!(
@@ -411,8 +428,8 @@ mod autotest_generated {
         // input can reach the 3-/4-byte hex branches. It must error there rather
         // than index into the middle of a char.
         for u in [
-            "#\u{e9}1",       // 2-byte é + '1' == 3 bytes
-            "#\u{1F600}",     // 4-byte emoji == the #rgba branch
+            "#\u{e9}1",            // 2-byte é + '1' == 3 bytes
+            "#\u{1F600}",          // 4-byte emoji == the #rgba branch
             "#\u{e9}\u{e9}\u{e9}", // 6 bytes == the from_str_radix branch
             "\u{1F600}",
             "a\u{0301}\u{0301}",
@@ -471,7 +488,10 @@ mod autotest_generated {
 
     #[test]
     fn radius_zero_boundaries_are_normalized() {
-        assert_eq!(parse_selection_radius("0px").unwrap().inner, PixelValue::px(0.0));
+        assert_eq!(
+            parse_selection_radius("0px").unwrap().inner,
+            PixelValue::px(0.0)
+        );
         // -0.0 * 1000 -> -0.0 -> `as isize` -> 0: no distinct negative zero survives.
         assert_eq!(
             parse_selection_radius("-0px").unwrap().inner,
@@ -484,16 +504,28 @@ mod autotest_generated {
 
         // Sub-milli values truncate to zero (the fixed-point grid is 1/1000).
         assert_eq!(
-            parse_selection_radius("1e-45px").unwrap().inner.number.get(),
+            parse_selection_radius("1e-45px")
+                .unwrap()
+                .inner
+                .number
+                .get(),
             0.0
         );
         assert_eq!(
-            parse_selection_radius("0.0001px").unwrap().inner.number.get(),
+            parse_selection_radius("0.0001px")
+                .unwrap()
+                .inner
+                .number
+                .get(),
             0.0
         );
         // ...but the smallest representable step survives intact.
         assert_eq!(
-            parse_selection_radius("0.001px").unwrap().inner.number.get(),
+            parse_selection_radius("0.001px")
+                .unwrap()
+                .inner
+                .number
+                .get(),
             0.001
         );
     }
@@ -503,9 +535,18 @@ mod autotest_generated {
         // LENIENCY: CSS only allows a unitless length for `0`. This parser treats
         // *any* bare number as px. Pinned so a future tightening is a visible,
         // deliberate change rather than a silent one.
-        assert_eq!(parse_selection_radius("12").unwrap().inner, PixelValue::px(12.0));
-        assert_eq!(parse_selection_radius("-7.5").unwrap().inner, PixelValue::px(-7.5));
-        assert_eq!(parse_selection_radius("1e3").unwrap().inner, PixelValue::px(1000.0));
+        assert_eq!(
+            parse_selection_radius("12").unwrap().inner,
+            PixelValue::px(12.0)
+        );
+        assert_eq!(
+            parse_selection_radius("-7.5").unwrap().inner,
+            PixelValue::px(-7.5)
+        );
+        assert_eq!(
+            parse_selection_radius("1e3").unwrap().inner,
+            PixelValue::px(1000.0)
+        );
     }
 
     #[test]
@@ -634,7 +675,10 @@ mod autotest_generated {
         };
         assert_eq!(v.print_as_css_value(), "5vmin");
         assert_eq!(
-            parse_selection_radius(&v.print_as_css_value()).unwrap().inner.metric,
+            parse_selection_radius(&v.print_as_css_value())
+                .unwrap()
+                .inner
+                .metric,
             SizeMetric::Vmin
         );
 
@@ -689,7 +733,10 @@ mod autotest_generated {
             SelectionBackgroundColor::default().inner,
             ColorU::new(173, 214, 255, 255)
         );
-        assert_eq!(SelectionBackgroundColor::default().inner, DEFAULT_SELECTION_BG);
+        assert_eq!(
+            SelectionBackgroundColor::default().inner,
+            DEFAULT_SELECTION_BG
+        );
         assert_eq!(SelectionColor::default().inner, ColorU::BLACK);
         assert_eq!(SelectionRadius::default().inner, PixelValue::zero());
 
@@ -716,14 +763,22 @@ mod autotest_generated {
 
     #[test]
     fn equal_values_hash_and_compare_equal() {
-        let a = SelectionColor { inner: ColorU::new(1, 2, 3, 4) };
-        let b = SelectionColor { inner: ColorU::new(1, 2, 3, 4) };
+        let a = SelectionColor {
+            inner: ColorU::new(1, 2, 3, 4),
+        };
+        let b = SelectionColor {
+            inner: ColorU::new(1, 2, 3, 4),
+        };
         assert_eq!(a, b);
         assert_eq!(hash_of(&a), hash_of(&b));
         assert_eq!(a.cmp(&b), core::cmp::Ordering::Equal);
 
-        let black = SelectionColor { inner: ColorU::new(0, 0, 0, 255) };
-        let white = SelectionColor { inner: ColorU::new(255, 255, 255, 255) };
+        let black = SelectionColor {
+            inner: ColorU::new(0, 0, 0, 255),
+        };
+        let white = SelectionColor {
+            inner: ColorU::new(255, 255, 255, 255),
+        };
         assert!(black < white);
         assert!(white > black);
 

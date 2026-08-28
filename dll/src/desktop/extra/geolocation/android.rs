@@ -15,9 +15,7 @@
 //! manifest `ACCESS_FINE/COARSE/BACKGROUND_LOCATION` declarations. Until it
 //! ships, `find_class` fails and subscribe/release degrade to a no-op.
 
-use azul_layout::managers::geolocation::{
-    push_location_fix, GeolocationDiffEvent, LocationFix,
-};
+use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
 
 #[cfg(target_os = "android")]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -58,7 +56,9 @@ fn subscribe(high_accuracy: bool, min_interval_ms: u32) {
     SUBSCRIPTION_HANDLE.store(handle, Ordering::Relaxed);
     let ok = attach(|env, activity| {
         use jni::objects::JValue;
-        let class = env.find_class("com/azul/geolocation/AzulGeolocation").ok()?;
+        let class = env
+            .find_class("com/azul/geolocation/AzulGeolocation")
+            .ok()?;
         env.call_static_method(
             class,
             "subscribe",
@@ -87,7 +87,9 @@ fn release() {
     }
     let _ = attach(|env, _activity| {
         use jni::objects::JValue;
-        let class = env.find_class("com/azul/geolocation/AzulGeolocation").ok()?;
+        let class = env
+            .find_class("com/azul/geolocation/AzulGeolocation")
+            .ok()?;
         env.call_static_method(class, "release", "(J)V", &[JValue::Long(handle as i64)])
             .ok()?;
         Some(())
@@ -99,9 +101,7 @@ fn release() {
 /// published or `f` short-circuits. Mirrors the file picker / permission
 /// backend attach sequence.
 #[cfg(target_os = "android")]
-fn attach<R>(
-    f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R>,
-) -> Option<R> {
+fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R>) -> Option<R> {
     use jni::objects::JObject;
     use jni::JavaVM;
 

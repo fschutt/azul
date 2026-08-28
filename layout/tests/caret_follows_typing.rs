@@ -36,8 +36,7 @@ fn editable_with_many_lines() -> LayoutWindow {
         .with_ids_and_classes(class)
         .with_contenteditable(true);
     for i in 0..LINES {
-        let line_class: azul_core::dom::IdOrClassVec =
-            vec![IdOrClass::Class("line".into())].into();
+        let line_class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("line".into())].into();
         editable = editable.with_child(
             Dom::create_div()
                 .with_ids_and_classes(line_class)
@@ -92,10 +91,11 @@ fn offset_y(lw: &LayoutWindow) -> f32 {
 fn edit_at_last_line(lw: &mut LayoutWindow) -> NodeId {
     // body(0) > editable(1) > [line div, text] * LINES — the last text leaf.
     let last_text = NodeId::new(1 + LINES * 2);
-    lw.focus_manager.set_focused_node(Some(azul_core::dom::DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(last_text)),
-    }));
+    lw.focus_manager
+        .set_focused_node(Some(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(last_text)),
+        }));
     lw.text_edit_manager.initialize_editing(
         TextCursor {
             cluster_id: GraphemeClusterId {
@@ -144,10 +144,11 @@ fn typing_at_a_visible_caret_leaves_the_view_alone() {
 
     // First text leaf — line 0, comfortably inside a 60px box.
     let first_text = NodeId::new(3);
-    lw.focus_manager.set_focused_node(Some(azul_core::dom::DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(first_text)),
-    }));
+    lw.focus_manager
+        .set_focused_node(Some(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(first_text)),
+        }));
     lw.text_edit_manager.initialize_editing(
         TextCursor {
             cluster_id: GraphemeClusterId {

@@ -86,10 +86,7 @@ pub fn generate_wrapper_bodies(
 // Discovery
 // ============================================================================
 
-fn collect_wrapper_targets<'a>(
-    ir: &'a CodegenIR,
-    config: &CodegenConfig,
-) -> Vec<&'a StructDef> {
+fn collect_wrapper_targets<'a>(ir: &'a CodegenIR, config: &CodegenConfig) -> Vec<&'a StructDef> {
     let delete_set: BTreeSet<&str> = ir
         .functions
         .iter()
@@ -163,8 +160,11 @@ fn emit_wrapper_type_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &Codegen
             continue;
         }
         let tbp_name = sanitize_identifier(&func.method_name);
-        let proc_name =
-            truncate_identifier(&format!("{}_{}", prefix, sanitize_identifier(&func.method_name)));
+        let proc_name = truncate_identifier(&format!(
+            "{}_{}",
+            prefix,
+            sanitize_identifier(&func.method_name)
+        ));
         // Static methods (no self arg in the IR) must use `nopass` so
         // Fortran doesn't try to inject the wrapper as the first arg.
         // Instance methods use the default pass-by-self semantics.
@@ -299,8 +299,11 @@ fn emit_factory_body(
     } else {
         sanitize_identifier(&func.method_name)
     };
-    let factory =
-        truncate_identifier(&format!("{}_{}", wrapper_type_name(&func.class_name), factory_suffix));
+    let factory = truncate_identifier(&format!(
+        "{}_{}",
+        wrapper_type_name(&func.class_name),
+        factory_suffix
+    ));
     let alias = fortran_alias_for(&func.c_name);
 
     let arg_names: Vec<String> = func
@@ -310,11 +313,7 @@ fn emit_factory_body(
         .collect();
     let arg_list = arg_names.join(", ");
 
-    builder.line(&format!(
-        "function {}({}) result(r)",
-        factory,
-        arg_list
-    ));
+    builder.line(&format!("function {}({}) result(r)", factory, arg_list));
     builder.indent();
 
     for arg in &func.args {

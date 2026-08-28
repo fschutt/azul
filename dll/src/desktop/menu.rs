@@ -404,7 +404,10 @@ pub fn show_menu(
     let item_count = menu.items.as_slice().len().max(1);
     let estimated_size = LogicalSize::new(220.0, item_count as f32 * 28.0 + 8.0);
     let abs_cursor = cursor_position.map(|c| {
-        LogicalPosition::new(parent_window_position.x + c.x, parent_window_position.y + c.y)
+        LogicalPosition::new(
+            parent_window_position.x + c.x,
+            parent_window_position.y + c.y,
+        )
     });
     let menu_pos = calculate_menu_position(
         if trigger_rect.is_some() {

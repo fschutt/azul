@@ -126,7 +126,12 @@ mod wasm_stub {
         ) -> bool {
             false
         }
-        pub fn send_audio(&self, _track_id: u32, _frame: AudioFrame, _quality: WtReliability) -> bool {
+        pub fn send_audio(
+            &self,
+            _track_id: u32,
+            _frame: AudioFrame,
+            _quality: WtReliability,
+        ) -> bool {
             false
         }
         pub fn send_chat(&self, _text: AzString) -> bool {

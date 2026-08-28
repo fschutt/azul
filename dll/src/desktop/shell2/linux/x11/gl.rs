@@ -6,9 +6,7 @@ use super::{
     defines::*,
     dlopen::{Egl, Xlib},
 };
-use crate::desktop::shell2::common::{
-    debug_server::LogCategory, WindowError,
-};
+use crate::desktop::shell2::common::{debug_server::LogCategory, WindowError};
 use crate::{log_debug, log_warn};
 
 /// Detected EGL partial-present capabilities for a display (shared by the

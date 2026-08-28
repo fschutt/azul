@@ -11,9 +11,9 @@ use azul_layout::font::loading::build_font_cache;
 use azul_layout::font_traits::{FontManager, TextLayoutCache};
 use azul_layout::solver3::break_token::{BreakToken, ChildBreakEntry};
 use azul_layout::solver3::paged_layout::{layout_document_tokenized, TokenizedPage};
+use azul_layout::text3::default::PathLoader;
 use azul_layout::xml::DomXmlExt;
 use azul_layout::Solver3LayoutCache;
-use azul_layout::text3::default::PathLoader;
 use std::collections::HashMap;
 
 fn run(html: &str, page_h: f32) -> Vec<TokenizedPage> {
@@ -217,7 +217,11 @@ fn forced_page_break_node_splits_and_preserves_the_next_margin() {
         <div class="m">two</div>
     </body></html>"#;
     let pages = run(html, 400.0);
-    assert_eq!(pages.len(), 2, "forced break splits a fitting page: {pages:?}");
+    assert_eq!(
+        pages.len(),
+        2,
+        "forced break splits a fitting page: {pages:?}"
+    );
     assert!(
         (pages[0].content_block_size - 100.0).abs() < 0.6,
         "page 0 ends at the forced boundary: {}",

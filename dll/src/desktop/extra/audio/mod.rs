@@ -21,18 +21,21 @@ use core::ffi::c_void;
 use azul_core::audio::{AudioConfig, AudioFrame};
 use azul_css::{AzString, StringVec};
 
+#[cfg(target_os = "android")]
+mod aaudio;
 #[cfg(target_os = "linux")]
 mod alsa;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+mod avfoundation_mic;
+#[cfg(all(
+    any(target_os = "ios", target_os = "macos"),
+    feature = "objc2-avf-audio"
+))]
+mod avfoundation_sink;
 #[cfg(target_os = "windows")]
 mod cpal_mic;
 #[cfg(target_os = "windows")]
 mod cpal_sink;
-#[cfg(target_os = "android")]
-mod aaudio;
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-mod avfoundation_mic;
-#[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
-mod avfoundation_sink;
 
 /// Internal playback state behind the `AudioSink` handle. The stub tracks the
 /// config + how many frames were submitted; the real backend replaces it with
@@ -51,7 +54,10 @@ struct AudioSinkInner {
     #[cfg(target_os = "android")]
     android_sink: Option<aaudio::AAudioSink>,
     /// The live AVAudioEngine playback graph on iOS (`None` if it failed).
-    #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
+    #[cfg(all(
+        any(target_os = "ios", target_os = "macos"),
+        feature = "objc2-avf-audio"
+    ))]
     ios_sink: Option<avfoundation_sink::AvfSink>,
 }
 
@@ -104,7 +110,10 @@ impl AudioSink {
         let sink = cpal_sink::CpalSink::open(config.sample_rate, config.channels);
         #[cfg(target_os = "android")]
         let android_sink = aaudio::AAudioSink::open(config.sample_rate, config.channels);
-        #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
+        #[cfg(all(
+            any(target_os = "ios", target_os = "macos"),
+            feature = "objc2-avf-audio"
+        ))]
         let ios_sink = avfoundation_sink::AvfSink::open(config.sample_rate, config.channels);
 
         // A sink whose engine failed to open still returns a valid-looking
@@ -118,13 +127,19 @@ impl AudioSink {
             let engine_ok = sink.is_some();
             #[cfg(target_os = "android")]
             let engine_ok = android_sink.is_some();
-            #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
+            #[cfg(all(
+                any(target_os = "ios", target_os = "macos"),
+                feature = "objc2-avf-audio"
+            ))]
             let engine_ok = ios_sink.is_some();
             #[cfg(not(any(
                 target_os = "linux",
                 target_os = "windows",
                 target_os = "android",
-                all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio")
+                all(
+                    any(target_os = "ios", target_os = "macos"),
+                    feature = "objc2-avf-audio"
+                )
             )))]
             let engine_ok = false;
             if !engine_ok {
@@ -146,7 +161,10 @@ impl AudioSink {
             sink,
             #[cfg(target_os = "android")]
             android_sink,
-            #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
+            #[cfg(all(
+                any(target_os = "ios", target_os = "macos"),
+                feature = "objc2-avf-audio"
+            ))]
             ios_sink,
         });
         AudioSink {
@@ -178,7 +196,10 @@ impl AudioSink {
             if let Some(sink) = &inner.android_sink {
                 sink.play(frame.samples.as_ref());
             }
-            #[cfg(all(any(target_os = "ios", target_os = "macos"), feature = "objc2-avf-audio"))]
+            #[cfg(all(
+                any(target_os = "ios", target_os = "macos"),
+                feature = "objc2-avf-audio"
+            ))]
             if let Some(sink) = &inner.ios_sink {
                 sink.play(frame.samples.as_ref());
             }

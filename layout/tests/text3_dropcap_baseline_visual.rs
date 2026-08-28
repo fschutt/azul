@@ -13,7 +13,11 @@
 //!     --test text3_dropcap_baseline_visual -- --test-threads=2 --nocapture 2>&1' | tail -40
 //! ```
 
-#![cfg(all(feature = "cpurender", feature = "text_layout", feature = "font_loading"))]
+#![cfg(all(
+    feature = "cpurender",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
 
 use std::path::PathBuf;
 
@@ -53,7 +57,11 @@ fn render_to_png(scenario: &str, html: &str, fm: &FontManager<FontRef>, w: f32, 
     assert!(!result.png_data.is_empty(), "[{scenario}] empty png");
     let path = out_dir().join(format!("{scenario}.png"));
     std::fs::write(&path, &result.png_data).unwrap_or_else(|e| panic!("[{scenario}] write: {e}"));
-    println!("[{scenario}] wrote {} ({} bytes)", path.display(), result.png_data.len());
+    println!(
+        "[{scenario}] wrote {} ({} bytes)",
+        path.display(),
+        result.png_data.len()
+    );
     path
 }
 

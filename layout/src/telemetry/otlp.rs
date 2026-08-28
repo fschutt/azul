@@ -434,7 +434,10 @@ mod tests {
         let buckets = point.get("bucketCounts").and_then(Value::as_array).unwrap();
         assert_eq!(buckets.len(), 3);
         assert_eq!(buckets[1].as_str(), Some("2"));
-        let bounds = point.get("explicitBounds").and_then(Value::as_array).unwrap();
+        let bounds = point
+            .get("explicitBounds")
+            .and_then(Value::as_array)
+            .unwrap();
         let bound_vals: Vec<f64> = bounds.iter().filter_map(Value::as_f64).collect();
         assert_eq!(bound_vals, vec![0.1, 1.0]);
     }
@@ -461,13 +464,21 @@ mod tests {
             .unwrap()[0];
 
         assert_eq!(log.get("severityNumber").and_then(Value::as_u64), Some(13));
-        assert_eq!(log.get("severityText").and_then(Value::as_str), Some("WARN"));
         assert_eq!(
-            log.get("body").and_then(|b| b.get("stringValue")).and_then(Value::as_str),
+            log.get("severityText").and_then(Value::as_str),
+            Some("WARN")
+        );
+        assert_eq!(
+            log.get("body")
+                .and_then(|b| b.get("stringValue"))
+                .and_then(Value::as_str),
             Some("font cache miss")
         );
         let attrs = log.get("attributes").and_then(Value::as_array).unwrap();
-        assert_eq!(attrs[0].get("key").and_then(Value::as_str), Some("client_id"));
+        assert_eq!(
+            attrs[0].get("key").and_then(Value::as_str),
+            Some("client_id")
+        );
     }
 
     #[test]

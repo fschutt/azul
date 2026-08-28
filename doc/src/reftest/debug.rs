@@ -326,7 +326,8 @@ fn call_gemini_api(
     let url = format!("{}?key={}", GEMINI_API_URL, api_key);
 
     let agent = crate::reftest::make_https_agent();
-    let response: GeminiResponse = agent.post(&url)
+    let response: GeminiResponse = agent
+        .post(&url)
         .header("Content-Type", "application/json")
         .send_json(&request)
         .map_err(|e| anyhow::anyhow!("Gemini API request failed: {}", e))?
@@ -505,8 +506,14 @@ fn generate_azul_with_debug(
     let fc_cache = azul_layout::font::loading::build_font_cache();
     let font_context = azul_layout::FontContext::from_fc_cache(fc_cache);
     let (debug_data, _) = super::pipeline::render_xhtml_to_webp(
-        &font_context, test_file, output_path, super::WIDTH, super::HEIGHT, true,
-    ).map_err(|e| anyhow::anyhow!("{}", e))?;
+        &font_context,
+        test_file,
+        output_path,
+        super::WIDTH,
+        super::HEIGHT,
+        true,
+    )
+    .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // Extract CSS warnings (DebugData has css_warnings as String)
     let css_warnings = if debug_data.css_warnings.is_empty() {

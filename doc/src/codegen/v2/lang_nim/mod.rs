@@ -336,11 +336,20 @@ pub fn sanitize_identifier(name: &str) -> String {
     // underscore") underscores, plus a bare `_`. Trim both ends (e.g. the C arg
     // `ref_` -> `ref`, which then keyword-escapes to `` `ref` `` below).
     let stripped = name.trim_matches('_');
-    let base = if stripped.is_empty() { "field" } else { stripped };
+    let base = if stripped.is_empty() {
+        "field"
+    } else {
+        stripped
+    };
     // Positional/tuple fields arrive as bare indices ("0", "1", ...); Nim needs
     // an identifier, not a number ("identifier expected, but got '0'"). Prefix a
     // leading digit (accessor is cosmetic; `{.bycopy.}` layout is positional).
-    let base: String = if base.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+    let base: String = if base
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
+    {
         format!("f{}", base)
     } else {
         base.to_string()

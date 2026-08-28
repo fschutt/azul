@@ -14,12 +14,13 @@ use azul_core::{
     refany::RefAny,
     window::ContextMenuMouseButton,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{OptionString, 
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
+use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{
-            color::{ColorU, ColorOrSystem},
+            color::{ColorOrSystem, ColorU},
             font::{StyleFontFamily, StyleFontFamilyVec},
             *,
         },
@@ -27,7 +28,7 @@ use azul_css::{OptionString,
         property::CssProperty,
         style::*,
     },
-    *,
+    OptionString, *,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -76,16 +77,61 @@ const BORDER_WIDTH_PX: isize = 1;
 
 // -- Colors --
 
-const BORDER_NORMAL: ColorU = ColorU { r: 172, g: 172, b: 172, a: 255 };
-const BORDER_HOVER: ColorU = ColorU { r: 126, g: 180, b: 234, a: 255 };
-const BORDER_FOCUS: ColorU = ColorU { r: 86, g: 157, b: 229, a: 255 };
+const BORDER_NORMAL: ColorU = ColorU {
+    r: 172,
+    g: 172,
+    b: 172,
+    a: 255,
+};
+const BORDER_HOVER: ColorU = ColorU {
+    r: 126,
+    g: 180,
+    b: 234,
+    a: 255,
+};
+const BORDER_FOCUS: ColorU = ColorU {
+    r: 86,
+    g: 157,
+    b: 229,
+    a: 255,
+};
 
-const BG_GRADIENT_TOP: ColorU = ColorU { r: 245, g: 245, b: 245, a: 255 };
-const BG_GRADIENT_BOTTOM: ColorU = ColorU { r: 235, g: 235, b: 235, a: 255 };
-const BG_HOVER_TOP: ColorU = ColorU { r: 234, g: 244, b: 252, a: 255 };
-const BG_HOVER_BOTTOM: ColorU = ColorU { r: 218, g: 236, b: 252, a: 255 };
-const BG_ACTIVE_TOP: ColorU = ColorU { r: 218, g: 236, b: 252, a: 255 };
-const BG_ACTIVE_BOTTOM: ColorU = ColorU { r: 202, g: 226, b: 248, a: 255 };
+const BG_GRADIENT_TOP: ColorU = ColorU {
+    r: 245,
+    g: 245,
+    b: 245,
+    a: 255,
+};
+const BG_GRADIENT_BOTTOM: ColorU = ColorU {
+    r: 235,
+    g: 235,
+    b: 235,
+    a: 255,
+};
+const BG_HOVER_TOP: ColorU = ColorU {
+    r: 234,
+    g: 244,
+    b: 252,
+    a: 255,
+};
+const BG_HOVER_BOTTOM: ColorU = ColorU {
+    r: 218,
+    g: 236,
+    b: 252,
+    a: 255,
+};
+const BG_ACTIVE_TOP: ColorU = ColorU {
+    r: 218,
+    g: 236,
+    b: 252,
+    a: 255,
+};
+const BG_ACTIVE_BOTTOM: ColorU = ColorU {
+    r: 202,
+    g: 226,
+    b: 248,
+    a: 255,
+};
 
 const NORMAL_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
@@ -154,35 +200,91 @@ static DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     // Font
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(FONT_SIZE_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+        FONT_SIZE_PX,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     // Padding
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(PADDING_HORIZONTAL_PX))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(PADDING_HORIZONTAL_PX))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(PADDING_VERTICAL_PX))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(PADDING_VERTICAL_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(PADDING_HORIZONTAL_PX),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(PADDING_HORIZONTAL_PX),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        PADDING_VERTICAL_PX,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(PADDING_VERTICAL_PX),
+    )),
     // Border
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(BORDER_WIDTH_PX))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(BORDER_WIDTH_PX))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(BORDER_WIDTH_PX))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(BORDER_WIDTH_PX))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: BORDER_NORMAL })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: BORDER_NORMAL })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: BORDER_NORMAL })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(StyleBorderRightColor { inner: BORDER_NORMAL })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(BORDER_WIDTH_PX),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(BORDER_WIDTH_PX),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(BORDER_WIDTH_PX),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(BORDER_WIDTH_PX),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: BORDER_NORMAL,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: BORDER_NORMAL,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: BORDER_NORMAL,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: BORDER_NORMAL,
+        },
+    )),
     // Background
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(NORMAL_BG_ITEMS),
     )),
     // Hover
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor { inner: BORDER_HOVER })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: BORDER_HOVER })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: BORDER_HOVER })),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(StyleBorderRightColor { inner: BORDER_HOVER })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: BORDER_HOVER,
+    })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: BORDER_HOVER,
+        },
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: BORDER_HOVER,
+        },
+    )),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: BORDER_HOVER,
+        },
+    )),
     CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(HOVER_BG_ITEMS),
     )),
@@ -191,23 +293,41 @@ static DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
         StyleBackgroundContentVec::from_const_slice(ACTIVE_BG_ITEMS),
     )),
     // Focus
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor { inner: BORDER_FOCUS })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: BORDER_FOCUS })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: BORDER_FOCUS })),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(StyleBorderRightColor { inner: BORDER_FOCUS })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: BORDER_FOCUS,
+    })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: BORDER_FOCUS,
+        },
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: BORDER_FOCUS,
+        },
+    )),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: BORDER_FOCUS,
+        },
+    )),
 ];
 
 // -- Label text style --
 
 static DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(LABEL_PADDING_RIGHT_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(LABEL_PADDING_RIGHT_PX),
+    )),
 ];
 
 // -- Arrow icon style --
 
 static DROPDOWN_ARROW_ICON_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(ARROW_FONT_SIZE_PX))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+        ARROW_FONT_SIZE_PX,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
@@ -247,9 +367,7 @@ impl Default for DropDown {
             on_choice_change: None.into(),
             wrapper_style: CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_WRAPPER_STYLE),
             label_style: CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_LABEL_STYLE),
-            arrow_style: CssPropertyWithConditionsVec::from_const_slice(
-                DROPDOWN_ARROW_ICON_STYLE,
-            ),
+            arrow_style: CssPropertyWithConditionsVec::from_const_slice(DROPDOWN_ARROW_ICON_STYLE),
             accessibility_name: OptionString::None,
         }
     }
@@ -264,7 +382,8 @@ impl DropDown {
         self
     }
 
-    #[must_use] pub fn new(choices: StringVec) -> Self {
+    #[must_use]
+    pub fn new(choices: StringVec) -> Self {
         Self {
             choices,
             ..Self::default()
@@ -291,16 +410,25 @@ impl DropDown {
     }
 
     /// Sets the callback invoked when the user selects a different choice.
-    pub fn set_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(&mut self, data: RefAny, callback: C) {
+    pub fn set_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
         self.on_choice_change = Some(DropDownOnChoiceChange {
             callback: callback.into(),
             refany: data,
-        }).into();
+        })
+        .into();
     }
 
     /// Builder variant of [`Self::set_on_choice_change`].
     #[must_use]
-    pub fn with_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(mut self, data: RefAny, callback: C) -> Self {
+    pub fn with_on_choice_change<C: Into<DropDownOnChoiceChangeCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
         self.set_on_choice_change(data, callback);
         self
     }
@@ -314,7 +442,8 @@ impl DropDown {
     }
 
     /// Builds the DOM tree for this drop-down widget.
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Read the selected label before the options are moved into the DOM.
         let selected_label: Option<AzString> = self
             .choices
@@ -325,7 +454,8 @@ impl DropDown {
         const DROPDOWN_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-dropdown"))];
 
-        let selected_text = self.choices
+        let selected_text = self
+            .choices
             .as_slice()
             .get(self.selected)
             .cloned()
@@ -339,7 +469,6 @@ impl DropDown {
         let refany = RefAny::new(self);
 
         // Wrapper: focusable trigger that opens popup on focus
-
 
         Dom::create_div()
             .with_css_props(wrapper_style)
@@ -486,7 +615,11 @@ mod autotest_generated {
     /// distinguishable in the log.
     const SENTINEL: usize = 1_000_000;
 
-    extern "C" fn record_choice(mut data: RefAny, _info: CallbackInfo, choice_index: usize) -> Update {
+    extern "C" fn record_choice(
+        mut data: RefAny,
+        _info: CallbackInfo,
+        choice_index: usize,
+    ) -> Update {
         if let Some(log) = data.downcast_ref::<ChoiceLog>() {
             log.lock().expect("choice log poisoned").push(choice_index);
         }
@@ -496,7 +629,11 @@ mod autotest_generated {
     /// A second callback with a *deliberately different body*: two identical
     /// `extern "C"` bodies are legal prey for identical-code folding, which would
     /// merge their addresses and make the "last write wins" assertion vacuous.
-    extern "C" fn reject_choice(mut data: RefAny, _info: CallbackInfo, choice_index: usize) -> Update {
+    extern "C" fn reject_choice(
+        mut data: RefAny,
+        _info: CallbackInfo,
+        choice_index: usize,
+    ) -> Update {
         if let Some(log) = data.downcast_ref::<ChoiceLog>() {
             log.lock()
                 .expect("choice log poisoned")
@@ -554,7 +691,10 @@ mod autotest_generated {
 
     fn adversarial_dropdown() -> DropDown {
         DropDown::new(StringVec::from_vec(
-            adversarial_choices().into_iter().map(AzString::from_string).collect(),
+            adversarial_choices()
+                .into_iter()
+                .map(AzString::from_string)
+                .collect(),
         ))
     }
 
@@ -669,7 +809,10 @@ mod autotest_generated {
     /// forged hit-test area. The dropdown handler reaches exactly one geometry
     /// query (`get_node_hit_test_bounds`), which reads the display list only -
     /// no real layout (and no font) is needed.
-    fn layout_result(styled_dom: StyledDom, anchor: Option<(NodeId, LogicalRect)>) -> DomLayoutResult {
+    fn layout_result(
+        styled_dom: StyledDom,
+        anchor: Option<(NodeId, LogicalRect)>,
+    ) -> DomLayoutResult {
         let mut display_list = DisplayList::default();
         if let Some((node, rect)) = anchor {
             let tag = tag_of(&styled_dom, node);
@@ -730,9 +873,10 @@ mod autotest_generated {
 
         let hit = match anchored {
             Some((styled_dom, node, rect)) => {
-                layout_window
-                    .layout_results
-                    .insert(DomId::ROOT_ID, layout_result(styled_dom, Some((node, rect))));
+                layout_window.layout_results.insert(
+                    DomId::ROOT_ID,
+                    layout_result(styled_dom, Some((node, rect))),
+                );
                 DomNodeId {
                     dom: DomId::ROOT_ID,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node)),
@@ -800,7 +944,11 @@ mod autotest_generated {
 
         assert_eq!(dd.choices.len(), 3);
         assert_eq!(
-            dd.choices.as_slice().iter().map(AzString::as_str).collect::<Vec<_>>(),
+            dd.choices
+                .as_slice()
+                .iter()
+                .map(AzString::as_str)
+                .collect::<Vec<_>>(),
             vec!["a", "b", "c"],
             "choices must be stored verbatim, in order",
         );
@@ -815,10 +963,18 @@ mod autotest_generated {
     fn new_preserves_every_adversarial_choice_byte_for_byte() {
         let originals = adversarial_choices();
         let dd = DropDown::new(StringVec::from_vec(
-            originals.iter().cloned().map(AzString::from_string).collect(),
+            originals
+                .iter()
+                .cloned()
+                .map(AzString::from_string)
+                .collect(),
         ));
 
-        assert_eq!(dd.choices.len(), originals.len(), "no choice may be dropped");
+        assert_eq!(
+            dd.choices.len(),
+            originals.len(),
+            "no choice may be dropped"
+        );
         for (stored, original) in dd.choices.as_slice().iter().zip(&originals) {
             assert_eq!(
                 stored.as_str(),
@@ -848,7 +1004,9 @@ mod autotest_generated {
     fn new_with_ten_thousand_choices_keeps_len_and_capacity_consistent() {
         let n = 10_000;
         let dd = DropDown::new(StringVec::from_vec(
-            (0..n).map(|i| AzString::from_string(i.to_string())).collect(),
+            (0..n)
+                .map(|i| AzString::from_string(i.to_string()))
+                .collect(),
         ));
 
         assert_eq!(dd.choices.len(), n);
@@ -856,7 +1014,11 @@ mod autotest_generated {
             dd.choices.capacity() >= dd.choices.len(),
             "capacity must never be smaller than len",
         );
-        assert_eq!(dd.choices.as_slice().len(), n, "the C slice view must agree with len");
+        assert_eq!(
+            dd.choices.as_slice().len(),
+            n,
+            "the C slice view must agree with len"
+        );
         assert_eq!(dd.choices.as_slice()[n - 1].as_str(), (n - 1).to_string());
     }
 
@@ -905,9 +1067,15 @@ mod autotest_generated {
         let second = RefAny::new(log());
         dd.set_on_choice_change(second.clone(), cb(reject_choice));
 
-        let stored = dd.on_choice_change.as_ref().expect("still exactly one callback");
+        let stored = dd
+            .on_choice_change
+            .as_ref()
+            .expect("still exactly one callback");
         assert_eq!(stored.callback.cb as usize, reject_choice as usize);
-        assert_eq!(stored.refany, second, "the second registration must replace the first");
+        assert_eq!(
+            stored.refany, second,
+            "the second registration must replace the first"
+        );
         assert_ne!(
             record_choice as usize, reject_choice as usize,
             "the two probes must not have been folded into one symbol",
@@ -956,19 +1124,30 @@ mod autotest_generated {
 
         dd.set_on_choice_change(RefAny::new(log()), cb(record_choice));
 
-        assert_eq!(dd.choices, before, "registering a callback must not touch the model");
-        assert_eq!(dd.selected, usize::MAX, "…nor the selection, however out of range");
+        assert_eq!(
+            dd.choices, before,
+            "registering a callback must not touch the model"
+        );
+        assert_eq!(
+            dd.selected,
+            usize::MAX,
+            "…nor the selection, however out of range"
+        );
     }
 
     #[test]
     fn with_on_choice_change_is_the_setter_plus_a_move() {
         let data = RefAny::new(log());
-        let built = DropDown::new(choices(&["a", "b"])).with_on_choice_change(data.clone(), cb(record_choice));
+        let built = DropDown::new(choices(&["a", "b"]))
+            .with_on_choice_change(data.clone(), cb(record_choice));
 
         let mut expected = DropDown::new(choices(&["a", "b"]));
         expected.set_on_choice_change(data, cb(record_choice));
 
-        assert_eq!(built, expected, "the builder must not differ from the setter");
+        assert_eq!(
+            built, expected,
+            "the builder must not differ from the setter"
+        );
     }
 
     #[test]
@@ -977,7 +1156,11 @@ mod autotest_generated {
         dd.selected = usize::MAX;
         let dd = dd.with_on_choice_change(RefAny::new(log()), cb(record_choice));
 
-        assert_eq!(dd.selected, usize::MAX, "the builder must not silently clamp");
+        assert_eq!(
+            dd.selected,
+            usize::MAX,
+            "the builder must not silently clamp"
+        );
         assert_eq!(dd.choices.len(), 1);
     }
 
@@ -998,7 +1181,8 @@ mod autotest_generated {
     #[test]
     fn swap_with_default_moves_the_original_out_and_leaves_a_default() {
         let data = RefAny::new(log());
-        let mut dd = DropDown::new(choices(&["a", "b"])).with_on_choice_change(data.clone(), cb(record_choice));
+        let mut dd = DropDown::new(choices(&["a", "b"]))
+            .with_on_choice_change(data.clone(), cb(record_choice));
         dd.selected = 1;
 
         let taken = dd.swap_with_default();
@@ -1006,10 +1190,18 @@ mod autotest_generated {
         assert_eq!(taken.choices.len(), 2);
         assert_eq!(taken.selected, 1);
         assert_eq!(
-            taken.on_choice_change.as_ref().expect("callback moved out").refany,
+            taken
+                .on_choice_change
+                .as_ref()
+                .expect("callback moved out")
+                .refany,
             data,
         );
-        assert_eq!(dd, DropDown::default(), "what stays behind must be the default");
+        assert_eq!(
+            dd,
+            DropDown::default(),
+            "what stays behind must be the default"
+        );
     }
 
     #[test]
@@ -1018,8 +1210,16 @@ mod autotest_generated {
         let _first = dd.swap_with_default();
         let second = dd.swap_with_default();
 
-        assert_eq!(second, DropDown::default(), "the second take yields a default");
-        assert_eq!(dd, DropDown::default(), "…and leaves another default behind");
+        assert_eq!(
+            second,
+            DropDown::default(),
+            "the second take yields a default"
+        );
+        assert_eq!(
+            dd,
+            DropDown::default(),
+            "…and leaves another default behind"
+        );
     }
 
     #[test]
@@ -1030,7 +1230,11 @@ mod autotest_generated {
 
         let taken = dd.swap_with_default();
 
-        assert_eq!(taken.selected, usize::MAX, "swap must not normalise anything");
+        assert_eq!(
+            taken.selected,
+            usize::MAX,
+            "swap must not normalise anything"
+        );
         assert_eq!(taken.choices.len(), n);
         assert_eq!(dd.selected, 0);
         assert!(dd.choices.is_empty());
@@ -1046,7 +1250,11 @@ mod autotest_generated {
             let mut dd = DropDown::new(choices(&["alpha", "beta", "gamma"]));
             dd.selected = idx;
             let dom = dd.dom();
-            assert_eq!(label_of(&dom), expected, "index {idx} must label the trigger");
+            assert_eq!(
+                label_of(&dom),
+                expected,
+                "index {idx} must label the trigger"
+            );
         }
     }
 
@@ -1059,7 +1267,11 @@ mod autotest_generated {
             let mut dd = DropDown::new(choices(&["a", "b", "c"]));
             dd.selected = idx;
             let dom = dd.dom();
-            assert_eq!(label_of(&dom), "", "selected = {idx} must render an empty label");
+            assert_eq!(
+                label_of(&dom),
+                "",
+                "selected = {idx} must render an empty label"
+            );
         }
     }
 
@@ -1067,7 +1279,11 @@ mod autotest_generated {
     fn dom_on_an_empty_dropdown_renders_an_empty_label() {
         let dom = DropDown::default().dom();
         assert_eq!(label_of(&dom), "");
-        assert_eq!(dom.children.len(), 2, "label + arrow are rendered regardless");
+        assert_eq!(
+            dom.children.len(),
+            2,
+            "label + arrow are rendered regardless"
+        );
     }
 
     #[test]
@@ -1075,7 +1291,11 @@ mod autotest_generated {
         let originals = adversarial_choices();
         for (idx, original) in originals.iter().enumerate() {
             let mut dd = DropDown::new(StringVec::from_vec(
-                originals.iter().cloned().map(AzString::from_string).collect(),
+                originals
+                    .iter()
+                    .cloned()
+                    .map(AzString::from_string)
+                    .collect(),
             ));
             dd.selected = idx;
             let dom = dd.dom();
@@ -1091,18 +1311,32 @@ mod autotest_generated {
     fn dom_shape_is_a_trigger_with_a_wrapped_label_and_an_arrow_icon() {
         let dom = DropDown::new(choices(&["a"])).dom();
 
-        assert!(matches!(dom.root.get_node_type(), NodeType::Div), "the trigger is a div");
+        assert!(
+            matches!(dom.root.get_node_type(), NodeType::Div),
+            "the trigger is a div"
+        );
         assert_eq!(dom.children.len(), 2, "exactly a label and an arrow");
 
         let kids = dom.children.as_ref();
-        assert!(matches!(kids[0].root.get_node_type(), NodeType::P), "the label is block-formatted");
-        assert_eq!(kids[0].children.len(), 1, "the <p> wraps exactly one text node");
+        assert!(
+            matches!(kids[0].root.get_node_type(), NodeType::P),
+            "the label is block-formatted"
+        );
+        assert_eq!(
+            kids[0].children.len(),
+            1,
+            "the <p> wraps exactly one text node"
+        );
 
         match kids[1].root.get_node_type() {
             NodeType::Icon(s) => assert_eq!(s.as_ref().as_str(), "arrow_drop_down"),
             other => panic!("expected the arrow icon, got {other:?}"),
         }
-        assert_eq!(kids[1].children.len(), 1, "the icon carries its glyph slot (a text leaf)");
+        assert_eq!(
+            kids[1].children.len(),
+            1,
+            "the icon carries its glyph slot (a text leaf)"
+        );
     }
 
     #[test]
@@ -1116,7 +1350,10 @@ mod autotest_generated {
                 count_descendants(&dom),
                 "selected = {idx}: a stale cache makes the compact-DOM arena under-allocate",
             );
-            assert_eq!(dom.estimated_total_children, 4, "p + text + icon + its glyph slot");
+            assert_eq!(
+                dom.estimated_total_children, 4,
+                "p + text + icon + its glyph slot"
+            );
         }
     }
 
@@ -1137,8 +1374,15 @@ mod autotest_generated {
         let dom = DropDown::new(choices(&["a", "b"])).dom();
         let cbs = dom.root.callbacks.as_ref();
 
-        assert_eq!(cbs.len(), 1, "one handler — a duplicate would open two popups");
-        assert_eq!(cbs[0].event, EventFilter::Focus(FocusEventFilter::FocusReceived));
+        assert_eq!(
+            cbs.len(),
+            1,
+            "one handler — a duplicate would open two popups"
+        );
+        assert_eq!(
+            cbs[0].event,
+            EventFilter::Focus(FocusEventFilter::FocusReceived)
+        );
         assert_eq!(cbs[0].callback.cb, on_dropdown_click as usize);
         assert!(cbs[0].callback.ctx.as_ref().is_none());
     }
@@ -1147,7 +1391,12 @@ mod autotest_generated {
     fn dom_hands_the_whole_widget_to_the_callback_refany() {
         let mut dd = adversarial_dropdown();
         dd.selected = 4;
-        let expected: Vec<String> = dd.choices.as_slice().iter().map(|c| c.as_str().to_string()).collect();
+        let expected: Vec<String> = dd
+            .choices
+            .as_slice()
+            .iter()
+            .map(|c| c.as_str().to_string())
+            .collect();
 
         let (_dom, mut refany) = rendered(dd);
         let stored = refany
@@ -1156,7 +1405,12 @@ mod autotest_generated {
 
         assert_eq!(stored.selected, 4);
         assert_eq!(
-            stored.choices.as_slice().iter().map(|c| c.as_str().to_string()).collect::<Vec<_>>(),
+            stored
+                .choices
+                .as_slice()
+                .iter()
+                .map(|c| c.as_str().to_string())
+                .collect::<Vec<_>>(),
             expected,
             "the handler must see the same choices the label was built from",
         );
@@ -1173,14 +1427,19 @@ mod autotest_generated {
         assert_eq!(label_of(&direct), label_of(&converted));
         assert_eq!(direct.children.len(), converted.children.len());
         assert_eq!(classes(&direct), classes(&converted));
-        assert_eq!(direct.estimated_total_children, converted.estimated_total_children);
+        assert_eq!(
+            direct.estimated_total_children,
+            converted.estimated_total_children
+        );
     }
 
     #[test]
     fn dom_with_ten_thousand_choices_renders_only_the_selected_one() {
         let n = 10_000;
         let mut dd = DropDown::new(StringVec::from_vec(
-            (0..n).map(|i| AzString::from_string(i.to_string())).collect(),
+            (0..n)
+                .map(|i| AzString::from_string(i.to_string()))
+                .collect(),
         ));
         dd.selected = n - 1;
 
@@ -1200,7 +1459,13 @@ mod autotest_generated {
         let mut dd = DropDown::new(choices(&["a", "b"]));
         dd.selected = 1;
         let (_dom, mut refany) = rendered(dd);
-        assert_eq!(refany.downcast_ref::<DropDown>().expect("stored widget").selected, 1);
+        assert_eq!(
+            refany
+                .downcast_ref::<DropDown>()
+                .expect("stored widget")
+                .selected,
+            1
+        );
     }
 
     // ==================================================================
@@ -1239,11 +1504,18 @@ mod autotest_generated {
         let labels = ["a", "", "\u{5E9}\u{5DC}\u{5D5}\u{5DD}", "a\0b"];
         let (dom, refany) = rendered(DropDown::new(choices(&labels)));
         let styled_dom = StyledDom::create_from_dom(dom);
-        let rect = LogicalRect::new(LogicalPosition::new(10.0, 20.0), LogicalSize::new(100.0, 30.0));
+        let rect = LogicalRect::new(
+            LogicalPosition::new(10.0, 20.0),
+            LogicalSize::new(100.0, 30.0),
+        );
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
             let update = on_dropdown_click(refany.clone(), env.info());
-            assert_eq!(update, Update::DoNothing, "opening the popup is not a re-layout");
+            assert_eq!(
+                update,
+                Update::DoNothing,
+                "opening the popup is not a re-layout"
+            );
 
             let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                 panic!("expected exactly one OpenMenu change");
@@ -1263,11 +1535,17 @@ mod autotest_generated {
         let rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(1.0, 1.0));
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
-            assert_eq!(on_dropdown_click(refany.clone(), env.info()), Update::DoNothing);
+            assert_eq!(
+                on_dropdown_click(refany.clone(), env.info()),
+                Update::DoNothing
+            );
             let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                 panic!("expected an OpenMenu change");
             };
-            assert!(menu.items.is_empty(), "no choices means no items — not a panic");
+            assert!(
+                menu.items.is_empty(),
+                "no choices means no items — not a panic"
+            );
         });
     }
 
@@ -1275,7 +1553,10 @@ mod autotest_generated {
     fn on_dropdown_click_anchors_the_menu_below_the_trigger() {
         let (dom, refany) = rendered(DropDown::new(choices(&["a"])));
         let styled_dom = StyledDom::create_from_dom(dom);
-        let rect = LogicalRect::new(LogicalPosition::new(10.0, 20.0), LogicalSize::new(100.0, 30.0));
+        let rect = LogicalRect::new(
+            LogicalPosition::new(10.0, 20.0),
+            LogicalSize::new(100.0, 30.0),
+        );
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
             on_dropdown_click(refany.clone(), env.info());
@@ -1285,7 +1566,10 @@ mod autotest_generated {
             let p = position.expect("the popup must be pinned to the trigger");
             assert_eq!((p.x, p.y), (10.0, 50.0), "bottom-left of the trigger rect");
             assert!(matches!(menu.position, MenuPopupPosition::BottomOfHitRect));
-            assert!(matches!(menu.context_mouse_btn, ContextMenuMouseButton::Right));
+            assert!(matches!(
+                menu.context_mouse_btn,
+                ContextMenuMouseButton::Right
+            ));
         });
     }
 
@@ -1364,7 +1648,11 @@ mod autotest_generated {
         });
         with_env(|env| {
             let update = on_choice_selected(data.clone(), env.info());
-            assert_eq!(update, Update::DoNothing, "an unwired dropdown must stay silent");
+            assert_eq!(
+                update,
+                Update::DoNothing,
+                "an unwired dropdown must stay silent"
+            );
             assert!(env.take_changes().is_empty());
         });
     }
@@ -1383,7 +1671,11 @@ mod autotest_generated {
 
         with_env(|env| {
             let update = on_choice_selected(data.clone(), env.info());
-            assert_eq!(update, Update::RefreshDom, "the user's Update must not be swallowed");
+            assert_eq!(
+                update,
+                Update::RefreshDom,
+                "the user's Update must not be swallowed"
+            );
         });
         assert_eq!(entries(&l), vec![2], "the callback must see its own index");
     }
@@ -1403,7 +1695,10 @@ mod autotest_generated {
         });
 
         with_env(|env| {
-            assert_eq!(on_choice_selected(data.clone(), env.info()), Update::RefreshDom);
+            assert_eq!(
+                on_choice_selected(data.clone(), env.info()),
+                Update::RefreshDom
+            );
         });
         assert_eq!(entries(&l), vec![usize::MAX]);
     }
@@ -1425,10 +1720,17 @@ mod autotest_generated {
             // ever leaked, the second call would fail to downcast and silently
             // return DoNothing.
             for _ in 0..3 {
-                assert_eq!(on_choice_selected(data.clone(), env.info()), Update::RefreshDom);
+                assert_eq!(
+                    on_choice_selected(data.clone(), env.info()),
+                    Update::RefreshDom
+                );
             }
         });
-        assert_eq!(entries(&l), vec![1, 1, 1], "the borrow must be released each time");
+        assert_eq!(
+            entries(&l),
+            vec![1, 1, 1],
+            "the borrow must be released each time"
+        );
     }
 
     #[test]
@@ -1444,9 +1746,16 @@ mod autotest_generated {
         });
 
         with_env(|env| {
-            assert_eq!(on_choice_selected(data.clone(), env.info()), Update::RefreshDomAllWindows);
+            assert_eq!(
+                on_choice_selected(data.clone(), env.info()),
+                Update::RefreshDomAllWindows
+            );
         });
-        assert_eq!(entries(&l), vec![1 + SENTINEL], "the replaced callback must not fire");
+        assert_eq!(
+            entries(&l),
+            vec![1 + SENTINEL],
+            "the replaced callback must not fire"
+        );
     }
 
     // ==================================================================
@@ -1513,7 +1822,10 @@ mod autotest_generated {
 
         assert_eq!(entries(&l), vec![1], "the pick was delivered");
         assert_eq!(
-            refany.downcast_ref::<DropDown>().expect("stored widget").selected,
+            refany
+                .downcast_ref::<DropDown>()
+                .expect("stored widget")
+                .selected,
             0,
             "the widget's own `selected` stays where the caller put it",
         );

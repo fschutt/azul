@@ -180,14 +180,14 @@ mod e2e_pixel_diff;
 mod embedded_font_renders;
 #[path = "empty_cells.rs"]
 mod empty_cells;
-#[path = "flexbox_integration.rs"]
-mod flexbox_integration;
-#[path = "flexbox_stretch_bugs.rs"]
-mod flexbox_stretch_bugs;
 #[path = "flex_intrinsic_text.rs"]
 mod flex_intrinsic_text;
 #[path = "flex_text_width_bug.rs"]
 mod flex_text_width_bug;
+#[path = "flexbox_integration.rs"]
+mod flexbox_integration;
+#[path = "flexbox_stretch_bugs.rs"]
+mod flexbox_stretch_bugs;
 #[path = "float_and_scrollbar.rs"]
 mod float_and_scrollbar;
 #[path = "float_integration.rs"]

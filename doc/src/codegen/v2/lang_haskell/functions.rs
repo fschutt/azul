@@ -388,10 +388,9 @@ fn build_haskell_args(func: &FunctionDef, ir: &CodegenIR) -> Vec<String> {
     for a in &func.args {
         let ty = match a.ref_kind {
             ArgRefKind::Owned => map_arg_owned_ffi(&a.type_name, ir),
-            ArgRefKind::Ref
-            | ArgRefKind::RefMut
-            | ArgRefKind::Ptr
-            | ArgRefKind::PtrMut => format!("Ptr {}", map_arg_owned(&a.type_name, ir)),
+            ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                format!("Ptr {}", map_arg_owned(&a.type_name, ir))
+            }
         };
         atoms.push(ty);
     }
@@ -437,10 +436,9 @@ fn emit_callback_wrapper(
     for a in &cb.args {
         let ty = match a.ref_kind {
             ArgRefKind::Owned => map_arg_owned_ffi(&a.type_name, ir),
-            ArgRefKind::Ref
-            | ArgRefKind::RefMut
-            | ArgRefKind::Ptr
-            | ArgRefKind::PtrMut => format!("Ptr {}", map_arg_owned(&a.type_name, ir)),
+            ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                format!("Ptr {}", map_arg_owned(&a.type_name, ir))
+            }
         };
         atoms.push(ty);
     }
@@ -510,11 +508,7 @@ fn emit_inbound_trampoline_imports(
     // out-parameter; primitive return stays as the primitive.
     let mut inner_atoms: Vec<String> = Vec::new();
     for a in &cb.args {
-        let raw = haskell_field_type(
-            &a.type_name,
-            super::super::ir::FieldRefKind::Owned,
-            ir,
-        );
+        let raw = haskell_field_type(&a.type_name, super::super::ir::FieldRefKind::Owned, ir);
         // Primitive args stay primitive; aggregate args are `Ptr T`.
         if is_haskell_ffi_primitive(&raw) {
             inner_atoms.push(raw);
@@ -529,11 +523,7 @@ fn emit_inbound_trampoline_imports(
             if matches!(t, "" | "void" | "()" | "c_void") {
                 false
             } else {
-                let raw = haskell_field_type(
-                    t,
-                    super::super::ir::FieldRefKind::Owned,
-                    ir,
-                );
+                let raw = haskell_field_type(t, super::super::ir::FieldRefKind::Owned, ir);
                 !is_haskell_ffi_primitive(&raw)
             }
         }
@@ -667,7 +657,10 @@ pub fn map_field_type_for_callback(type_name: &str) -> String {
     let t = type_name.trim();
     // Pointer-prefix forms (`*mut T` / `*const T`): map to `Ptr <T>`.
     // `c_void` collapses to `()`.
-    if let Some(inner) = t.strip_prefix("*mut ").or_else(|| t.strip_prefix("*const ")) {
+    if let Some(inner) = t
+        .strip_prefix("*mut ")
+        .or_else(|| t.strip_prefix("*const "))
+    {
         let inner_t = map_field_type_for_callback(inner);
         // Paren the inner if it contains whitespace (e.g. `RefAny ()`).
         let inner_p = if inner_t.contains(' ') {
@@ -709,8 +702,7 @@ pub fn map_field_type_for_callback(type_name: &str) -> String {
 fn is_haskell_ffi_primitive(ty: &str) -> bool {
     matches!(
         ty,
-        "()"
-            | "Int"
+        "()" | "Int"
             | "Word"
             | "Int8"
             | "Int16"
@@ -742,11 +734,10 @@ fn is_haskell_ffi_primitive(ty: &str) -> bool {
             | "CIntMax"
             | "CUIntMax"
             | "CPtrdiff"
-            | "CWchar"
-            // Already a pointer — no need to wrap further.
-            // (Conservative startswith check; ref_kind != Owned cases
-            // are handled separately above so we expect plain names
-            // here only.)
+            | "CWchar" // Already a pointer — no need to wrap further.
+                       // (Conservative startswith check; ref_kind != Owned cases
+                       // are handled separately above so we expect plain names
+                       // here only.)
     ) || ty.starts_with("Ptr ")
         || ty.starts_with("FunPtr ")
 }

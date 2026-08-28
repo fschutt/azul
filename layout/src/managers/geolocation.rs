@@ -96,15 +96,18 @@ pub struct LocationError {
 }
 
 impl GeolocationManager {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
-    #[must_use] pub const fn latest_fix(&self) -> Option<LocationFix> {
+    #[must_use]
+    pub const fn latest_fix(&self) -> Option<LocationFix> {
         self.latest_fix
     }
 
-    #[must_use] pub const fn refcount(&self) -> u32 {
+    #[must_use]
+    pub const fn refcount(&self) -> u32 {
         self.refcount
     }
 
@@ -148,7 +151,8 @@ impl GeolocationManager {
     /// capability pump keeps its drain timer armed while this holds, so
     /// fixes parked by the native backend reach callbacks without waiting
     /// for unrelated input (MWA-A1 arming signal).
-    #[must_use] pub const fn has_active_subscription(&self) -> bool {
+    #[must_use]
+    pub const fn has_active_subscription(&self) -> bool {
         self.refcount > 0
     }
 
@@ -265,14 +269,15 @@ impl EventProvider for GeolocationManager {
 // dependency (SUPER_PLAN_2 §0.5). Mirrors the permission manager's
 // async-result channel.
 
-static PENDING_FIXES: std::sync::Mutex<Vec<LocationFix>> =
-    std::sync::Mutex::new(Vec::new());
+static PENDING_FIXES: std::sync::Mutex<Vec<LocationFix>> = std::sync::Mutex::new(Vec::new());
 
 /// Park a location fix delivered by a platform backend (in the dll).
 /// Thread-safe; recovers from a poisoned lock so one panicking applier
 /// can't wedge delivery forever.
 pub fn push_location_fix(fix: LocationFix) {
-    let mut q = PENDING_FIXES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_FIXES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(fix);
 }
 
@@ -280,7 +285,9 @@ pub fn push_location_fix(fix: LocationFix) {
 /// Called once per layout pass; the caller applies them through
 /// [`GeolocationManager::set_latest_fix`] (the last one wins).
 pub fn drain_location_fixes() -> Vec<LocationFix> {
-    let mut q = PENDING_FIXES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_FIXES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -288,19 +295,22 @@ pub fn drain_location_fixes() -> Vec<LocationFix> {
 // backend's error callback fires on an OS thread and parks here; the
 // capability pump drains into `set_last_error`.
 
-static PENDING_ERRORS: std::sync::Mutex<Vec<LocationError>> =
-    std::sync::Mutex::new(Vec::new());
+static PENDING_ERRORS: std::sync::Mutex<Vec<LocationError>> = std::sync::Mutex::new(Vec::new());
 
 /// Park a geolocation error delivered by a platform backend (in the dll).
 /// Thread-safe; poison-recovering.
 pub fn push_location_error(error: LocationError) {
-    let mut q = PENDING_ERRORS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_ERRORS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(error);
 }
 
 /// Drain every error parked by [`push_location_error`], in arrival order.
 pub fn drain_location_errors() -> Vec<LocationError> {
-    let mut q = PENDING_ERRORS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_ERRORS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -416,7 +426,10 @@ mod tests {
         assert_eq!(events[0].event_type, EventType::GeolocationFix);
 
         mgr.clear_pending_event();
-        assert!(mgr.get_pending_events(ts.clone()).is_empty(), "cleared after dispatch");
+        assert!(
+            mgr.get_pending_events(ts.clone()).is_empty(),
+            "cleared after dispatch"
+        );
 
         // An identical fix is not a change — no re-fire.
         mgr.set_latest_fix(fix(37.0, -122.0));
@@ -428,7 +441,10 @@ mod tests {
         use azul_core::task::{Instant, SystemTick};
 
         drop(drain_location_errors());
-        push_location_error(LocationError { code: 1, message: "denied".into() });
+        push_location_error(LocationError {
+            code: 1,
+            message: "denied".into(),
+        });
         let errs = drain_location_errors();
         assert_eq!(errs.len(), 1);
         assert!(drain_location_errors().is_empty());
@@ -438,10 +454,7 @@ mod tests {
         mgr.set_last_error(errs[0].clone());
         let events = mgr.get_pending_events(ts.clone());
         assert_eq!(events.len(), 1);
-        assert_eq!(
-            events[0].event_type,
-            EventType::GeolocationError
-        );
+        assert_eq!(events[0].event_type, EventType::GeolocationError);
         mgr.clear_pending_event();
         assert!(mgr.get_pending_events(ts).is_empty());
 
@@ -585,7 +598,11 @@ mod autotest_generated {
     fn new_equals_default_and_holds_construction_invariants() {
         let mgr = GeolocationManager::new();
         assert_eq!(mgr, GeolocationManager::default());
-        assert_eq!(mgr, GeolocationManager::new(), "construction is deterministic");
+        assert_eq!(
+            mgr,
+            GeolocationManager::new(),
+            "construction is deterministic"
+        );
 
         assert_eq!(mgr.latest_fix(), None);
         assert_eq!(mgr.refcount(), 0);
@@ -667,7 +684,10 @@ mod autotest_generated {
         // reason `set_latest_fix` compares bit patterns instead.
         assert!(f != f, "PartialEq on a NaN-carrying fix is not reflexive");
         assert!(GeolocationManager::location_fix_bitwise_eq(&f, &f));
-        assert!(GeolocationManager::location_fix_bitwise_eq(&nan_fix(), &nan_fix()));
+        assert!(GeolocationManager::location_fix_bitwise_eq(
+            &nan_fix(),
+            &nan_fix()
+        ));
     }
 
     #[test]
@@ -730,7 +750,9 @@ mod autotest_generated {
                 !GeolocationManager::location_fix_bitwise_eq(&mutated, &base),
                 "`{field}` comparison is asymmetric"
             );
-            assert!(GeolocationManager::location_fix_bitwise_eq(&mutated, &mutated));
+            assert!(GeolocationManager::location_fix_bitwise_eq(
+                &mutated, &mutated
+            ));
         }
     }
 
@@ -794,8 +816,8 @@ mod autotest_generated {
             (f64::NAN, f64::NAN),
             (1e308, -1e308),
             (f64::MIN_POSITIVE, -f64::MIN_POSITIVE),
-            (91.0, 181.0),    // beyond the WGS-84 range
-            (-91.0, -181.0),  // …and the other way
+            (91.0, 181.0),   // beyond the WGS-84 range
+            (-91.0, -181.0), // …and the other way
         ];
 
         for (lat, lon) in pathological {
@@ -815,7 +837,10 @@ mod autotest_generated {
             assert_eq!(got.longitude_deg.to_bits(), lon.to_bits());
             // Idempotent re-apply: even an all-NaN coordinate pair compares
             // equal to itself under bit-pattern equality.
-            assert!(!mgr.set_latest_fix(f), "re-applying the same fix is not a change");
+            assert!(
+                !mgr.set_latest_fix(f),
+                "re-applying the same fix is not a change"
+            );
         }
     }
 
@@ -863,9 +888,18 @@ mod autotest_generated {
         let huge = "x".repeat(1 << 16);
         let unicode = String::from("\u{0}dénié 🛰️\u{0301}\u{fffd}中文\u{1f680}");
         let payloads = [
-            LocationError { code: 0, message: String::new() },
-            LocationError { code: u32::MAX, message: huge.clone() },
-            LocationError { code: 1, message: unicode.clone() },
+            LocationError {
+                code: 0,
+                message: String::new(),
+            },
+            LocationError {
+                code: u32::MAX,
+                message: huge.clone(),
+            },
+            LocationError {
+                code: 1,
+                message: unicode.clone(),
+            },
         ];
 
         for err in payloads {
@@ -948,7 +982,10 @@ mod autotest_generated {
         let events = mgr.take_pending_events();
         assert_eq!(events.len(), 3);
         assert!(matches!(events[0], GeolocationDiffEvent::Subscribe { .. }));
-        assert!(matches!(events[1], GeolocationDiffEvent::Reconfigure { .. }));
+        assert!(matches!(
+            events[1],
+            GeolocationDiffEvent::Reconfigure { .. }
+        ));
         assert_eq!(events[2], GeolocationDiffEvent::Release);
 
         assert!(mgr.take_pending_events().is_empty(), "taken, not copied");
@@ -1026,7 +1063,10 @@ mod autotest_generated {
         mgr.diff_layout(|_emit| {});
         assert_eq!(mgr.refcount(), 0);
         assert!(!mgr.has_active_subscription(), "0 probes ⇒ no subscription");
-        assert_eq!(mgr.take_pending_events(), vec![GeolocationDiffEvent::Release]);
+        assert_eq!(
+            mgr.take_pending_events(),
+            vec![GeolocationDiffEvent::Release]
+        );
     }
 
     #[test]
@@ -1069,7 +1109,10 @@ mod autotest_generated {
         mgr.diff_layout(|_emit| {}); // Release
         assert_eq!(mgr.latest_fix(), None, "Release drops the stale fix");
         assert_eq!(mgr.active_config, None);
-        assert_eq!(mgr.take_pending_events(), vec![GeolocationDiffEvent::Release]);
+        assert_eq!(
+            mgr.take_pending_events(),
+            vec![GeolocationDiffEvent::Release]
+        );
 
         // Re-mounting emits a fresh Subscribe (not a Reconfigure) and the fix
         // stays None until the backend delivers a new sample.
@@ -1131,7 +1174,11 @@ mod autotest_generated {
 
         // A sane config also settles immediately.
         mgr.diff_layout(|emit| emit(probe_cfg(false, 0.0)));
-        assert_eq!(mgr.take_pending_events().len(), 1, "one Reconfigure to sane");
+        assert_eq!(
+            mgr.take_pending_events().len(),
+            1,
+            "one Reconfigure to sane"
+        );
         mgr.diff_layout(|emit| emit(probe_cfg(false, 0.0)));
         assert!(mgr.take_pending_events().is_empty(), "then quiet");
     }
@@ -1156,11 +1203,18 @@ mod autotest_generated {
             assert_eq!(mgr.refcount(), 1);
             assert_eq!(mgr.active_config, Some(cfg));
             let events = mgr.take_pending_events();
-            assert_eq!(events.len(), 1, "each distinct config emits exactly one event");
+            assert_eq!(
+                events.len(),
+                1,
+                "each distinct config emits exactly one event"
+            );
             match events[0] {
                 GeolocationDiffEvent::Subscribe { config }
                 | GeolocationDiffEvent::Reconfigure { config } => {
-                    assert_eq!(config.max_accuracy_m.to_bits(), cfg.max_accuracy_m.to_bits());
+                    assert_eq!(
+                        config.max_accuracy_m.to_bits(),
+                        cfg.max_accuracy_m.to_bits()
+                    );
                     assert_eq!(config.min_interval_ms, cfg.min_interval_ms);
                 }
                 GeolocationDiffEvent::Release => panic!("probes are mounted, not released"),

@@ -198,7 +198,11 @@ mod demux_tests {
         assert_eq!(d.sps[0] & 0x1f, 7, "first SPS byte is a type-7 NAL");
         assert_eq!(d.pps[0] & 0x1f, 8, "first PPS byte is a type-8 NAL");
 
-        assert!(d.chunks.len() > 100, "30s @30fps ≈ 900 frames, got {}", d.chunks.len());
+        assert!(
+            d.chunks.len() > 100,
+            "30s @30fps ≈ 900 frames, got {}",
+            d.chunks.len()
+        );
         let first = &d.chunks[0];
         assert!(first.is_keyframe, "first access unit must be an IDR");
         assert_eq!(&first.annexb[0..4], &START_CODE, "Annex-B framed");

@@ -14,18 +14,18 @@
 //! — see doc/SUPER_PLAN_0.2.0.md.)
 
 use azul::audio::AudioConfig;
+use azul::audio::AudioDeviceList;
 use azul::camera::CameraConfig;
-use azul::screen::ScreenCaptureConfig;
+use azul::css::{CssProperty, LayoutWidth, LogicalSize, PixelValue};
+use azul::dom::{DomNodeId, OnAudioFrameCallback, OnConsumerFrameCallback};
+use azul::option::OptionRefAny;
 use azul::prelude::*;
+use azul::screen::ScreenCaptureConfig;
+use azul::str::String as AzString;
 use azul::widgets::{
     AudioFrame, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar,
     ScreenCaptureWidget,
 };
-use azul::audio::AudioDeviceList;
-use azul::css::{CssProperty, LayoutWidth, LogicalSize, PixelValue};
-use azul::dom::{DomNodeId, OnAudioFrameCallback, OnConsumerFrameCallback};
-use azul::option::OptionRefAny;
-use azul::str::String as AzString;
 
 struct MeetState {
     /// The fake "meeting link" (a generated hash), shown in the header.
@@ -93,14 +93,18 @@ const BTN_ON: &str = "padding: 10px 18px; margin: 0 6px; border-radius: 8px; \
     white-space: nowrap; flex-shrink: 0;";
 
 fn participant(name: &str) -> Dom {
-    Dom::create_div().with_css(TILE).with_child(Dom::create_span_with_text(name))
+    Dom::create_div()
+        .with_css(TILE)
+        .with_child(Dom::create_span_with_text(name))
 }
 
 /// One column of the settings strip: a device-kind heading + the device names.
 fn device_col(title: &str, devices: &[String]) -> Dom {
-    let mut col = Dom::create_div().with_css("display: flex; flex-direction: column; margin: 0 28px;");
+    let mut col =
+        Dom::create_div().with_css("display: flex; flex-direction: column; margin: 0 28px;");
     col = col.with_child(
-        Dom::create_span_with_text(title).with_css("font-size: 13px; color: #8890a8; margin-bottom: 4px;"),
+        Dom::create_span_with_text(title)
+            .with_css("font-size: 13px; color: #8890a8; margin-bottom: 4px;"),
     );
     if devices.is_empty() {
         col = col.with_child(
@@ -109,7 +113,8 @@ fn device_col(title: &str, devices: &[String]) -> Dom {
     } else {
         for d in devices {
             col = col.with_child(
-                Dom::create_span_with_text(d.as_str()).with_css("font-size: 13px; color: #ccd; padding: 2px 0;"),
+                Dom::create_span_with_text(d.as_str())
+                    .with_css("font-size: 13px; color: #ccd; padding: 2px 0;"),
             );
         }
     }
@@ -117,19 +122,20 @@ fn device_col(title: &str, devices: &[String]) -> Dom {
 }
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (link, mic, cam, screen, mic_level, mics, speakers, remote) = match data.downcast_ref::<MeetState>() {
-        Some(s) => (
-            s.link.clone(),
-            s.mic_on,
-            s.cam_on,
-            s.screen_on,
-            s.mic_level,
-            s.mics.clone(),
-            s.speakers.clone(),
-            (s.remote_frames, s.remote_bytes),
-        ),
-        None => return Dom::create_body(),
-    };
+    let (link, mic, cam, screen, mic_level, mics, speakers, remote) =
+        match data.downcast_ref::<MeetState>() {
+            Some(s) => (
+                s.link.clone(),
+                s.mic_on,
+                s.cam_on,
+                s.screen_on,
+                s.mic_level,
+                s.mics.clone(),
+                s.speakers.clone(),
+                (s.remote_frames, s.remote_bytes),
+            ),
+            None => return Dom::create_body(),
+        };
 
     // --- self tile: a live CameraWidget when on, else a grey placeholder ---
     let self_tile = if cam {
@@ -161,11 +167,13 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     );
     grid = grid.with_child(self_tile);
     if screen {
-        grid = grid.with_child(Dom::create_div().with_css(TILE).with_child(
-            ScreenCaptureWidget::create(ScreenCaptureConfig::default())
-                .dom()
-                .with_css("width: 100%; height: 100%;"),
-        ));
+        grid = grid.with_child(
+            Dom::create_div().with_css(TILE).with_child(
+                ScreenCaptureWidget::create(ScreenCaptureConfig::default())
+                    .dom()
+                    .with_css("width: 100%; height: 100%;"),
+            ),
+        );
     }
     grid = grid
         .with_child(participant("Alice"))
@@ -178,7 +186,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(if mic { BTN_ON } else { BTN })
-                .with_child(Dom::create_span_with_text(if mic { "Mute" } else { "Unmute mic" }))
+                .with_child(Dom::create_span_with_text(if mic {
+                    "Mute"
+                } else {
+                    "Unmute mic"
+                }))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     data.clone(),
@@ -188,7 +200,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(if cam { BTN_ON } else { BTN })
-                .with_child(Dom::create_span_with_text(if cam { "Stop video" } else { "Start video" }))
+                .with_child(Dom::create_span_with_text(if cam {
+                    "Stop video"
+                } else {
+                    "Start video"
+                }))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     data.clone(),
@@ -198,7 +214,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         .with_child(
             Dom::create_div()
                 .with_css(if screen { BTN_ON } else { BTN })
-                .with_child(Dom::create_span_with_text(if screen { "Stop share" } else { "Share screen" }))
+                .with_child(Dom::create_span_with_text(if screen {
+                    "Stop share"
+                } else {
+                    "Share screen"
+                }))
                 .with_callback(
                     EventFilter::Hover(HoverEventFilter::MouseUp),
                     data.clone(),
@@ -263,10 +283,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                     "display: flex; flex-direction: row; align-items: center; \
                      padding: 6px 12px; background: #15151c;",
                 )
-                .with_child(
-                    Dom::create_span_with_text("Mic level")
-                        .with_css("font-size: 13px; color: #8890a8; margin-right: 10px; white-space: nowrap;"),
-                )
+                .with_child(Dom::create_span_with_text("Mic level").with_css(
+                    "font-size: 13px; color: #8890a8; margin-right: 10px; white-space: nowrap;",
+                ))
                 .with_child(
                     ProgressBar::create(mic_level)
                         .dom()
@@ -284,7 +303,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 ),
         );
     }
-    body.with_child(grid).with_child(toolbar).with_child(devices_panel)
+    body.with_child(grid)
+        .with_child(toolbar)
+        .with_child(devices_panel)
 }
 
 /// The meter's `ProgressBar` container is on screen: remember its node.
@@ -318,7 +339,11 @@ extern "C" fn meter_unmounted(mut data: RefAny, _info: CallbackInfo) -> Update {
 /// meeting encodes and sends it here; the demo only accounts for it - the
 /// settings strip shows the tally on its next rebuild (no per-frame DOM
 /// churn: `DoNothing`).
-extern "C" fn camera_frame_for_remote(mut data: RefAny, _info: CallbackInfo, frame: ConsumerFrame) -> Update {
+extern "C" fn camera_frame_for_remote(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    frame: ConsumerFrame,
+) -> Update {
     if frame.consumer.id != REMOTE_VIEW_ID {
         return Update::DoNothing;
     }
@@ -352,7 +377,10 @@ extern "C" fn mic_on_frame(mut data: RefAny, mut info: CallbackInfo, frame: Audi
         return Update::DoNothing;
     };
 
-    info.set_css_property(fill, CssProperty::const_width(LayoutWidth::Px(PixelValue::percent(level))));
+    info.set_css_property(
+        fill,
+        CssProperty::const_width(LayoutWidth::Px(PixelValue::percent(level))),
+    );
     info.set_css_property(
         remaining,
         CssProperty::const_width(LayoutWidth::Px(PixelValue::percent(100.0 - level))),

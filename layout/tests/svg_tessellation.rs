@@ -10,8 +10,8 @@
 //! 4. That expected vertex coordinates appear in the output
 
 use azul_core::svg::{
-    SvgCircle, SvgFillStyle, SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement,
-    SvgSimpleNode, SvgStrokeStyle, TessellatedSvgNode,
+    SvgCircle, SvgFillStyle, SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement, SvgSimpleNode,
+    SvgStrokeStyle, TessellatedSvgNode,
 };
 // SvgPoint and SvgRect are re-exported from azul_css
 use azul_css::props::basic::animation::{SvgPoint, SvgRect};

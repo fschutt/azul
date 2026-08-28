@@ -286,7 +286,7 @@ fn test_bug3_font_size_computed_value_inheritance() {
     //        Result: 2em * 32px = 64px
     let child_wrong = parent_specified.resolve_with_context(
         &ResolutionContext {
-        vertical_writing_mode: false,
+            vertical_writing_mode: false,
             element_font_size: 64.0, // This would be computed
             parent_font_size: 32.0,  // Parent's computed value
             root_font_size: 16.0,
@@ -445,12 +445,8 @@ fn test_regression_summary() {
     let em_factor = 2.0;
     let wrong_inherit = em_factor * parent_font_size; // 64px
     let correct_inherit = parent_font_size; // 32px
-    println!(
-        "  Wrong: Child inherits 2em chain, resolves to 2*32 = {wrong_inherit}px"
-    );
-    println!(
-        "  Correct: Child inherits computed 32px value = {correct_inherit}px"
-    );
+    println!("  Wrong: Child inherits 2em chain, resolves to 2*32 = {wrong_inherit}px");
+    println!("  Correct: Child inherits computed 32px value = {correct_inherit}px");
     assert_eq!(wrong_inherit, 64.0);
     assert_eq!(correct_inherit, 32.0);
     println!("  ✓ Verified\n");

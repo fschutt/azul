@@ -207,13 +207,12 @@ const IFC_ROOT: usize = 2;
 
 fn p_wrapped_editable(content: &str) -> LayoutWindow {
     let ids: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("p".into())].into();
-    let mut dom = Dom::create_body().with_child(
-        Dom::create_div().with_contenteditable(true).with_child(
+    let mut dom =
+        Dom::create_body().with_child(Dom::create_div().with_contenteditable(true).with_child(
             Dom::create_div().with_ids_and_classes(ids).with_child(
                 Dom::create_text_do_not_use_without_block_level_wrapper(content),
             ),
-        ),
-    );
+        ));
 
     let (css, _) = azul_css::parser2::new_from_str(CSS);
     let styled_dom = StyledDom::create(&mut dom, css);
@@ -352,11 +351,19 @@ fn cancelling_a_composition_in_a_p_wrapped_editable_restores_the_clean_base() {
     let base_glyphs = glyph_count(&lw);
 
     compose(&mut lw, "xy");
-    assert_eq!(glyph_count(&lw), base_glyphs + 2, "premise: composed glyphs are painted");
+    assert_eq!(
+        glyph_count(&lw),
+        base_glyphs + 2,
+        "premise: composed glyphs are painted"
+    );
 
     end_composition(&mut lw);
 
-    assert_eq!(glyph_count(&lw), base_glyphs, "no composed glyph survives the cancel");
+    assert_eq!(
+        glyph_count(&lw),
+        base_glyphs,
+        "no composed glyph survives the cancel"
+    );
     assert_eq!(text_of(&lw, IFC_ROOT), "ab");
     assert_eq!(text_of(&lw, HOST), "ab");
 }
@@ -374,7 +381,11 @@ fn a_rebuild_mid_composition_does_not_promote_it_to_committed_text() {
     // `reapply_dirty_text_node` has something to re-apply.
     let _ = lw.record_text_input("Z");
     let _ = lw.apply_text_changeset();
-    assert_eq!(text_of(&lw, IFC_ROOT), "Zab", "premise: the committed edit landed");
+    assert_eq!(
+        text_of(&lw, IFC_ROOT),
+        "Zab",
+        "premise: the committed edit landed"
+    );
     let committed_glyphs = glyph_count(&lw);
 
     compose(&mut lw, "xy");
@@ -394,5 +405,9 @@ fn a_rebuild_mid_composition_does_not_promote_it_to_committed_text() {
 
     end_composition(&mut lw);
     assert_eq!(text_of(&lw, IFC_ROOT), "Zab");
-    assert_eq!(glyph_count(&lw), committed_glyphs, "cancel leaves only the committed text");
+    assert_eq!(
+        glyph_count(&lw),
+        committed_glyphs,
+        "cancel leaves only the committed text"
+    );
 }

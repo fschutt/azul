@@ -8,22 +8,14 @@
 
 use core::ffi::c_void;
 
-use azul_css::system::{
-    defaults,
-    AccessibilitySettings,
-    InputMetrics,
-    Platform,
-    ScrollbarPreferences,
-    ScrollbarVisibility,
-    ScrollbarTrackClick,
-    SystemStyle,
-    TextRenderingHints,
-    Theme,
-};
-use azul_css::dynamic_selector::{OsVersion, BoolCondition};
 use azul_css::corety::AzString;
-use azul_css::props::basic::color::{ColorU, OptionColorU};
 use azul_css::css::Css;
+use azul_css::dynamic_selector::{BoolCondition, OsVersion};
+use azul_css::props::basic::color::{ColorU, OptionColorU};
+use azul_css::system::{
+    defaults, AccessibilitySettings, InputMetrics, Platform, ScrollbarPreferences,
+    ScrollbarTrackClick, ScrollbarVisibility, SystemStyle, TextRenderingHints, Theme,
+};
 
 // ── Raw dlopen / dlsym (provided by libSystem, always available) ─────────
 
@@ -37,7 +29,7 @@ const RTLD_LAZY: i32 = 1;
 
 // ── Objective-C runtime helpers ──────────────────────────────────────────
 
-type Id  = *mut c_void;
+type Id = *mut c_void;
 type Sel = *mut c_void;
 type Class = *mut c_void;
 
@@ -47,10 +39,10 @@ type Class = *mut c_void;
 /// `objc_msgSend`.  Closing the library handles is done in `Drop`.
 struct ObjcLib {
     get_class: unsafe extern "C" fn(*const u8) -> Class,
-    sel_reg:   unsafe extern "C" fn(*const u8) -> Sel,
+    sel_reg: unsafe extern "C" fn(*const u8) -> Sel,
     /// Raw `objc_msgSend` pointer — cast to the correct signature at each call-site.
-    msg_send:  *mut c_void,
-    _h_objc:   *mut c_void,
+    msg_send: *mut c_void,
+    _h_objc: *mut c_void,
     _h_appkit: *mut c_void,
 }
 
@@ -63,7 +55,9 @@ impl ObjcLib {
         #[cfg(not(miri))]
         unsafe {
             let h_objc = dlopen(b"/usr/lib/libobjc.A.dylib\0".as_ptr(), RTLD_LAZY);
-            if h_objc.is_null() { return None; }
+            if h_objc.is_null() {
+                return None;
+            }
 
             let h_appkit = dlopen(
                 b"/System/Library/Frameworks/AppKit.framework/AppKit\0".as_ptr(),
@@ -86,9 +80,9 @@ impl ObjcLib {
 
             Some(ObjcLib {
                 get_class: core::mem::transmute(gc),
-                sel_reg:   core::mem::transmute(sr),
-                msg_send:  ms,
-                _h_objc:   h_objc,
+                sel_reg: core::mem::transmute(sr),
+                msg_send: ms,
+                _h_objc: h_objc,
                 _h_appkit: h_appkit,
             })
         }
@@ -97,9 +91,15 @@ impl ObjcLib {
     // ── convenience wrappers ─────────────────────────────────────────
 
     /// Look up an Objective-C class by its null-terminated name.
-    #[inline] unsafe fn cls(&self, name: &[u8]) -> Class { (self.get_class)(name.as_ptr()) }
+    #[inline]
+    unsafe fn cls(&self, name: &[u8]) -> Class {
+        (self.get_class)(name.as_ptr())
+    }
     /// Register (or look up) an Objective-C selector by its null-terminated name.
-    #[inline] unsafe fn sel(&self, name: &[u8]) -> Sel   { (self.sel_reg)(name.as_ptr()) }
+    #[inline]
+    unsafe fn sel(&self, name: &[u8]) -> Sel {
+        (self.sel_reg)(name.as_ptr())
+    }
 
     /// `[target sel]` → Id
     #[inline]
@@ -143,12 +143,24 @@ impl ObjcLib {
     /// `[color getRed:&r green:&g blue:&b alpha:&a]` (returns void, 4 out-pointers)
     #[inline]
     unsafe fn send_get_rgba(
-        &self, color: Id, sel: Sel,
-        r: &mut f64, g: &mut f64, b: &mut f64, a: &mut f64,
+        &self,
+        color: Id,
+        sel: Sel,
+        r: &mut f64,
+        g: &mut f64,
+        b: &mut f64,
+        a: &mut f64,
     ) {
-        let f: unsafe extern "C" fn(Id, Sel, *mut f64, *mut f64, *mut f64, *mut f64)
-            = core::mem::transmute(self.msg_send);
-        f(color, sel, r as *mut f64, g as *mut f64, b as *mut f64, a as *mut f64);
+        let f: unsafe extern "C" fn(Id, Sel, *mut f64, *mut f64, *mut f64, *mut f64) =
+            core::mem::transmute(self.msg_send);
+        f(
+            color,
+            sel,
+            r as *mut f64,
+            g as *mut f64,
+            b as *mut f64,
+            a as *mut f64,
+        );
     }
 }
 
@@ -167,18 +179,24 @@ impl Drop for ObjcLib {
 /// (e.g. pattern colours that cannot be converted).
 fn extract_color(lib: &ObjcLib, color_obj: Id) -> Option<ColorU> {
     unsafe {
-        if color_obj.is_null() { return None; }
+        if color_obj.is_null() {
+            return None;
+        }
 
         // [NSColorSpace sRGBColorSpace]
         let cs_class = lib.cls(b"NSColorSpace\0");
         let srgb_sel = lib.sel(b"sRGBColorSpace\0");
-        let srgb     = lib.send_id(cs_class, srgb_sel);
-        if srgb.is_null() { return None; }
+        let srgb = lib.send_id(cs_class, srgb_sel);
+        if srgb.is_null() {
+            return None;
+        }
 
         // [color colorUsingColorSpace:srgb]
         let convert_sel = lib.sel(b"colorUsingColorSpace:\0");
-        let converted   = lib.send_id_id(color_obj, convert_sel, srgb);
-        if converted.is_null() { return None; }
+        let converted = lib.send_id_id(color_obj, convert_sel, srgb);
+        if converted.is_null() {
+            return None;
+        }
 
         let mut r: f64 = 0.0;
         let mut g: f64 = 0.0;
@@ -200,10 +218,14 @@ fn extract_color(lib: &ObjcLib, color_obj: Id) -> Option<ColorU> {
 /// Helper: read a UTF-8 string from an NSString and return it as an owned `String`.
 fn nsstring_to_string(lib: &ObjcLib, nsstr: Id) -> Option<alloc::string::String> {
     unsafe {
-        if nsstr.is_null() { return None; }
+        if nsstr.is_null() {
+            return None;
+        }
         let utf8_sel = lib.sel(b"UTF8String\0");
         let cstr: *const u8 = core::mem::transmute(lib.send_id(nsstr, utf8_sel));
-        if cstr.is_null() { return None; }
+        if cstr.is_null() {
+            return None;
+        }
         let s = core::ffi::CStr::from_ptr(cstr as *const core::ffi::c_char);
         s.to_str().ok().map(|s| alloc::string::String::from(s))
     }
@@ -233,7 +255,9 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         if !app.is_null() {
             let appearance = lib.send_id(app, lib.sel(b"effectiveAppearance\0"));
             if !appearance.is_null() {
-                if let Some(name) = nsstring_to_string(&lib, lib.send_id(appearance, lib.sel(b"name\0"))) {
+                if let Some(name) =
+                    nsstring_to_string(&lib, lib.send_id(appearance, lib.sel(b"name\0")))
+                {
                     if name.contains("Dark") {
                         style = defaults::macos_modern_dark();
                     }
@@ -252,24 +276,30 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
             };
         }
 
-        q!(text,                        b"labelColor\0");
-        q!(secondary_text,              b"secondaryLabelColor\0");
-        q!(tertiary_text,               b"tertiaryLabelColor\0");
-        q!(background,                  b"textBackgroundColor\0");
-        q!(accent,                      b"controlAccentColor\0");
-        q!(button_face,                 b"controlColor\0");
-        q!(button_text,                 b"controlTextColor\0");
-        q!(disabled_text,               b"disabledControlTextColor\0");
-        q!(window_background,           b"windowBackgroundColor\0");
-        q!(selection_background,        b"selectedContentBackgroundColor\0");
-        q!(selection_text,              b"selectedTextColor\0");
-        q!(selection_background_inactive, b"unemphasizedSelectedContentBackgroundColor\0");
-        q!(link,                        b"linkColor\0");
-        q!(separator,                   b"separatorColor\0");
-        q!(grid,                        b"gridColor\0");
+        q!(text, b"labelColor\0");
+        q!(secondary_text, b"secondaryLabelColor\0");
+        q!(tertiary_text, b"tertiaryLabelColor\0");
+        q!(background, b"textBackgroundColor\0");
+        q!(accent, b"controlAccentColor\0");
+        q!(button_face, b"controlColor\0");
+        q!(button_text, b"controlTextColor\0");
+        q!(disabled_text, b"disabledControlTextColor\0");
+        q!(window_background, b"windowBackgroundColor\0");
+        q!(selection_background, b"selectedContentBackgroundColor\0");
+        q!(selection_text, b"selectedTextColor\0");
+        q!(
+            selection_background_inactive,
+            b"unemphasizedSelectedContentBackgroundColor\0"
+        );
+        q!(link, b"linkColor\0");
+        q!(separator, b"separatorColor\0");
+        q!(grid, b"gridColor\0");
 
         // Focus ring colour lives in FocusVisuals, not SystemColors
-        if let Some(c) = extract_color(&lib, lib.send_id(nsc, lib.sel(b"keyboardFocusIndicatorColor\0"))) {
+        if let Some(c) = extract_color(
+            &lib,
+            lib.send_id(nsc, lib.sel(b"keyboardFocusIndicatorColor\0")),
+        ) {
             style.focus_visuals.focus_ring_color = OptionColorU::Some(c);
         }
 
@@ -279,11 +309,12 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         // [NSFont systemFontOfSize:0] → returns default size
         {
             let sys_sel = lib.sel(b"systemFontOfSize:\0");
-            let f: unsafe extern "C" fn(Id, Sel, f64) -> Id =
-                core::mem::transmute(lib.msg_send);
+            let f: unsafe extern "C" fn(Id, Sel, f64) -> Id = core::mem::transmute(lib.msg_send);
             let font = f(nsfont, sys_sel, 0.0);
             if !font.is_null() {
-                if let Some(name) = nsstring_to_string(&lib, lib.send_id(font, lib.sel(b"familyName\0"))) {
+                if let Some(name) =
+                    nsstring_to_string(&lib, lib.send_id(font, lib.sel(b"familyName\0")))
+                {
                     style.fonts.ui_font = azul_css::corety::OptionString::Some(name.into());
                 }
                 let size = lib.send_f64(font, lib.sel(b"pointSize\0"));
@@ -300,12 +331,15 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
                 core::mem::transmute(lib.msg_send);
             let font = f(nsfont, mono_sel, 0.0, 0.0); // weight 0.0 = Regular
             if !font.is_null() {
-                if let Some(name) = nsstring_to_string(&lib, lib.send_id(font, lib.sel(b"familyName\0"))) {
+                if let Some(name) =
+                    nsstring_to_string(&lib, lib.send_id(font, lib.sel(b"familyName\0")))
+                {
                     style.fonts.monospace_font = azul_css::corety::OptionString::Some(name.into());
                 }
                 let size = lib.send_f64(font, lib.sel(b"pointSize\0"));
                 if size > 0.0 {
-                    style.fonts.monospace_font_size = azul_css::corety::OptionF32::Some(size as f32);
+                    style.fonts.monospace_font_size =
+                        azul_css::corety::OptionF32::Some(size as f32);
                 }
             }
         }
@@ -322,7 +356,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         let scroller_style = lib.send_i64(nsscroller, lib.sel(b"preferredScrollerStyle\0"));
         style.scrollbar_preferences = ScrollbarPreferences {
             visibility: match scroller_style {
-                0 => ScrollbarVisibility::Always,       // NSScrollerStyleLegacy
+                0 => ScrollbarVisibility::Always,        // NSScrollerStyleLegacy
                 1 => ScrollbarVisibility::WhenScrolling, // NSScrollerStyleOverlay
                 _ => ScrollbarVisibility::Automatic,
             },
@@ -333,20 +367,20 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         let nsworkspace = lib.cls(b"NSWorkspace\0");
         let ws = lib.send_id(nsworkspace, lib.sel(b"sharedWorkspace\0"));
         if !ws.is_null() {
-            let reduce_motion = lib.send_bool(ws, lib.sel(
-                b"accessibilityDisplayShouldReduceMotion\0"));
-            let increase_contrast = lib.send_bool(ws, lib.sel(
-                b"accessibilityDisplayShouldIncreaseContrast\0"));
-            let reduce_transparency = lib.send_bool(ws, lib.sel(
-                b"accessibilityDisplayShouldReduceTransparency\0"));
+            let reduce_motion =
+                lib.send_bool(ws, lib.sel(b"accessibilityDisplayShouldReduceMotion\0"));
+            let increase_contrast =
+                lib.send_bool(ws, lib.sel(b"accessibilityDisplayShouldIncreaseContrast\0"));
+            let reduce_transparency = lib.send_bool(
+                ws,
+                lib.sel(b"accessibilityDisplayShouldReduceTransparency\0"),
+            );
 
             if reduce_motion {
-                style.prefers_reduced_motion =
-                    azul_css::dynamic_selector::BoolCondition::True;
+                style.prefers_reduced_motion = azul_css::dynamic_selector::BoolCondition::True;
             }
             if increase_contrast {
-                style.prefers_high_contrast =
-                    azul_css::dynamic_selector::BoolCondition::True;
+                style.prefers_high_contrast = azul_css::dynamic_selector::BoolCondition::True;
             }
 
             style.accessibility = AccessibilitySettings {
@@ -371,10 +405,14 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
             // on arm64 this is returned in x0/x1/x2 (3 × NSInteger = 3 × i64).
             // We read major via a helper struct.
             #[repr(C)]
-            struct NSOperatingSystemVersion { major: i64, minor: i64, patch: i64 }
+            struct NSOperatingSystemVersion {
+                major: i64,
+                minor: i64,
+                patch: i64,
+            }
             let osv_sel = lib.sel(b"operatingSystemVersion\0");
-            let f: unsafe extern "C" fn(Id, Sel) -> NSOperatingSystemVersion
-                = core::mem::transmute(lib.msg_send);
+            let f: unsafe extern "C" fn(Id, Sel) -> NSOperatingSystemVersion =
+                core::mem::transmute(lib.msg_send);
             let v = f(pi, osv_sel);
             style.os_version = match v.major {
                 // Apple changed version numbering: macOS 15 (Sequoia) → macOS 26 (Tahoe) in 2025
@@ -384,7 +422,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
                 13 => azul_css::dynamic_selector::OsVersion::MACOS_VENTURA,
                 12 => azul_css::dynamic_selector::OsVersion::MACOS_MONTEREY,
                 11 => azul_css::dynamic_selector::OsVersion::MACOS_BIG_SUR,
-                _  => azul_css::dynamic_selector::OsVersion::MACOS_SONOMA,
+                _ => azul_css::dynamic_selector::OsVersion::MACOS_SONOMA,
             };
         }
 
@@ -407,8 +445,8 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
 
     // macOS HIG: fixed visual hints
     style.visual_hints = azul_css::system::VisualHints {
-        show_button_images: false,  // macOS HIG: standard push buttons don't show icons
-        show_menu_images: true,     // menus can show icons
+        show_button_images: false, // macOS HIG: standard push buttons don't show icons
+        show_menu_images: true,    // menus can show icons
         toolbar_style: azul_css::system::ToolbarStyle::IconsOnly, // default toolbar style
         show_tooltips: true,
         flash_on_alert: true,
@@ -436,8 +474,8 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
 
     // App-specific stylesheet from ~/Library/Application Support/azul/styles/<exe>.css
     if style.app_specific_stylesheet.is_none() {
-        style.app_specific_stylesheet = load_app_specific_stylesheet()
-            .map(|s| alloc::boxed::Box::new(s));
+        style.app_specific_stylesheet =
+            load_app_specific_stylesheet().map(|s| alloc::boxed::Box::new(s));
     }
 
     style
@@ -493,7 +531,9 @@ fn discover_macos_cli_extras(style: &mut SystemStyle) {
 
     // ── Dark mode detection ─────────────────────────────────────────────
     if style.theme == Theme::Light {
-        if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleInterfaceStyle"], timeout) {
+        if let Ok(val) =
+            run_command_with_timeout("defaults", &["read", "-g", "AppleInterfaceStyle"], timeout)
+        {
             if val.eq_ignore_ascii_case("Dark") {
                 *style = defaults::macos_modern_dark();
                 style.platform = Platform::MacOs;
@@ -503,18 +543,20 @@ fn discover_macos_cli_extras(style: &mut SystemStyle) {
 
     // ── Accent color ────────────────────────────────────────────────────
     if style.colors.accent == OptionColorU::None {
-        if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleAccentColor"], timeout) {
+        if let Ok(val) =
+            run_command_with_timeout("defaults", &["read", "-g", "AppleAccentColor"], timeout)
+        {
             if let Ok(code) = val.parse::<i32>() {
                 let (r, g, b) = match code {
                     -1 => (142, 142, 147), // Graphite
-                     0 => (255,  59,  48), // Red
-                     1 => (255, 149,   0), // Orange
-                     2 => (255, 204,   0), // Yellow
-                     3 => ( 40, 205,  65), // Green
-                     4 => (  0, 122, 255), // Blue
-                     5 => (175,  82, 222), // Purple
-                     6 => (255,  45,  85), // Pink
-                     _ => (  0, 122, 255), // Default to Blue
+                    0 => (255, 59, 48),    // Red
+                    1 => (255, 149, 0),    // Orange
+                    2 => (255, 204, 0),    // Yellow
+                    3 => (40, 205, 65),    // Green
+                    4 => (0, 122, 255),    // Blue
+                    5 => (175, 82, 222),   // Purple
+                    6 => (255, 45, 85),    // Pink
+                    _ => (0, 122, 255),    // Default to Blue
                 };
                 style.colors.accent = OptionColorU::Some(ColorU::new(r, g, b, 255));
             }
@@ -523,7 +565,9 @@ fn discover_macos_cli_extras(style: &mut SystemStyle) {
 
     // ── Selection / highlight color ─────────────────────────────────────
     if style.colors.selection_background == OptionColorU::None {
-        if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleHighlightColor"], timeout) {
+        if let Ok(val) =
+            run_command_with_timeout("defaults", &["read", "-g", "AppleHighlightColor"], timeout)
+        {
             // Format: "R G B" as floats 0.0-1.0, e.g. "0.698 0.843 1.000"
             let parts: Vec<&str> = val.split_whitespace().collect();
             if parts.len() >= 3 {
@@ -582,8 +626,8 @@ fn detect_macos_version() -> OsVersion {
             12 => OsVersion::MACOS_SIERRA,
             11 => OsVersion::MACOS_EL_CAPITAN,
             10 => OsVersion::MACOS_YOSEMITE,
-             9 => OsVersion::MACOS_MAVERICKS,
-             _ => OsVersion::MACOS_SONOMA,
+            9 => OsVersion::MACOS_MAVERICKS,
+            _ => OsVersion::MACOS_SONOMA,
         },
         _ => OsVersion::MACOS_SONOMA,
     }
@@ -631,10 +675,14 @@ fn detect_language_macos() -> AzString {
     }
 
     // Fallback: AppleLanguages array, e.g. '(\n    "en-US",\n    "de-DE"\n)'
-    if let Ok(val) = run_command_with_timeout("defaults", &["read", "-g", "AppleLanguages"], timeout) {
+    if let Ok(val) =
+        run_command_with_timeout("defaults", &["read", "-g", "AppleLanguages"], timeout)
+    {
         // Extract the first quoted language tag
         for line in val.lines() {
-            let trimmed = line.trim().trim_matches(|c: char| c == '"' || c == ',' || c == '(' || c == ')');
+            let trimmed = line
+                .trim()
+                .trim_matches(|c: char| c == '"' || c == ',' || c == '(' || c == ')');
             let trimmed = trimmed.trim();
             if !trimmed.is_empty() && trimmed.contains('-') {
                 return AzString::from(alloc::string::String::from(trimmed));
@@ -661,7 +709,8 @@ fn load_app_specific_stylesheet() -> Option<Css> {
     let home = std::env::var("HOME").ok()?;
     let css_path = alloc::format!(
         "{}/Library/Application Support/azul/styles/{}.css",
-        home, exe_name,
+        home,
+        exe_name,
     );
 
     let contents = std::fs::read_to_string(&css_path).ok()?;
@@ -670,7 +719,11 @@ fn load_app_specific_stylesheet() -> Option<Css> {
     }
 
     let (css, _warnings) = azul_css::parser2::new_from_str(&contents);
-    if css.is_empty() { None } else { Some(css) }
+    if css.is_empty() {
+        None
+    } else {
+        Some(css)
+    }
 }
 
 // ============================================================================

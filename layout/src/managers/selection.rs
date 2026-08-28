@@ -45,8 +45,20 @@ pub struct StyledTextRun {
     pub is_italic: bool,
 }
 
-azul_css::impl_option!(StyledTextRun, OptionStyledTextRun, copy = false, [Debug, Clone, PartialEq]);
-azul_css::impl_vec!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor, StyledTextRunVecDestructorType, StyledTextRunVecSlice, OptionStyledTextRun);
+azul_css::impl_option!(
+    StyledTextRun,
+    OptionStyledTextRun,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+azul_css::impl_vec!(
+    StyledTextRun,
+    StyledTextRunVec,
+    StyledTextRunVecDestructor,
+    StyledTextRunVecDestructorType,
+    StyledTextRunVecSlice,
+    OptionStyledTextRun
+);
 azul_css::impl_vec_debug!(StyledTextRun, StyledTextRunVec);
 azul_css::impl_vec_clone!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor);
 azul_css::impl_vec_partialeq!(StyledTextRun, StyledTextRunVec);
@@ -227,7 +239,8 @@ impl ClipboardContent {
     /// matching RTF and the `CF_HTML` wrapper Windows needs (see module docs).
     /// Kept for callers that want a quick HTML rendering of a
     /// `ClipboardContent` without the rest of that stack.
-    #[must_use] pub fn to_html(&self) -> String {
+    #[must_use]
+    pub fn to_html(&self) -> String {
         use core::fmt::Write as _;
         let mut html = String::from("<div>");
 
@@ -503,7 +516,12 @@ mod autotest_generated {
     fn to_html_alpha_is_normalized_to_0_1_at_channel_boundaries() {
         let alpha_of = |a: u8| {
             let mut r = run("x", 10.0, None);
-            r.color = ColorU { r: 0, g: 0, b: 0, a };
+            r.color = ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a,
+            };
             content(vec![r]).to_html()
         };
         assert!(alpha_of(255).contains("rgba(0, 0, 0, 1); "));
@@ -534,10 +552,10 @@ mod autotest_generated {
     #[test]
     fn to_html_preserves_unicode_and_control_characters() {
         for text in [
-            "😀👨‍👩‍👧‍👦",         // emoji + ZWJ sequence
-            "مرحبا بالعالم",  // RTL
+            "😀👨‍👩‍👧‍👦",              // emoji + ZWJ sequence
+            "مرحبا بالعالم",     // RTL
             "e\u{0301}\u{0327}", // combining marks
-            "a\u{0}b",        // interior NUL
+            "a\u{0}b",           // interior NUL
             "line\nbreak\ttab",
             "\u{200B}\u{FEFF}", // zero-width space + BOM
             "\u{202E}reversed", // RTL override
@@ -655,11 +673,17 @@ mod extract_tests {
         assert_eq!(runs.len(), 2);
         assert_eq!(runs[0].text.as_str(), "normal ");
         assert!(!runs[0].is_bold);
-        assert_eq!(runs[0].font_family.as_ref().map(|f| f.as_str()), Some("Helvetica"));
+        assert_eq!(
+            runs[0].font_family.as_ref().map(|f| f.as_str()),
+            Some("Helvetica")
+        );
         assert_eq!(runs[1].text.as_str(), "bold");
         assert!(runs[1].is_bold);
         assert_eq!(runs[1].font_size_px, 24.0);
-        assert_eq!(runs[1].font_family.as_ref().map(|f| f.as_str()), Some("Georgia"));
+        assert_eq!(
+            runs[1].font_family.as_ref().map(|f| f.as_str()),
+            Some("Georgia")
+        );
     }
 
     /// `plain_text` must be exactly the concatenation of the runs. A receiver
@@ -828,4 +852,3 @@ mod extract_tests {
         assert!(acc.finish().is_none());
     }
 }
-

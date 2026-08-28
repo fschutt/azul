@@ -117,9 +117,7 @@ impl HeadlessApp {
                  fetch /az/layout/{}.<hash>.wasm but the name is opaque — \
                  consider linking with `-rdynamic` or making the layout fn \
                  `pub extern \"C\"` so dladdr can recover its name.",
-                self.layout_callback.cb as usize,
-                sym.name,
-                sym.name,
+                self.layout_callback.cb as usize, sym.name, sym.name,
             );
         } else {
             eprintln!(

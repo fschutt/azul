@@ -75,24 +75,28 @@ impl Default for BiometricManager {
 }
 
 impl BiometricManager {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Most recent auth outcome, or `None` until the first request
     /// resolves.
-    #[must_use] pub const fn last_result(&self) -> Option<BiometricResult> {
+    #[must_use]
+    pub const fn last_result(&self) -> Option<BiometricResult> {
         self.last_result
     }
 
     /// Device capability probe (sync). `NotAvailable` until the backend
     /// reports otherwise.
-    #[must_use] pub const fn availability(&self) -> BiometricKind {
+    #[must_use]
+    pub const fn availability(&self) -> BiometricKind {
         self.availability
     }
 
     /// `true` if the device has a usable biometric sensor.
-    #[must_use] pub const fn is_available(&self) -> bool {
+    #[must_use]
+    pub const fn is_available(&self) -> bool {
         self.availability.is_available()
     }
 
@@ -134,13 +138,15 @@ impl BiometricManager {
 
     /// `true` while a dispatched prompt's outcome is still outstanding
     /// (MWA-A1b arming signal).
-    #[must_use] pub const fn has_pending_async(&self) -> bool {
+    #[must_use]
+    pub const fn has_pending_async(&self) -> bool {
         self.in_flight > 0
     }
 
     /// `true` if the last attempt unlocked successfully (biometric match
     /// or OS passcode fallback). Convenience for the vault gate.
-    #[must_use] pub const fn last_was_success(&self) -> bool {
+    #[must_use]
+    pub const fn last_was_success(&self) -> bool {
         matches!(self.last_result, Some(r) if r.is_success())
     }
 }
@@ -175,14 +181,15 @@ impl EventProvider for BiometricManager {
 // dependency (SUPER_PLAN_2 §0.5). Mirrors the geolocation manager's
 // async-fix channel.
 
-static PENDING_RESULTS: std::sync::Mutex<Vec<BiometricResult>> =
-    std::sync::Mutex::new(Vec::new());
+static PENDING_RESULTS: std::sync::Mutex<Vec<BiometricResult>> = std::sync::Mutex::new(Vec::new());
 
 /// Park a biometric result delivered by a platform backend (in the dll).
 /// Thread-safe; recovers from a poisoned lock so one panicking applier
 /// can't wedge delivery forever.
 pub fn push_biometric_result(result: BiometricResult) {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(result);
 }
 
@@ -190,7 +197,9 @@ pub fn push_biometric_result(result: BiometricResult) {
 /// order. Called once per layout pass; the caller applies them through
 /// [`BiometricManager::set_last_result`] (the last one wins).
 pub fn drain_biometric_results() -> Vec<BiometricResult> {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -206,14 +215,15 @@ pub fn drain_biometric_results() -> Vec<BiometricResult> {
 // without threading the window's backend handle through `CallbackInfo`,
 // and keeps `azul-layout` platform-free (SUPER_PLAN_2 §0.5).
 
-static PENDING_REQUESTS: std::sync::Mutex<Vec<BiometricPrompt>> =
-    std::sync::Mutex::new(Vec::new());
+static PENDING_REQUESTS: std::sync::Mutex<Vec<BiometricPrompt>> = std::sync::Mutex::new(Vec::new());
 
 /// Queue a biometric-auth request from a callback. Picked up by the dll
 /// layout pass and dispatched to the native prompt. Thread-safe;
 /// poison-recovering.
 pub fn push_biometric_request(prompt: BiometricPrompt) {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_REQUESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(prompt);
 }
 
@@ -221,7 +231,9 @@ pub fn push_biometric_request(prompt: BiometricPrompt) {
 /// order. Called once per layout pass; the dll dispatches each to the
 /// platform backend.
 pub fn drain_biometric_requests() -> Vec<BiometricPrompt> {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_REQUESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -616,7 +628,10 @@ mod autotest_generated {
             mgr.clear_pending_event();
 
             let changed = mgr.set_last_result(result);
-            assert!(!changed, "identical outcome is not a state change ({result:?})");
+            assert!(
+                !changed,
+                "identical outcome is not a state change ({result:?})"
+            );
             assert!(
                 mgr.pending_event,
                 "a repeated {result:?} must still fire an event"
@@ -746,10 +761,16 @@ mod autotest_generated {
 
         // The outcome, the sensor probe and the in-flight count survive it.
         assert_eq!(mgr.last_result(), Some(BiometricResult::Authenticated));
-        assert!(mgr.last_was_success(), "clearing the event must not re-lock the vault");
+        assert!(
+            mgr.last_was_success(),
+            "clearing the event must not re-lock the vault"
+        );
         assert_eq!(mgr.availability(), BiometricKind::Face);
         assert_eq!(mgr.in_flight, 1);
-        assert!(mgr.has_pending_async(), "the second prompt is still outstanding");
+        assert!(
+            mgr.has_pending_async(),
+            "the second prompt is still outstanding"
+        );
     }
 
     #[test]
@@ -776,7 +797,11 @@ mod autotest_generated {
             "the outcome is window-level, not node-level"
         );
         assert_eq!(events[0].data, EventData::None);
-        assert_eq!(events[0].timestamp, ts(), "the caller's timestamp is preserved");
+        assert_eq!(
+            events[0].timestamp,
+            ts(),
+            "the caller's timestamp is preserved"
+        );
 
         // Reading is not draining — only clear_pending_event() retires it.
         assert_eq!(mgr.get_pending_events(ts()).len(), 1);
@@ -879,11 +904,16 @@ mod autotest_generated {
             })
             .collect();
         for t in threads {
-            t.join().expect("a backend thread panicked while parking a result");
+            t.join()
+                .expect("a backend thread panicked while parking a result");
         }
 
         let drained = drain_biometric_results();
-        assert_eq!(drained.len(), 100, "no result lost across 4 backend threads");
+        assert_eq!(
+            drained.len(),
+            100,
+            "no result lost across 4 backend threads"
+        );
         assert!(drained.iter().all(|r| r.is_success()));
         assert!(drain_biometric_results().is_empty());
     }
@@ -975,11 +1005,16 @@ mod autotest_generated {
             })
             .collect();
         for t in threads {
-            t.join().expect("a callback thread panicked while queueing a prompt");
+            t.join()
+                .expect("a callback thread panicked while queueing a prompt");
         }
 
         let drained = drain_biometric_requests();
-        assert_eq!(drained.len(), 100, "no prompt lost across 4 callback threads");
+        assert_eq!(
+            drained.len(),
+            100,
+            "no prompt lost across 4 callback threads"
+        );
         // Each thread's own prompts keep their relative order.
         for i in 0..4 {
             let mine: Vec<_> = drained
@@ -1020,7 +1055,10 @@ mod autotest_generated {
         assert_eq!(requests.len(), 2);
         mgr.mark_requests_dispatched(u32::try_from(requests.len()).unwrap());
         assert!(!has_queued_requests());
-        assert!(mgr.has_pending_async(), "now the in-flight count arms the pump");
+        assert!(
+            mgr.has_pending_async(),
+            "now the in-flight count arms the pump"
+        );
 
         // 3. The backend parks both outcomes; the next pass folds them back.
         push_biometric_result(BiometricResult::Failed);
@@ -1030,11 +1068,17 @@ mod autotest_generated {
         }
 
         assert_eq!(mgr.in_flight, 0);
-        assert!(!mgr.has_pending_async(), "pump disarms once every outcome folded");
+        assert!(
+            !mgr.has_pending_async(),
+            "pump disarms once every outcome folded"
+        );
         assert!(mgr.pending_event);
         assert_eq!(mgr.get_pending_events(ts()).len(), 1);
         assert_eq!(mgr.last_result(), Some(BiometricResult::FellBackToPasscode));
-        assert!(mgr.last_was_success(), "the passcode fallback unlocks the vault");
+        assert!(
+            mgr.last_was_success(),
+            "the passcode fallback unlocks the vault"
+        );
 
         mgr.clear_pending_event();
         assert!(mgr.get_pending_events(ts()).is_empty());

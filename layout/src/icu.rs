@@ -31,19 +31,47 @@ use std::sync::Mutex;
 use azul_css::AzString;
 
 // ICU4X-only imports (not used in the macOS Foundation backend)
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
-use icu::collator::{Collator, options::CollatorOptions};
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
+use icu::collator::{options::CollatorOptions, Collator};
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 use icu::decimal::input::Decimal;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 use icu::decimal::DecimalFormatter;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
-use icu::list::{ListFormatter, options::ListFormatterOptions};
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
+use icu::list::{options::ListFormatterOptions, ListFormatter};
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 use icu::locale::Locale;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 use icu::plurals::PluralRules;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 use writeable::Writeable;
 
 // macOS Foundation backend
@@ -56,11 +84,18 @@ mod icu_macos;
 #[path = "icu_windows.rs"]
 mod icu_windows;
 
-
 // Re-export ICU4X locale/plural types (only available with the ICU4X backend)
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 pub use icu::locale::locale;
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 pub use icu::plurals::{PluralCategory as IcuPluralCategory, PluralRules as IcuPluralRules};
 
 /// Error type for ICU operations
@@ -123,7 +158,11 @@ pub enum PluralCategory {
     Other,
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 impl From<IcuPluralCategory> for PluralCategory {
     fn from(cat: IcuPluralCategory) -> Self {
         match cat {
@@ -495,7 +534,11 @@ impl IcuDate {
 impl IcuTime {
     /// Create a new IcuTime from hour, minute, second.
     pub const fn new(hour: u8, minute: u8, second: u8) -> Self {
-        Self { hour, minute, second }
+        Self {
+            hour,
+            minute,
+            second,
+        }
     }
 
     /// Get the current local time.
@@ -565,8 +608,10 @@ impl IcuDateTime {
     #[cfg(feature = "icu_chrono")]
     pub fn from_timestamp(timestamp_secs: i64) -> Option<Self> {
         use chrono::{Datelike, TimeZone, Timelike};
-        chrono::Utc.timestamp_opt(timestamp_secs, 0).single().map(|dt| {
-            Self {
+        chrono::Utc
+            .timestamp_opt(timestamp_secs, 0)
+            .single()
+            .map(|dt| Self {
                 date: IcuDate {
                     year: dt.year(),
                     month: dt.month() as u8,
@@ -577,8 +622,7 @@ impl IcuDateTime {
                     minute: dt.minute() as u8,
                     second: dt.second() as u8,
                 },
-            }
-        })
+            })
     }
 
     /// Convert a Unix timestamp (milliseconds) to IcuDateTime.
@@ -600,7 +644,11 @@ pub use icu_windows::IcuLocalizer;
 
 // ─── ICU4X backend ────────────────────────────────────────────────────────────
 // Used on all other platforms (or when no OS-native backend is enabled).
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 /// The main ICU localizer that holds formatters for the current locale.
 ///
 /// This struct is thread-safe and can be shared across callbacks.
@@ -626,7 +674,11 @@ pub struct IcuLocalizer {
     collator: Option<Collator>,
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 impl core::fmt::Debug for IcuLocalizer {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("IcuLocalizer")
@@ -636,7 +688,11 @@ impl core::fmt::Debug for IcuLocalizer {
     }
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 impl IcuLocalizer {
     /// Create a new localizer with the given locale string (BCP 47 format).
     ///
@@ -727,11 +783,12 @@ impl IcuLocalizer {
     fn get_decimal_formatter(&mut self) -> &DecimalFormatter {
         if self.decimal_formatter.is_none() {
             // Try to create formatter, fall back to default locale if it fails
-            let formatter = DecimalFormatter::try_new(self.locale.clone().into(), Default::default())
-                .unwrap_or_else(|_| {
-                    DecimalFormatter::try_new(Default::default(), Default::default())
-                        .expect("default locale should always work")
-                });
+            let formatter =
+                DecimalFormatter::try_new(self.locale.clone().into(), Default::default())
+                    .unwrap_or_else(|_| {
+                        DecimalFormatter::try_new(Default::default(), Default::default())
+                            .expect("default locale should always work")
+                    });
             self.decimal_formatter = Some(formatter);
         }
         self.decimal_formatter.as_ref().unwrap()
@@ -880,12 +937,12 @@ impl IcuLocalizer {
     /// Format a list of items with locale-appropriate conjunctions.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `items` - The items to format
     /// * `list_type` - The type of list (And, Or, Unit)
     ///
     /// # Example
-    /// 
+    ///
     /// - en-US And: ["A", "B", "C"] → "A, B, and C"
     /// - es-ES And: ["España", "Suiza", "Italia"] → "España, Suiza e Italia"
     /// - en-US Or: ["A", "B", "C"] → "A, B, or C"
@@ -919,14 +976,14 @@ impl IcuLocalizer {
     /// Format a date according to the current locale.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `date` - The date to format
     /// * `length` - The format length (Short, Medium, Long)
     ///
     /// # Example
-    /// 
+    ///
     /// For January 15, 2025:
-    /// 
+    ///
     /// - en-US Short: "1/15/25"
     /// - en-US Medium: "Jan 15, 2025"
     /// - en-US Long: "January 15, 2025"
@@ -962,9 +1019,9 @@ impl IcuLocalizer {
     /// Format a time according to the current locale.
     ///
     /// # Example
-    /// 
+    ///
     /// For 16:30:45:
-    /// 
+    ///
     /// - en-US: "4:30 PM" or "4:30:45 PM"
     /// - de-DE: "16:30" or "16:30:45"
     pub fn format_time(&mut self, time: IcuTime, include_seconds: bool) -> IcuResult {
@@ -980,18 +1037,22 @@ impl IcuLocalizer {
         let mut output = String::new();
 
         if include_seconds {
-            let formatter: NoCalendarFormatter<fieldsets::T> =
-                match NoCalendarFormatter::try_new(self.locale.clone().into(), fieldsets::T::medium()) {
-                    Ok(f) => f,
-                    Err(e) => return IcuResult::err(format!("Failed to create formatter: {:?}", e)),
-                };
+            let formatter: NoCalendarFormatter<fieldsets::T> = match NoCalendarFormatter::try_new(
+                self.locale.clone().into(),
+                fieldsets::T::medium(),
+            ) {
+                Ok(f) => f,
+                Err(e) => return IcuResult::err(format!("Failed to create formatter: {:?}", e)),
+            };
             let _ = write!(output, "{}", formatter.format(&icu_time));
         } else {
-            let formatter: NoCalendarFormatter<fieldsets::T> =
-                match NoCalendarFormatter::try_new(self.locale.clone().into(), fieldsets::T::short()) {
-                    Ok(f) => f,
-                    Err(e) => return IcuResult::err(format!("Failed to create formatter: {:?}", e)),
-                };
+            let formatter: NoCalendarFormatter<fieldsets::T> = match NoCalendarFormatter::try_new(
+                self.locale.clone().into(),
+                fieldsets::T::short(),
+            ) {
+                Ok(f) => f,
+                Err(e) => return IcuResult::err(format!("Failed to create formatter: {:?}", e)),
+            };
             let _ = write!(output, "{}", formatter.format(&icu_time));
         }
 
@@ -1004,12 +1065,18 @@ impl IcuLocalizer {
         use icu::datetime::input::{Date, DateTime, Time};
         use icu::datetime::DateTimeFormatter;
 
-        let icu_date = match Date::try_new_iso(datetime.date.year, datetime.date.month, datetime.date.day) {
-            Ok(d) => d,
-            Err(e) => return IcuResult::err(format!("Invalid date: {}", e)),
-        };
+        let icu_date =
+            match Date::try_new_iso(datetime.date.year, datetime.date.month, datetime.date.day) {
+                Ok(d) => d,
+                Err(e) => return IcuResult::err(format!("Invalid date: {}", e)),
+            };
 
-        let icu_time = match Time::try_new(datetime.time.hour, datetime.time.minute, datetime.time.second, 0) {
+        let icu_time = match Time::try_new(
+            datetime.time.hour,
+            datetime.time.minute,
+            datetime.time.second,
+            0,
+        ) {
             Ok(t) => t,
             Err(e) => return IcuResult::err(format!("Invalid time: {}", e)),
         };
@@ -1040,13 +1107,14 @@ impl IcuLocalizer {
     fn get_collator(&mut self) -> &Collator {
         if self.collator.is_none() {
             // try_new returns CollatorBorrowed<'static>, convert to owned
-            let collator = Collator::try_new(self.locale.clone().into(), CollatorOptions::default())
-                .map(|borrowed| borrowed.static_to_owned())
-                .unwrap_or_else(|_| {
-                    Collator::try_new(Default::default(), CollatorOptions::default())
-                        .map(|borrowed| borrowed.static_to_owned())
-                        .expect("default locale should always work")
-                });
+            let collator =
+                Collator::try_new(self.locale.clone().into(), CollatorOptions::default())
+                    .map(|borrowed| borrowed.static_to_owned())
+                    .unwrap_or_else(|_| {
+                        Collator::try_new(Default::default(), CollatorOptions::default())
+                            .map(|borrowed| borrowed.static_to_owned())
+                            .expect("default locale should always work")
+                    });
             self.collator = Some(collator);
         }
         self.collator.as_ref().unwrap()
@@ -1114,14 +1182,22 @@ impl IcuLocalizer {
     }
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 impl Default for IcuLocalizer {
     fn default() -> Self {
         Self::new("en-US")
     }
 }
 
-#[cfg(all(feature = "icu", not(all(target_os = "macos", feature = "icu_macos")), not(all(target_os = "windows", feature = "icu_windows"))))]
+#[cfg(all(
+    feature = "icu",
+    not(all(target_os = "macos", feature = "icu_macos")),
+    not(all(target_os = "windows", feature = "icu_windows"))
+))]
 impl Clone for IcuLocalizer {
     fn clone(&self) -> Self {
         // Clone without cached formatters (they'll be recreated on demand)
@@ -1214,7 +1290,9 @@ impl Drop for IcuLocalizerHandle {
 impl core::fmt::Debug for IcuLocalizerHandle {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let inner = unsafe { &*self.ptr };
-        let default_locale = inner.default_locale.lock()
+        let default_locale = inner
+            .default_locale
+            .lock()
             .map(|g| g.clone())
             .unwrap_or_else(|_| AzString::from(""));
         f.debug_struct("IcuLocalizerHandle")
@@ -1264,7 +1342,9 @@ impl IcuLocalizerHandle {
 
     /// Get the default locale string.
     pub fn get_default_locale(&self) -> AzString {
-        self.inner().default_locale.lock()
+        self.inner()
+            .default_locale
+            .lock()
             .map(|g| g.clone())
             .unwrap_or_else(|_| AzString::from("en-US"))
     }
@@ -1312,18 +1392,17 @@ impl IcuLocalizerHandle {
     {
         let inner = self.inner();
         let blob = inner.data_blob.lock().ok().and_then(|b| b.clone());
-        inner.cache
+        inner
+            .cache
             .lock()
             .map(|mut cache| {
-                let localizer = cache
-                    .entry(locale.to_string())
-                    .or_insert_with(|| {
-                        let mut l = IcuLocalizer::new(locale);
-                        if let Some(data) = blob {
-                            l.load_data_blob(data);
-                        }
-                        l
-                    });
+                let localizer = cache.entry(locale.to_string()).or_insert_with(|| {
+                    let mut l = IcuLocalizer::new(locale);
+                    if let Some(data) = blob {
+                        l.load_data_blob(data);
+                    }
+                    l
+                });
                 f(localizer)
             })
             .unwrap_or_else(|_| fallback())
@@ -1451,7 +1530,12 @@ impl IcuLocalizerHandle {
     }
 
     /// Format a date and time according to the specified locale.
-    pub fn format_datetime(&self, locale: &str, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
+    pub fn format_datetime(
+        &self,
+        locale: &str,
+        datetime: IcuDateTime,
+        length: FormatLength,
+    ) -> IcuResult {
         self.with_localizer_or(
             locale,
             |l| l.format_datetime(datetime, length),
@@ -1473,12 +1557,10 @@ impl IcuLocalizerHandle {
     /// cache.compare_strings("sv-SE", "Äpple", "Öl")     // → -1 (Swedish: Ä before Ö)
     /// ```
     pub fn compare_strings(&self, locale: &str, a: &str, b: &str) -> i32 {
-        self.with_localizer(locale, |l| {
-            match l.compare(a, b) {
-                core::cmp::Ordering::Less => -1,
-                core::cmp::Ordering::Equal => 0,
-                core::cmp::Ordering::Greater => 1,
-            }
+        self.with_localizer(locale, |l| match l.compare(a, b) {
+            core::cmp::Ordering::Less => -1,
+            core::cmp::Ordering::Equal => 0,
+            core::cmp::Ordering::Greater => 1,
         })
     }
 
@@ -1501,11 +1583,7 @@ impl IcuLocalizerHandle {
 
     /// Check if two strings are equal according to locale collation rules.
     pub fn strings_equal(&self, locale: &str, a: &str, b: &str) -> bool {
-        self.with_localizer_or(
-            locale,
-            |l| l.strings_equal(a, b),
-            || a == b,
-        )
+        self.with_localizer_or(locale, |l| l.strings_equal(a, b), || a == b)
     }
 
     /// Get the sort key for a string (for efficient bulk sorting).
@@ -1517,14 +1595,26 @@ impl IcuLocalizerHandle {
     ///
     /// This handles the common case of "{count} {item/items}" patterns.
     /// The `{}` placeholder in the template will be replaced with the formatted number.
-    pub fn format_plural(&self, locale: &str, value: i64, zero: &str, one: &str, other: &str) -> AzString {
+    pub fn format_plural(
+        &self,
+        locale: &str,
+        value: i64,
+        zero: &str,
+        one: &str,
+        other: &str,
+    ) -> AzString {
         let template = self.pluralize(locale, value, zero, one, other, other, other, other);
         let formatted_num = self.format_integer(locale, value);
         AzString::from(template.as_str().replace("{}", formatted_num.as_str()))
     }
 
     /// Format a list of strings conveniently.
-    pub fn format_list_strings(&self, locale: &str, items: &[&str], list_type: ListType) -> AzString {
+    pub fn format_list_strings(
+        &self,
+        locale: &str,
+        items: &[&str],
+        list_type: ListType,
+    ) -> AzString {
         let az_items: Vec<AzString> = items.iter().map(|s| AzString::from(*s)).collect();
         self.format_list(locale, &az_items, list_type)
     }
@@ -1538,7 +1628,8 @@ impl IcuLocalizerHandle {
 
     /// Get the number of cached locales.
     pub fn cached_locale_count(&self) -> usize {
-        self.inner().cache
+        self.inner()
+            .cache
             .lock()
             .map(|cache| cache.len())
             .unwrap_or(0)
@@ -1546,20 +1637,27 @@ impl IcuLocalizerHandle {
 
     /// Get a list of all cached locale strings.
     pub fn cached_locales(&self) -> Vec<AzString> {
-        self.inner().cache
+        self.inner()
+            .cache
             .lock()
             .map(|cache| cache.keys().map(|k| AzString::from(k.clone())).collect())
             .unwrap_or_default()
     }
 }
 
-
 // C-compatible Vec types for FFI
 
 // OptionAzString is the same as OptionString from azul_css
 pub type OptionAzString = azul_css::OptionString;
 
-azul_css::impl_vec!(AzString, IcuStringVec, IcuStringVecDestructor, IcuStringVecDestructorType, IcuStringVecSlice, OptionAzString);
+azul_css::impl_vec!(
+    AzString,
+    IcuStringVec,
+    IcuStringVecDestructor,
+    IcuStringVecDestructorType,
+    IcuStringVecSlice,
+    OptionAzString
+);
 azul_css::impl_vec_clone!(AzString, IcuStringVec, IcuStringVecDestructor);
 azul_css::impl_vec_debug!(AzString, IcuStringVec);
 
@@ -1716,11 +1814,7 @@ impl LayoutCallbackInfoIcuExt for LayoutCallbackInfo {
 
     fn icu_format_time(&self, time: IcuTime, include_seconds: bool) -> IcuResult {
         let system_style = self.get_system_style();
-        shared_localizer_handle().format_time(
-            system_style.language.as_str(),
-            time,
-            include_seconds,
-        )
+        shared_localizer_handle().format_time(system_style.language.as_str(), time, include_seconds)
     }
 
     fn icu_format_datetime(&self, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
@@ -1804,7 +1898,7 @@ mod tests {
         let cache2 = cache.clone();
 
         assert_eq!(
-            cache.format_integer("en-US", 1000).as_str(), 
+            cache.format_integer("en-US", 1000).as_str(),
             cache2.format_integer("en-US", 1000).as_str()
         );
     }
@@ -1816,7 +1910,7 @@ mod tests {
         // Format with different locales - each should be cached separately
         let en = cache.format_integer("en-US", 1234567);
         let de = cache.format_integer("de-DE", 1234567);
-        
+
         // US uses comma, German uses period
         assert!(en.as_str().contains(','));
         assert!(de.as_str().contains('.') || de.as_str().contains('\u{a0}'));
@@ -1825,9 +1919,18 @@ mod tests {
     #[test]
     fn test_collation_compare() {
         let mut localizer = IcuLocalizer::new("en-US");
-        assert_eq!(localizer.compare("apple", "banana"), core::cmp::Ordering::Less);
-        assert_eq!(localizer.compare("banana", "apple"), core::cmp::Ordering::Greater);
-        assert_eq!(localizer.compare("apple", "apple"), core::cmp::Ordering::Equal);
+        assert_eq!(
+            localizer.compare("apple", "banana"),
+            core::cmp::Ordering::Less
+        );
+        assert_eq!(
+            localizer.compare("banana", "apple"),
+            core::cmp::Ordering::Greater
+        );
+        assert_eq!(
+            localizer.compare("apple", "apple"),
+            core::cmp::Ordering::Equal
+        );
     }
 
     #[test]
@@ -1896,13 +1999,17 @@ mod autotest_generated {
     #[test]
     fn icu_result_ok_err_round_trip_through_into_option() {
         assert_eq!(
-            IcuResult::ok("value").into_option().map(|s| s.as_str().to_string()),
+            IcuResult::ok("value")
+                .into_option()
+                .map(|s| s.as_str().to_string()),
             Some(String::from("value"))
         );
         assert_eq!(IcuResult::err("nope").into_option(), None);
         // Empty payloads are still `Ok`, not silently coerced into `None`
         assert_eq!(
-            IcuResult::ok("").into_option().map(|s| s.as_str().to_string()),
+            IcuResult::ok("")
+                .into_option()
+                .map(|s| s.as_str().to_string()),
             Some(String::new())
         );
     }
@@ -1968,7 +2075,11 @@ mod autotest_generated {
 
     #[test]
     fn icu_string_vec_round_trips_a_rust_vec() {
-        let items = vec![AzString::from("a"), AzString::from(""), AzString::from("\u{1f600}")];
+        let items = vec![
+            AzString::from("a"),
+            AzString::from(""),
+            AzString::from("\u{1f600}"),
+        ];
         let v = IcuStringVec::from(items.clone());
         assert_eq!(v.len(), 3);
         assert_eq!(v.as_slice(), items.as_slice());
@@ -1983,19 +2094,39 @@ mod autotest_generated {
 
     #[test]
     fn handle_new_stores_default_locale_verbatim() {
-        assert_eq!(IcuLocalizerHandle::new("de-DE").get_default_locale().as_str(), "de-DE");
+        assert_eq!(
+            IcuLocalizerHandle::new("de-DE")
+                .get_default_locale()
+                .as_str(),
+            "de-DE"
+        );
         // Garbage / empty locales are accepted at construction (no validation here)
-        assert_eq!(IcuLocalizerHandle::new("").get_default_locale().as_str(), "");
+        assert_eq!(
+            IcuLocalizerHandle::new("").get_default_locale().as_str(),
+            ""
+        );
         let junk = "!!! not a locale !!!";
-        assert_eq!(IcuLocalizerHandle::new(junk).get_default_locale().as_str(), junk);
+        assert_eq!(
+            IcuLocalizerHandle::new(junk).get_default_locale().as_str(),
+            junk
+        );
         // A pathologically long locale string must not panic
         let huge = "x".repeat(100_000);
-        assert_eq!(IcuLocalizerHandle::new(&huge).get_default_locale().as_str().len(), 100_000);
+        assert_eq!(
+            IcuLocalizerHandle::new(&huge)
+                .get_default_locale()
+                .as_str()
+                .len(),
+            100_000
+        );
     }
 
     #[test]
     fn handle_default_and_from_system_language_agree_with_new() {
-        assert_eq!(IcuLocalizerHandle::default().get_default_locale().as_str(), "en-US");
+        assert_eq!(
+            IcuLocalizerHandle::default().get_default_locale().as_str(),
+            "en-US"
+        );
         let h = IcuLocalizerHandle::from_system_language(&AzString::from("ja-JP"));
         assert_eq!(h.get_default_locale().as_str(), "ja-JP");
         // Empty system language (detection failure) must not panic
@@ -2009,7 +2140,10 @@ mod autotest_generated {
         let mut b = IcuLocalizerHandle::new("en-US");
         a.set_default_locale("fr-FR");
         b.set_locale("fr-FR");
-        assert_eq!(a.get_default_locale().as_str(), b.get_default_locale().as_str());
+        assert_eq!(
+            a.get_default_locale().as_str(),
+            b.get_default_locale().as_str()
+        );
         assert_eq!(a.get_default_locale().as_str(), "fr-FR");
 
         // Setting an empty / invalid locale is silently accepted
@@ -2068,7 +2202,10 @@ mod autotest_generated {
         let _ = h.get_language("EN-us");
         assert_eq!(h.cached_locale_count(), 2);
         // ...but both still resolve to the same language.
-        assert_eq!(h.get_language("en-US").as_str(), h.get_language("EN-us").as_str());
+        assert_eq!(
+            h.get_language("en-US").as_str(),
+            h.get_language("EN-us").as_str()
+        );
     }
 
     #[test]
@@ -2079,7 +2216,10 @@ mod autotest_generated {
             let s = h.format_integer(locale, 1234);
             assert!(!s.as_str().is_empty(), "empty output for locale {locale:?}");
             let lang = h.get_language(locale);
-            assert!(!lang.as_str().is_empty(), "empty language for locale {locale:?}");
+            assert!(
+                !lang.as_str().is_empty(),
+                "empty language for locale {locale:?}"
+            );
         }
     }
 
@@ -2165,7 +2305,10 @@ mod autotest_generated {
             panic!("intentional panic to poison the cache mutex");
         })
         .join();
-        assert!(h.inner().cache.lock().is_err(), "cache mutex should be poisoned");
+        assert!(
+            h.inner().cache.lock().is_err(),
+            "cache mutex should be poisoned"
+        );
 
         // `with_localizer` → `R::default()`
         assert_eq!(h.cached_locale_count(), 0);
@@ -2179,11 +2322,15 @@ mod autotest_generated {
 
         // `with_localizer_or` → explicit fallbacks
         assert_eq!(
-            h.pluralize("en-US", 1, "z", "o", "t", "f", "m", "OTHER").as_str(),
+            h.pluralize("en-US", 1, "z", "o", "t", "f", "m", "OTHER")
+                .as_str(),
             "OTHER"
         );
         let items = [AzString::from("A"), AzString::from("B")];
-        assert_eq!(h.format_list("en-US", &items, ListType::And).as_str(), "A, B");
+        assert_eq!(
+            h.format_list("en-US", &items, ListType::And).as_str(),
+            "A, B"
+        );
         assert!(matches!(
             h.format_date("en-US", IcuDate::new(2025, 1, 15), FormatLength::Medium),
             IcuResult::Err(_)
@@ -2235,7 +2382,10 @@ mod autotest_generated {
     fn shared_localizer_handle_is_a_process_wide_singleton() {
         let a = shared_localizer_handle();
         let b = shared_localizer_handle();
-        assert!(core::ptr::eq(a, b), "OnceLock must hand out the same handle");
+        assert!(
+            core::ptr::eq(a, b),
+            "OnceLock must hand out the same handle"
+        );
         assert!(core::ptr::eq(a.inner(), b.inner()));
         assert_eq!(a.get_default_locale().as_str(), "en-US");
         // It is a live, usable handle (and its cache persists between calls).
@@ -2289,7 +2439,10 @@ mod autotest_generated {
         fn getters_reflect_the_parsed_locale() {
             let l = IcuLocalizer::new("en-US");
             assert_eq!(l.get_language().as_str(), "en");
-            assert_eq!(l.get_region().map(|r| r.as_str().to_string()), Some(String::from("US")));
+            assert_eq!(
+                l.get_region().map(|r| r.as_str().to_string()),
+                Some(String::from("US"))
+            );
 
             // A language-only locale has no region
             let l = IcuLocalizer::new("de");
@@ -2305,7 +2458,10 @@ mod autotest_generated {
             assert!(!l.set_locale("!!!"), "garbage locale must be rejected");
             // The failed set must not have mutated any state.
             assert_eq!(l.get_language().as_str(), "de");
-            assert_eq!(l.get_region().map(|r| r.as_str().to_string()), Some(String::from("DE")));
+            assert_eq!(
+                l.get_region().map(|r| r.as_str().to_string()),
+                Some(String::from("DE"))
+            );
             assert_eq!(l.get_locale().as_str(), "de-DE");
 
             assert!(l.set_locale("fr-FR"));
@@ -2363,11 +2519,10 @@ mod autotest_generated {
             let mut l = IcuLocalizer::new("en-US");
             for value in [i64::MIN, i64::MIN + 1, -1, 0, 1, i64::MAX - 1, i64::MAX] {
                 let s = l.format_integer(value);
-                let round_tripped: i64 = s
-                    .as_str()
-                    .replace(',', "")
-                    .parse()
-                    .unwrap_or_else(|e| panic!("cannot re-parse {:?} ({value}): {e}", s.as_str()));
+                let round_tripped: i64 =
+                    s.as_str().replace(',', "").parse().unwrap_or_else(|e| {
+                        panic!("cannot re-parse {:?} ({value}): {e}", s.as_str())
+                    });
                 assert_eq!(round_tripped, value, "lossy formatting of {value}");
             }
         }
@@ -2460,30 +2615,56 @@ mod autotest_generated {
 
         #[test]
         fn plural_category_conversion_is_exhaustive() {
-            assert_eq!(PluralCategory::from(IcuPluralCategory::Zero), PluralCategory::Zero);
-            assert_eq!(PluralCategory::from(IcuPluralCategory::One), PluralCategory::One);
-            assert_eq!(PluralCategory::from(IcuPluralCategory::Two), PluralCategory::Two);
-            assert_eq!(PluralCategory::from(IcuPluralCategory::Few), PluralCategory::Few);
-            assert_eq!(PluralCategory::from(IcuPluralCategory::Many), PluralCategory::Many);
-            assert_eq!(PluralCategory::from(IcuPluralCategory::Other), PluralCategory::Other);
+            assert_eq!(
+                PluralCategory::from(IcuPluralCategory::Zero),
+                PluralCategory::Zero
+            );
+            assert_eq!(
+                PluralCategory::from(IcuPluralCategory::One),
+                PluralCategory::One
+            );
+            assert_eq!(
+                PluralCategory::from(IcuPluralCategory::Two),
+                PluralCategory::Two
+            );
+            assert_eq!(
+                PluralCategory::from(IcuPluralCategory::Few),
+                PluralCategory::Few
+            );
+            assert_eq!(
+                PluralCategory::from(IcuPluralCategory::Many),
+                PluralCategory::Many
+            );
+            assert_eq!(
+                PluralCategory::from(IcuPluralCategory::Other),
+                PluralCategory::Other
+            );
         }
 
         #[test]
         fn pluralize_selects_the_category_string_and_substitutes_every_placeholder() {
             let mut l = IcuLocalizer::new("en-US");
             assert_eq!(
-                l.pluralize(1, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER").as_str(),
+                l.pluralize(1, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER")
+                    .as_str(),
                 "ONE"
             );
             // English has no `zero` category → 0 falls into `other`, NOT `zero`.
             assert_eq!(
-                l.pluralize(0, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER").as_str(),
+                l.pluralize(0, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER")
+                    .as_str(),
                 "OTHER"
             );
             // Every `{}` occurrence is replaced, not just the first
-            assert_eq!(l.pluralize(3, "", "", "", "", "", "{} of {}").as_str(), "3 of 3");
+            assert_eq!(
+                l.pluralize(3, "", "", "", "", "", "{} of {}").as_str(),
+                "3 of 3"
+            );
             // Templates without a placeholder are passed through untouched
-            assert_eq!(l.pluralize(7, "", "", "", "", "", "items").as_str(), "items");
+            assert_eq!(
+                l.pluralize(7, "", "", "", "", "", "items").as_str(),
+                "items"
+            );
             // Empty templates stay empty
             assert_eq!(l.pluralize(7, "", "", "", "", "", "").as_str(), "");
         }
@@ -2492,16 +2673,22 @@ mod autotest_generated {
         fn pluralize_at_the_i64_limits_substitutes_the_signed_value() {
             let mut l = IcuLocalizer::new("en-US");
             assert_eq!(
-                l.pluralize(i64::MIN, "z", "o", "t", "f", "m", "{}").as_str(),
+                l.pluralize(i64::MIN, "z", "o", "t", "f", "m", "{}")
+                    .as_str(),
                 "-9223372036854775808"
             );
             assert_eq!(
-                l.pluralize(i64::MAX, "z", "o", "t", "f", "m", "{}").as_str(),
+                l.pluralize(i64::MAX, "z", "o", "t", "f", "m", "{}")
+                    .as_str(),
                 "9223372036854775807"
             );
             // Note: the *category* uses |value|, so -1 selects `one` while the
             // substituted number keeps its sign.
-            assert_eq!(l.pluralize(-1, "z", "{} one", "t", "f", "m", "{} other").as_str(), "-1 one");
+            assert_eq!(
+                l.pluralize(-1, "z", "{} one", "t", "f", "m", "{} other")
+                    .as_str(),
+                "-1 one"
+            );
         }
 
         // ── list formatting ──
@@ -2511,15 +2698,25 @@ mod autotest_generated {
             let mut l = IcuLocalizer::new("en-US");
             for list_type in [ListType::And, ListType::Or, ListType::Unit] {
                 assert_eq!(l.format_list(&[], list_type).as_str(), "");
-                assert_eq!(l.format_list(&[AzString::from("A")], list_type).as_str(), "A");
+                assert_eq!(
+                    l.format_list(&[AzString::from("A")], list_type).as_str(),
+                    "A"
+                );
             }
         }
 
         #[test]
         fn format_list_uses_the_right_conjunction() {
             let mut l = IcuLocalizer::new("en-US");
-            let items = [AzString::from("A"), AzString::from("B"), AzString::from("C")];
-            assert!(l.format_list(&items, ListType::And).as_str().contains("and"));
+            let items = [
+                AzString::from("A"),
+                AzString::from("B"),
+                AzString::from("C"),
+            ];
+            assert!(l
+                .format_list(&items, ListType::And)
+                .as_str()
+                .contains("and"));
             assert!(l.format_list(&items, ListType::Or).as_str().contains("or"));
             // Unit lists are a plain comma join (documented TODO in the impl)
             assert_eq!(l.format_list(&items, ListType::Unit).as_str(), "A, B, C");
@@ -2576,7 +2773,11 @@ mod autotest_generated {
         fn format_date_formats_all_lengths_for_a_valid_date() {
             let mut l = IcuLocalizer::new("en-US");
             let date = IcuDate::new(2025, 1, 15);
-            for length in [FormatLength::Short, FormatLength::Medium, FormatLength::Long] {
+            for length in [
+                FormatLength::Short,
+                FormatLength::Medium,
+                FormatLength::Long,
+            ] {
                 match l.format_date(date, length) {
                     IcuResult::Ok(s) => {
                         assert!(s.as_str().contains("15"), "no day in {:?}", s.as_str());
@@ -2638,8 +2839,12 @@ mod autotest_generated {
                 }
             }
             // Seconds only show up when asked for
-            let with = l.format_time(IcuTime::new(16, 30, 45), true).unwrap_or(AzString::from(""));
-            let without = l.format_time(IcuTime::new(16, 30, 45), false).unwrap_or(AzString::from(""));
+            let with = l
+                .format_time(IcuTime::new(16, 30, 45), true)
+                .unwrap_or(AzString::from(""));
+            let without = l
+                .format_time(IcuTime::new(16, 30, 45), false)
+                .unwrap_or(AzString::from(""));
             assert!(with.as_str().contains("45"));
             assert!(!without.as_str().contains("45"));
         }
@@ -2675,9 +2880,22 @@ mod autotest_generated {
         #[test]
         fn compare_is_reflexive_and_antisymmetric() {
             let mut l = IcuLocalizer::new("en-US");
-            let words = ["", "a", "A", "z", "\u{e9}", "\u{1f600}", "a\0b", "stra\u{df}e"];
+            let words = [
+                "",
+                "a",
+                "A",
+                "z",
+                "\u{e9}",
+                "\u{1f600}",
+                "a\0b",
+                "stra\u{df}e",
+            ];
             for a in words {
-                assert_eq!(l.compare(a, a), core::cmp::Ordering::Equal, "not reflexive: {a:?}");
+                assert_eq!(
+                    l.compare(a, a),
+                    core::cmp::Ordering::Equal,
+                    "not reflexive: {a:?}"
+                );
                 for b in words {
                     assert_eq!(
                         l.compare(a, b),

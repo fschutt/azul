@@ -217,7 +217,10 @@ pub fn tail_token(
         forced: false,
     }];
     children.extend(
-        later_in_flow_siblings.map(|child| ChildBreakEntry::BreakBefore { child, forced: false }),
+        later_in_flow_siblings.map(|child| ChildBreakEntry::BreakBefore {
+            child,
+            forced: false,
+        }),
     );
     BreakToken::Block(BlockBreakToken {
         node,
@@ -383,7 +386,10 @@ mod break_token_laws {
             7,
             120.5,
             vec![
-                ChildBreakEntry::BreakBefore { child: 3, forced: false },
+                ChildBreakEntry::BreakBefore {
+                    child: 3,
+                    forced: false,
+                },
                 ChildBreakEntry::ResumeIn {
                     child: 2,
                     token: Box::new(inline(4, vec![tab(0, 9, 12.0)])),
@@ -480,12 +486,7 @@ mod break_token_laws {
         cursor.partial_remainder = vec![tab(0, 1, 4.0)];
 
         let token = InlineBreakToken::from_cursor(&cursor);
-        let resumed = token.resume(
-            &items,
-            cursor.word_break,
-            cursor.hyphens,
-            cursor.line_break,
-        );
+        let resumed = token.resume(&items, cursor.word_break, cursor.hyphens, cursor.line_break);
 
         assert_eq!(resumed.next_item_index, cursor.next_item_index);
         assert_eq!(resumed.partial_remainder, cursor.partial_remainder);
@@ -522,7 +523,10 @@ mod break_token_laws {
         assert_eq!(fragment_fit(0.0, 100.0, 100.0, 100.0, false), Fits);
         assert_eq!(fragment_fit(50.0, 50.005, 100.0, 100.0, true), Fits);
         // Mid-page overflow with content already placed: break before.
-        assert_eq!(fragment_fit(80.0, 40.0, 100.0, 100.0, true), BreakBeforeHere);
+        assert_eq!(
+            fragment_fit(80.0, 40.0, 100.0, 100.0, true),
+            BreakBeforeHere
+        );
         // First content, uniform pages, taller than a page: monolith.
         assert_eq!(
             fragment_fit(0.0, 250.0, 100.0, 100.0, false),
@@ -558,9 +562,18 @@ mod break_token_laws {
         assert_eq!(
             b.children,
             vec![
-                ChildBreakEntry::BreakBefore { child: 7, forced: false },
-                ChildBreakEntry::BreakBefore { child: 9, forced: false },
-                ChildBreakEntry::BreakBefore { child: 12, forced: false },
+                ChildBreakEntry::BreakBefore {
+                    child: 7,
+                    forced: false
+                },
+                ChildBreakEntry::BreakBefore {
+                    child: 9,
+                    forced: false
+                },
+                ChildBreakEntry::BreakBefore {
+                    child: 12,
+                    forced: false
+                },
             ]
         );
         // Consumer side: resume starts exactly at the breaking child.
@@ -593,7 +606,10 @@ mod break_token_laws {
                     child: 1,
                     token: Box::new(inline(2, vec![])),
                 },
-                ChildBreakEntry::BreakBefore { child: 2, forced: false },
+                ChildBreakEntry::BreakBefore {
+                    child: 2,
+                    forced: false,
+                },
             ],
         );
         let after_child_finished = block(
@@ -614,7 +630,10 @@ mod break_token_laws {
                     child: 1,
                     token: Box::new(inline(3, vec![])),
                 },
-                ChildBreakEntry::BreakBefore { child: 2, forced: false },
+                ChildBreakEntry::BreakBefore {
+                    child: 2,
+                    forced: false,
+                },
             ],
         );
         assert_ne!(before, after_items_consumed);

@@ -144,7 +144,10 @@ pub fn generate_types(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
 // ============================================================================
 
 fn emit_opaque(b: &mut CodeBuilder, ffi_name: &str, orig: &str) {
-    b.line(&format!("const {} = Ptr{{Cvoid}} # opaque: {}", ffi_name, orig));
+    b.line(&format!(
+        "const {} = Ptr{{Cvoid}} # opaque: {}",
+        ffi_name, orig
+    ));
     b.blank();
 }
 

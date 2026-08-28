@@ -401,7 +401,9 @@ fn fn_body(src: &str, sig: &str, file: &str) -> String {
         )
     });
     let rest = &src[start..];
-    let open = rest.find('{').expect("a function signature is followed by a body");
+    let open = rest
+        .find('{')
+        .expect("a function signature is followed by a body");
     let mut depth = 0usize;
     for (offset, ch) in rest[open..].char_indices() {
         match ch {
@@ -454,7 +456,8 @@ fn mapped_codes(body: &str) -> Vec<(String, u32)> {
 /// order.
 fn platform_tables() -> Vec<(&'static str, Vec<(String, u32)>)> {
     let mut win32 = mapped_codes(&fn_body(COMMON_EVENT_SRC, WIN32_FN, "common/event.rs"));
-    for (variant, count) in mapped_codes(&fn_body(COMMON_EVENT_SRC, WIN32_OEM_FN, "common/event.rs"))
+    for (variant, count) in
+        mapped_codes(&fn_body(COMMON_EVENT_SRC, WIN32_OEM_FN, "common/event.rs"))
     {
         match win32.iter_mut().find(|(name, _)| *name == variant) {
             Some((_, n)) => *n += count,
@@ -470,10 +473,7 @@ fn platform_tables() -> Vec<(&'static str, Vec<(String, u32)>)> {
             "X11 + Wayland (linux/x11/events.rs::keysym_to_virtual_keycode)",
             mapped_codes(&fn_body(X11_EVENTS_SRC, X11_FN, "linux/x11/events.rs")),
         ),
-        (
-            "Win32 (common/event.rs::win32_vkey_to_virtual_key)",
-            win32,
-        ),
+        ("Win32 (common/event.rs::win32_vkey_to_virtual_key)", win32),
     ]
 }
 
@@ -573,7 +573,10 @@ fn every_virtual_key_code_is_in_the_manifest_or_exempt() {
         .map(|row| row.0)
         .filter(|name| EXEMPT.iter().any(|(exempt, _)| exempt == name))
         .collect();
-    assert!(both.is_empty(), "listed in BOTH MANIFEST and EXEMPT: {both:?}");
+    assert!(
+        both.is_empty(),
+        "listed in BOTH MANIFEST and EXEMPT: {both:?}"
+    );
 }
 
 #[test]

@@ -65,15 +65,14 @@ fn primitive_layout(name: &str) -> Option<AbiLayout> {
     // Must classify identically to `map_type_to_fortran` so the emitted
     // Fortran field decl and the computed layout can never disagree.
     Some(match name {
-        "bool" | "GLboolean" | "i8" | "u8" | "c_char" | "char" | "c_uchar" => {
-            AbiLayout::new(1, 1)
-        }
+        "bool" | "GLboolean" | "i8" | "u8" | "c_char" | "char" | "c_uchar" => AbiLayout::new(1, 1),
         "i16" | "u16" => AbiLayout::new(2, 2),
         "i32" | "u32" | "c_int" | "c_uint" | "GLint" | "GLuint" | "GLenum" | "GLbitfield"
         | "GLsizei" | "f32" | "GLfloat" | "GLclampf" => AbiLayout::new(4, 4),
         "i64" | "u64" | "GLint64" | "GLuint64" | "f64" | "GLdouble" | "GLclampd" | "usize"
-        | "size_t" | "uintptr_t" | "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr"
-        | "GLintptr" => AbiLayout::new(8, 8),
+        | "size_t" | "uintptr_t" | "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr" | "GLintptr" => {
+            AbiLayout::new(8, 8)
+        }
         _ => return None,
     })
 }

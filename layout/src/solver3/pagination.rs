@@ -90,7 +90,8 @@ impl Default for CounterFormat {
 
 impl CounterFormat {
     /// Format a number according to this counter style.
-    #[must_use] pub fn format(&self, n: usize) -> String {
+    #[must_use]
+    pub fn format(&self, n: usize) -> String {
         use super::counters::{to_alphabetic, to_greek, to_roman};
         match self {
             Self::Decimal => n.to_string(),
@@ -126,14 +127,15 @@ pub struct PageInfo {
 
 impl PageInfo {
     /// Create `PageInfo` for a specific page.
-    #[must_use] pub const fn new(page_number: usize, total_pages: usize) -> Self {
+    #[must_use]
+    pub const fn new(page_number: usize, total_pages: usize) -> Self {
         Self {
             page_number,
             total_pages,
             is_first: page_number == 1,
             is_last: total_pages > 0 && page_number == total_pages,
             is_left: page_number.is_multiple_of(2), // Even pages are left (verso)
-            is_right: page_number % 2 == 1, // Odd pages are right (recto)
+            is_right: page_number % 2 == 1,         // Odd pages are right (recto)
             is_blank: false,
         }
     }
@@ -194,7 +196,8 @@ impl Default for HeaderFooterConfig {
 
 impl HeaderFooterConfig {
     /// Create a config with page numbers in the footer.
-    #[must_use] pub fn with_page_numbers() -> Self {
+    #[must_use]
+    pub fn with_page_numbers() -> Self {
         Self {
             show_footer: true,
             footer_content: MarginBoxContent::Combined(vec![
@@ -208,7 +211,8 @@ impl HeaderFooterConfig {
     }
 
     /// Create a config with page numbers in both header and footer.
-    #[must_use] pub fn with_header_and_footer_page_numbers() -> Self {
+    #[must_use]
+    pub fn with_header_and_footer_page_numbers() -> Self {
         Self {
             show_header: true,
             show_footer: true,
@@ -246,7 +250,8 @@ impl HeaderFooterConfig {
     // `&self` is only reached via the recursive Combined arm; it is kept because this is a
     // public method and converting to an associated fn would break the `x.generate_content(..)` API.
     #[allow(clippy::only_used_in_recursion)]
-    #[must_use] pub fn generate_content(&self, content: &MarginBoxContent, info: PageInfo) -> String {
+    #[must_use]
+    pub fn generate_content(&self, content: &MarginBoxContent, info: PageInfo) -> String {
         match content {
             MarginBoxContent::None => String::new(),
             MarginBoxContent::Text(s) => s.clone(),
@@ -276,7 +281,8 @@ impl HeaderFooterConfig {
     }
 
     /// Get the header text for a specific page.
-    #[must_use] pub fn header_text(&self, info: PageInfo) -> String {
+    #[must_use]
+    pub fn header_text(&self, info: PageInfo) -> String {
         if !self.show_header {
             return String::new();
         }
@@ -287,7 +293,8 @@ impl HeaderFooterConfig {
     }
 
     /// Get the footer text for a specific page.
-    #[must_use] pub fn footer_text(&self, info: PageInfo) -> String {
+    #[must_use]
+    pub fn footer_text(&self, info: PageInfo) -> String {
         if !self.show_footer {
             return String::new();
         }
@@ -391,12 +398,14 @@ impl Default for FakePageConfig {
 
 impl FakePageConfig {
     /// Create a new empty configuration (no headers/footers).
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Enable footer with "Page X of Y" format.
-    #[must_use] pub const fn with_footer_page_numbers(mut self) -> Self {
+    #[must_use]
+    pub const fn with_footer_page_numbers(mut self) -> Self {
         self.show_footer = true;
         self.footer_page_number = true;
         self.footer_total_pages = true;
@@ -404,14 +413,16 @@ impl FakePageConfig {
     }
 
     /// Enable header with "Page X" format.
-    #[must_use] pub const fn with_header_page_numbers(mut self) -> Self {
+    #[must_use]
+    pub const fn with_header_page_numbers(mut self) -> Self {
         self.show_header = true;
         self.header_page_number = true;
         self
     }
 
     /// Enable both header and footer with page numbers.
-    #[must_use] pub const fn with_header_and_footer_page_numbers(mut self) -> Self {
+    #[must_use]
+    pub const fn with_header_and_footer_page_numbers(mut self) -> Self {
         self.show_header = true;
         self.show_footer = true;
         self.header_page_number = true;
@@ -437,37 +448,43 @@ impl FakePageConfig {
     }
 
     /// Set the number format for page counters.
-    #[must_use] pub const fn with_number_format(mut self, format: CounterFormat) -> Self {
+    #[must_use]
+    pub const fn with_number_format(mut self, format: CounterFormat) -> Self {
         self.number_format = format;
         self
     }
 
     /// Skip header/footer on the first page.
-    #[must_use] pub const fn skip_first_page(mut self, skip: bool) -> Self {
+    #[must_use]
+    pub const fn skip_first_page(mut self, skip: bool) -> Self {
         self.skip_first_page = skip;
         self
     }
 
     /// Set header height.
-    #[must_use] pub const fn with_header_height(mut self, height: f32) -> Self {
+    #[must_use]
+    pub const fn with_header_height(mut self, height: f32) -> Self {
         self.header_height = height;
         self
     }
 
     /// Set footer height.
-    #[must_use] pub const fn with_footer_height(mut self, height: f32) -> Self {
+    #[must_use]
+    pub const fn with_footer_height(mut self, height: f32) -> Self {
         self.footer_height = height;
         self
     }
 
     /// Set font size for header/footer text.
-    #[must_use] pub const fn with_font_size(mut self, size: f32) -> Self {
+    #[must_use]
+    pub const fn with_font_size(mut self, size: f32) -> Self {
         self.font_size = size;
         self
     }
 
     /// Set text color for header/footer.
-    #[must_use] pub const fn with_text_color(mut self, color: ColorU) -> Self {
+    #[must_use]
+    pub const fn with_text_color(mut self, color: ColorU) -> Self {
         self.text_color = color;
         self
     }
@@ -476,7 +493,8 @@ impl FakePageConfig {
     ///
     /// This is the bridge between the user-facing API and the internal
     /// pagination engine.
-    #[must_use] pub fn to_header_footer_config(&self) -> HeaderFooterConfig {
+    #[must_use]
+    pub fn to_header_footer_config(&self) -> HeaderFooterConfig {
         HeaderFooterConfig {
             show_header: self.show_header,
             show_footer: self.show_footer,
@@ -577,7 +595,8 @@ pub struct TableHeaderTracker {
 }
 
 impl TableHeaderTracker {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
@@ -595,7 +614,8 @@ impl TableHeaderTracker {
     /// thead below the previous). The slicer now uses
     /// [`Self::straddling_tables_for_page`] and places theads X-aware
     /// (side-by-side tables keep their own column, nested ones stack).
-    #[must_use] pub fn get_repeated_headers_for_page(
+    #[must_use]
+    pub fn get_repeated_headers_for_page(
         &self,
         page_index: usize,
         page_top_y: f32,
@@ -616,7 +636,8 @@ impl TableHeaderTracker {
     /// above, still continuing) — the ones whose thead must repeat here.
     /// Two SIBLING tables can only both straddle when they sit side by side
     /// (or nested); the slicer decides placement from their x-extents.
-    #[must_use] pub fn straddling_tables_for_page(
+    #[must_use]
+    pub fn straddling_tables_for_page(
         &self,
         page_index: usize,
         page_top_y: f32,
@@ -629,9 +650,7 @@ impl TableHeaderTracker {
         }
         self.tables
             .iter()
-            .filter(|table| {
-                table.table_start_y < page_top_y && table.table_end_y > page_top_y
-            })
+            .filter(|table| table.table_start_y < page_top_y && table.table_end_y > page_top_y)
             .collect()
     }
 }
@@ -671,8 +690,7 @@ impl PageSetup {
         } else {
             0.0
         };
-        (self.page_size.height - self.margins.top - self.margins.bottom - header - footer)
-            .max(0.0)
+        (self.page_size.height - self.margins.top - self.margins.bottom - header - footer).max(0.0)
     }
 
     /// Content width = page width − horizontal margins.
@@ -879,7 +897,10 @@ pub fn collect_table_headers(
         let mut thead = None;
         let mut current = Some(node);
         while let Some(n) = current {
-            match node_data.get(n).map(azul_core::dom::NodeData::get_node_type) {
+            match node_data
+                .get(n)
+                .map(azul_core::dom::NodeData::get_node_type)
+            {
                 Some(NodeType::THead) if thead.is_none() => thead = Some(n),
                 Some(NodeType::Table) => {
                     table = Some(n);
@@ -887,7 +908,9 @@ pub fn collect_table_headers(
                 }
                 _ => {}
             }
-            current = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            current = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         let result = (table, thead);
         owner_cache.insert(node, result);
@@ -900,7 +923,9 @@ pub fn collect_table_headers(
         let Some(node) = display_list.node_mapping.get(idx).copied().flatten() else {
             continue;
         };
-        let Some(bounds) = item.bounds() else { continue };
+        let Some(bounds) = item.bounds() else {
+            continue;
+        };
         let (table, thead) = classify(node);
         let Some(table) = table else { continue };
         let acc = per_table.entry(table).or_insert(Acc {
@@ -932,10 +957,7 @@ pub fn collect_table_headers(
             .thead_items
             .iter()
             .map(|&i| {
-                super::display_list::offset_display_item_y(
-                    &display_list.items[i],
-                    -acc.thead_top,
-                )
+                super::display_list::offset_display_item_y(&display_list.items[i], -acc.thead_top)
             })
             .collect();
         tracker.register_table_header(TableHeaderInfo {
@@ -971,7 +993,10 @@ pub fn collect_table_row_ranges(
         let mut row = None;
         let mut current = Some(node);
         while let Some(n) = current {
-            match node_data.get(n).map(azul_core::dom::NodeData::get_node_type) {
+            match node_data
+                .get(n)
+                .map(azul_core::dom::NodeData::get_node_type)
+            {
                 Some(NodeType::Tr) => {
                     row = Some(n);
                     break;
@@ -979,7 +1004,9 @@ pub fn collect_table_row_ranges(
                 Some(NodeType::Table) => break, // rows don't escape their table
                 _ => {}
             }
-            current = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            current = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         owner_cache.insert(node, row);
         row
@@ -990,8 +1017,12 @@ pub fn collect_table_row_ranges(
         let Some(node) = display_list.node_mapping.get(idx).copied().flatten() else {
             continue;
         };
-        let Some(bounds) = item.bounds() else { continue };
-        let Some(row) = owning_row(node) else { continue };
+        let Some(bounds) = item.bounds() else {
+            continue;
+        };
+        let Some(row) = owning_row(node) else {
+            continue;
+        };
         let top = bounds.origin.y;
         let bottom = bounds.origin.y + bounds.size.height;
         per_row
@@ -1270,7 +1301,10 @@ mod autotest_generated {
     fn page_info_is_last_is_false_when_the_total_is_unknown() {
         // total_pages == 0 means "unknown during the first pass" — nothing is last.
         for n in [0_usize, 1, 7, usize::MAX] {
-            assert!(!PageInfo::new(n, 0).is_last, "page {n} of 0 claimed is_last");
+            assert!(
+                !PageInfo::new(n, 0).is_last,
+                "page {n} of 0 claimed is_last"
+            );
         }
     }
 
@@ -1294,7 +1328,10 @@ mod autotest_generated {
     #[test]
     fn page_info_usize_max_extremes_do_not_overflow() {
         let info = PageInfo::new(usize::MAX, usize::MAX);
-        assert!(info.is_last, "the final page of a MAX-page document is last");
+        assert!(
+            info.is_last,
+            "the final page of a MAX-page document is last"
+        );
         assert!(!info.is_first);
         assert!(info.is_right, "usize::MAX is odd");
         let single = PageInfo::new(1, 1);
@@ -1320,7 +1357,10 @@ mod autotest_generated {
     fn header_footer_with_page_numbers_only_enables_the_footer() {
         let cfg = HeaderFooterConfig::with_page_numbers();
         assert!(cfg.show_footer);
-        assert!(!cfg.show_header, "with_page_numbers must not enable a header");
+        assert!(
+            !cfg.show_header,
+            "with_page_numbers must not enable a header"
+        );
         assert_eq!(cfg.footer_text(PageInfo::new(2, 7)), "Page 2 of 7");
         assert_eq!(cfg.header_text(PageInfo::new(2, 7)), "");
     }
@@ -1340,10 +1380,7 @@ mod autotest_generated {
         assert_eq!(cfg.footer_text(info), "Page 3 of 10");
         // Extremes must not panic or produce truncated numbers.
         let extreme = PageInfo::new(usize::MAX, usize::MAX);
-        assert_eq!(
-            cfg.header_text(extreme),
-            format!("Page {}", usize::MAX)
-        );
+        assert_eq!(cfg.header_text(extreme), format!("Page {}", usize::MAX));
     }
 
     #[test]
@@ -1410,7 +1447,10 @@ mod autotest_generated {
             cfg.generate_content(&MarginBoxContent::Text(String::new()), info),
             ""
         );
-        assert_eq!(cfg.generate_content(&MarginBoxContent::PageCounter, info), "4");
+        assert_eq!(
+            cfg.generate_content(&MarginBoxContent::PageCounter, info),
+            "4"
+        );
         assert_eq!(
             cfg.generate_content(&MarginBoxContent::PagesCounter, info),
             "9"
@@ -1476,7 +1516,10 @@ mod autotest_generated {
             content,
             MarginBoxContent::Text("]".to_string()),
         ]);
-        assert_eq!(cfg.generate_content(&combined, PageInfo::new(2, 5)), "[2/5]");
+        assert_eq!(
+            cfg.generate_content(&combined, PageInfo::new(2, 5)),
+            "[2/5]"
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
@@ -1829,7 +1872,9 @@ mod autotest_generated {
                 f32::NAN,
             ] {
                 assert!(
-                    tracker.get_repeated_headers_for_page(page_index, y, y).is_empty(),
+                    tracker
+                        .get_repeated_headers_for_page(page_index, y, y)
+                        .is_empty(),
                     "empty tracker produced a header at page {page_index}, y={y}"
                 );
             }
@@ -1973,8 +2018,13 @@ mod autotest_generated {
         // straddles) repeat it.
         let mut tracker = TableHeaderTracker::new();
         tracker.register_table_header(table(0.0, 500.0, 20.0));
-        assert!(tracker.get_repeated_headers_for_page(0, 100.0, 900.0).is_empty());
-        assert_eq!(tracker.get_repeated_headers_for_page(1, 100.0, 900.0).len(), 1);
+        assert!(tracker
+            .get_repeated_headers_for_page(0, 100.0, 900.0)
+            .is_empty());
+        assert_eq!(
+            tracker.get_repeated_headers_for_page(1, 100.0, 900.0).len(),
+            1
+        );
         assert_eq!(
             tracker
                 .get_repeated_headers_for_page(usize::MAX, 100.0, 900.0)

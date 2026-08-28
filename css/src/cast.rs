@@ -215,7 +215,15 @@ mod autotest_generated {
         for v in [i32::MIN, i32::MIN + 1, -1, 0, 1, i32::MAX - 1, i32::MAX] {
             assert!(i32_to_f32(v).is_finite());
         }
-        for v in [isize::MIN, isize::MIN + 1, -1, 0, 1, isize::MAX - 1, isize::MAX] {
+        for v in [
+            isize::MIN,
+            isize::MIN + 1,
+            -1,
+            0,
+            1,
+            isize::MAX - 1,
+            isize::MAX,
+        ] {
             assert!(isize_to_f32(v).is_finite());
         }
         for v in [0_usize, 1, usize::MAX - 1, usize::MAX] {
@@ -312,12 +320,24 @@ mod autotest_generated {
 
     #[test]
     fn signed_and_unsigned_paths_agree_where_the_ranges_overlap() {
-        for v in [0.0_f32, 1.0, 0.5, 42.7, 65_535.0, 16_777_216.0, 2_147_483_520.0] {
+        for v in [
+            0.0_f32,
+            1.0,
+            0.5,
+            42.7,
+            65_535.0,
+            16_777_216.0,
+            2_147_483_520.0,
+        ] {
             assert_eq!(f32_to_u32(v), f32_to_i32(v) as u32, "disagreement at {v}");
             assert_eq!(f32_to_isize(v), f32_to_i32(v) as isize);
         }
         for v in [0_i32, 1, -1, 12_345, i32::MIN, i32::MAX] {
-            assert_eq!(i32_to_f32(v), isize_to_f32(v as isize), "disagreement at {v}");
+            assert_eq!(
+                i32_to_f32(v),
+                isize_to_f32(v as isize),
+                "disagreement at {v}"
+            );
         }
     }
 

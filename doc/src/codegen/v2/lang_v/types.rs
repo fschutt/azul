@@ -107,7 +107,10 @@ pub fn generate_types(
 fn emit_opaque(b: &mut CodeBuilder, ffi_name: &str, orig: &str) {
     // Pointer-sized alias so by-pointer references still resolve (the type
     // is only ever reached through a `Box`/pointer in these categories).
-    b.line(&format!("pub type {} = voidptr // opaque: {}", ffi_name, orig));
+    b.line(&format!(
+        "pub type {} = voidptr // opaque: {}",
+        ffi_name, orig
+    ));
     b.blank();
 }
 

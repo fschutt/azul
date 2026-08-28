@@ -275,11 +275,9 @@ mod tests {
     #[test]
     fn a_file_list_encodes_to_one_item_per_file() {
         let files = rich_clipboard::FileList::of_paths(["/tmp/a.txt", "/tmp/b.txt", "/tmp/c.txt"]);
-        let payload = rich_clipboard::encode(
-            &rich_clipboard::RichItem::Files(files),
-            Platform::MacOs,
-        )
-        .expect("a file list is publishable on macOS");
+        let payload =
+            rich_clipboard::encode(&rich_clipboard::RichItem::Files(files), Platform::MacOs)
+                .expect("a file list is publishable on macOS");
 
         assert_eq!(
             payload.item_count(),

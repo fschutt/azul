@@ -10,8 +10,8 @@
 //! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
 //! provides programmatic control over page decoration as a temporary solution.
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use crate::debug_log;
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::collections::BTreeMap;
 
 use azul_core::{
@@ -28,10 +28,8 @@ use crate::{
     font_traits::{ParsedFontTrait, TextLayoutCache},
     paged::FragmentationContext,
     solver3::{
-        cache::LayoutCache,
-        display_list::DisplayList,
-        pagination::FakePageConfig,
-        LayoutContext, LayoutError, Result,
+        cache::LayoutCache, display_list::DisplayList, pagination::FakePageConfig, LayoutContext,
+        LayoutError, Result,
     },
 };
 
@@ -227,10 +225,24 @@ where
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
     layout_document_paged_impl(
-        cache, text_cache, fragmentation_context, new_dom, viewport, font_manager,
-        scroll_offsets, debug_messages, gpu_value_cache, renderer_resources,
-        id_namespace, dom_id, font_loader, page_config, image_cache,
-        get_system_time_fn, print_timing, true,
+        cache,
+        text_cache,
+        fragmentation_context,
+        new_dom,
+        viewport,
+        font_manager,
+        scroll_offsets,
+        debug_messages,
+        gpu_value_cache,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+        font_loader,
+        page_config,
+        image_cache,
+        get_system_time_fn,
+        print_timing,
+        true,
     )
 }
 
@@ -324,10 +336,12 @@ where
             let platform = azul_css::system::Platform::current();
 
             let chains = collect_and_resolve_font_chains_with_registration(
-                new_dom, &font_manager.fc_cache, font_manager, &platform,
+                new_dom,
+                &font_manager.fc_cache,
+                font_manager,
+                &platform,
             );
-            let t_resolve =
-                t0.map(|t0| azul_core::task::Instant::now().duration_since(&t0));
+            let t_resolve = t0.map(|t0| azul_core::task::Instant::now().duration_since(&t0));
 
             let required_fonts = collect_font_ids_from_chains(&chains);
             let already_loaded = font_manager.get_loaded_font_ids();
@@ -470,7 +484,7 @@ where
     let mut counter_values = cache.counters.clone();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx = LayoutContext {
-            reflowed_ifcs: std::collections::BTreeSet::new(),
+        reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
@@ -480,8 +494,8 @@ where
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: Some(&mut fragmentation_context),
-        cursor_is_visible: true, // Paged layout: cursor always visible
-        cursor_locations: Vec::new(),   // Paged layout: no cursor
+        cursor_is_visible: true,      // Paged layout: cursor always visible
+        cursor_locations: Vec::new(), // Paged layout: no cursor
         preedit_text: None,
         cache_map: std::mem::take(&mut cache.cache_map),
         image_cache,
@@ -704,7 +718,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     let mut counter_values = std::collections::HashMap::new();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
-            reflowed_ifcs: std::collections::BTreeSet::new(),
+        reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
@@ -714,8 +728,8 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: Some(fragmentation_context),
-        cursor_is_visible: true, // Paged layout: cursor always visible
-        cursor_locations: Vec::new(),   // Paged layout: no cursor
+        cursor_is_visible: true,      // Paged layout: cursor always visible
+        cursor_locations: Vec::new(), // Paged layout: no cursor
         preedit_text: None,
         cache_map: cache::LayoutCacheMap::default(),
         image_cache,
@@ -767,7 +781,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
-            reflowed_ifcs: std::collections::BTreeSet::new(),
+        reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
         styled_dom: new_dom,
@@ -777,8 +791,8 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: Some(fragmentation_context),
-        cursor_is_visible: true, // Paged layout: cursor always visible
-        cursor_locations: Vec::new(),   // Paged layout: no cursor
+        cursor_is_visible: true,      // Paged layout: cursor always visible
+        cursor_locations: Vec::new(), // Paged layout: no cursor
         preedit_text: None,
         cache_map,
         image_cache,
@@ -881,7 +895,10 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         );
 
         if reflow_needed_for_scrollbars {
-            debug_log!(ctx, "Scrollbars changed container size, starting full reflow...");
+            debug_log!(
+                ctx,
+                "Scrollbars changed container size, starting full reflow..."
+            );
             recon_result.layout_roots.clear();
             recon_result.layout_roots.insert(new_tree.root);
             recon_result.intrinsic_dirty = (0..new_tree.nodes.len()).collect();
@@ -914,7 +931,8 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     let cache_map_back = std::mem::take(&mut ctx.cache_map);
 
     cache.tree = Some(new_tree);
-    cache.previous_positions = std::mem::replace(&mut cache.calculated_positions, calculated_positions);
+    cache.previous_positions =
+        std::mem::replace(&mut cache.calculated_positions, calculated_positions);
     cache.viewport = Some(viewport);
     cache.scroll_ids = scroll_ids;
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
@@ -946,7 +964,11 @@ impl SectionedPaginationInfo {
     /// Total page count across all sections.
     #[must_use]
     pub fn page_count(&self) -> usize {
-        self.sections.iter().map(|s| s.info.page_count).sum::<usize>().max(1)
+        self.sections
+            .iter()
+            .map(|s| s.info.page_count)
+            .sum::<usize>()
+            .max(1)
     }
 }
 
@@ -966,7 +988,10 @@ pub fn spine_path_at_y(
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let depth_of = |mut n: NodeId| -> u32 {
         let mut d = 0;
-        while let Some(p) = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+        while let Some(p) = hierarchy
+            .get(n)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        {
             d += 1;
             n = p;
         }
@@ -975,8 +1000,12 @@ pub fn spine_path_at_y(
 
     let mut best: Option<(f32, u32, NodeId)> = None;
     for idx in 0..tree.nodes.len() {
-        let Some(node) = tree.get(LayoutNodeId::new(idx)) else { continue };
-        let Some(dom_id) = node.dom_node_id else { continue };
+        let Some(node) = tree.get(LayoutNodeId::new(idx)) else {
+            continue;
+        };
+        let Some(dom_id) = node.dom_node_id else {
+            continue;
+        };
         if !crate::solver3::layout_tree::is_block_level(styled_dom, dom_id) {
             continue;
         }
@@ -1000,7 +1029,10 @@ pub fn spine_path_at_y(
     // Child-index path root → node.
     let mut path: Vec<u32> = Vec::new();
     let mut cur = node;
-    while let Some(parent) = hierarchy.get(cur).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+    while let Some(parent) = hierarchy
+        .get(cur)
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+    {
         let mut i: u32 = 0;
         let mut c = hierarchy.get(parent).and_then(|h| h.first_child_id(parent));
         while let Some(cc) = c {
@@ -1029,8 +1061,7 @@ fn materialize_sequence_tail(
     first_page: usize,
     scan: usize,
 ) -> crate::solver3::pagination::PageSequence {
-    let mut out =
-        crate::solver3::pagination::PageSequence::uniform(seq.default.clone());
+    let mut out = crate::solver3::pagination::PageSequence::uniform(seq.default.clone());
     for local in 0..scan {
         let setup = seq.setup_for_page(first_page + local);
         // Geometry decides pagination; decoration differences don't need an
@@ -1102,7 +1133,9 @@ where
         .retained_author_css
         .clone();
 
-    let mut out = SectionedPaginationInfo { sections: Vec::new() };
+    let mut out = SectionedPaginationInfo {
+        sections: Vec::new(),
+    };
     // The working document: exact styled_dom for section 0; reconstructed +
     // cut tails afterwards. The reconstruction happens lazily (only when a
     // second section actually receives content).
@@ -1160,7 +1193,10 @@ where
 
         // Section overflows its page budget: cut at the end of its last page
         // and flow the tail into the next section at ITS width.
-        let cut_y = info.breaks.get(budget - 1).map_or(info.total_content_height, |b| b.y);
+        let cut_y = info
+            .breaks
+            .get(budget - 1)
+            .map_or(info.total_content_height, |b| b.y);
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
         let spine = spine_path_at_y(tree, &cache.calculated_positions, section_styled, cut_y);
 
@@ -1312,7 +1348,11 @@ mod autotest_generated {
     }
 
     /// Number of pages for a fresh, default-configured paged layout.
-    fn page_count(fragmentation_context: FragmentationContext, dom: &StyledDom, vp: LogicalRect) -> usize {
+    fn page_count(
+        fragmentation_context: FragmentationContext,
+        dom: &StyledDom,
+        vp: LogicalRect,
+    ) -> usize {
         run(fragmentation_context, dom, vp, FakePageConfig::new())
             .expect("paged layout must not fail")
             .len()
@@ -1346,7 +1386,12 @@ mod autotest_generated {
     }
 
     fn tree_node_count(cache: &LayoutCache) -> usize {
-        cache.tree.as_ref().expect("layout must cache a tree").nodes.len()
+        cache
+            .tree
+            .as_ref()
+            .expect("layout must cache a tree")
+            .nodes
+            .len()
     }
 
     // ---------------------------------------------------------------------
@@ -1550,7 +1595,10 @@ mod autotest_generated {
         )
         .expect("a negative viewport must not fail layout");
 
-        assert!(!pages.is_empty(), "layout must always emit at least one page");
+        assert!(
+            !pages.is_empty(),
+            "layout must always emit at least one page"
+        );
     }
 
     #[test]
@@ -1563,7 +1611,10 @@ mod autotest_generated {
         )
         .expect("a NaN viewport must not fail layout");
 
-        assert!(!pages.is_empty(), "layout must always emit at least one page");
+        assert!(
+            !pages.is_empty(),
+            "layout must always emit at least one page"
+        );
     }
 
     #[test]
@@ -1678,7 +1729,11 @@ mod autotest_generated {
         let first = run(frag, &dom, vp, FakePageConfig::new()).expect("layout must not fail");
         let second = run(frag, &dom, vp, FakePageConfig::new()).expect("layout must not fail");
 
-        assert_eq!(first.len(), second.len(), "page count must be deterministic");
+        assert_eq!(
+            first.len(),
+            second.len(),
+            "page count must be deterministic"
+        );
         assert_eq!(
             item_counts(&first),
             item_counts(&second),
@@ -1810,7 +1865,11 @@ mod autotest_generated {
             !cache.calculated_positions.is_empty(),
             "positions must be cached alongside the tree"
         );
-        assert_eq!(cache.viewport, Some(vp), "the layout viewport must be recorded");
+        assert_eq!(
+            cache.viewport,
+            Some(vp),
+            "the layout viewport must be recorded"
+        );
         assert!(
             crate::solver3::pos_get(&cache.calculated_positions, 0).is_some(),
             "the root node must have a position"
@@ -1831,7 +1890,11 @@ mod autotest_generated {
         // Second pass takes the "cache is clean" early-exit branch.
         compute(&mut cache, &mut frag, &dom, vp).expect("second layout must not fail");
 
-        assert_eq!(tree_node_count(&cache), nodes, "relayout changed the tree size");
+        assert_eq!(
+            tree_node_count(&cache),
+            nodes,
+            "relayout changed the tree size"
+        );
         assert_eq!(
             cache.calculated_positions, positions,
             "relayout of an unchanged DOM moved nodes"
@@ -2113,8 +2176,12 @@ fn spine_layout_hit_at_y(
     };
     let mut best: Option<(u32, usize, f32)> = None;
     for idx in 0..tree.nodes.len() {
-        let Some(node) = tree.get(LayoutNodeId::new(idx)) else { continue };
-        let Some(dom_id) = node.dom_node_id else { continue };
+        let Some(node) = tree.get(LayoutNodeId::new(idx)) else {
+            continue;
+        };
+        let Some(dom_id) = node.dom_node_id else {
+            continue;
+        };
         if !crate::solver3::layout_tree::is_block_level(styled_dom, dom_id) {
             continue;
         }
@@ -2139,7 +2206,8 @@ fn spine_layout_hit_at_y(
 /// in the block's content box. `None` when the break sits at a block
 /// boundary, the block has no inline layout, or every line is below `y`
 /// (then the whole block moves — the block-granular contract).
-#[must_use] pub fn spine_line_start_at_y(
+#[must_use]
+pub fn spine_line_start_at_y(
     tree: &crate::solver3::layout_tree::LayoutTree,
     positions: &crate::solver3::PositionVec,
     styled_dom: &StyledDom,
@@ -2187,8 +2255,7 @@ fn spine_line_start_sparse(
     // atomic; a break AT a line top moves that line). Identify it purely by
     // LINE TOPS — per-item heights are not trustworthy on this path — as
     // the line with the largest top not above the break.
-    let mut line_tops: BTreeMap<usize, f32> =
-        BTreeMap::new();
+    let mut line_tops: BTreeMap<usize, f32> = BTreeMap::new();
     for item in &layout.items {
         let entry = line_tops.entry(item.line_index).or_insert(f32::MAX);
         *entry = entry.min(item.position.y);
@@ -2252,7 +2319,11 @@ fn spine_line_start_dense(
             top = top.min(base - DenseText::resolved_run_ascent(r));
             ci = r.clusters.end.max(ci + 1);
         }
-        if top == f32::MAX { l.baseline_y } else { top }
+        if top == f32::MAX {
+            l.baseline_y
+        } else {
+            top
+        }
     };
     let straddler = dense
         .lines
@@ -2372,9 +2443,22 @@ where
         + Copy,
 {
     Ok(layout_document_tokenized_from(
-        cache, text_cache, new_dom, viewport, font_manager, debug_messages,
-        image_cache, get_system_time_fn, font_loader, renderer_resources,
-        id_namespace, dom_id, page_height, max_pages, None, None,
+        cache,
+        text_cache,
+        new_dom,
+        viewport,
+        font_manager,
+        debug_messages,
+        image_cache,
+        get_system_time_fn,
+        font_loader,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+        page_height,
+        max_pages,
+        None,
+        None,
     )?
     .pages)
 }
@@ -2454,7 +2538,10 @@ where
             let _p = crate::probe::Probe::span("font_chain_resolve");
             let platform = azul_css::system::Platform::current();
             let chains = collect_and_resolve_font_chains_with_registration(
-                new_dom, &font_manager.fc_cache, font_manager, &platform,
+                new_dom,
+                &font_manager.fc_cache,
+                font_manager,
+                &platform,
             );
             let required = collect_font_ids_from_chains(&chains);
             let loaded = font_manager.get_loaded_font_ids();
@@ -2579,9 +2666,7 @@ where
         // PROGRESS GUARD (the NG infinite-loop class): an outgoing token
         // identical to the incoming one means the page consumed nothing.
         let stalled = match (&incoming, &outgoing) {
-            (Some(a), Some(b)) => {
-                token_fingerprint(a) == token_fingerprint(b) && a == b
-            }
+            (Some(a), Some(b)) => token_fingerprint(a) == token_fingerprint(b) && a == b,
             _ => false,
         };
         pages.push(TokenizedPage {
@@ -2603,9 +2688,7 @@ where
             let abs_page = base + page_idx;
             if let Some(cached_outgoing) = cached.outgoing.get(abs_page) {
                 let same = match (cached_outgoing, &outgoing) {
-                    (Some(a), Some(b)) => {
-                        token_fingerprint(a) == token_fingerprint(b) && a == b
-                    }
+                    (Some(a), Some(b)) => token_fingerprint(a) == token_fingerprint(b) && a == b,
                     (None, None) => true,
                     _ => false,
                 };
@@ -2619,7 +2702,11 @@ where
 
         incoming = outgoing;
     }
-    Ok(PageLoopOutcome { pages, laid_out, converged_at })
+    Ok(PageLoopOutcome {
+        pages,
+        laid_out,
+        converged_at,
+    })
 }
 
 /// K34: re-paginate from `first_dirty_page`, stopping as soon as the run
@@ -2672,12 +2759,27 @@ where
         && first_dirty_page < token_cache.pages.len();
     if !usable {
         let pages = layout_document_tokenized(
-            cache, text_cache, new_dom, viewport, font_manager, debug_messages,
-            image_cache, get_system_time_fn, font_loader, renderer_resources,
-            id_namespace, dom_id, page_height, max_pages,
+            cache,
+            text_cache,
+            new_dom,
+            viewport,
+            font_manager,
+            debug_messages,
+            image_cache,
+            get_system_time_fn,
+            font_loader,
+            renderer_resources,
+            id_namespace,
+            dom_id,
+            page_height,
+            max_pages,
         )?;
         let laid_out = pages.len();
-        return Ok(IncrementalPagination { pages, laid_out, converged_at: None });
+        return Ok(IncrementalPagination {
+            pages,
+            laid_out,
+            converged_at: None,
+        });
     }
 
     // Pages before the dirty one are untouched by definition.
@@ -2691,9 +2793,19 @@ where
     };
 
     let tail = layout_document_tokenized_from(
-        cache, text_cache, new_dom, viewport, font_manager, debug_messages,
-        image_cache, get_system_time_fn, font_loader, renderer_resources,
-        id_namespace, dom_id, page_height,
+        cache,
+        text_cache,
+        new_dom,
+        viewport,
+        font_manager,
+        debug_messages,
+        image_cache,
+        get_system_time_fn,
+        font_loader,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+        page_height,
         max_pages.saturating_sub(first_dirty_page),
         resume_token,
         Some((token_cache, first_dirty_page)),
@@ -2702,7 +2814,11 @@ where
     let laid_out = tail.laid_out;
     let converged_at = tail.converged_at;
     pages.extend(tail.pages);
-    Ok(IncrementalPagination { pages, laid_out, converged_at })
+    Ok(IncrementalPagination {
+        pages,
+        laid_out,
+        converged_at,
+    })
 }
 
 /// The per-page delta of a re-estimation, for the editor's lazy re-break

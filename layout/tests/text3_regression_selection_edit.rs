@@ -7,7 +7,6 @@
 //! Fake metrics @ size 20: 'a'/'b'/'c' 600u => 12px · space 250u => 5px ·
 //! Hebrew 550u => 11px · U+0301 combining => 0px (stays in its base cluster).
 
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,9 +19,9 @@ use azul_layout::font::parsed::ParsedFont;
 use azul_layout::parsed_font_to_font_ref;
 use azul_layout::text3::cache::{
     create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent, LoadedFonts,
-    OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
-    UnifiedLayout,
+    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+    UnifiedConstraints, UnifiedLayout,
 };
 use azul_layout::text3::edit::{delete_backward, delete_forward, edit_text, insert_text, TextEdit};
 use azul_layout::text3::selection::{select_paragraph_at_cursor, select_word_at_cursor};
@@ -77,7 +76,10 @@ fn layout_content(
 
     let logical = create_logical_items(content, &[], &mut None);
     if logical.is_empty() {
-        return UnifiedLayout { items: Vec::new(), overflow: OverflowInfo::default() };
+        return UnifiedLayout {
+            items: Vec::new(),
+            overflow: OverflowInfo::default(),
+        };
     }
     let base_dir = constraints.direction.unwrap_or(BidiDirection::Ltr);
     let visual = reorder_logical_items(&logical, base_dir, UnicodeBidi::Normal, &mut None)
@@ -96,7 +98,10 @@ fn layout(text: &str, width: AvailableSpace) -> UnifiedLayout {
     layout_content(
         &content,
         &font_ref,
-        &UnifiedConstraints { available_width: width, ..UnifiedConstraints::default() },
+        &UnifiedConstraints {
+            available_width: width,
+            ..UnifiedConstraints::default()
+        },
     )
 }
 
@@ -116,14 +121,20 @@ fn layout_rtl(text: &str) -> UnifiedLayout {
 
 fn cursor_at(byte: u32, affinity: CursorAffinity) -> TextCursor {
     TextCursor {
-        cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: byte },
+        cluster_id: GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: byte,
+        },
         affinity,
     }
 }
 
 fn cursor_at2(run: u32, byte: u32, affinity: CursorAffinity) -> TextCursor {
     TextCursor {
-        cluster_id: GraphemeClusterId { source_run: run, start_byte_in_run: byte },
+        cluster_id: GraphemeClusterId {
+            source_run: run,
+            start_byte_in_run: byte,
+        },
         affinity,
     }
 }
@@ -132,7 +143,10 @@ fn max_content_width(content: &[InlineContent], font_ref: &FontRef) -> f32 {
     let l = layout_content(
         content,
         font_ref,
-        &UnifiedConstraints { available_width: AvailableSpace::MaxContent, ..UnifiedConstraints::default() },
+        &UnifiedConstraints {
+            available_width: AvailableSpace::MaxContent,
+            ..UnifiedConstraints::default()
+        },
     );
     let mut mn = f32::MAX;
     let mut mx = f32::MIN;
@@ -142,7 +156,11 @@ fn max_content_width(content: &[InlineContent], font_ref: &FontRef) -> f32 {
             mx = mx.max(it.position.x + c.advance);
         }
     }
-    if mx < mn { 0.0 } else { mx - mn }
+    if mx < mn {
+        0.0
+    } else {
+        mx - mn
+    }
 }
 
 fn text_of(content: &[InlineContent]) -> String {
@@ -165,7 +183,10 @@ fn caret_right_skips_over_combining_mark() {
     // start must land on the NEXT grapheme ('b' at byte 3), never the mark byte 1.
     let l = layout("a\u{0301}bc", AvailableSpace::MaxContent);
     let moved = l.move_cursor_right(cursor_at(0, CursorAffinity::Leading), &mut None);
-    assert_eq!(moved.cluster_id.start_byte_in_run, 3, "right must skip the whole 'á' cluster");
+    assert_eq!(
+        moved.cluster_id.start_byte_in_run, 3,
+        "right must skip the whole 'á' cluster"
+    );
 }
 
 #[test]
@@ -174,7 +195,10 @@ fn caret_left_skips_over_combining_mark() {
     // never the interior combining-mark byte 1.
     let l = layout("a\u{0301}bc", AvailableSpace::MaxContent);
     let moved = l.move_cursor_left(cursor_at(3, CursorAffinity::Leading), &mut None);
-    assert_eq!(moved.cluster_id.start_byte_in_run, 0, "left must land on the 'á' cluster start");
+    assert_eq!(
+        moved.cluster_id.start_byte_in_run, 0,
+        "left must land on the 'á' cluster start"
+    );
 }
 
 #[test]
@@ -183,8 +207,15 @@ fn caret_down_preserves_column_onto_next_line() {
     // lands on line 1. @60px each word is its own line, so it reaches the 2nd word (byte 5).
     let l = layout("aaaa aaaa aaaa", AvailableSpace::Definite(60.0));
     let mut goal_x = None;
-    let moved = l.move_cursor_down(cursor_at(0, CursorAffinity::Leading), &mut goal_x, &mut None);
-    assert_eq!(moved.cluster_id.start_byte_in_run, 5, "down must reach the 2nd word on line 1");
+    let moved = l.move_cursor_down(
+        cursor_at(0, CursorAffinity::Leading),
+        &mut goal_x,
+        &mut None,
+    );
+    assert_eq!(
+        moved.cluster_id.start_byte_in_run, 5,
+        "down must reach the 2nd word on line 1"
+    );
 }
 
 #[test]
@@ -209,10 +240,14 @@ fn caret_from_x_ltr_leading_and_trailing_halves() {
     // Hit-testing: the left half of a glyph yields Leading, the right half Trailing.
     // 'a' spans 0..12 (mid 6). x=4 => byte 0 Leading; x=9 => byte 0 Trailing.
     let l = layout("abc", AvailableSpace::MaxContent);
-    let lead = l.hittest_cursor(LogicalPosition::new(4.0, 8.0)).expect("caret");
+    let lead = l
+        .hittest_cursor(LogicalPosition::new(4.0, 8.0))
+        .expect("caret");
     assert_eq!(lead.cluster_id.start_byte_in_run, 0);
     assert_eq!(lead.affinity, CursorAffinity::Leading);
-    let trail = l.hittest_cursor(LogicalPosition::new(9.0, 8.0)).expect("caret");
+    let trail = l
+        .hittest_cursor(LogicalPosition::new(9.0, 8.0))
+        .expect("caret");
     assert_eq!(trail.cluster_id.start_byte_in_run, 0);
     assert_eq!(trail.affinity, CursorAffinity::Trailing);
 }
@@ -222,12 +257,22 @@ fn caret_from_x_rtl_maps_visual_to_logical() {
     // Hit-testing in RTL "אבג": visual x runs ג@0..11, ב@11..22, א@22..33. A click on
     // the visually-leftmost glyph resolves to the LAST logical char (ג, byte 4).
     let l = layout_rtl("אבג");
-    let left = l.hittest_cursor(LogicalPosition::new(2.0, 8.0)).expect("caret");
-    assert_eq!(left.cluster_id.start_byte_in_run, 4, "leftmost visual glyph is ג (byte 4)");
+    let left = l
+        .hittest_cursor(LogicalPosition::new(2.0, 8.0))
+        .expect("caret");
+    assert_eq!(
+        left.cluster_id.start_byte_in_run, 4,
+        "leftmost visual glyph is ג (byte 4)"
+    );
     assert_eq!(left.affinity, CursorAffinity::Leading);
     // A click deep in the visually-rightmost glyph resolves to the FIRST logical char.
-    let right = l.hittest_cursor(LogicalPosition::new(31.0, 8.0)).expect("caret");
-    assert_eq!(right.cluster_id.start_byte_in_run, 0, "rightmost visual glyph is א (byte 0)");
+    let right = l
+        .hittest_cursor(LogicalPosition::new(31.0, 8.0))
+        .expect("caret");
+    assert_eq!(
+        right.cluster_id.start_byte_in_run, 0,
+        "rightmost visual glyph is א (byte 0)"
+    );
     assert_eq!(right.affinity, CursorAffinity::Trailing);
 }
 
@@ -240,11 +285,15 @@ fn cursor_rect_leading_and_trailing_x() {
     // Caret geometry: a Leading caret on byte 1 sits at x=12; a Trailing caret at
     // x=24. Both are 1px wide and span the 20px line box.
     let l = layout("abc", AvailableSpace::MaxContent);
-    let lead: LogicalRect = l.get_cursor_rect(&cursor_at(1, CursorAffinity::Leading)).expect("rect");
+    let lead: LogicalRect = l
+        .get_cursor_rect(&cursor_at(1, CursorAffinity::Leading))
+        .expect("rect");
     assert_px(lead.origin.x, 12.0);
     assert_px(lead.size.width, 1.0);
     assert_px(lead.size.height, 20.0);
-    let trail: LogicalRect = l.get_cursor_rect(&cursor_at(1, CursorAffinity::Trailing)).expect("rect");
+    let trail: LogicalRect = l
+        .get_cursor_rect(&cursor_at(1, CursorAffinity::Trailing))
+        .expect("rect");
     assert_px(trail.origin.x, 24.0);
 }
 
@@ -269,13 +318,20 @@ fn selection_over_ltr_rtl_boundary_splits_into_two_rects() {
     let l = layout_content(
         &make_content("aaאב", &fake_font_ref()),
         &fake_font_ref(),
-        &UnifiedConstraints { available_width: AvailableSpace::MaxContent, ..UnifiedConstraints::default() },
+        &UnifiedConstraints {
+            available_width: AvailableSpace::MaxContent,
+            ..UnifiedConstraints::default()
+        },
     );
     let rects = l.get_selection_rects(&SelectionRange {
         start: cursor_at(0, CursorAffinity::Leading),
         end: cursor_at(4, CursorAffinity::Trailing),
     });
-    assert!(rects.len() >= 2, "bidi selection must split into >= 2 visual rects, got {}", rects.len());
+    assert!(
+        rects.len() >= 2,
+        "bidi selection must split into >= 2 visual rects, got {}",
+        rects.len()
+    );
 }
 
 #[test]
@@ -293,7 +349,8 @@ fn select_paragraph_covers_whole_line() {
     // Line selection: on a single-line layout the paragraph selection spans the first
     // (byte 0) through the last (byte 2) cluster.
     let l = layout("abc", AvailableSpace::MaxContent);
-    let range = select_paragraph_at_cursor(&cursor_at(1, CursorAffinity::Leading), &l).expect("line");
+    let range =
+        select_paragraph_at_cursor(&cursor_at(1, CursorAffinity::Leading), &l).expect("line");
     assert_eq!(range.start.cluster_id.start_byte_in_run, 0);
     assert_eq!(range.end.cluster_id.start_byte_in_run, 2);
 }
@@ -308,7 +365,10 @@ fn delete_forward_removes_whole_grapheme() {
     let content = make_content("a\u{0301}b", &fake_font_ref());
     let (edited, _c) = delete_forward(&content, &cursor_at(0, CursorAffinity::Leading));
     assert_eq!(text_of(&edited), "b");
-    assert!(!text_of(&edited).contains('\u{0301}'), "no orphan combining mark");
+    assert!(
+        !text_of(&edited).contains('\u{0301}'),
+        "no orphan combining mark"
+    );
 }
 
 #[test]
@@ -321,7 +381,11 @@ fn backspace_at_end_of_run_deletes_last_grapheme() {
         make_content("bb", &font_ref).remove(0),
     ];
     let (edited, cursor) = delete_backward(&content, &cursor_at2(0, 2, CursorAffinity::Trailing));
-    assert_eq!(text_of(&edited), "abb", "backspace at the run seam deletes run 0's last char");
+    assert_eq!(
+        text_of(&edited),
+        "abb",
+        "backspace at the run seam deletes run 0's last char"
+    );
     assert_eq!(cursor.cluster_id.source_run, 0);
 }
 
@@ -357,10 +421,14 @@ fn cursor_rect_rtl_leading_sits_at_glyph_right_edge() {
     // RIGHT side. In "אבג" the first logical char א is the visually-rightmost
     // glyph (x 22..33), so a Leading caret on it sits at x=33, not the left x=22.
     let l = layout_rtl("אבג");
-    let rect = l.get_cursor_rect(&cursor_at(0, CursorAffinity::Leading)).expect("rect");
+    let rect = l
+        .get_cursor_rect(&cursor_at(0, CursorAffinity::Leading))
+        .expect("rect");
     assert_px(rect.origin.x, 33.0);
     // Its Trailing (logical-end) edge is the mirror: the glyph's LEFT side.
-    let trail = l.get_cursor_rect(&cursor_at(0, CursorAffinity::Trailing)).expect("rect");
+    let trail = l
+        .get_cursor_rect(&cursor_at(0, CursorAffinity::Trailing))
+        .expect("rect");
     assert_px(trail.origin.x, 22.0);
 }
 
@@ -385,14 +453,21 @@ fn multiline_rtl_selection_fills_lines_in_reading_order() {
         start: cursor_at(0, CursorAffinity::Leading),
         end: cursor_at(11, CursorAffinity::Trailing),
     });
-    assert_eq!(rects.len(), 2, "adjacent 2-line selection => start-line + end-line rect");
+    assert_eq!(
+        rects.len(),
+        2,
+        "adjacent 2-line selection => start-line + end-line rect"
+    );
     // Start line: filled from the start cursor (right edge, x=33) leftward to x=0.
     assert_px(rects[0].origin.x, 0.0);
     assert_px(rects[0].size.width, 33.0);
     // End line: filled to the end cursor (left edge, x=0) — a full word too.
     assert_px(rects[1].origin.x, 0.0);
     assert_px(rects[1].size.width, 33.0);
-    assert!((rects[0].origin.y - rects[1].origin.y).abs() > 1.0, "the two rects span two lines");
+    assert!(
+        (rects[0].origin.y - rects[1].origin.y).abs() > 1.0,
+        "the two rects span two lines"
+    );
 }
 
 #[test]
@@ -419,7 +494,11 @@ fn caret_right_reaches_document_end_and_left_returns_to_start() {
         ],
         "three Rights reach byte1, byte2, then the document end (byte2 Trailing)"
     );
-    assert_eq!(l.move_cursor_right(c, &mut None), c, "Right at the document end is a no-op");
+    assert_eq!(
+        l.move_cursor_right(c, &mut None),
+        c,
+        "Right at the document end is a no-op"
+    );
     let backward: Vec<(u32, CursorAffinity)> = (0..3)
         .map(|_| {
             c = l.move_cursor_left(c, &mut None);
@@ -435,8 +514,15 @@ fn caret_right_reaches_document_end_and_left_returns_to_start() {
         ],
         "three Lefts return through byte2, byte1, to the document start (byte0 Leading)"
     );
-    assert_eq!(c, start, "walking right to the end then left returns to the start");
-    assert_eq!(l.move_cursor_left(c, &mut None), c, "Left at the document start is a no-op");
+    assert_eq!(
+        c, start,
+        "walking right to the end then left returns to the start"
+    );
+    assert_eq!(
+        l.move_cursor_left(c, &mut None),
+        c,
+        "Left at the document start is a no-op"
+    );
 }
 
 #[test]

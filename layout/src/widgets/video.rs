@@ -89,7 +89,8 @@ pub struct VideoWidget {
 
 impl VideoWidget {
     /// Create a video widget for the given config.
-    #[must_use] pub const fn create(config: VideoConfig) -> Self {
+    #[must_use]
+    pub const fn create(config: VideoConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -126,7 +127,8 @@ impl VideoWidget {
     /// decode a clip up front (e.g. `decode_mp4_h264_bytes`) get real pixels on
     /// screen. The `RefAny` must carry a `Vec<VideoFrame>`, else playback is
     /// skipped and the test pattern shows instead.
-    #[must_use] pub fn with_frames(mut self, frames: RefAny) -> Self {
+    #[must_use]
+    pub fn with_frames(mut self, frames: RefAny) -> Self {
         self.frames = Some(frames).into();
         self
     }
@@ -180,7 +182,8 @@ impl VideoWidget {
     /// Build the widget's DOM: a single `<img>` node a background thread keeps
     /// fed. Replays pre-decoded [`with_frames`](Self::with_frames) if given, else
     /// shows the built-in test pattern.
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         self.build_dom(None)
     }
 
@@ -192,7 +195,8 @@ impl VideoWidget {
     /// frames). The standard worker is
     /// `azul_dll::desktop::extra::video_codec::stream::video_decode_worker`; wrap
     /// it in a `ThreadCallback` to pass it here.
-    #[must_use] pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
+    #[must_use]
+    pub fn dom_with_decoder(self, cb: ThreadCallback) -> Dom {
         self.build_dom(Some(cb))
     }
 }
@@ -220,28 +224,29 @@ extern "C" fn video_widget_render(
     {
         OptionDom::None
     } else {
-        data.downcast_ref::<VideoWidgetState>().map_or(OptionDom::None, |s| {
-            s.current_frame.as_ref().map_or_else(
-                || {
-                    // Poster / "no signal" placeholder. Returning None here
-                    // rendered NOTHING, so a decoder that never produced a
-                    // frame (missing video-native feature, non-x86_64 target,
-                    // Vulkan init failure, network stall) was
-                    // indistinguishable from a black video — the shipped
-                    // azul-video "black frame" bug. A dead pipeline must be
-                    // visibly dead.
-                    OptionDom::Some(Dom::create_div().with_css(
-                        "width: 100%; height: 100%; background: #2a2a30; \
+        data.downcast_ref::<VideoWidgetState>()
+            .map_or(OptionDom::None, |s| {
+                s.current_frame.as_ref().map_or_else(
+                    || {
+                        // Poster / "no signal" placeholder. Returning None here
+                        // rendered NOTHING, so a decoder that never produced a
+                        // frame (missing video-native feature, non-x86_64 target,
+                        // Vulkan init failure, network stall) was
+                        // indistinguishable from a black video — the shipped
+                        // azul-video "black frame" bug. A dead pipeline must be
+                        // visibly dead.
+                        OptionDom::Some(Dom::create_div().with_css(
+                            "width: 100%; height: 100%; background: #2a2a30; \
                          border: 1px solid #44444c;",
-                    ))
-                },
-                |img| {
-                    OptionDom::Some(
-                        Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
-                    )
-                },
-            )
-        })
+                        ))
+                    },
+                    |img| {
+                        OptionDom::Some(
+                            Dom::create_image(img.clone()).with_css("width: 100%; height: 100%;"),
+                        )
+                    },
+                )
+            })
     };
     VirtualViewReturn {
         dom,
@@ -288,7 +293,11 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
     } else if let Some(frames) = frames {
         info.add_thread(
             ThreadId::unique(),
-            Thread::create(frames, data.clone(), ThreadCallback::new(video_replay_worker)),
+            Thread::create(
+                frames,
+                data.clone(),
+                ThreadCallback::new(video_replay_worker),
+            ),
         );
     } else {
         info.add_thread(
@@ -377,7 +386,11 @@ extern "C" fn video_test_worker(_init: RefAny, mut sender: ThreadSender, _recv: 
 /// texture. `init` is the `RefAny` handed to
 /// [`VideoWidget::with_frames`](VideoWidget::with_frames); if it doesn't hold a
 /// non-empty `Vec<VideoFrame>` the worker just returns.
-extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _recv: ThreadReceiver) {
+extern "C" fn video_replay_worker(
+    mut init: RefAny,
+    mut sender: ThreadSender,
+    _recv: ThreadReceiver,
+) {
     let frames: Vec<VideoFrame> = match init.downcast_ref::<Vec<VideoFrame>>() {
         Some(f) => f.clone(),
         None => return,
@@ -406,12 +419,15 @@ extern "C" fn video_replay_worker(mut init: RefAny, mut sender: ThreadSender, _r
 ///
 /// Renders on cpurender AND
 /// webrender (no GL `present_frame`, no DOM rebuild).
-#[must_use] pub extern "C" fn video_writeback(
+#[must_use]
+pub extern "C" fn video_writeback(
     mut writeback_data: RefAny,
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let hook = writeback_data.downcast_ref::<VideoWidgetState>().map_or_else(|| OptionOnVideoFrame::None, |s| s.on_frame.clone());
+    let hook = writeback_data
+        .downcast_ref::<VideoWidgetState>()
+        .map_or_else(|| OptionOnVideoFrame::None, |s| s.on_frame.clone());
     let mut user_update = Update::DoNothing;
     match frame_data.downcast_ref::<VideoFrame>() {
         Some(frame) => {
@@ -476,7 +492,9 @@ extern "C" fn merge_video_state(mut new_data: RefAny, mut old_data: RefAny) -> R
             // re-resolves/demuxes/decodes the new source); the frame swaps in when ready.
             if old_g.config.source != new_g.config.source {
                 if let Some(snd) = old_g.seek_sender.as_ref() {
-                    drop(snd.send(ThreadSendMsg::Custom(RefAny::new(new_g.config.source.clone()))));
+                    drop(snd.send(ThreadSendMsg::Custom(RefAny::new(
+                        new_g.config.source.clone(),
+                    ))));
                 }
             }
             // Adopt the app-driven config; keep every worker-facing field
@@ -594,7 +612,9 @@ mod autotest_generated {
             config(file_source("/tmp/clip.mp4"), -1.0),
             // unicode: emoji + CJK + RTL + a combining mark in the path.
             config(
-                file_source("/tmp/\u{1F3AC}-\u{5F71}\u{7247}-\u{0631}\u{0645}\u{0632}-e\u{0301}.mp4"),
+                file_source(
+                    "/tmp/\u{1F3AC}-\u{5F71}\u{7247}-\u{0631}\u{0645}\u{0632}-e\u{0301}.mp4",
+                ),
                 f32::NAN,
             ),
             config(bytes_source(Vec::new()), f32::INFINITY),
@@ -895,7 +915,11 @@ mod autotest_generated {
     // ==================================================================
 
     /// Runs `f` against a `VirtualViewCallbackInfo` reporting `w x h` bounds.
-    fn with_virtual_view_info<R>(w: f32, h: f32, f: impl FnOnce(VirtualViewCallbackInfo) -> R) -> R {
+    fn with_virtual_view_info<R>(
+        w: f32,
+        h: f32,
+        f: impl FnOnce(VirtualViewCallbackInfo) -> R,
+    ) -> R {
         let fonts = FcFontCache::default();
         let images = ImageCache::default();
         let size = LogicalSize::new(w, h);
@@ -966,7 +990,9 @@ mod autotest_generated {
         }
         let rows_identical = row_len == 0
             || bytes.len() < row_len
-            || bytes.chunks_exact(row_len).all(|row| row == &bytes[..row_len]);
+            || bytes
+                .chunks_exact(row_len)
+                .all(|row| row == &bytes[..row_len]);
         SentFrame {
             width: f.width,
             height: f.height,
@@ -1032,8 +1058,11 @@ mod autotest_generated {
 
     fn receiver(terminate: bool) -> (Sender<ThreadSendMsg>, ThreadReceiver) {
         let (tx, rx) = channel::<ThreadSendMsg>();
-        let cb: extern "C" fn(*const core::ffi::c_void) -> OptionThreadSendMsg =
-            if terminate { recv_terminate } else { recv_nothing };
+        let cb: extern "C" fn(*const core::ffi::c_void) -> OptionThreadSendMsg = if terminate {
+            recv_terminate
+        } else {
+            recv_nothing
+        };
         let receiver = ThreadReceiver::new(ThreadReceiverInner {
             ptr: Box::new(rx),
             recv_fn: ThreadRecvCallback { cb },
@@ -1054,9 +1083,7 @@ mod autotest_generated {
         accept: usize,
         terminate: bool,
     ) -> Vec<SentFrame> {
-        let _gate = WORKER_GATE
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let _gate = WORKER_GATE.lock().unwrap_or_else(PoisonError::into_inner);
         WORKER_LOG
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -1143,16 +1170,17 @@ mod autotest_generated {
     #[test]
     fn with_on_frame_installs_the_hook_and_keeps_the_config() {
         for cfg in all_configs() {
-            let widget = VideoWidget::create(cfg.clone())
-                .with_on_frame(frame_log(Update::DoNothing), record_frame as OnVideoFrameCallbackType);
+            let widget = VideoWidget::create(cfg.clone()).with_on_frame(
+                frame_log(Update::DoNothing),
+                record_frame as OnVideoFrameCallbackType,
+            );
 
             assert_same_config(&widget.config, &cfg);
             let OptionOnVideoFrame::Some(hook) = &widget.on_frame else {
                 panic!("with_on_frame must install a hook");
             };
             assert_eq!(
-                hook.callback.cb as usize,
-                record_frame as OnVideoFrameCallbackType as usize,
+                hook.callback.cb as usize, record_frame as OnVideoFrameCallbackType as usize,
                 "the installed hook must be exactly the one handed in"
             );
             assert!(
@@ -1178,8 +1206,7 @@ mod autotest_generated {
             panic!("hook must still be set");
         };
         assert_eq!(
-            hook.callback.cb as usize,
-            frame_do_nothing as OnVideoFrameCallbackType as usize,
+            hook.callback.cb as usize, frame_do_nothing as OnVideoFrameCallbackType as usize,
             "the second set_on_frame must replace the first"
         );
         let mut data = hook.refany.clone();
@@ -1238,8 +1265,7 @@ mod autotest_generated {
             .with_frames(RefAny::new(Vec::<VideoFrame>::new()));
         assert_eq!(widget_frames(&empty), Some(Vec::new()));
 
-        let foreign =
-            VideoWidget::create(VideoConfig::default()).with_frames(RefAny::new(0_u32));
+        let foreign = VideoWidget::create(VideoConfig::default()).with_frames(RefAny::new(0_u32));
         assert!(
             matches!(foreign.frames, OptionRefAny::Some(_)),
             "the builder stores whatever it is given"
@@ -1255,9 +1281,15 @@ mod autotest_generated {
     fn builder_order_does_not_matter() {
         let a = VideoWidget::create(config(file_source("/a.mp4"), 1.0))
             .with_frames(RefAny::new(vec![frame(3, 3)]))
-            .with_on_frame(frame_log(Update::DoNothing), record_frame as OnVideoFrameCallbackType);
+            .with_on_frame(
+                frame_log(Update::DoNothing),
+                record_frame as OnVideoFrameCallbackType,
+            );
         let b = VideoWidget::create(config(file_source("/a.mp4"), 1.0))
-            .with_on_frame(frame_log(Update::DoNothing), record_frame as OnVideoFrameCallbackType)
+            .with_on_frame(
+                frame_log(Update::DoNothing),
+                record_frame as OnVideoFrameCallbackType,
+            )
             .with_frames(RefAny::new(vec![frame(3, 3)]));
 
         assert_same_config(&a.config, &b.config);
@@ -1344,7 +1376,10 @@ mod autotest_generated {
     fn dom_moves_the_hook_and_the_replay_list_into_the_state() {
         let dom = VideoWidget::create(VideoConfig::default())
             .with_frames(RefAny::new(vec![frame(6, 7)]))
-            .with_on_frame(frame_log(Update::DoNothing), record_frame as OnVideoFrameCallbackType)
+            .with_on_frame(
+                frame_log(Update::DoNothing),
+                record_frame as OnVideoFrameCallbackType,
+            )
             .dom();
 
         let mut dataset = dom.root.get_dataset().cloned().expect("dataset");
@@ -1436,7 +1471,8 @@ mod autotest_generated {
             (f32::INFINITY, 600.0),
             (800.0, f32::NEG_INFINITY),
         ] {
-            let ret = with_virtual_view_info(w, h, |info| video_widget_render(dataset.clone(), info));
+            let ret =
+                with_virtual_view_info(w, h, |info| video_widget_render(dataset.clone(), info));
             assert!(
                 rendered_nothing(&ret),
                 "bounds {w}x{h} must render nothing until layout settles - even with a frame ready"
@@ -1447,8 +1483,9 @@ mod autotest_generated {
     #[test]
     fn render_with_a_wrong_typed_dataset_emits_no_dom() {
         let dataset = RefAny::new(0_u32);
-        let ret =
-            with_virtual_view_info(800.0, 600.0, |info| video_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(800.0, 600.0, |info| {
+            video_widget_render(dataset.clone(), info)
+        });
         assert!(rendered_nothing(&ret));
     }
 
@@ -1461,8 +1498,9 @@ mod autotest_generated {
         // "black frame" bug. A decoder that has produced no frame must be
         // VISIBLY "no signal".
         let dataset = state(VideoConfig::default());
-        let ret =
-            with_virtual_view_info(800.0, 600.0, |info| video_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(800.0, 600.0, |info| {
+            video_widget_render(dataset.clone(), info)
+        });
         assert!(
             !rendered_nothing(&ret),
             "no decoded frame yet -> a visible no-signal poster, NOT an \
@@ -1478,8 +1516,9 @@ mod autotest_generated {
         s.current_frame = Some(img);
         let dataset = RefAny::new(s);
 
-        let ret =
-            with_virtual_view_info(800.0, 600.0, |info| video_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(800.0, 600.0, |info| {
+            video_widget_render(dataset.clone(), info)
+        });
         assert_eq!(
             rendered_image_id(&ret),
             Some(expected_id),
@@ -1490,14 +1529,18 @@ mod autotest_generated {
     #[test]
     fn render_reports_the_bounds_back_as_the_scroll_size() {
         let dataset = state(VideoConfig::default());
-        let ret =
-            with_virtual_view_info(640.0, 480.0, |info| video_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(640.0, 480.0, |info| {
+            video_widget_render(dataset.clone(), info)
+        });
 
         assert_eq!(ret.materialized.size.width, 640.0);
         assert_eq!(ret.materialized.size.height, 480.0);
         assert_eq!(ret.virtual_rect.size.width, 640.0);
         assert_eq!(ret.virtual_rect.size.height, 480.0);
-        assert_eq!((ret.materialized.origin.x, ret.materialized.origin.y), (0.0, 0.0));
+        assert_eq!(
+            (ret.materialized.origin.x, ret.materialized.origin.y),
+            (0.0, 0.0)
+        );
         assert_eq!(
             (ret.virtual_rect.origin.x, ret.virtual_rect.origin.y),
             (0.0, 0.0)
@@ -1545,8 +1588,13 @@ mod autotest_generated {
         s.current_frame = Some(img);
         let dataset = RefAny::new(s);
 
-        for (w, h) in [(f32::MIN_POSITIVE, f32::MIN_POSITIVE), (1.0, 1.0), (f32::MAX, f32::MAX)] {
-            let ret = with_virtual_view_info(w, h, |info| video_widget_render(dataset.clone(), info));
+        for (w, h) in [
+            (f32::MIN_POSITIVE, f32::MIN_POSITIVE),
+            (1.0, 1.0),
+            (f32::MAX, f32::MAX),
+        ] {
+            let ret =
+                with_virtual_view_info(w, h, |info| video_widget_render(dataset.clone(), info));
             assert_eq!(
                 rendered_image_id(&ret),
                 Some(expected_id),
@@ -1608,7 +1656,11 @@ mod autotest_generated {
 
         let (update, changes) = with_callback_info(|info| video_on_after_mount(data.clone(), info));
 
-        assert_eq!(update, Update::DoNothing, "mounting never triggers relayout");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "mounting never triggers relayout"
+        );
         assert_eq!(changes.len(), 1, "exactly one thread is spawned");
         let tid = added_thread_id(&changes).expect("the decode worker must be added as a Thread");
 
@@ -1707,7 +1759,8 @@ mod autotest_generated {
 
     #[test]
     fn resize_ignores_a_dataset_that_is_not_a_video_state() {
-        let (update, changes) = with_callback_info(|info| video_on_resize(RefAny::new(0_u32), info));
+        let (update, changes) =
+            with_callback_info(|info| video_on_resize(RefAny::new(0_u32), info));
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
     }
@@ -1925,7 +1978,10 @@ mod autotest_generated {
             (sent[1].width, sent[1].height, sent[1].len),
             (u32::MAX, u32::MAX, 0)
         );
-        assert_eq!(sent[2].small_bytes.as_deref(), Some(&[0xAB, 0xAB, 0xAB][..]));
+        assert_eq!(
+            sent[2].small_bytes.as_deref(),
+            Some(&[0xAB, 0xAB, 0xAB][..])
+        );
     }
 
     // ==================================================================
@@ -2192,7 +2248,10 @@ mod autotest_generated {
         assert!(summary.has_hook, "the fresh build's hook wins");
         assert!(summary.started, "'already running' must carry forward");
         assert_eq!(summary.gl_texture_id, Some(9));
-        assert_eq!(summary.decode_cb, Some(noop_decode_worker as ThreadCallbackType as usize));
+        assert_eq!(
+            summary.decode_cb,
+            Some(noop_decode_worker as ThreadCallbackType as usize)
+        );
         assert_eq!(summary.current_frame_id, old_frame_id, "no visible flicker");
         assert_eq!(summary.thread_id, Some(tid));
         assert!(summary.has_seek_sender);
@@ -2409,7 +2468,10 @@ mod autotest_generated {
         assert!(summary.started);
         assert_eq!(summary.gl_texture_id, Some(3));
         assert_eq!(summary.thread_id, Some(tid));
-        assert!(summary.current_frame_id.is_some(), "the picture never blanks");
+        assert!(
+            summary.current_frame_id.is_some(),
+            "the picture never blanks"
+        );
         assert!(
             rx.try_iter().next().is_none(),
             "a stable config must never seek, however many relayouts happen"

@@ -175,10 +175,7 @@ fn test_format_counter_lower_roman_extended() {
     assert_eq!(format_counter(400, StyleListStyleType::LowerRoman), "cd");
     assert_eq!(format_counter(500, StyleListStyleType::LowerRoman), "d");
     assert_eq!(format_counter(900, StyleListStyleType::LowerRoman), "cm");
-    assert_eq!(
-        format_counter(1000, StyleListStyleType::LowerRoman),
-        "m"
-    );
+    assert_eq!(format_counter(1000, StyleListStyleType::LowerRoman), "m");
 }
 
 #[test]
@@ -207,10 +204,7 @@ fn test_format_counter_lower_roman_zero() {
 #[test]
 fn test_format_counter_lower_roman_beyond_3999() {
     // Roman numerals don't go beyond 3999 → fallback to decimal
-    assert_eq!(
-        format_counter(4000, StyleListStyleType::LowerRoman),
-        "4000"
-    );
+    assert_eq!(format_counter(4000, StyleListStyleType::LowerRoman), "4000");
     assert_eq!(
         format_counter(10000, StyleListStyleType::LowerRoman),
         "10000"

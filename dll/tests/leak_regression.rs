@@ -83,10 +83,7 @@
     test,
     feature = "build-dll",
     feature = "e2e-test",
-    any(
-        target_os = "macos",
-        all(target_os = "linux", target_env = "gnu")
-    )
+    any(target_os = "macos", all(target_os = "linux", target_env = "gnu"))
 ))]
 
 use std::{cell::RefCell, sync::Arc};
@@ -268,8 +265,7 @@ const MAX_WARMUP_ITERATIONS: u32 = 4000;
 /// "Warm" has to mean "quiet enough for EVERY assertion that follows", so it
 /// is the minimum of the post-warmup budgets that matters, and that is the
 /// steady-state one.
-const WARMUP_SETTLED_BYTES: u64 =
-    MAX_BYTES_PER_ITER * (SIZES_LEN as u64) * (WARMUP_CYCLES as u64);
+const WARMUP_SETTLED_BYTES: u64 = MAX_BYTES_PER_ITER * (SIZES_LEN as u64) * (WARMUP_CYCLES as u64);
 
 /// Ceiling on the NEWEST warmup block, as a multiple of
 /// [`WARMUP_SETTLED_BYTES`], before warmup may declare itself settled.
@@ -455,7 +451,9 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     //   iterations hit the "LayoutUnchanged" equivalence path (the
     //   path where the leak was observed).
     for _ in 0..WARMUP_ITERATIONS {
-        window.regenerate_layout().expect("warmup regenerate_layout failed");
+        window
+            .regenerate_layout()
+            .expect("warmup regenerate_layout failed");
     }
 
     // The scout + builder threads allocate on THEIR threads, and the live-heap
@@ -509,7 +507,10 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     let run_iterations = |window: &mut HeadlessWindow, n: u32| {
         for i in 0..n {
             let (w, h) = SIZES[(i as usize) % SIZES.len()];
-            let dim = LogicalSize { width: w, height: h };
+            let dim = LogicalSize {
+                width: w,
+                height: h,
+            };
 
             // Push new size into both mirrors (layout window mirror +
             // current_window_state used by the scenario).
@@ -632,7 +633,11 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
         eprintln!(
             "[leak_regression] warmup: {done} iterations, {} (last block {} B/iter, \
              threshold {} B/iter)",
-            if settled >= 2 { "settled" } else { "HIT THE CAP — the budgets below may not hold" },
+            if settled >= 2 {
+                "settled"
+            } else {
+                "HIT THE CAP — the budgets below may not hold"
+            },
             prev_growth.saturating_div(u64::from(block).max(1)),
             WARMUP_SETTLED_BYTES / u64::from(block).max(1),
         );
@@ -646,7 +651,12 @@ fn measure(iterations: u32, deliberate_leak_bytes: usize) -> Measurement {
     // Every sample below is taken at the SAME point in the size cycle (a
     // multiple of SIZES.len() iterations apart), so the ~1.5 MiB oscillation
     // cancels instead of landing in the result.
-    let sample = || (live_heap::bytes(), azul_layout::probe::current_rss_bytes().0);
+    let sample = || {
+        (
+            live_heap::bytes(),
+            azul_layout::probe::current_rss_bytes().0,
+        )
+    };
 
     // THREE steady-state windows, not two. A leak is growth that does not
     // stop, so the test should require growth that does not stop.
@@ -829,10 +839,7 @@ fn regenerate_layout_does_not_leak_under_resize_stress() {
          this figure is a real one, AND RSS corroborates it — both instruments \
          moved, which is what separates a retention from zone-capacity drift, \
          if they do not, suspect the measurement before the code.)",
-        m.per_iter,
-        MAX_BYTES_PER_ITER,
-        STRESS_ITERATIONS,
-        WARMUP_CYCLES,
+        m.per_iter, MAX_BYTES_PER_ITER, STRESS_ITERATIONS, WARMUP_CYCLES,
     );
 
     // Same corroboration rule as the steady-state check above: on macOS the heap

@@ -2,8 +2,8 @@
 //! `bottom`, `left`, and `z-index`. Types defined here are consumed by the
 //! layout solver to resolve positioned elements.
 
-use alloc::string::{String, ToString};
 use crate::corety::AzString;
+use alloc::string::{String, ToString};
 
 #[cfg(feature = "parser")]
 use crate::props::basic::pixel::parse_pixel_value;
@@ -29,11 +29,11 @@ pub enum LayoutPosition {
 }
 
 impl LayoutPosition {
-    #[must_use] pub fn is_positioned(&self) -> bool {
+    #[must_use]
+    pub fn is_positioned(&self) -> bool {
         *self != Self::Static
     }
 }
-
 
 impl PrintAsCssValue for LayoutPosition {
     fn print_as_css_value(&self) -> String {
@@ -68,7 +68,8 @@ pub enum LayoutPositionParseErrorOwned {
 }
 
 impl LayoutPositionParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> LayoutPositionParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> LayoutPositionParseErrorOwned {
         match self {
             LayoutPositionParseError::InvalidValue(s) => {
                 LayoutPositionParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -78,11 +79,10 @@ impl LayoutPositionParseError<'_> {
 }
 
 impl LayoutPositionParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> LayoutPositionParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> LayoutPositionParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                LayoutPositionParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => LayoutPositionParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -91,9 +91,7 @@ impl LayoutPositionParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `position` value.
-pub fn parse_layout_position(
-    input: &str,
-) -> Result<LayoutPosition, LayoutPositionParseError<'_>> {
+pub fn parse_layout_position(input: &str) -> Result<LayoutPosition, LayoutPositionParseError<'_>> {
     let input = input.trim();
     match input {
         "static" => Ok(LayoutPosition::Static),
@@ -164,20 +162,18 @@ macro_rules! define_offset_parse_error {
             PixelValue(CssPixelValueParseErrorOwned),
         }
         impl $error_name<'_> {
-            #[must_use] pub fn to_contained(&self) -> $error_owned_name {
+            #[must_use]
+            pub fn to_contained(&self) -> $error_owned_name {
                 match self {
-                    $error_name::PixelValue(e) => {
-                        $error_owned_name::PixelValue(e.to_contained())
-                    }
+                    $error_name::PixelValue(e) => $error_owned_name::PixelValue(e.to_contained()),
                 }
             }
         }
         impl $error_owned_name {
-            #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
+            #[must_use]
+            pub fn to_shared(&self) -> $error_name<'_> {
                 match self {
-                    $error_owned_name::PixelValue(e) => {
-                        $error_name::PixelValue(e.to_shared())
-                    }
+                    $error_owned_name::PixelValue(e) => $error_name::PixelValue(e.to_shared()),
                 }
             }
         }
@@ -194,10 +190,30 @@ macro_rules! define_offset_parse_error {
     };
 }
 
-define_offset_parse_error!(LayoutTop, LayoutTopParseError, LayoutTopParseErrorOwned, parse_layout_top);
-define_offset_parse_error!(LayoutRight, LayoutRightParseError, LayoutRightParseErrorOwned, parse_layout_right);
-define_offset_parse_error!(LayoutInsetBottom, LayoutInsetBottomParseError, LayoutInsetBottomParseErrorOwned, parse_layout_bottom);
-define_offset_parse_error!(LayoutLeft, LayoutLeftParseError, LayoutLeftParseErrorOwned, parse_layout_left);
+define_offset_parse_error!(
+    LayoutTop,
+    LayoutTopParseError,
+    LayoutTopParseErrorOwned,
+    parse_layout_top
+);
+define_offset_parse_error!(
+    LayoutRight,
+    LayoutRightParseError,
+    LayoutRightParseErrorOwned,
+    parse_layout_right
+);
+define_offset_parse_error!(
+    LayoutInsetBottom,
+    LayoutInsetBottomParseError,
+    LayoutInsetBottomParseErrorOwned,
+    parse_layout_bottom
+);
+define_offset_parse_error!(
+    LayoutLeft,
+    LayoutLeftParseError,
+    LayoutLeftParseErrorOwned,
+    parse_layout_left
+);
 
 // --- LayoutZIndex ---
 
@@ -222,7 +238,6 @@ impl crate::codegen::format::FormatAsRustCode for LayoutZIndex {
         }
     }
 }
-
 
 impl PrintAsCssValue for LayoutZIndex {
     fn print_as_css_value(&self) -> String {
@@ -265,13 +280,17 @@ pub enum LayoutZIndexParseErrorOwned {
 }
 
 impl LayoutZIndexParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> LayoutZIndexParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> LayoutZIndexParseErrorOwned {
         match self {
             LayoutZIndexParseError::InvalidValue(s) => {
                 LayoutZIndexParseErrorOwned::InvalidValue((*s).to_string().into())
             }
             LayoutZIndexParseError::ParseInt(e, s) => {
-                LayoutZIndexParseErrorOwned::ParseInt(ParseIntErrorWithInput { error: e.to_string().into(), input: (*s).to_string().into() })
+                LayoutZIndexParseErrorOwned::ParseInt(ParseIntErrorWithInput {
+                    error: e.to_string().into(),
+                    input: (*s).to_string().into(),
+                })
             }
         }
     }
@@ -283,11 +302,10 @@ impl LayoutZIndexParseErrorOwned {
     /// **Note:** This conversion is lossy for `ParseInt` — the original
     /// `core::num::ParseIntError` cannot be reconstructed from its string
     /// representation, so `ParseInt` is mapped to `InvalidValue` instead.
-    #[must_use] pub fn to_shared(&self) -> LayoutZIndexParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> LayoutZIndexParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                LayoutZIndexParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => LayoutZIndexParseError::InvalidValue(s.as_str()),
             Self::ParseInt(e) => {
                 // We can't reconstruct ParseIntError, so use InvalidValue
                 LayoutZIndexParseError::InvalidValue(e.input.as_str())
@@ -300,9 +318,7 @@ impl LayoutZIndexParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `z-index` value.
-pub fn parse_layout_z_index(
-    input: &str,
-) -> Result<LayoutZIndex, LayoutZIndexParseError<'_>> {
+pub fn parse_layout_z_index(input: &str) -> Result<LayoutZIndex, LayoutZIndexParseError<'_>> {
     let input = input.trim();
     if input == "auto" {
         return Ok(LayoutZIndex::Auto);
@@ -510,8 +526,8 @@ mod autotest_generated {
     fn parse_position_empty_and_whitespace_only() {
         // Empty and whitespace-only both trim down to "" and must report "".
         for input in ["", "   ", "\t\n", "\r\n\t  \x0c", " \u{0b} "] {
-            let err = parse_layout_position(input)
-                .expect_err("whitespace-only input must not parse");
+            let err =
+                parse_layout_position(input).expect_err("whitespace-only input must not parse");
             assert_eq!(err, LayoutPositionParseError::InvalidValue(""));
         }
     }
@@ -583,10 +599,10 @@ mod autotest_generated {
     fn parse_position_unicode_never_panics() {
         for input in [
             "\u{1F600}",
-            "static\u{0301}",   // combining acute accent
-            "\u{202E}static",   // RTL override
+            "static\u{0301}", // combining acute accent
+            "\u{202E}static", // RTL override
             "абсолютный",
-            "\u{FEFF}static",   // BOM is not ASCII whitespace -> must not parse
+            "\u{FEFF}static", // BOM is not ASCII whitespace -> must not parse
             "𝔰𝔱𝔞𝔱𝔦𝔠",
         ] {
             assert!(
@@ -720,8 +736,8 @@ mod autotest_generated {
             "-9223372036854775808", // i64::MIN
             "340282366920938463463374607431768211456",
         ] {
-            let err = parse_layout_z_index(overflowing)
-                .expect_err("out-of-range integer must not parse");
+            let err =
+                parse_layout_z_index(overflowing).expect_err("out-of-range integer must not parse");
             assert!(
                 matches!(err, LayoutZIndexParseError::ParseInt(_, s) if s == overflowing),
                 "expected ParseInt({overflowing:?}), got {err:?}"
@@ -762,10 +778,27 @@ mod autotest_generated {
     #[test]
     fn parse_z_index_garbage_never_panics() {
         for input in [
-            "", "   ", "\t\n", "auto auto", "AUTO", "Auto", "none", "10px", "1_000", "1,000",
-            "- 5", "5-", "--5", "++5", "0x1F", "0b1", "١٢٣", // Arabic-Indic digits
-            "１２３",                                          // fullwidth digits
-            "\u{1F600}", "\0", "5\0",
+            "",
+            "   ",
+            "\t\n",
+            "auto auto",
+            "AUTO",
+            "Auto",
+            "none",
+            "10px",
+            "1_000",
+            "1,000",
+            "- 5",
+            "5-",
+            "--5",
+            "++5",
+            "0x1F",
+            "0b1",
+            "١٢٣",    // Arabic-Indic digits
+            "１２３", // fullwidth digits
+            "\u{1F600}",
+            "\0",
+            "5\0",
         ] {
             assert!(
                 parse_layout_z_index(input).is_err(),
@@ -792,7 +825,9 @@ mod autotest_generated {
             matches!(&err, LayoutZIndexParseError::ParseInt(_, s) if *s == "abc"),
             "got {err:?}"
         );
-        assert!(err.to_string().starts_with("Invalid z-index integer \"abc\""));
+        assert!(err
+            .to_string()
+            .starts_with("Invalid z-index integer \"abc\""));
     }
 
     #[cfg(feature = "parser")]
@@ -822,7 +857,10 @@ mod autotest_generated {
 
     #[test]
     fn z_index_format_as_rust_code_survives_i32_min() {
-        assert_eq!(LayoutZIndex::Auto.format_as_rust_code(0), "LayoutZIndex::Auto");
+        assert_eq!(
+            LayoutZIndex::Auto.format_as_rust_code(0),
+            "LayoutZIndex::Auto"
+        );
         assert_eq!(
             LayoutZIndex::Integer(i32::MIN).format_as_rust_code(0),
             "LayoutZIndex::Integer(-2147483648)"

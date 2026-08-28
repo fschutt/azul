@@ -1,8 +1,3 @@
-/// Regression: the MapWidget must FILL its container. The widget's outer div had
-/// no size, so it collapsed to zero height → the VirtualView got zero bounds →
-/// no tiles rendered (the azul-maps demo showed only the container background).
-/// build_dom now gives the outer div + VirtualView `width/height:100%`.
-use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -11,6 +6,11 @@ use azul_layout::font_traits::{FontManager, TextLayoutCache};
 use azul_layout::paged::FragmentationContext;
 use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
 use azul_layout::solver3::pagination::FakePageConfig;
+/// Regression: the MapWidget must FILL its container. The widget's outer div had
+/// no size, so it collapsed to zero height → the VirtualView got zero bounds →
+/// no tiles rendered (the azul-maps demo showed only the container background).
+/// build_dom now gives the outer div + VirtualView `width/height:100%`.
+use azul_layout::solver3::LayoutNodeId;
 use azul_layout::text3::default::PathLoader;
 use azul_layout::Solver3LayoutCache;
 use std::collections::{BTreeMap, HashMap};
@@ -28,7 +28,10 @@ fn fresh_layout_cache() -> Solver3LayoutCache {
         previous_positions: Vec::new(),
         cached_display_list: None,
         prev_dom_ptr: 0,
-        prev_viewport: LogicalRect { origin: LogicalPosition::zero(), size: LogicalSize::zero() },
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
         ..Default::default()
     }
 }
@@ -48,8 +51,11 @@ fn test_map_widget_fills_flex_container() {
     let map_area = Dom::create_div()
         .with_css("flex-grow: 1; position: relative; background: #cbd2d8; overflow: hidden;")
         .with_child(map);
-    let header = Dom::create_div().with_css("background: #2b2b2b; padding: 10px 16px; flex-shrink: 0;")
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AzulMaps"));
+    let header = Dom::create_div()
+        .with_css("background: #2b2b2b; padding: 10px 16px; flex-shrink: 0;")
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "AzulMaps",
+        ));
     let body = Dom::create_body()
         .with_css("display: flex; flex-direction: column; height: 100%;")
         .with_child(header)
@@ -61,7 +67,10 @@ fn test_map_widget_fills_flex_container() {
     let mut layout_cache = fresh_layout_cache();
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(800.0, 600.0);
-    let _viewport = LogicalRect { origin: LogicalPosition::zero(), size: content_size };
+    let _viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
     let loader = PathLoader::new();
@@ -69,32 +78,63 @@ fn test_map_widget_fills_flex_container() {
         loader.load_font_shared(bytes, index)
     };
     let content_size2 = LogicalSize::new(640.0, 480.0);
-    let viewport2 = LogicalRect { origin: LogicalPosition::zero(), size: content_size2 };
+    let viewport2 = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size2,
+    };
     layout_document_paged_with_config(
-        &mut layout_cache, &mut text_cache, FragmentationContext::new_paged(content_size2),
-        &styled_dom, viewport2, &mut font_manager, &BTreeMap::new(), &mut debug_messages, None,
-        &renderer_resources, azul_core::resources::IdNamespace(0), DomId::ROOT_ID, font_loader,
-        FakePageConfig::new(), &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &mut layout_cache,
+        &mut text_cache,
+        FragmentationContext::new_paged(content_size2),
+        &styled_dom,
+        viewport2,
+        &mut font_manager,
+        &BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        FakePageConfig::new(),
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
-    ).expect("layout");
+    )
+    .expect("layout");
     let tree = layout_cache.tree.as_ref().expect("tree");
     println!("\n=== FULL CHAIN (640x480, body→header→map_area→mapdiv→vview) ===");
     for i in 0..8 {
         if let Some(n) = tree.get(LayoutNodeId::new(i)) {
             let s = n.used_size.unwrap_or_default();
             let nt = n.dom_node_id;
-            println!("Node {}: fc={:?} size=({:.1},{:.1}) dom={:?}", i, n.formatting_context, s.width, s.height, nt);
+            println!(
+                "Node {}: fc={:?} size=({:.1},{:.1}) dom={:?}",
+                i, n.formatting_context, s.width, s.height, nt
+            );
         }
     }
     // The whole chain — map_area (flex-grow) → widget div (abs inset:0) → VirtualView
     // (height:100%) — must fill the ~441px box. The VirtualView (deepest, node 5) is
     // the one that previously collapsed to 0: a %-height child of an absolute-inset
     // parent whose height was resolved AFTER its subtree was (never) laid out.
-    let widget_div_h = tree.get(LayoutNodeId::new(4)).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
-    let vview_h = tree.get(LayoutNodeId::new(5)).and_then(|n| n.used_size).map(|s| s.height).unwrap_or(0.0);
+    let widget_div_h = tree
+        .get(LayoutNodeId::new(4))
+        .and_then(|n| n.used_size)
+        .map(|s| s.height)
+        .unwrap_or(0.0);
+    let vview_h = tree
+        .get(LayoutNodeId::new(5))
+        .and_then(|n| n.used_size)
+        .map(|s| s.height)
+        .unwrap_or(0.0);
     println!("=> map widget div height={widget_div_h:.1}, VirtualView height={vview_h:.1}");
-    assert!(widget_div_h > 400.0, "abs map widget div collapsed: {widget_div_h:.1}");
+    assert!(
+        widget_div_h > 400.0,
+        "abs map widget div collapsed: {widget_div_h:.1}"
+    );
     assert!(
         vview_h > 400.0,
         "VirtualView collapsed to {vview_h:.1}px — %-height did not resolve against the abs-inset parent"
@@ -133,12 +173,18 @@ fn test_map_widget_fills_container() {
         previous_positions: Vec::new(),
         cached_display_list: None,
         prev_dom_ptr: 0,
-        prev_viewport: LogicalRect { origin: LogicalPosition::zero(), size: LogicalSize::zero() },
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
         ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(800.0, 600.0);
-    let viewport = LogicalRect { origin: LogicalPosition::zero(), size: content_size };
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
     let loader = PathLoader::new();
@@ -147,13 +193,27 @@ fn test_map_widget_fills_container() {
     };
 
     layout_document_paged_with_config(
-        &mut layout_cache, &mut text_cache, FragmentationContext::new_paged(content_size),
-        &styled_dom, viewport, &mut font_manager, &BTreeMap::new(), &mut debug_messages, None,
-        &renderer_resources, azul_core::resources::IdNamespace(0), DomId::ROOT_ID, font_loader,
-        FakePageConfig::new(), &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        &mut layout_cache,
+        &mut text_cache,
+        FragmentationContext::new_paged(content_size),
+        &styled_dom,
+        viewport,
+        &mut font_manager,
+        &BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        FakePageConfig::new(),
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
-    ).expect("layout");
+    )
+    .expect("layout");
 
     let tree = layout_cache.tree.as_ref().expect("tree");
     println!("\n=== MAP WIDGET TREE ===");
@@ -161,9 +221,14 @@ fn test_map_widget_fills_container() {
     for i in 0..10 {
         if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             let s = node.used_size.unwrap_or_default();
-            println!("Node {}: fc={:?} size=({:.1},{:.1})", i, node.formatting_context, s.width, s.height);
+            println!(
+                "Node {}: fc={:?} size=({:.1},{:.1})",
+                i, node.formatting_context, s.width, s.height
+            );
             // nodes 2+ are the map widget div + virtual view (inside the 400px area)
-            if i >= 2 { max_inner_h = max_inner_h.max(s.height); }
+            if i >= 2 {
+                max_inner_h = max_inner_h.max(s.height);
+            }
         }
     }
     // The map widget div + VirtualView must fill the 400px map area, not collapse to 0.

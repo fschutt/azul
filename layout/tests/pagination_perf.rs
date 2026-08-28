@@ -19,7 +19,7 @@ use azul_layout::{
     font::loading::build_font_cache,
     font_traits::{FontManager, TextLayoutCache},
     paged::FragmentationContext,
-    solver3::{pagination::FakePageConfig, paged_layout::compute_document_pagination},
+    solver3::{paged_layout::compute_document_pagination, pagination::FakePageConfig},
     text3::default::PathLoader,
     xml::DomXmlExt,
     Solver3LayoutCache,
@@ -228,9 +228,7 @@ fn pagination_phase_breakdown() {
     }
     let mut rows: Vec<_> = totals.into_iter().collect();
     rows.sort_by_key(|(_, (self_ns, _, _))| std::cmp::Reverse(*self_ns));
-    eprintln!(
-        "[perf] phases by SELF time across {N} paginations (self / cumulative):"
-    );
+    eprintln!("[perf] phases by SELF time across {N} paginations (self / cumulative):");
     for (name, (self_ns, cum_ns, count)) in rows.iter().take(40) {
         eprintln!(
             "[perf]   {:<32} {:>8.2} ms self  {:>8.2} ms cum  ({count} calls)",

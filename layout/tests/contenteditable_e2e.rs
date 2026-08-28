@@ -7,15 +7,14 @@
 // 4. Verify damage rects cover only the text region
 // 5. Test cursor movement, selection, backspace
 
-use azul_layout::solver3::LayoutNodeId;
-use std::path::PathBuf;
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId, NodeType, TabIndex},
     geom::LogicalSize,
     resources::RendererResources,
-    styled_dom::{StyledDom, NodeHierarchyItemId},
+    styled_dom::{NodeHierarchyItemId, StyledDom},
 };
 use azul_css::css::Css;
+use azul_layout::solver3::LayoutNodeId;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{self, AzulPixmap, RenderOptions},
@@ -24,6 +23,7 @@ use azul_layout::{
     window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
+use std::path::PathBuf;
 
 // =========================================================================
 // Test Infrastructure
@@ -144,7 +144,10 @@ impl ContentEditableHarness {
     /// This simulates the real focus pipeline (FocusManager + CursorManager).
     fn focus_node(&mut self, dom_id: DomId, node_id: NodeId) {
         let lw = self.layout_window.as_mut().unwrap();
-        let dom_node_id = DomNodeId { dom: dom_id, node: NodeHierarchyItemId::from(Some(node_id)) };
+        let dom_node_id = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from(Some(node_id)),
+        };
         lw.focus_manager.set_focused_node(Some(dom_node_id));
 
         // Initialize cursor at end of text (like the real event pipeline does)
@@ -173,7 +176,9 @@ impl ContentEditableHarness {
                         }
                     }
                 }
-                child = node_hierarchy.get(child_id.index()).and_then(|h| h.next_sibling_id());
+                child = node_hierarchy
+                    .get(child_id.index())
+                    .and_then(|h| h.next_sibling_id());
             }
             None
         });
@@ -193,28 +198,38 @@ impl ContentEditableHarness {
                         found = Some(child_id);
                         break;
                     }
-                    child = node_hierarchy.get(child_id.index()).and_then(|h| h.next_sibling_id());
+                    child = node_hierarchy
+                        .get(child_id.index())
+                        .and_then(|h| h.next_sibling_id());
                 }
             }
             found.unwrap_or(node_id)
         };
 
         // Compute cursor at end of text
-        let cursor = text_layout.as_ref()
+        let cursor = text_layout
+            .as_ref()
             .and_then(|layout| {
-                layout.items.iter().rev()
-                    .find_map(|item| if let azul_layout::text3::cache::ShapedItem::Cluster(c) = &item.item {
+                layout.items.iter().rev().find_map(|item| {
+                    if let azul_layout::text3::cache::ShapedItem::Cluster(c) = &item.item {
                         Some(azul_core::selection::TextCursor {
                             cluster_id: c.source_cluster_id,
                             affinity: azul_core::selection::CursorAffinity::Trailing,
                         })
-                    } else { None })
+                    } else {
+                        None
+                    }
+                })
             })
             .unwrap_or(azul_core::selection::TextCursor {
-                cluster_id: azul_core::selection::GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+                cluster_id: azul_core::selection::GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 0,
+                },
                 affinity: azul_core::selection::CursorAffinity::Trailing,
             });
-        lw.text_edit_manager.initialize_editing(cursor, dom_id, text_child_id, 0);
+        lw.text_edit_manager
+            .initialize_editing(cursor, dom_id, text_child_id, 0);
         lw.text_edit_manager.blink.set_visibility(true);
     }
 
@@ -229,7 +244,10 @@ impl ContentEditableHarness {
 
         // Capture changeset info before applying
         let (old_text, inserted_text) = match lw.get_last_text_changeset() {
-            Some(cs) => (cs.old_text.as_str().to_string(), cs.inserted_text.as_str().to_string()),
+            Some(cs) => (
+                cs.old_text.as_str().to_string(),
+                cs.inserted_text.as_str().to_string(),
+            ),
             None => (String::new(), String::new()),
         };
 
@@ -246,11 +264,7 @@ impl ContentEditableHarness {
 
     /// Repaint ONLY `damage` into a retained pixmap — the path every shell
     /// takes for an edit (`CpuBackend::render_frame`).
-    fn render_damaged(
-        &mut self,
-        pixmap: &mut AzulPixmap,
-        damage: &[azul_core::geom::LogicalRect],
-    ) {
+    fn render_damaged(&mut self, pixmap: &mut AzulPixmap, damage: &[azul_core::geom::LogicalRect]) {
         let lw = self.layout_window.as_ref().unwrap();
         let dom_id = DomId { inner: 0 };
         let dl = &lw.layout_results.get(&dom_id).unwrap().display_list;
@@ -269,7 +283,9 @@ impl ContentEditableHarness {
     }
 
     /// Clone the current display list for damage comparison
-    fn clone_display_list(&self) -> std::sync::Arc<azul_layout::solver3::display_list::DisplayList> {
+    fn clone_display_list(
+        &self,
+    ) -> std::sync::Arc<azul_layout::solver3::display_list::DisplayList> {
         let lw = self.layout_window.as_ref().unwrap();
         let dom_id = DomId { inner: 0 };
         lw.layout_results.get(&dom_id).unwrap().display_list.clone()
@@ -296,7 +312,9 @@ impl ContentEditableHarness {
         let lw = self.layout_window.as_ref().unwrap();
         let dom_id = DomId { inner: 0 };
         let dl = &lw.layout_results.get(&dom_id).unwrap().display_list;
-        dl.items.iter().any(|item| matches!(item, DisplayListItem::CursorRect { .. }))
+        dl.items
+            .iter()
+            .any(|item| matches!(item, DisplayListItem::CursorRect { .. }))
     }
 
     /// Debug: dump layout tree nodes to trace paint_cursor traversal
@@ -308,17 +326,27 @@ impl ContentEditableHarness {
         for idx in 0..tree.nodes.len() {
             let node = tree.get(LayoutNodeId::new(idx)).unwrap();
             let children = tree.children(idx);
-            let has_ifc = tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.ifc_membership.as_ref()).is_some();
-            let has_inline = tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.inline_layout_result.as_ref()).is_some();
-            eprintln!("  [layout_tree] idx={} dom_node_id={:?} children={:?} ifc_member={} has_inline={}",
-                idx, node.dom_node_id, children, has_ifc, has_inline);
+            let has_ifc = tree
+                .warm(LayoutNodeId::new(idx))
+                .and_then(|w| w.ifc_membership.as_ref())
+                .is_some();
+            let has_inline = tree
+                .warm(LayoutNodeId::new(idx))
+                .and_then(|w| w.inline_layout_result.as_ref())
+                .is_some();
+            eprintln!(
+                "  [layout_tree] idx={} dom_node_id={:?} children={:?} ifc_member={} has_inline={}",
+                idx, node.dom_node_id, children, has_ifc, has_inline
+            );
         }
     }
 
     /// Get cursor byte offset from cursor manager (start_byte_in_run)
     fn get_cursor_byte_offset(&self) -> Option<u32> {
         let lw = self.layout_window.as_ref().unwrap();
-        lw.text_edit_manager.get_primary_cursor().map(|c| c.cluster_id.start_byte_in_run)
+        lw.text_edit_manager
+            .get_primary_cursor()
+            .map(|c| c.cluster_id.start_byte_in_run)
     }
 
     /// Get focused node
@@ -386,9 +414,7 @@ const CE_CSS: &str = r#"
 #[test]
 fn keystroke_cost_on_the_incremental_path() {
     if cfg!(debug_assertions) {
-        eprintln!(
-            "  [perf] *** DEBUG BUILD — not the shipped cost, re-run --release ***"
-        );
+        eprintln!("  [perf] *** DEBUG BUILD — not the shipped cost, re-run --release ***");
     }
 
     let mut h = ContentEditableHarness::new(400.0, 300.0);
@@ -442,9 +468,7 @@ fn keystroke_cost_on_the_incremental_path() {
         h.type_text("c");
         let after = h.clone_display_list();
         let offsets = cpurender::ScrollOffsetMap::new();
-        let damage = cpurender::compute_display_list_damage(
-            &before, &after, &offsets, &offsets,
-        );
+        let damage = cpurender::compute_display_list_damage(&before, &after, &offsets, &offsets);
         match damage {
             Some(rects) => {
                 if full_repaints == 0 && damage_area_total == 0.0 {
@@ -452,9 +476,7 @@ fn keystroke_cost_on_the_incremental_path() {
                     // WHICH ITEMS changed? The coalesced union hides the
                     // contributors, and one of them dominates.
                     use azul_layout::solver3::display_list::DisplayListItem as D;
-                    for (i, (o, n)) in
-                        before.items.iter().zip(after.items.iter()).enumerate()
-                    {
+                    for (i, (o, n)) in before.items.iter().zip(after.items.iter()).enumerate() {
                         if !o.is_visually_equal(n) {
                             let name = match n {
                                 D::Text { glyphs, .. } => {
@@ -474,8 +496,10 @@ fn keystroke_cost_on_the_incremental_path() {
                         }
                     }
                 }
-                damage_area_total +=
-                    rects.iter().map(|r| r.size.width * r.size.height).sum::<f32>();
+                damage_area_total += rects
+                    .iter()
+                    .map(|r| r.size.width * r.size.height)
+                    .sum::<f32>();
                 h.render_damaged(&mut pixmap, &rects);
             }
             None => {
@@ -505,13 +529,19 @@ fn keystroke_cost_on_the_incremental_path() {
         std::collections::BTreeMap::new();
     let mut pending: Vec<(u16, u64)> = Vec::new();
     for e in &events {
-        let azul_layout::probe::EventKind::Span { dur_ns } = e.kind else { continue };
+        let azul_layout::probe::EventKind::Span { dur_ns } = e.kind else {
+            continue;
+        };
         let mut children = 0u64;
         while let Some(&(d, ns)) = pending.last() {
             if d > e.depth {
-                if d == e.depth + 1 { children += ns; }
+                if d == e.depth + 1 {
+                    children += ns;
+                }
                 pending.pop();
-            } else { break; }
+            } else {
+                break;
+            }
         }
         let slot = totals.entry(e.name).or_insert((0, 0));
         slot.0 += dur_ns.saturating_sub(children);
@@ -523,7 +553,9 @@ fn keystroke_cost_on_the_incremental_path() {
     eprintln!("  [perf] per-keystroke SELF time (edit + repaint):");
     for (name, (self_ns, count)) in rows.iter().take(12) {
         let per = *self_ns as f64 / 1_000_000.0 / f64::from(N);
-        if per < 0.005 { continue; }
+        if per < 0.005 {
+            continue;
+        }
         eprintln!("  [perf]   {name:<28} {per:>7.3} ms  ({count} calls)");
     }
 }
@@ -554,13 +586,23 @@ fn contenteditable_initial_render() {
             non_white += 1;
         }
     }
-    assert!(non_white > 0, "Expected non-white pixels (border, background, text)");
+    assert!(
+        non_white > 0,
+        "Expected non-white pixels (border, background, text)"
+    );
     eprintln!("  [verify] {non_white} non-white pixels out of {total}");
 
     // Verify 2: contenteditable node found
     let ce_nodes = h.find_contenteditable_nodes();
-    assert!(!ce_nodes.is_empty(), "Expected at least one contenteditable node");
-    eprintln!("  [verify] Found {} contenteditable node(s): {:?}", ce_nodes.len(), ce_nodes);
+    assert!(
+        !ce_nodes.is_empty(),
+        "Expected at least one contenteditable node"
+    );
+    eprintln!(
+        "  [verify] Found {} contenteditable node(s): {:?}",
+        ce_nodes.len(),
+        ce_nodes
+    );
 
     // Verify 3: display list has Text items with glyphs (fonts resolved correctly)
     let text_items = h.count_text_glyphs();
@@ -577,7 +619,9 @@ fn contenteditable_initial_render() {
     let total_glyphs: usize = text_items.iter().map(|(_, c)| c).sum();
     eprintln!(
         "  [verify] {} Text items, {} total glyphs across items: {:?}",
-        text_items.len(), total_glyphs, text_items
+        text_items.len(),
+        total_glyphs,
+        text_items
     );
     // "Hello World" = 11 characters, expect at least 11 glyphs
     assert!(
@@ -604,7 +648,9 @@ fn contenteditable_text_input_changes_output() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "Hello",
+    ));
 
     let dom = Dom::create_body().with_child(editor);
 
@@ -636,7 +682,10 @@ fn contenteditable_text_input_changes_output() {
     let (affected, old_text, inserted) = h.type_text("X");
 
     // Verify 2: changeset was created with correct data
-    assert!(affected > 0, "Expected at least one affected node from text input");
+    assert!(
+        affected > 0,
+        "Expected at least one affected node from text input"
+    );
     assert_eq!(old_text, "Hello", "Old text should be 'Hello'");
     assert_eq!(inserted, "X", "Inserted text should be 'X'");
 
@@ -644,7 +693,10 @@ fn contenteditable_text_input_changes_output() {
     let cursor_after = h.get_cursor_byte_offset();
     eprintln!("  [verify] Cursor byte offset after input: {cursor_after:?}");
     // Cursor should exist after text input (the apply phase sets it)
-    assert!(cursor_after.is_some(), "Cursor should exist after text input");
+    assert!(
+        cursor_after.is_some(),
+        "Cursor should exist after text input"
+    );
 
     // Verify 4: display list has more glyphs now (added 'X')
     let glyphs_after = h.count_text_glyphs();
@@ -662,8 +714,12 @@ fn contenteditable_text_input_changes_output() {
     let lw = h.layout_window.as_ref().unwrap();
     let draw_cursor = lw.text_edit_manager.should_draw_cursor();
     let cursor_loc = lw.text_edit_manager.multi_cursor.as_ref();
-    eprintln!("  [verify] should_draw_cursor={}, multi_cursor={:?}, has CursorRect: {}",
-        draw_cursor, cursor_loc.map(|mc| &mc.node_id), has_cursor);
+    eprintln!(
+        "  [verify] should_draw_cursor={}, multi_cursor={:?}, has CursorRect: {}",
+        draw_cursor,
+        cursor_loc.map(|mc| &mc.node_id),
+        has_cursor
+    );
     if !has_cursor {
         eprintln!("  [DEBUG] Dumping layout tree:");
         h.dump_layout_tree();
@@ -676,7 +732,11 @@ fn contenteditable_text_input_changes_output() {
     let diff = pixel_diff_count(&frame1, &frame2, 0);
     assert!(diff > 0, "After typing 'X', rendered output must differ");
     let total = (frame1.width() * frame1.height()) as usize;
-    eprintln!("  [verify] {} pixels differ ({:.1}%)", diff, diff as f64 / total as f64 * 100.0);
+    eprintln!(
+        "  [verify] {} pixels differ ({:.1}%)",
+        diff,
+        diff as f64 / total as f64 * 100.0
+    );
 
     // Verify 6: damage computation detects the change
     // Note: damage may return None if DL structure changed (e.g. CursorRect added),
@@ -689,10 +749,15 @@ fn contenteditable_text_input_changes_output() {
         &cpurender::ScrollOffsetMap::new(),
     );
     if let Some(rects) = &damage {
-        assert!(!rects.is_empty(), "Damage should produce at least one rect for text change");
+        assert!(
+            !rects.is_empty(),
+            "Damage should produce at least one rect for text change"
+        );
         eprintln!("  [verify] {} damage rect(s)", rects.len());
     } else {
-        eprintln!("  [verify] Damage computation returned None (DL structure changed — full repaint)");
+        eprintln!(
+            "  [verify] Damage computation returned None (DL structure changed — full repaint)"
+        );
     }
 }
 
@@ -708,7 +773,9 @@ fn contenteditable_multiple_keystrokes() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AB"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "AB",
+    ));
 
     let dom = Dom::create_body().with_child(editor);
 
@@ -761,16 +828,17 @@ fn contenteditable_damage_detection() {
     let mut h = ContentEditableHarness::new(400.0, 300.0);
 
     // Layout with two divs: a static header and a contenteditable editor
-    let label = Dom::create_text_do_not_use_without_block_level_wrapper("Static Header").with_ids_and_classes(cls("label").into());
+    let label = Dom::create_text_do_not_use_without_block_level_wrapper("Static Header")
+        .with_ids_and_classes(cls("label").into());
     let mut editor = Dom::create_div();
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AAAA"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "AAAA",
+    ));
 
-    let dom = Dom::create_body()
-        .with_child(label)
-        .with_child(editor);
+    let dom = Dom::create_body().with_child(label).with_child(editor);
 
     h.layout_dom(dom, CE_CSS);
     let frame1 = h.render();
@@ -799,9 +867,7 @@ fn contenteditable_damage_detection() {
     let total = (frame1.width() * frame1.height()) as usize;
     let diff = pixel_diff_count(&frame1, &frame2, 0);
     let diff_pct = diff as f64 / total as f64 * 100.0;
-    eprintln!(
-        "  [verify] {diff} pixels differ ({diff_pct:.1}% of total)"
-    );
+    eprintln!("  [verify] {diff} pixels differ ({diff_pct:.1}% of total)");
 
     // The text region is small relative to the full window (400x300).
     // Only the text "AAAA" → "AAAAB" area should differ, plus maybe cursor.
@@ -827,25 +893,35 @@ fn contenteditable_two_editors_isolated() {
     editor1 = editor1.with_ids_and_classes(cls("editor").into());
     editor1.set_contenteditable(true);
     editor1.set_tab_index(TabIndex::Auto);
-    editor1 = editor1.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Editor 1"));
+    editor1 = editor1.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "Editor 1",
+    ));
 
     let mut editor2 = Dom::create_div();
     editor2 = editor2.with_ids_and_classes(cls("editor").into());
     editor2.set_contenteditable(true);
     editor2.set_tab_index(TabIndex::Auto);
-    editor2 = editor2.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Editor 2"));
+    editor2 = editor2.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "Editor 2",
+    ));
 
-    let dom = Dom::create_body()
-        .with_child(editor1)
-        .with_child(editor2);
+    let dom = Dom::create_body().with_child(editor1).with_child(editor2);
 
     h.layout_dom(dom, CE_CSS);
     let frame0 = h.render();
     save_screenshot(&frame0, "05a_two_editors_initial");
 
     let ce_nodes = h.find_contenteditable_nodes();
-    assert!(ce_nodes.len() >= 2, "Expected at least 2 contenteditable nodes, found {}", ce_nodes.len());
-    eprintln!("  [verify] Found {} contenteditable nodes: {:?}", ce_nodes.len(), ce_nodes);
+    assert!(
+        ce_nodes.len() >= 2,
+        "Expected at least 2 contenteditable nodes, found {}",
+        ce_nodes.len()
+    );
+    eprintln!(
+        "  [verify] Found {} contenteditable nodes: {:?}",
+        ce_nodes.len(),
+        ce_nodes
+    );
 
     // Focus editor 1, type
     h.focus_node(DomId { inner: 0 }, ce_nodes[0]);
@@ -879,7 +955,9 @@ fn contenteditable_incremental_render_matches_full() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Test"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "Test",
+    ));
 
     let dom = Dom::create_body().with_child(editor);
     h.layout_dom(dom, CE_CSS);
@@ -904,7 +982,10 @@ fn contenteditable_incremental_render_matches_full() {
         &cpurender::ScrollOffsetMap::new(),
         &cpurender::ScrollOffsetMap::new(),
     );
-    eprintln!("  [verify] Damage result: {:?}", damage.as_ref().map(|r| r.len()));
+    eprintln!(
+        "  [verify] Damage result: {:?}",
+        damage.as_ref().map(|r| r.len())
+    );
 
     // A second render of the same display list should be identical
     let render2 = h.render();
@@ -959,7 +1040,9 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(initial_text));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        initial_text,
+    ));
 
     let dom = Dom::create_body().with_child(editor);
     h.layout_dom(dom, NARROW_CSS);
@@ -1006,10 +1089,12 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
     let layout = inline_layout.expect("Must have inline layout result after text edit");
 
     // Count items per line
-    let mut items_per_line: std::collections::BTreeMap<usize, Vec<String>> = std::collections::BTreeMap::new();
+    let mut items_per_line: std::collections::BTreeMap<usize, Vec<String>> =
+        std::collections::BTreeMap::new();
     for item in &layout.items {
         if let azul_layout::text3::cache::ShapedItem::Cluster(c) = &item.item {
-            items_per_line.entry(item.line_index)
+            items_per_line
+                .entry(item.line_index)
                 .or_default()
                 .push(c.text().to_string());
         }
@@ -1018,7 +1103,12 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
     eprintln!("  [verify] Lines after typing 'klmno':");
     for (line_idx, chars) in &items_per_line {
         let line_text: String = chars.iter().cloned().collect();
-        eprintln!("    Line {}: '{}' ({} chars)", line_idx, line_text, chars.len());
+        eprintln!(
+            "    Line {}: '{}' ({} chars)",
+            line_idx,
+            line_text,
+            chars.len()
+        );
     }
 
     // Line 0 must have more than 1 character — the bug was that line 0
@@ -1038,8 +1128,11 @@ fn contenteditable_overflow_wraps_at_end_not_start() {
         "After adding chars past the container width, text should span multiple lines"
     );
 
-    eprintln!("  [verify] PASS: Line 0 has {} chars, total {} lines",
-        line_0_chars, items_per_line.len());
+    eprintln!(
+        "  [verify] PASS: Line 0 has {} chars, total {} lines",
+        line_0_chars,
+        items_per_line.len()
+    );
 }
 
 // =========================================================================
@@ -1068,7 +1161,9 @@ mod structural_roundtrip {
             .with_contenteditable(true)
             .with_tab_index(TabIndex::Auto);
         let mut p = Dom::create_p();
-        p.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello world"));
+        p.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "hello world",
+        ));
         editor.add_child(p);
         editor
     }
@@ -1150,7 +1245,9 @@ mod structural_roundtrip {
         };
         let changeset = {
             let lw = h.layout_window.as_mut().unwrap();
-            let editing = lw.build_editing_query_state(focused).expect("editing state");
+            let editing = lw
+                .build_editing_query_state(focused)
+                .expect("editing state");
             assert!(editing.is_contenteditable);
 
             let ks = KeyboardState {
@@ -1158,13 +1255,14 @@ mod structural_roundtrip {
                 pressed_virtual_keycodes: vec![VirtualKeyCode::Return].into(),
                 ..Default::default()
             };
-            let action = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
-                &ks,
-                focused,
-                &lw.layout_results,
-                false,
-                Some(&editing),
-            );
+            let action =
+                azul_layout::default_actions::determine_keyboard_default_action_with_editing(
+                    &ks,
+                    focused,
+                    &lw.layout_results,
+                    false,
+                    Some(&editing),
+                );
             assert!(
                 matches!(
                     action.action,
@@ -1236,12 +1334,9 @@ mod structural_roundtrip {
 
         // ── APP-APPLY on the app's native Dom model (Path 2). The host of
         // the split is the EDITOR (the p's parent) = the model root: path [].
-        let applied = azul_layout::document_edit::apply_document_operation(
-            &mut model,
-            &[],
-            &changeset,
-        )
-        .expect("apply split");
+        let applied =
+            azul_layout::document_edit::apply_document_operation(&mut model, &[], &changeset)
+                .expect("apply split");
         assert_eq!(model_block_texts(&model), vec!["hello", " world"]);
         assert!(matches!(applied.inverse, DocumentOperation::MergeNodes(_)));
 
@@ -1302,18 +1397,17 @@ mod structural_roundtrip {
         let undo_changeset = {
             let lw = h.layout_window.as_mut().unwrap();
             lw.undo_structural_edit().expect("undo records");
-            lw.get_pending_document_edit().expect("pending merge").clone()
+            lw.get_pending_document_edit()
+                .expect("pending merge")
+                .clone()
         };
         assert!(matches!(
             undo_changeset.operation,
             DocumentOperation::MergeNodes(_)
         ));
-        let undone = azul_layout::document_edit::apply_document_operation(
-            &mut model,
-            &[],
-            &undo_changeset,
-        )
-        .expect("apply merge");
+        let undone =
+            azul_layout::document_edit::apply_document_operation(&mut model, &[], &undo_changeset)
+                .expect("apply merge");
         assert_eq!(
             model_block_texts(&model),
             vec!["hello world"],
@@ -1334,7 +1428,10 @@ mod structural_roundtrip {
         {
             let lw = h.layout_window.as_mut().unwrap();
             lw.redo_structural_edit().expect("redo records");
-            let redo_cs = lw.get_pending_document_edit().expect("pending split").clone();
+            let redo_cs = lw
+                .get_pending_document_edit()
+                .expect("pending split")
+                .clone();
             assert!(matches!(redo_cs.operation, DocumentOperation::SplitNode(_)));
         }
     }
@@ -1432,12 +1529,9 @@ mod structural_roundtrip {
         );
 
         // APP-APPLY on the model: host of the split is the EDITOR (path []).
-        let applied = azul_layout::document_edit::apply_document_operation(
-            &mut model,
-            &[],
-            &changeset,
-        )
-        .expect("apply element split");
+        let applied =
+            azul_layout::document_edit::apply_document_operation(&mut model, &[], &changeset)
+                .expect("apply element split");
         assert!(matches!(applied.inverse, DocumentOperation::MergeNodes(_)));
         {
             let uls = model.children.as_ref();
@@ -1544,9 +1638,13 @@ mod structural_roundtrip {
             .with_contenteditable(true)
             .with_tab_index(TabIndex::Auto);
         let mut p1 = Dom::create_p();
-        p1.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"));
+        p1.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "hello",
+        ));
         let mut p2 = Dom::create_p();
-        p2.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("world"));
+        p2.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "world",
+        ));
         model.add_child(p1);
         model.add_child(p2);
 
@@ -1595,7 +1693,9 @@ mod structural_roundtrip {
             let editor_idx = lr.layout_tree.dom_to_layout.get(&NodeId::new(1)).unwrap()[0];
             let p2_idx = lr.layout_tree.dom_to_layout.get(&p2_node).unwrap()[0];
             assert!(
-                !lr.layout_tree.children(editor_idx.index()).contains(&p2_idx.index()),
+                !lr.layout_tree
+                    .children(editor_idx.index())
+                    .contains(&p2_idx.index()),
                 "the merged-away block detached from its parent"
             );
         }
@@ -1626,11 +1726,17 @@ mod structural_roundtrip {
         // stacked unstyled divs is pixel-identical — the tree asserts below
         // would still hold, but the render check would be vacuous).
         let mut host = Dom::create_div().with_ids_and_classes(cls("host").into());
-        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("aaaa aaaa"));
+        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "aaaa aaaa",
+        ));
         let mut para = Dom::create_p();
-        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("bbbb bbbb"));
+        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "bbbb bbbb",
+        ));
         host.add_child(para);
-        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("cccc cccc"));
+        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "cccc cccc",
+        ));
         model.add_child(host);
 
         let mut h = ContentEditableHarness::new(400.0, 300.0);
@@ -1708,10 +1814,16 @@ mod structural_roundtrip {
             .with_contenteditable(true)
             .with_tab_index(TabIndex::Auto);
         let mut host = Dom::create_div();
-        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("aaaa aaaa"));
-        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("bbbb bbbb"));
+        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "aaaa aaaa",
+        ));
+        host.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "bbbb bbbb",
+        ));
         let mut para = Dom::create_p();
-        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("cccc cccc"));
+        para.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "cccc cccc",
+        ));
         host.add_child(para);
         model.add_child(host);
 
@@ -1786,14 +1898,16 @@ fn probe_incremental_keystroke_median() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Start: "));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "Start: ",
+    ));
     body = body.with_child(editor);
     for i in 0..200 {
-        body = body.with_child(
-            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(azul_css::AzString::from(
+        body = body.with_child(Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(azul_css::AzString::from(
                 format!("Paragraph {i} with a reasonable amount of running text in it"),
-            ))),
-        );
+            )),
+        ));
     }
 
     h.layout_dom(body, CE_CSS);
@@ -1842,9 +1956,7 @@ fn probe_incremental_keystroke_median() {
     damage_times.sort();
     let med_d = damage_times[damage_times.len() / 2];
     let p90_d = damage_times[damage_times.len() * 9 / 10];
-    eprintln!(
-        "[KEYSTROKE-PROBE] damage-present median={med_d:?} p90={p90_d:?}"
-    );
+    eprintln!("[KEYSTROKE-PROBE] damage-present median={med_d:?} p90={p90_d:?}");
 
     edit_times.sort();
     render_times.sort();
@@ -1906,12 +2018,17 @@ fn focus_set_before_the_first_layout_survives_until_layout_exists() {
     let dom_id = DomId { inner: 0 };
     // body(0) > div(1): the deterministic assignment every test here uses.
     let editor_node = NodeId::new(1);
-    let target_id =
-        DomNodeId { dom: dom_id, node: NodeHierarchyItemId::from(Some(editor_node)) };
+    let target_id = DomNodeId {
+        dom: dom_id,
+        node: NodeHierarchyItemId::from(Some(editor_node)),
+    };
 
     {
         let lw = h.layout_window.as_mut().unwrap();
-        assert!(lw.layout_results.is_empty(), "premise: nothing is laid out yet");
+        assert!(
+            lw.layout_results.is_empty(),
+            "premise: nothing is laid out yet"
+        );
         let r = resolve_focus_target_or_defer(
             &mut lw.focus_manager,
             &FocusTarget::Id(target_id),
@@ -1927,15 +2044,23 @@ fn focus_set_before_the_first_layout_survives_until_layout_exists() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "hello",
+    ));
     let dom = Dom::create_body().with_child(editor);
     h.layout_dom(dom, CE_CSS);
 
     let lw = h.layout_window.as_mut().unwrap();
     // The host's layout-tail / end-of-pass call.
     lw.finalize_pending_focus_changes();
-    assert_eq!(lw.focus_manager.get_focused_node().copied(), Some(target_id));
-    assert!(lw.text_edit_manager.multi_cursor.is_some(), "the caret was seeded");
+    assert_eq!(
+        lw.focus_manager.get_focused_node().copied(),
+        Some(target_id)
+    );
+    assert!(
+        lw.text_edit_manager.multi_cursor.is_some(),
+        "the caret was seeded"
+    );
     assert!(
         !lw.focus_manager.has_deferred_focus_target(),
         "queue drained, not re-queued"
@@ -1978,7 +2103,9 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
     editor = editor.with_ids_and_classes(cls("editor").into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"));
+    editor = editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "Hello",
+    ));
 
     h.layout_dom(Dom::create_body().with_child(editor), CE_CSS);
 
@@ -1995,8 +2122,8 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(400.0, 40.0),
         )]);
-        lw.layout_cache.last_patch_move = Some(
-            azul_layout::solver3::display_list::PatchMoveSummary {
+        lw.layout_cache.last_patch_move =
+            Some(azul_layout::solver3::display_list::PatchMoveSummary {
                 dominant_delta: LogicalPosition::new(0.0, -40.0),
                 moved_region_old: LogicalRect::new(
                     LogicalPosition::new(0.0, 40.0),
@@ -2004,12 +2131,14 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
                 ),
                 exceptions: Vec::new(),
                 mover_rects_old: Vec::new(),
-            },
-        );
+            });
     }
 
     let (_affected, _old, inserted) = h.type_text("X");
-    assert_eq!(inserted, "X", "sanity: the keystroke must have been applied");
+    assert_eq!(
+        inserted, "X",
+        "sanity: the keystroke must have been applied"
+    );
 
     let lw = h.layout_window.as_ref().unwrap();
     assert!(
@@ -2029,4 +2158,3 @@ fn a_keystroke_clears_the_previous_passes_patch_bookkeeping() {
         lw.layout_cache.last_patch_move
     );
 }
-

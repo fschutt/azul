@@ -103,14 +103,19 @@ pub fn run(root: &Path, api_data: &ApiData, opts: &DocCoverageOptions) -> Result
     for (_ver, vd) in &api_data.0 {
         for (_mod_name, module) in &vd.api {
             for (class_name, class) in &module.classes {
-                let Some(ext) = class.external.as_deref() else { continue };
+                let Some(ext) = class.external.as_deref() else {
+                    continue;
+                };
                 let Some(file) = external_to_source(ext, root) else {
                     skipped_no_source += 1;
                     continue;
                 };
                 let bucket = per_file.entry(file).or_default();
                 if is_empty_doc(&class.doc) {
-                    bucket.push(Undoc { kind: "type", label: class_name.clone() });
+                    bucket.push(Undoc {
+                        kind: "type",
+                        label: class_name.clone(),
+                    });
                 }
                 for fmap in class.struct_fields.iter().flatten() {
                     for (fname, fd) in fmap {

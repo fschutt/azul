@@ -77,16 +77,17 @@ fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConf
     true
 }
 
-fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, procs: &mut ProcDedup) {
+fn emit_external(
+    builder: &mut CodeBuilder,
+    func: &FunctionDef,
+    ir: &CodegenIR,
+    procs: &mut ProcDedup,
+) {
     for d in &func.doc {
         builder.line(&format!("# {}", super::sanitize_comment(d)));
     }
 
-    let arg_types: Vec<String> = func
-        .args
-        .iter()
-        .map(|a| nim_arg_type(a, ir))
-        .collect();
+    let arg_types: Vec<String> = func.args.iter().map(|a| nim_arg_type(a, ir)).collect();
     let args: Vec<String> = func
         .args
         .iter()
@@ -99,10 +100,7 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, 
     // under style-insensitivity (see `ProcDedup`); the `importc` string
     // below always carries the true, unchanged C symbol.
     let proc_name = procs.unique_external(&func.c_name, &arg_types.join(","));
-    let pragma = format!(
-        "{{.importc: \"{}\", cdecl, dynlib: azulLib.}}",
-        func.c_name
-    );
+    let pragma = format!("{{.importc: \"{}\", cdecl, dynlib: azulLib.}}", func.c_name);
 
     match &func.return_type {
         Some(ret) if ret.trim() != "void" && ret.trim() != "()" => {

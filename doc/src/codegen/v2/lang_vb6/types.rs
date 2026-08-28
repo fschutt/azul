@@ -243,9 +243,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
 
     // 2. Payload-shape documentation per variant.
     builder.line(&format!("' Tagged-union variants for {}:", t));
-    builder.line(
-        "' SKIPPED: VB6 has no native Union type. We emit a fixed 256-byte payload",
-    );
+    builder.line("' SKIPPED: VB6 has no native Union type. We emit a fixed 256-byte payload");
     builder.line("' buffer; callers must use CopyMemory with the per-variant layout below.");
     for v in &e.variants {
         let nm = sanitize_identifier(&v.name);
@@ -280,7 +278,10 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     builder.line(&format!("Public Type {}", t));
     builder.indent();
     builder.line("tag As Long");
-    builder.line(&format!("payload(0 To {}) As Byte", PAYLOAD_BUFFER_BYTES - 1));
+    builder.line(&format!(
+        "payload(0 To {}) As Byte",
+        PAYLOAD_BUFFER_BYTES - 1
+    ));
     builder.dedent();
     builder.line("End Type");
     builder.blank();
@@ -335,7 +336,11 @@ fn emit_struct_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
 // Callback typedef (commented documentation; VB6 has no fn pointer types)
 // ============================================================================
 
-fn emit_callback_typedef_comment(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
+fn emit_callback_typedef_comment(
+    builder: &mut CodeBuilder,
+    cb: &CallbackTypedefDef,
+    ir: &CodegenIR,
+) {
     if !cb.doc.is_empty() {
         for d in &cb.doc {
             builder.line(&format!("' {}", sanitize_comment(d)));
@@ -361,7 +366,11 @@ fn emit_callback_typedef_comment(builder: &mut CodeBuilder, cb: &CallbackTypedef
 
     let header = if let Some(ret) = &cb.return_type {
         let vb_ret = map_type_to_vb6(ret, ir);
-        format!("'   Public Function MyHandler ({}) As {}", args.join(", "), vb_ret)
+        format!(
+            "'   Public Function MyHandler ({}) As {}",
+            args.join(", "),
+            vb_ret
+        )
     } else {
         format!("'   Public Sub MyHandler ({})", args.join(", "))
     };

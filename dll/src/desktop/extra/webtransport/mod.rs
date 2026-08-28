@@ -403,7 +403,10 @@ fn spawn_engine(
     std::thread::spawn(move || {
         connected.store(true, Ordering::Relaxed);
         let _ = evt_tx.send(WtEvent::connected());
-        let _ = evt_tx.send(WtEvent::peer_joined(999, AzString::from_const_str("Loopback")));
+        let _ = evt_tx.send(WtEvent::peer_joined(
+            999,
+            AzString::from_const_str("Loopback"),
+        ));
         for cmd in cmd_rx {
             let ev = match cmd {
                 WtCmd::Close => break,

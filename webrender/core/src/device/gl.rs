@@ -35,7 +35,7 @@ use webrender_build::shader::{
     shader_source_from_file, ProgramSourceDigest, ShaderKind, ShaderVersion,
 };
 
-use super::super::shader_source::{OPTIMIZED_SHADERS, UNOPTIMIZED_SHADERS, decompress_shader};
+use super::super::shader_source::{decompress_shader, OPTIMIZED_SHADERS, UNOPTIMIZED_SHADERS};
 use crate::{
     internal_types::{FastHashMap, RenderTargetInfo, Swizzle, SwizzleSettings},
     profiler,

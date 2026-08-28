@@ -272,7 +272,11 @@ fn store_both_selections(text: &str) {
         clipboard.setter.atoms.primary,
     ] {
         if clipboard
-            .store(selection, clipboard.setter.atoms.utf8_string, text.as_bytes())
+            .store(
+                selection,
+                clipboard.setter.atoms.utf8_string,
+                text.as_bytes(),
+            )
             .is_err()
         {
             log_warn!(

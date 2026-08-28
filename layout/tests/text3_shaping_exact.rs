@@ -27,8 +27,8 @@ fn font_path(name: &str) -> PathBuf {
 
 /// Parse a stress font, retaining source bytes so hmtx advances are readable.
 fn parsed(name: &str) -> ParsedFont {
-    let bytes = std::fs::read(font_path(name))
-        .unwrap_or_else(|e| panic!("read stress font {name}: {e}"));
+    let bytes =
+        std::fs::read(font_path(name)).unwrap_or_else(|e| panic!("read stress font {name}: {e}"));
     let arc = Arc::new(FontBytes::Owned(Arc::from(bytes.as_slice())));
     let mut warnings = Vec::new();
     ParsedFont::from_bytes(&bytes, 0, &mut warnings)
@@ -77,7 +77,12 @@ fn liga_fi_collapses_to_one_glyph_id96_adv14() {
     // f(71)+i(74) -> f_i(96), advance 700u => 14px. NOT two 500u glyphs.
     let font = parsed("azul-mock-liga.ttf");
     let g = shape_latin(&font, "fi");
-    assert_eq!(g.len(), 1, "'fi' must ligate to exactly 1 glyph, got {:?}", ids(&g));
+    assert_eq!(
+        g.len(),
+        1,
+        "'fi' must ligate to exactly 1 glyph, got {:?}",
+        ids(&g)
+    );
     assert_eq!(g[0].glyph_id, 96, "'fi' ligature glyph id must be 96");
     assert_px(g[0].advance, 14.0, "fi ligature advance");
 }
@@ -97,7 +102,12 @@ fn liga_ffi_collapses_to_id98_adv18() {
     // f+f+i -> f_f_i(98), advance 900u => 18px. The 3-component ligature wins.
     let font = parsed("azul-mock-liga.ttf");
     let g = shape_latin(&font, "ffi");
-    assert_eq!(g.len(), 1, "'ffi' must ligate to 1 glyph, got {:?}", ids(&g));
+    assert_eq!(
+        g.len(),
+        1,
+        "'ffi' must ligate to 1 glyph, got {:?}",
+        ids(&g)
+    );
     assert_eq!(g[0].glyph_id, 98, "'ffi' ligature glyph id must be 98");
     assert_px(g[0].advance, 18.0, "ffi ligature advance");
 }
@@ -108,8 +118,16 @@ fn liga_office_collapses_ffi() {
     // advances: 10 + 18 + 10 + 10 = 48px.
     let font = parsed("azul-mock-liga.ttf");
     let g = shape_latin(&font, "office");
-    assert_eq!(g.len(), 4, "'office' must be 4 glyphs (ffi ligated), got {:?}", ids(&g));
-    assert!(g.iter().any(|gl| gl.glyph_id == 98), "office must contain the ffi ligature (98)");
+    assert_eq!(
+        g.len(),
+        4,
+        "'office' must be 4 glyphs (ffi ligated), got {:?}",
+        ids(&g)
+    );
+    assert!(
+        g.iter().any(|gl| gl.glyph_id == 98),
+        "office must contain the ffi ligature (98)"
+    );
     assert_px(total_advance(&g), 48.0, "office total advance");
 }
 
@@ -131,7 +149,11 @@ fn kern_av_pair_is_16px() {
     // A(34)+V(55): GPOS XAdvance -200u => -4px. 10 + 10 - 4 = 16px. Count stays 2.
     let font = parsed("azul-mock-kern.ttf");
     let g = shape_latin(&font, "AV");
-    assert_eq!(g.len(), 2, "'AV' must stay 2 glyphs (kern is positioning, not substitution)");
+    assert_eq!(
+        g.len(),
+        2,
+        "'AV' must stay 2 glyphs (kern is positioning, not substitution)"
+    );
     assert_px(total_advance(&g), 16.0, "AV kerned total advance");
 }
 
@@ -175,7 +197,12 @@ fn arabic_beh_isolated() {
     let font = parsed("azul-mock-arabic.ttf");
     let g = shape_arabic(&font, "\u{0628}");
     assert_eq!(g.len(), 1, "single beh => 1 glyph");
-    assert_eq!(g[0].glyph_id, 7, "isolated beh must be gid 7, got {:?}", ids(&g));
+    assert_eq!(
+        g[0].glyph_id,
+        7,
+        "isolated beh must be gid 7, got {:?}",
+        ids(&g)
+    );
 }
 
 #[test]
@@ -206,7 +233,12 @@ fn arabic_lam_alef_required_ligature() {
     // lam alef -> single lam_alef glyph gid 25 (count 2 -> 1).
     let font = parsed("azul-mock-arabic.ttf");
     let g = shape_arabic(&font, "\u{0644}\u{0627}");
-    assert_eq!(g.len(), 1, "lam+alef must collapse to 1 glyph, got {:?}", ids(&g));
+    assert_eq!(
+        g.len(),
+        1,
+        "lam+alef must collapse to 1 glyph, got {:?}",
+        ids(&g)
+    );
     assert_eq!(g[0].glyph_id, 25, "lam_alef ligature must be gid 25");
 }
 

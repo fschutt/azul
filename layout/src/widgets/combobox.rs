@@ -54,14 +54,31 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{OptionString, 
+use azul_css::{
+    impl_option_inner,
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
-        layout::{LayoutDisplay, LayoutPosition, LayoutFlexGrow, LayoutMinWidth, LayoutFlexDirection, LayoutAlignItems, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutTop, LayoutLeft},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            StyleFontSize,
+        },
+        layout::{
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutLeft,
+            LayoutMinWidth, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            LayoutPaddingTop, LayoutPosition, LayoutTop,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleCursor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleUserSelect},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString, StringVec,
+    AzString, OptionString, StringVec,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -71,13 +88,15 @@ static COMBOBOX_WRAPPER_CLASS: &[IdOrClass] =
 static COMBOBOX_INPUT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-combobox-input",
 ))];
-static COMBOBOX_TEXT_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-combobox-text"))];
+static COMBOBOX_TEXT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-combobox-text",
+))];
 static COMBOBOX_ARROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-combobox-arrow",
 ))];
-static COMBOBOX_LIST_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-combobox-list"))];
+static COMBOBOX_LIST_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-combobox-list",
+))];
 static COMBOBOX_OPTION_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-combobox-option",
 ))];
@@ -97,11 +116,36 @@ const RADIUS: isize = 4;
 const ARROW_FONT_SIZE_PX: isize = 18;
 
 // ---- colours ----
-const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const BORDER_COLOR: ColorU = ColorU { r: 172, g: 172, b: 172, a: 255 }; // #acacac
-const BORDER_FOCUS: ColorU = ColorU { r: 66, g: 134, b: 244, a: 255 }; // #4286f4
-const TEXT_COLOR: ColorU = ColorU { r: 51, g: 51, b: 51, a: 255 }; // #333333
-const OPTION_HOVER_BG: ColorU = ColorU { r: 234, g: 244, b: 252, a: 255 }; // #eaf4fc
+const WHITE: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+const BORDER_COLOR: ColorU = ColorU {
+    r: 172,
+    g: 172,
+    b: 172,
+    a: 255,
+}; // #acacac
+const BORDER_FOCUS: ColorU = ColorU {
+    r: 66,
+    g: 134,
+    b: 244,
+    a: 255,
+}; // #4286f4
+const TEXT_COLOR: ColorU = ColorU {
+    r: 51,
+    g: 51,
+    b: 51,
+    a: 255,
+}; // #333333
+const OPTION_HOVER_BG: ColorU = ColorU {
+    r: 234,
+    g: 244,
+    b: 252,
+    a: 255,
+}; // #eaf4fc
 
 const WHITE_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(WHITE)];
 const WHITE_BG_VEC: StyleBackgroundContentVec =
@@ -113,7 +157,8 @@ const OPTION_HOVER_BG_VEC: StyleBackgroundContentVec =
 
 /// Callback invoked when an option is chosen. The [`ComboBoxState`] carries the
 /// new `selected` index and the field `text` (set to the chosen label).
-pub type ComboBoxOnSelectCallbackType = extern "C" fn(RefAny, CallbackInfo, ComboBoxState) -> Update;
+pub type ComboBoxOnSelectCallbackType =
+    extern "C" fn(RefAny, CallbackInfo, ComboBoxState) -> Update;
 impl_widget_callback!(
     ComboBoxOnSelect,
     OptionComboBoxOnSelect,
@@ -232,13 +277,15 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     // padding: 3px 4px
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(3))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        3,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(3),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        4,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(4),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(4),
     )),
@@ -313,9 +360,11 @@ static COMBOBOX_INPUT_STYLE: &[CssPropertyWithConditions] = &[
             inner: BORDER_FOCUS,
         },
     )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: BORDER_FOCUS,
-    })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: BORDER_FOCUS,
+        },
+    )),
     CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: BORDER_FOCUS,
@@ -373,33 +422,41 @@ fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
             LayoutBorderRightWidth::const_px(1),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
             StyleBorderBottomStyle {
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
             StyleBorderRightStyle {
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-            inner: BORDER_COLOR,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+            StyleBorderTopColor {
+                inner: BORDER_COLOR,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor {
                 inner: BORDER_COLOR,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
-            inner: BORDER_COLOR,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_color(
+            StyleBorderLeftColor {
+                inner: BORDER_COLOR,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
             StyleBorderRightColor {
                 inner: BORDER_COLOR,
@@ -419,13 +476,15 @@ fn build_list_style(_open: bool) -> CssPropertyWithConditionsVec {
 /// Per-option row style: a padded, pointer-cursor block highlighted on hover.
 static COMBOBOX_OPTION_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        6,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(6),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        10,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(10),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(10),
     )),
@@ -446,7 +505,8 @@ impl ComboBox {
         self
     }
 
-    #[must_use] pub fn new(items: StringVec) -> Self {
+    #[must_use]
+    pub fn new(items: StringVec) -> Self {
         Self {
             combo_state: ComboBoxStateWrapper {
                 inner: ComboBoxState::default(),
@@ -465,7 +525,8 @@ impl ComboBox {
     }
 
     /// Creates an empty combobox.
-    #[must_use] pub fn create() -> Self {
+    #[must_use]
+    pub fn create() -> Self {
         Self::new(StringVec::from_const_slice(&[]))
     }
 
@@ -477,7 +538,8 @@ impl ComboBox {
 
     /// Builder-style setter for the initially-selected index.
     #[inline]
-    #[must_use] pub const fn with_selected(mut self, selected: usize) -> Self {
+    #[must_use]
+    pub const fn with_selected(mut self, selected: usize) -> Self {
         self.set_selected(selected);
         self
     }
@@ -490,7 +552,8 @@ impl ComboBox {
 
     /// Builder-style setter for the initial field text.
     #[inline]
-    #[must_use] pub fn with_text(mut self, text: AzString) -> Self {
+    #[must_use]
+    pub fn with_text(mut self, text: AzString) -> Self {
         self.set_text(text);
         self
     }
@@ -503,7 +566,8 @@ impl ComboBox {
 
     /// Builder-style setter for the placeholder.
     #[inline]
-    #[must_use] pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
+    #[must_use]
+    pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
         self.set_placeholder(placeholder);
         self
     }
@@ -520,7 +584,8 @@ impl ComboBox {
 
     /// Builder-style setter for the select callback.
     #[inline]
-    #[must_use] pub fn with_on_select<C: Into<ComboBoxOnSelectCallback>>(
+    #[must_use]
+    pub fn with_on_select<C: Into<ComboBoxOnSelectCallback>>(
         mut self,
         data: RefAny,
         on_select: C,
@@ -531,7 +596,8 @@ impl ComboBox {
 
     /// Replaces `self` with a default (empty) combobox and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
@@ -539,7 +605,8 @@ impl ComboBox {
 
     /// Renders the combobox into a [`Dom`] subtree with the `__azul-native-combobox`
     /// class.
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Initial field text: the typed/selected text if present, else the
         // placeholder (a simplification — there is no separate placeholder node,
         // so the placeholder is just the initial label and is replaced on the
@@ -1042,7 +1109,10 @@ mod autotest_generated {
         let text_box = one(&styled, "__azul-native-combobox-text");
         let text = text_box + 1;
         assert!(
-            matches!(styled.node_data.as_ref()[text].get_node_type(), NodeType::Text(_)),
+            matches!(
+                styled.node_data.as_ref()[text].get_node_type(),
+                NodeType::Text(_)
+            ),
             "the combobox field label must be `p > text`"
         );
         let list = one(&styled, "__azul-native-combobox-list");
@@ -1191,7 +1261,9 @@ mod autotest_generated {
         let mut out = Vec::new();
         for change in changes {
             if let CallbackChange::ChangeNodeCssProperties {
-                node_id, properties, ..
+                node_id,
+                properties,
+                ..
             } = change
             {
                 for p in properties.as_ref() {
@@ -1363,9 +1435,7 @@ mod autotest_generated {
             Vec::new(),
             alloc::vec![AzString::from("")],
             alloc::vec![AzString::from("a\0b"), AzString::from("")],
-            alloc::vec![AzString::from(
-                "👨‍👩‍👧‍👦 e\u{0301}\u{0327} مرحبا שלום 🇩🇪"
-            )],
+            alloc::vec![AzString::from("👨‍👩‍👧‍👦 e\u{0301}\u{0327} مرحبا שלום 🇩🇪")],
             alloc::vec![AzString::from("\u{feff}\u{202e}rtl-override")],
             alloc::vec![AzString::from(long.as_str())],
         ];
@@ -1495,7 +1565,9 @@ mod autotest_generated {
 
     #[test]
     fn with_text_matches_set_text_and_last_write_wins() {
-        let built = ComboBox::create().with_text("a".into()).with_text("b".into());
+        let built = ComboBox::create()
+            .with_text("a".into())
+            .with_text("b".into());
         let mut mutated = ComboBox::create();
         mutated.set_text("a".into());
         mutated.set_text("b".into());
@@ -1792,7 +1864,10 @@ mod autotest_generated {
         );
         let (ff, fl) = parts(&via_from);
         let (df, dl) = parts(&via_dom);
-        assert_eq!(text_of(&ff.children.as_ref()[0]), text_of(&df.children.as_ref()[0]));
+        assert_eq!(
+            text_of(&ff.children.as_ref()[0]),
+            text_of(&df.children.as_ref()[0])
+        );
         assert_eq!(inline_display(fl), inline_display(dl));
         assert_eq!(fl.children.as_ref().len(), dl.children.as_ref().len());
         assert_ne!(
@@ -1809,7 +1884,9 @@ mod autotest_generated {
     #[test]
     fn toggle_without_any_layout_result_is_a_noop() {
         let mut data = state(&["a"], "", false, 0);
-        let (update, changes) = run(Env::default(), 0, data.clone(), |r, ci| on_combobox_toggle(r, ci));
+        let (update, changes) = run(Env::default(), 0, data.clone(), |r, ci| {
+            on_combobox_toggle(r, ci)
+        });
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
@@ -1914,10 +1991,7 @@ mod autotest_generated {
             |r, ci| on_combobox_toggle(r, ci),
         );
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            transient_writes(&changes),
-            alloc::vec![(fx.popup, false)]
-        );
+        assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
         assert!(!inner_of(&mut data).open);
     }
 
@@ -2085,7 +2159,10 @@ mod autotest_generated {
         );
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(text_writes(&changes), alloc::vec![(fx.text, String::from("q"))]);
+        assert_eq!(
+            text_writes(&changes),
+            alloc::vec![(fx.text, String::from("q"))]
+        );
         assert_eq!(
             inner_of(&mut data).text.as_str(),
             "q",
@@ -2265,7 +2342,10 @@ mod autotest_generated {
             data.clone(),
             |r, ci| on_combobox_key_down(r, ci),
         );
-        assert_eq!(text_writes(&changes), alloc::vec![(fx.text, String::from("h"))]);
+        assert_eq!(
+            text_writes(&changes),
+            alloc::vec![(fx.text, String::from("h"))]
+        );
         assert_eq!(inner_of(&mut data).text.as_str(), "h");
     }
 
@@ -2286,7 +2366,10 @@ mod autotest_generated {
             data.clone(),
             |r, ci| on_combobox_key_down(r, ci),
         );
-        assert_eq!(text_writes(&changes), alloc::vec![(fx.text, String::from("e"))]);
+        assert_eq!(
+            text_writes(&changes),
+            alloc::vec![(fx.text, String::from("e"))]
+        );
         assert_eq!(inner_of(&mut data).text.as_str(), "e");
 
         // Expected value is derived, not spelled out: the ZWJ joiners the family
@@ -2428,7 +2511,9 @@ mod autotest_generated {
     #[test]
     fn option_click_without_any_layout_result_is_a_noop() {
         let mut data = state(&["a"], "", true, 0);
-        let (update, changes) = run(Env::default(), 0, data.clone(), |r, ci| on_combobox_option_click(r, ci));
+        let (update, changes) = run(Env::default(), 0, data.clone(), |r, ci| {
+            on_combobox_option_click(r, ci)
+        });
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
@@ -2643,16 +2728,16 @@ mod autotest_generated {
             text_writes(&changes),
             alloc::vec![(fx.text, String::from("b"))]
         );
-        assert_eq!(
-            transient_writes(&changes),
-            alloc::vec![(fx.popup, false)]
-        );
+        assert_eq!(transient_writes(&changes), alloc::vec![(fx.popup, false)]);
 
         let logged = log
             .downcast_ref::<SelectLog>()
             .expect("log payload survived");
         assert_eq!(logged.calls.len(), 1);
-        assert_eq!(logged.calls[0].selected, 1, "the callback sees the NEW index");
+        assert_eq!(
+            logged.calls[0].selected, 1,
+            "the callback sees the NEW index"
+        );
         assert_eq!(logged.calls[0].text.as_str(), "b", "...and the NEW text");
         assert!(!logged.calls[0].open, "...and an already-closed list");
     }

@@ -178,7 +178,10 @@ pub fn run(project_root: &Path, opts: &AutotestOptions) -> Result<()> {
 
     // 4. Summary.
     print_summary(&scanned, files.len(), task_files_written, &parse_failures);
-    println!("\n[OK] manifest: {}", out_dir.join("manifest.json").display());
+    println!(
+        "\n[OK] manifest: {}",
+        out_dir.join("manifest.json").display()
+    );
     println!("[OK] tasks:    {}", tasks_dir.display());
 
     Ok(())

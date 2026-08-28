@@ -29,9 +29,7 @@ use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
     StructDef, TypeCategory,
 };
-use super::{
-    ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier,
-};
+use super::{ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier};
 
 // ============================================================================
 // Top-level type-block emission
@@ -370,10 +368,9 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         .map(|arg| {
             let fb_ty = match arg.ref_kind {
                 ArgRefKind::Owned => map_type_to_fb(&arg.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => ptr_type_for_arg(&arg.type_name, ir),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    ptr_type_for_arg(&arg.type_name, ir)
+                }
             };
             format!("ByVal {} As {}", sanitize_identifier(&arg.name), fb_ty)
         })

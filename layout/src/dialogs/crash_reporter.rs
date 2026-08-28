@@ -20,7 +20,6 @@ use azul_css::AzString;
 
 use super::{cpu_dialog_window, style};
 use crate::callbacks::CallbackInfo;
-use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 use crate::telemetry::CrashDump;
 use crate::thread::{
     Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
@@ -29,6 +28,7 @@ use crate::thread::{
 use crate::widgets::button::{Button, ButtonOnClickCallbackType};
 use crate::widgets::text_area::{TextArea, TextAreaOnTextInputCallbackType, TextAreaState};
 use crate::widgets::text_input::{OnTextInputReturn, TextInputValid};
+use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 use azul_core::dom::Dom;
 
 /// Where the submission currently is.
@@ -188,7 +188,10 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
     drop(ctx);
-    let state = info.get_ctx().into_option().unwrap_or_else(|| RefAny::new(()));
+    let state = info
+        .get_ctx()
+        .into_option()
+        .unwrap_or_else(|| RefAny::new(()));
 
     use azul_css::props::{
         basic::pixel::PixelValue,
@@ -215,7 +218,11 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
         Dom::create_p_with_text(format!(
             "Where: {}  (scope: {})",
             snapshot.dump.location,
-            if snapshot.dump.scope.is_empty() { "-" } else { &snapshot.dump.scope }
+            if snapshot.dump.scope.is_empty() {
+                "-"
+            } else {
+                &snapshot.dump.scope
+            }
         )),
     ];
     if !snapshot.dump.backtrace.is_empty() {

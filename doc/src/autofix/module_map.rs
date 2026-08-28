@@ -153,12 +153,12 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "rgb",
             "hsl",
             "hsv",
-            "cascade",    // CascadeInfo
-            "extendmode", // ExtendMode
-            "flow",       // FlowInto, FlowFrom, FlowIntoValue, FlowFromValue
-            "arithmetic", // ArithmeticCoefficients
-            "visualbox",       // VisualBox (overflow-clip-margin)
-            "boxorstatic",     // BoxOrStatic, BoxOrStaticString, BoxOrStaticImageRef
+            "cascade",     // CascadeInfo
+            "extendmode",  // ExtendMode
+            "flow",        // FlowInto, FlowFrom, FlowIntoValue, FlowFromValue
+            "arithmetic",  // ArithmeticCoefficients
+            "visualbox",   // VisualBox (overflow-clip-margin)
+            "boxorstatic", // BoxOrStatic, BoxOrStaticString, BoxOrStaticImageRef
         ],
     );
 
@@ -215,19 +215,19 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "mousestate",
             "keyboardstate",
             "debugstate",
-            "hittest",    // HitTest, HitTestItem, etc.
-            "virtualkey", // VirtualKeyCode
-            "scancode",   // ScanCode
-            "keycode",    // KeyCode
-            "drag",       // DragData, DragState, DragEffect
-            "drop",       // DropEffect
-            "clipboard",  // ClipboardContent
-            "selection",  // Selection, SelectionManager, SelectionState
-            "gesture",    // GestureAndDragManager
-            "input",      // InputSample, InputSession
-            "bidi",       // BidiDirection, BidiLevel
-            "idorclass",  // IdOrClass
-            "aria",       // SmallAriaInfo
+            "hittest",     // HitTest, HitTestItem, etc.
+            "virtualkey",  // VirtualKeyCode
+            "scancode",    // ScanCode
+            "keycode",     // KeyCode
+            "drag",        // DragData, DragState, DragEffect
+            "drop",        // DropEffect
+            "clipboard",   // ClipboardContent
+            "selection",   // Selection, SelectionManager, SelectionState
+            "gesture",     // GestureAndDragManager
+            "input",       // InputSample, InputSession
+            "bidi",        // BidiDirection, BidiLevel
+            "idorclass",   // IdOrClass
+            "aria",        // SmallAriaInfo
             "geolocation", // GeolocationProbeConfig (backs NodeType::GeolocationProbe)
             "locationfix", // LocationFix (delivered by the geolocation backends)
         ],
@@ -397,13 +397,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
     // ZIP module - archive handling
     map.insert(
         "zip",
-        vec![
-            "zip",
-            "zipentry",
-            "ziparchive",
-            "zipextract",
-            "zipcreate",
-        ],
+        vec!["zip", "zipentry", "ziparchive", "zipextract", "zipcreate"],
     );
 
     // Fluent module - localization
@@ -598,7 +592,11 @@ pub fn get_correct_module(type_name: &str, current_module: &str) -> Option<Strin
 }
 
 /// Like `get_correct_module` but accepts an optional external path for better accuracy.
-pub fn get_correct_module_with_path(type_name: &str, current_module: &str, external_path: Option<&str>) -> Option<String> {
+pub fn get_correct_module_with_path(
+    type_name: &str,
+    current_module: &str,
+    external_path: Option<&str>,
+) -> Option<String> {
     let (name_module, is_warning) = determine_module(type_name);
 
     // Hard-coded module assignments (Vec/Option/Error) always win — they're structural
@@ -671,57 +669,125 @@ fn module_from_external_path(path: &str) -> Option<String> {
         return Some("css".to_string());
     }
     // azul_core submodules
-    if path.starts_with("azul_core::dom::") { return Some("dom".to_string()); }
-    if path.starts_with("azul_core::window::") { return Some("window".to_string()); }
-    if path.starts_with("azul_core::callbacks::") { return Some("callbacks".to_string()); }
-    if path.starts_with("azul_core::a11y::") { return Some("dom".to_string()); }
-    if path.starts_with("azul_core::resources::") { return Some("image".to_string()); }
-    if path.starts_with("azul_core::styled_dom::") { return Some("dom".to_string()); }
-    if path.starts_with("azul_core::diff::") { return Some("dom".to_string()); }
-    if path.starts_with("azul_core::events::") { return Some("dom".to_string()); }
+    if path.starts_with("azul_core::dom::") {
+        return Some("dom".to_string());
+    }
+    if path.starts_with("azul_core::window::") {
+        return Some("window".to_string());
+    }
+    if path.starts_with("azul_core::callbacks::") {
+        return Some("callbacks".to_string());
+    }
+    if path.starts_with("azul_core::a11y::") {
+        return Some("dom".to_string());
+    }
+    if path.starts_with("azul_core::resources::") {
+        return Some("image".to_string());
+    }
+    if path.starts_with("azul_core::styled_dom::") {
+        return Some("dom".to_string());
+    }
+    if path.starts_with("azul_core::diff::") {
+        return Some("dom".to_string());
+    }
+    if path.starts_with("azul_core::events::") {
+        return Some("dom".to_string());
+    }
     // Geolocation POD types (LocationFix, GeolocationProbeConfig) back the
     // `NodeType::GeolocationProbe` dom node, so they belong in the dom module.
-    if path.starts_with("azul_core::geolocation::") { return Some("dom".to_string()); }
+    if path.starts_with("azul_core::geolocation::") {
+        return Some("dom".to_string());
+    }
     // azul_layout submodules
-    if path.starts_with("azul_layout::icu::") { return Some("icu".to_string()); }
-    if path.starts_with("azul_layout::xml::") { return Some("dom".to_string()); }
+    if path.starts_with("azul_layout::icu::") {
+        return Some("icu".to_string());
+    }
+    if path.starts_with("azul_layout::xml::") {
+        return Some("dom".to_string());
+    }
     // Widget types (Button, TextInput, MapWidget, …) live in the `widgets`
     // module regardless of their Rust submodule (e.g. `widgets::map::MapWidget`).
     // Without this arm, types in a nested widget submodule fell through to the
     // `misc` fallback, producing spurious "move to misc" patches.
-    if path.starts_with("azul_layout::widgets::") { return Some("widgets".to_string()); }
+    if path.starts_with("azul_layout::widgets::") {
+        return Some("widgets".to_string());
+    }
 
     // Capability / platform subsystems — formerly dumped in "misc". Routed by
     // their exact source path so irregular type names (DirEntry, Wt*, Detected*,
     // OkCancel) land in the right module without risky name-keyword matching.
     // azul_core::*
-    if path.starts_with("azul_core::json::") { return Some("json".to_string()); }
-    if path.starts_with("azul_core::audio::") { return Some("audio".to_string()); }
-    if path.starts_with("azul_core::video::") { return Some("video".to_string()); }
-    if path.starts_with("azul_core::screencap::") { return Some("screen".to_string()); }
-    if path.starts_with("azul_core::camera::") { return Some("camera".to_string()); }
-    if path.starts_with("azul_core::biometric::") { return Some("biometric".to_string()); }
-    if path.starts_with("azul_core::sensors::") { return Some("sensor".to_string()); }
-    if path.starts_with("azul_core::gamepad::") { return Some("gamepad".to_string()); }
-    if path.starts_with("azul_core::db::") { return Some("db".to_string()); }
+    if path.starts_with("azul_core::json::") {
+        return Some("json".to_string());
+    }
+    if path.starts_with("azul_core::audio::") {
+        return Some("audio".to_string());
+    }
+    if path.starts_with("azul_core::video::") {
+        return Some("video".to_string());
+    }
+    if path.starts_with("azul_core::screencap::") {
+        return Some("screen".to_string());
+    }
+    if path.starts_with("azul_core::camera::") {
+        return Some("camera".to_string());
+    }
+    if path.starts_with("azul_core::biometric::") {
+        return Some("biometric".to_string());
+    }
+    if path.starts_with("azul_core::sensors::") {
+        return Some("sensor".to_string());
+    }
+    if path.starts_with("azul_core::gamepad::") {
+        return Some("gamepad".to_string());
+    }
+    if path.starts_with("azul_core::db::") {
+        return Some("db".to_string());
+    }
     // Routed by path rather than by name: a `Tray*` name-keyword arm would also
     // capture unrelated future types, and the module is small enough that the
     // exact path is both safer and self-documenting.
-    if path.starts_with("azul_core::tray::") { return Some("tray".to_string()); }
-    if path.starts_with("azul_core::url::") { return Some("url".to_string()); }
-    if path.starts_with("azul_core::xml::") { return Some("xml".to_string()); }
+    if path.starts_with("azul_core::tray::") {
+        return Some("tray".to_string());
+    }
+    if path.starts_with("azul_core::url::") {
+        return Some("url".to_string());
+    }
+    if path.starts_with("azul_core::xml::") {
+        return Some("xml".to_string());
+    }
     // azul_layout::*
-    if path.starts_with("azul_layout::file::") { return Some("file".to_string()); }
-    if path.starts_with("azul_layout::desktop::file::") { return Some("file".to_string()); }
-    if path.starts_with("azul_layout::fmt::") { return Some("fmt".to_string()); }
-    if path.starts_with("azul_layout::managers::gesture::") { return Some("gesture".to_string()); }
-    if path.starts_with("azul_layout::desktop::dialogs::") { return Some("dialog".to_string()); }
+    if path.starts_with("azul_layout::file::") {
+        return Some("file".to_string());
+    }
+    if path.starts_with("azul_layout::desktop::file::") {
+        return Some("file".to_string());
+    }
+    if path.starts_with("azul_layout::fmt::") {
+        return Some("fmt".to_string());
+    }
+    if path.starts_with("azul_layout::managers::gesture::") {
+        return Some("gesture".to_string());
+    }
+    if path.starts_with("azul_layout::desktop::dialogs::") {
+        return Some("dialog".to_string());
+    }
     // azul_dll::unified::* backends
-    if path.starts_with("azul_dll::unified::audio::") { return Some("audio".to_string()); }
-    if path.starts_with("azul_dll::unified::sqlite::") { return Some("db".to_string()); }
-    if path.starts_with("azul_dll::unified::pdf::") { return Some("pdf".to_string()); }
-    if path.starts_with("azul_dll::unified::video_codec::") { return Some("video".to_string()); }
-    if path.starts_with("azul_dll::unified::webtransport::") { return Some("webtransport".to_string()); }
+    if path.starts_with("azul_dll::unified::audio::") {
+        return Some("audio".to_string());
+    }
+    if path.starts_with("azul_dll::unified::sqlite::") {
+        return Some("db".to_string());
+    }
+    if path.starts_with("azul_dll::unified::pdf::") {
+        return Some("pdf".to_string());
+    }
+    if path.starts_with("azul_dll::unified::video_codec::") {
+        return Some("video".to_string());
+    }
+    if path.starts_with("azul_dll::unified::webtransport::") {
+        return Some("webtransport".to_string());
+    }
 
     None
 }

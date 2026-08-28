@@ -27,9 +27,16 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     props::{
         basic::{color::ColorU, *},
-        layout::{LayoutAlignSelf, LayoutFlexGrow, LayoutWidth, LayoutHeight},
+        layout::{LayoutAlignSelf, LayoutFlexGrow, LayoutHeight, LayoutWidth},
         property::{CssProperty, *},
-        style::{LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBorderBottomColor, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderBottomStyle, StyleBorderLeftColor,
+            StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle,
+            StyleBorderTopColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleBorderTopStyle,
+        },
     },
     AzString,
 };
@@ -39,9 +46,19 @@ static SPINNER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-na
 /// Default ring diameter, in logical px.
 const DEFAULT_SIZE: isize = 24;
 /// Faint "track" colour for the three inactive sides (#d0d4d9).
-const DEFAULT_TRACK_COLOR: ColorU = ColorU { r: 208, g: 212, b: 217, a: 255 };
+const DEFAULT_TRACK_COLOR: ColorU = ColorU {
+    r: 208,
+    g: 212,
+    b: 217,
+    a: 255,
+};
 /// Solid accent colour for the active (top) arc (#0d6efd, accent blue).
-const DEFAULT_ACCENT_COLOR: ColorU = ColorU { r: 13, g: 110, b: 253, a: 255 };
+const DEFAULT_ACCENT_COLOR: ColorU = ColorU {
+    r: 13,
+    g: 110,
+    b: 253,
+    a: 255,
+};
 
 /// An indeterminate busy-indicator ring. Stateless; renders a single styled
 /// node. **Static** — the ring shows the spinner shape but does not rotate
@@ -62,7 +79,11 @@ pub struct Spinner {
 /// Builds the ring style for the given diameter and colours. All three are
 /// instance-dependent, so the style is built at runtime per the recipe's
 /// "runtime vec when param-dependent" path (see `badge::build_badge_style`).
-fn build_spinner_style(size: isize, color: ColorU, track_color: ColorU) -> CssPropertyWithConditionsVec {
+fn build_spinner_style(
+    size: isize,
+    color: ColorU,
+    track_color: ColorU,
+) -> CssPropertyWithConditionsVec {
     // Ring thickness scales with the diameter (min 2px); radius = size/2 → circle.
     let border_width = (size / 8).max(2);
     let radius = size / 2;
@@ -87,32 +108,36 @@ fn build_spinner_style(size: isize, color: ColorU, track_color: ColorU) -> CssPr
         CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
             LayoutBorderRightWidth::const_px(border_width),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
             StyleBorderBottomStyle {
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
             StyleBorderRightStyle {
                 inner: BorderStyle::Solid,
             },
         )),
         // top = accent (the visible "arc"); other three = faint track.
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-            inner: color,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+            StyleBorderTopColor { inner: color }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor { inner: track_color },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
-            inner: track_color,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_left_color(
+            StyleBorderLeftColor { inner: track_color }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
             StyleBorderRightColor { inner: track_color },
         )),
@@ -135,14 +160,16 @@ fn build_spinner_style(size: isize, color: ColorU, track_color: ColorU) -> CssPr
 impl Spinner {
     /// Creates a new spinner with the default size (24px) and accent colour.
     #[inline]
-    #[must_use] pub fn create() -> Self {
+    #[must_use]
+    pub fn create() -> Self {
         Self::with_size(DEFAULT_SIZE)
     }
 
     /// Creates a new spinner with the given diameter (logical px) and the
     /// default colours.
     #[inline]
-    #[must_use] pub fn with_size(size: isize) -> Self {
+    #[must_use]
+    pub fn with_size(size: isize) -> Self {
         Self {
             size,
             color: DEFAULT_ACCENT_COLOR,
@@ -160,7 +187,8 @@ impl Spinner {
 
     /// Builder-style setter for the ring diameter.
     #[inline]
-    #[must_use] pub fn with_spinner_size(mut self, size: isize) -> Self {
+    #[must_use]
+    pub fn with_spinner_size(mut self, size: isize) -> Self {
         self.set_size(size);
         self
     }
@@ -174,7 +202,8 @@ impl Spinner {
 
     /// Builder-style setter for the active-arc colour.
     #[inline]
-    #[must_use] pub fn with_color(mut self, color: ColorU) -> Self {
+    #[must_use]
+    pub fn with_color(mut self, color: ColorU) -> Self {
         self.set_color(color);
         self
     }
@@ -188,14 +217,16 @@ impl Spinner {
 
     /// Builder-style setter for the inactive "track" colour.
     #[inline]
-    #[must_use] pub fn with_track_color(mut self, track_color: ColorU) -> Self {
+    #[must_use]
+    pub fn with_track_color(mut self, track_color: ColorU) -> Self {
         self.set_track_color(track_color);
         self
     }
 
     /// Replaces `self` with a default spinner and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
@@ -204,7 +235,8 @@ impl Spinner {
     /// Converts this spinner into a single DOM node with the
     /// `__azul-native-spinner` class.
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPINNER_CLASS))
             .with_css_props(self.spinner_style)
@@ -303,9 +335,24 @@ mod autotest_generated {
 
     /// Colours that are trivially distinguishable in a failure message, plus the
     /// fully transparent one (alpha is carried untouched, so it must survive).
-    const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
-    const GREEN: ColorU = ColorU { r: 0, g: 255, b: 0, a: 255 };
-    const GHOST: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+    const RED: ColorU = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const GREEN: ColorU = ColorU {
+        r: 0,
+        g: 255,
+        b: 0,
+        a: 255,
+    };
+    const GHOST: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
 
     /// The declared properties of a style vec, in declaration order.
     fn props(v: &CssPropertyWithConditionsVec) -> Vec<CssProperty> {
@@ -313,7 +360,10 @@ mod autotest_generated {
     }
 
     /// The first property matching `f`, or `None` if the style never declares it.
-    fn find<T>(v: &CssPropertyWithConditionsVec, f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+    fn find<T>(
+        v: &CssPropertyWithConditionsVec,
+        f: impl Fn(&CssProperty) -> Option<T>,
+    ) -> Option<T> {
         v.as_slice().iter().find_map(|p| f(&p.property))
     }
 
@@ -480,13 +530,25 @@ mod autotest_generated {
             let types: Vec<CssPropertyType> =
                 props(&style).iter().map(CssProperty::get_type).collect();
 
-            assert_eq!(style.len(), DECLARATIONS, "declaration count changed for {size}");
-            assert_eq!(types, EXPECTED_ORDER.to_vec(), "declaration order changed for {size}");
+            assert_eq!(
+                style.len(),
+                DECLARATIONS,
+                "declaration count changed for {size}"
+            );
+            assert_eq!(
+                types,
+                EXPECTED_ORDER.to_vec(),
+                "declaration order changed for {size}"
+            );
 
             let mut sorted = types.clone();
             sorted.sort_unstable();
             sorted.dedup();
-            assert_eq!(sorted.len(), DECLARATIONS, "a property is declared twice for {size}");
+            assert_eq!(
+                sorted.len(),
+                DECLARATIONS,
+                "a property is declared twice for {size}"
+            );
         }
     }
 
@@ -529,7 +591,11 @@ mod autotest_generated {
         assert_eq!(raw(width(&style)), 0);
         assert_eq!(raw(height(&style)), 0);
         for bw in border_widths(&style) {
-            assert_eq!(raw(bw), 2 * FP_SCALE, "the 2px border floor stopped applying at size 0");
+            assert_eq!(
+                raw(bw),
+                2 * FP_SCALE,
+                "the 2px border floor stopped applying at size 0"
+            );
         }
         for r in radii(&style) {
             assert_eq!(raw(r), 0, "a zero-diameter ring must have a zero radius");
@@ -550,7 +616,10 @@ mod autotest_generated {
                     expected * FP_SCALE,
                     "border width wrong for size {size}",
                 );
-                assert!(raw(bw) >= 2 * FP_SCALE, "border width dropped below 2px for {size}");
+                assert!(
+                    raw(bw) >= 2 * FP_SCALE,
+                    "border width dropped below 2px for {size}"
+                );
             }
         }
     }
@@ -564,7 +633,11 @@ mod autotest_generated {
             let corners = radii(&style);
 
             for r in corners {
-                assert_eq!(raw(r), (size / 2) * FP_SCALE, "radius wrong for size {size}");
+                assert_eq!(
+                    raw(r),
+                    (size / 2) * FP_SCALE,
+                    "radius wrong for size {size}"
+                );
             }
             assert!(
                 corners.iter().all(|r| *r == corners[0]),
@@ -597,9 +670,15 @@ mod autotest_generated {
             let total = 2 * (raw(border_widths(&style)[0]) / FP_SCALE);
 
             if size >= 4 {
-                assert!(total <= size, "size {size}: borders ({total}px) overflow the box");
+                assert!(
+                    total <= size,
+                    "size {size}: borders ({total}px) overflow the box"
+                );
             } else {
-                assert!(total > size, "size {size}: expected the degenerate 2px-floor ring");
+                assert!(
+                    total > size,
+                    "size {size}: expected the degenerate 2px-floor ring"
+                );
             }
         }
     }
@@ -627,9 +706,21 @@ mod autotest_generated {
         for size in SAFE_SIZES {
             let style = build_spinner_style(size, RED, GREEN);
 
-            assert_eq!(raw(width(&style)), size * FP_SCALE, "width encoding lost {size}");
-            assert_eq!(raw(width(&style)) / FP_SCALE, size, "width did not round-trip for {size}");
-            assert_eq!(raw(height(&style)) / FP_SCALE, size, "height did not round-trip for {size}");
+            assert_eq!(
+                raw(width(&style)),
+                size * FP_SCALE,
+                "width encoding lost {size}"
+            );
+            assert_eq!(
+                raw(width(&style)) / FP_SCALE,
+                size,
+                "width did not round-trip for {size}"
+            );
+            assert_eq!(
+                raw(height(&style)) / FP_SCALE,
+                size,
+                "height did not round-trip for {size}"
+            );
 
             // The `f32` view is only exact for values a float can hold.
             if size.abs() <= 1_000 {
@@ -676,10 +767,16 @@ mod autotest_generated {
         }))
         .is_err();
 
-        for size in [isize::MAX, isize::MIN, MAX_ENCODABLE_SIZE + 1, MIN_ENCODABLE_SIZE - 1] {
-            let widget_panicked =
-                catch_unwind(AssertUnwindSafe(|| drop(build_spinner_style(size, RED, GREEN))))
-                    .is_err();
+        for size in [
+            isize::MAX,
+            isize::MIN,
+            MAX_ENCODABLE_SIZE + 1,
+            MIN_ENCODABLE_SIZE - 1,
+        ] {
+            let widget_panicked = catch_unwind(AssertUnwindSafe(|| {
+                drop(build_spinner_style(size, RED, GREEN))
+            }))
+            .is_err();
 
             assert_eq!(
                 widget_panicked, profile_traps_overflow,
@@ -702,13 +799,30 @@ mod autotest_generated {
             (GHOST, RED),
             (RED, GHOST),
             (RED, RED),
-            (ColorU { r: 0, g: 0, b: 0, a: 0 }, ColorU { r: 255, g: 255, b: 255, a: 255 }),
+            (
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                },
+                ColorU {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+            ),
         ] {
             let style = build_spinner_style(24, color, track);
             let [top, right, bottom, left] = border_colors(&style);
 
             assert_eq!(top, color, "the top side lost the accent colour");
-            assert_eq!([right, bottom, left], [track; 3], "a track side lost its colour");
+            assert_eq!(
+                [right, bottom, left],
+                [track; 3],
+                "a track side lost its colour"
+            );
         }
     }
 
@@ -717,8 +831,18 @@ mod autotest_generated {
         // Alpha in particular: a fully transparent accent must stay transparent
         // rather than being normalised to opaque somewhere in the pipeline.
         for a in [0_u8, 1, 127, 255] {
-            let color = ColorU { r: 1, g: 2, b: 3, a };
-            let track = ColorU { r: 253, g: 254, b: 255, a: 255 - a };
+            let color = ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a,
+            };
+            let track = ColorU {
+                r: 253,
+                g: 254,
+                b: 255,
+                a: 255 - a,
+            };
             let style = build_spinner_style(24, color, track);
             let [top, right, bottom, left] = border_colors(&style);
 
@@ -770,8 +894,24 @@ mod autotest_generated {
 
         assert_eq!(s.size, DEFAULT_SIZE);
         assert_eq!(s.size, 24, "the documented default diameter changed");
-        assert_eq!(s.color, ColorU { r: 13, g: 110, b: 253, a: 255 });
-        assert_eq!(s.track_color, ColorU { r: 208, g: 212, b: 217, a: 255 });
+        assert_eq!(
+            s.color,
+            ColorU {
+                r: 13,
+                g: 110,
+                b: 253,
+                a: 255
+            }
+        );
+        assert_eq!(
+            s.track_color,
+            ColorU {
+                r: 208,
+                g: 212,
+                b: 217,
+                a: 255
+            }
+        );
         assert_eq!(
             s.spinner_style,
             build_spinner_style(DEFAULT_SIZE, DEFAULT_ACCENT_COLOR, DEFAULT_TRACK_COLOR),
@@ -853,9 +993,14 @@ mod autotest_generated {
             s.set_track_color(GREEN);
         }
 
-        let once = Spinner::with_size(24).with_color(RED).with_track_color(GREEN);
+        let once = Spinner::with_size(24)
+            .with_color(RED)
+            .with_track_color(GREEN);
         assert_eq!(s.spinner_style.len(), DECLARATIONS, "the style vec grew");
-        assert_eq!(s, once, "repeated setters diverged from a single application");
+        assert_eq!(
+            s, once,
+            "repeated setters diverged from a single application"
+        );
     }
 
     #[test]
@@ -868,7 +1013,12 @@ mod autotest_generated {
 
             assert_eq!(s.size, size);
             assert_eq!(s.spinner_style.len(), DECLARATIONS);
-            assert_eq!(s, Spinner::with_size(size).with_color(RED).with_track_color(GREEN));
+            assert_eq!(
+                s,
+                Spinner::with_size(size)
+                    .with_color(RED)
+                    .with_track_color(GREEN)
+            );
         }
     }
 
@@ -881,7 +1031,11 @@ mod autotest_generated {
         for size in SAFE_SIZES {
             let mut mutated = Spinner::create();
             mutated.set_size(size);
-            assert_eq!(Spinner::create().with_spinner_size(size), mutated, "size {size}");
+            assert_eq!(
+                Spinner::create().with_spinner_size(size),
+                mutated,
+                "size {size}"
+            );
         }
 
         let mut mutated = Spinner::create();
@@ -930,7 +1084,9 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_returns_the_original_and_installs_a_default() {
-        let mut s = Spinner::with_size(96).with_color(RED).with_track_color(GREEN);
+        let mut s = Spinner::with_size(96)
+            .with_color(RED)
+            .with_track_color(GREEN);
         let expected = s.clone();
 
         let taken = s.swap_with_default();
@@ -939,7 +1095,10 @@ mod autotest_generated {
         assert_eq!(s, Spinner::create(), "the receiver is not a fresh default");
         // The returned value must own a live style, not a moved-out husk.
         assert_eq!(taken.spinner_style.len(), DECLARATIONS);
-        assert_eq!(border_colors(&taken.spinner_style), [RED, GREEN, GREEN, GREEN]);
+        assert_eq!(
+            border_colors(&taken.spinner_style),
+            [RED, GREEN, GREEN, GREEN]
+        );
     }
 
     #[test]
@@ -950,7 +1109,11 @@ mod autotest_generated {
         let second = s.swap_with_default();
 
         assert_eq!(first.size, MAX_ENCODABLE_SIZE);
-        assert_eq!(second, Spinner::create(), "the second swap did not return the default");
+        assert_eq!(
+            second,
+            Spinner::create(),
+            "the second swap did not return the default"
+        );
         assert_eq!(s, Spinner::create());
     }
 
@@ -990,7 +1153,10 @@ mod autotest_generated {
         copy.set_size(8);
         copy.set_track_color(GHOST);
 
-        assert_eq!(original.size, 32, "mutating the clone moved the original's size");
+        assert_eq!(
+            original.size, 32,
+            "mutating the clone moved the original's size"
+        );
         assert_eq!(original.track_color, DEFAULT_TRACK_COLOR);
         assert_eq!(raw(width(&original.spinner_style)), 32 * FP_SCALE);
         assert_eq!(border_colors(&original.spinner_style)[0], RED);
@@ -1005,7 +1171,10 @@ mod autotest_generated {
         let dom = Spinner::create().dom();
 
         assert_eq!(*dom.root.get_node_type(), NodeType::Div);
-        assert!(dom.children.as_ref().is_empty(), "the spinner must be a leaf node");
+        assert!(
+            dom.children.as_ref().is_empty(),
+            "the spinner must be a leaf node"
+        );
         assert_eq!(dom.estimated_total_children, 0);
         assert_eq!(dom_classes(&dom), vec!["__azul-native-spinner".to_string()]);
     }
@@ -1015,13 +1184,22 @@ mod autotest_generated {
         // `with_css_props` turns the vec into one inline rule per declaration;
         // nothing may be dropped, reordered or made conditional on the way.
         for size in SAFE_SIZES {
-            let s = Spinner::with_size(size).with_color(RED).with_track_color(GREEN);
+            let s = Spinner::with_size(size)
+                .with_color(RED)
+                .with_track_color(GREEN);
             let expected = props(&s.spinner_style);
             let dom = s.dom();
 
-            assert_eq!(dom_props(&dom), expected, "the DOM lost declarations for size {size}");
+            assert_eq!(
+                dom_props(&dom),
+                expected,
+                "the DOM lost declarations for size {size}"
+            );
             assert!(
-                dom.root.style.iter_inline_properties().all(|(_, c)| c.is_empty()),
+                dom.root
+                    .style
+                    .iter_inline_properties()
+                    .all(|(_, c)| c.is_empty()),
                 "size {size}: an inline declaration became conditional",
             );
         }
@@ -1035,8 +1213,14 @@ mod autotest_generated {
 
     #[test]
     fn dom_is_deterministic_for_equal_inputs() {
-        let a = Spinner::with_size(13).with_color(RED).with_track_color(GHOST).dom();
-        let b = Spinner::with_size(13).with_color(RED).with_track_color(GHOST).dom();
+        let a = Spinner::with_size(13)
+            .with_color(RED)
+            .with_track_color(GHOST)
+            .dom();
+        let b = Spinner::with_size(13)
+            .with_color(RED)
+            .with_track_color(GHOST)
+            .dom();
 
         assert_eq!(a, b, "two identically-built spinners rendered differently");
     }
@@ -1050,7 +1234,11 @@ mod autotest_generated {
                     .with_track_color(track)
                     .dom();
 
-                assert_eq!(dom_props(&dom).len(), DECLARATIONS, "shape changed for {size}");
+                assert_eq!(
+                    dom_props(&dom).len(),
+                    DECLARATIONS,
+                    "shape changed for {size}"
+                );
                 assert!(dom.children.as_ref().is_empty());
                 assert_eq!(dom_classes(&dom).len(), 1);
             }

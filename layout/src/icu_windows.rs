@@ -15,7 +15,10 @@ use std::sync::OnceLock;
 
 use azul_css::AzString;
 
-use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory, decimal_string, plural_for};
+use super::{
+    decimal_string, plural_for, FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType,
+    PluralCategory,
+};
 
 // ─── Win32 inline types (no winapi dep needed) ───────────────────────────────
 
@@ -92,19 +95,16 @@ type CompareStringExFn = unsafe extern "system" fn(
 
 extern "system" {
     fn LoadLibraryW(lp_lib_file_name: *const u16) -> HMODULE;
-    fn GetProcAddress(
-        h_module: HMODULE,
-        lp_proc_name: *const u8,
-    ) -> *mut core::ffi::c_void;
+    fn GetProcAddress(h_module: HMODULE, lp_proc_name: *const u8) -> *mut core::ffi::c_void;
 }
 
 // ─── Lazy-loaded NLS function table ──────────────────────────────────────────
 
 struct NlsFns {
     get_number_format_ex: GetNumberFormatExFn,
-    get_date_format_ex:   GetDateFormatExFn,
-    get_time_format_ex:   GetTimeFormatExFn,
-    compare_string_ex:    CompareStringExFn,
+    get_date_format_ex: GetDateFormatExFn,
+    get_time_format_ex: GetTimeFormatExFn,
+    compare_string_ex: CompareStringExFn,
 }
 
 // SAFETY: these are read-only function pointers after initialization.
@@ -123,9 +123,7 @@ fn nls() -> Option<&'static NlsFns> {
         }
         macro_rules! sym {
             ($name:literal) => {{
-                let ptr = unsafe {
-                    GetProcAddress(hmod, concat!($name, "\0").as_ptr())
-                };
+                let ptr = unsafe { GetProcAddress(hmod, concat!($name, "\0").as_ptr()) };
                 if ptr.is_null() {
                     return None;
                 }
@@ -134,9 +132,9 @@ fn nls() -> Option<&'static NlsFns> {
         }
         Some(NlsFns {
             get_number_format_ex: sym!("GetNumberFormatEx"),
-            get_date_format_ex:   sym!("GetDateFormatEx"),
-            get_time_format_ex:   sym!("GetTimeFormatEx"),
-            compare_string_ex:    sym!("CompareStringEx"),
+            get_date_format_ex: sym!("GetDateFormatEx"),
+            get_time_format_ex: sym!("GetTimeFormatEx"),
+            compare_string_ex: sym!("CompareStringEx"),
         })
     })
     .as_ref()
@@ -163,18 +161,22 @@ fn from_wide_n(buf: &[u16], n: i32) -> String {
 fn fmt_buf(f: impl Fn(*mut u16, i32) -> i32) -> Option<String> {
     let mut buf = vec![0u16; 256];
     let n = f(buf.as_mut_ptr(), buf.len() as i32);
-    if n <= 0 { None } else { Some(from_wide_n(&buf, n)) }
+    if n <= 0 {
+        None
+    } else {
+        Some(from_wide_n(&buf, n))
+    }
 }
 
 // ─── Win32 flag constants ─────────────────────────────────────────────────────
 
-const DATE_SHORTDATE:  u32 = 0x0000_0001;
-const DATE_LONGDATE:   u32 = 0x0000_0002;
-const TIME_NOSECONDS:  u32 = 0x0000_0002;
+const DATE_SHORTDATE: u32 = 0x0000_0001;
+const DATE_LONGDATE: u32 = 0x0000_0002;
+const TIME_NOSECONDS: u32 = 0x0000_0002;
 
 // CompareStringEx return values (0 = failure)
-const CSTR_LESS_THAN:    i32 = 1;
-const CSTR_EQUAL:        i32 = 2;
+const CSTR_LESS_THAN: i32 = 1;
+const CSTR_EQUAL: i32 = 2;
 const CSTR_GREATER_THAN: i32 = 3;
 
 // ─── List formatting helpers ──────────────────────────────────────────────────
@@ -184,30 +186,76 @@ const CSTR_GREATER_THAN: i32 = 3;
 
 fn conjunction_and(lang: &str) -> &'static str {
     match lang {
-        "de" => "und",   "fr" => "et",    "es" => "y",    "it" => "e",
-        "pt" => "e",     "nl" => "en",    "ru" => "и",    "uk" => "і",
-        "be" => "і",     "pl" => "i",     "cs" => "a",    "sk" => "a",
-        "sr" => "и",     "hr" => "i",     "bs" => "i",    "sl" => "in",
-        "ro" => "și",    "hu" => "és",    "fi" => "ja",   "et" => "ja",
-        "lv" => "un",    "lt" => "ir",    "sv" => "och",  "da" => "og",
+        "de" => "und",
+        "fr" => "et",
+        "es" => "y",
+        "it" => "e",
+        "pt" => "e",
+        "nl" => "en",
+        "ru" => "и",
+        "uk" => "і",
+        "be" => "і",
+        "pl" => "i",
+        "cs" => "a",
+        "sk" => "a",
+        "sr" => "и",
+        "hr" => "i",
+        "bs" => "i",
+        "sl" => "in",
+        "ro" => "și",
+        "hu" => "és",
+        "fi" => "ja",
+        "et" => "ja",
+        "lv" => "un",
+        "lt" => "ir",
+        "sv" => "och",
+        "da" => "og",
         "no" | "nb" | "nn" => "og",
-        "tr" => "ve",    "ar" => "و",     "he" => "ו",   "ja" => "と",
-        "zh" => "和",    "ko" => "와",    "th" => "และ",
+        "tr" => "ve",
+        "ar" => "و",
+        "he" => "ו",
+        "ja" => "と",
+        "zh" => "和",
+        "ko" => "와",
+        "th" => "และ",
         _ => "and",
     }
 }
 
 fn conjunction_or(lang: &str) -> &'static str {
     match lang {
-        "de" => "oder",  "fr" => "ou",    "es" => "o",    "it" => "o",
-        "pt" => "ou",    "nl" => "of",    "ru" => "или",  "uk" => "або",
-        "be" => "або",   "pl" => "lub",   "cs" => "nebo", "sk" => "alebo",
-        "sr" => "или",   "hr" => "ili",   "bs" => "ili",  "sl" => "ali",
-        "ro" => "sau",   "hu" => "vagy",  "fi" => "tai",  "et" => "või",
-        "lv" => "vai",   "lt" => "arba",  "sv" => "eller","da" => "eller",
+        "de" => "oder",
+        "fr" => "ou",
+        "es" => "o",
+        "it" => "o",
+        "pt" => "ou",
+        "nl" => "of",
+        "ru" => "или",
+        "uk" => "або",
+        "be" => "або",
+        "pl" => "lub",
+        "cs" => "nebo",
+        "sk" => "alebo",
+        "sr" => "или",
+        "hr" => "ili",
+        "bs" => "ili",
+        "sl" => "ali",
+        "ro" => "sau",
+        "hu" => "vagy",
+        "fi" => "tai",
+        "et" => "või",
+        "lv" => "vai",
+        "lt" => "arba",
+        "sv" => "eller",
+        "da" => "eller",
         "no" | "nb" | "nn" => "eller",
-        "tr" => "veya",  "ar" => "أو",    "he" => "או",   "ja" => "か",
-        "zh" => "或",    "ko" => "또는",  "th" => "หรือ",
+        "tr" => "veya",
+        "ar" => "أو",
+        "he" => "או",
+        "ja" => "か",
+        "zh" => "或",
+        "ko" => "또는",
+        "th" => "หรือ",
         _ => "or",
     }
 }
@@ -216,14 +264,24 @@ fn join_list(items: &[AzString], conjunction: &str) -> String {
     match items.len() {
         0 => String::new(),
         1 => items[0].as_str().to_string(),
-        2 => alloc::format!("{} {} {}", items[0].as_str(), conjunction, items[1].as_str()),
+        2 => alloc::format!(
+            "{} {} {}",
+            items[0].as_str(),
+            conjunction,
+            items[1].as_str()
+        ),
         _ => {
             let init: String = items[..items.len() - 1]
                 .iter()
                 .map(|s| s.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            alloc::format!("{}, {} {}", init, conjunction, items[items.len() - 1].as_str())
+            alloc::format!(
+                "{}, {} {}",
+                init,
+                conjunction,
+                items[items.len() - 1].as_str()
+            )
         }
     }
 }
@@ -238,15 +296,20 @@ fn compare_nls(f: &NlsFns, locale_wide: &[u16], a: &str, b: &str) -> Ordering {
     // Pass -1 to let NLS measure the null-terminated strings itself.
     let result = unsafe {
         (f.compare_string_ex)(
-            locale_wide.as_ptr(), 0,
-            a_w.as_ptr(), -1,
-            b_w.as_ptr(), -1,
-            core::ptr::null_mut(), core::ptr::null_mut(), 0,
+            locale_wide.as_ptr(),
+            0,
+            a_w.as_ptr(),
+            -1,
+            b_w.as_ptr(),
+            -1,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            0,
         )
     };
     match result {
-        CSTR_LESS_THAN    => Ordering::Less,
-        CSTR_EQUAL        => Ordering::Equal,
+        CSTR_LESS_THAN => Ordering::Less,
+        CSTR_EQUAL => Ordering::Equal,
         CSTR_GREATER_THAN => Ordering::Greater,
         // 0 means the API call failed; fall back to lexicographic order.
         _ => a.cmp(b),
@@ -285,7 +348,9 @@ impl IcuLocalizer {
     }
 
     pub fn get_language(&self) -> AzString {
-        let lang = self.locale_string.as_str()
+        let lang = self
+            .locale_string
+            .as_str()
             .split(['-', '_'])
             .next()
             .unwrap_or(self.locale_string.as_str());
@@ -293,7 +358,11 @@ impl IcuLocalizer {
     }
 
     pub fn get_region(&self) -> Option<AzString> {
-        self.locale_string.as_str().split('-').nth(1).map(AzString::from)
+        self.locale_string
+            .as_str()
+            .split('-')
+            .nth(1)
+            .map(AzString::from)
     }
 
     pub fn set_locale(&mut self, locale_str: &str) -> bool {
@@ -307,7 +376,8 @@ impl IcuLocalizer {
     }
 
     fn lang(&self) -> &str {
-        self.locale_string.as_str()
+        self.locale_string
+            .as_str()
             .split(['-', '_'])
             .next()
             .unwrap_or("en")
@@ -358,11 +428,11 @@ impl IcuLocalizer {
         other: &str,
     ) -> AzString {
         let template = match self.get_plural_category(value) {
-            PluralCategory::Zero  => zero,
-            PluralCategory::One   => one,
-            PluralCategory::Two   => two,
-            PluralCategory::Few   => few,
-            PluralCategory::Many  => many,
+            PluralCategory::Zero => zero,
+            PluralCategory::One => one,
+            PluralCategory::Two => two,
+            PluralCategory::Few => few,
+            PluralCategory::Many => many,
             PluralCategory::Other => other,
         };
         AzString::from(template.replace("{}", &value.to_string()))
@@ -373,9 +443,13 @@ impl IcuLocalizer {
     pub fn format_list(&mut self, items: &[AzString], list_type: ListType) -> AzString {
         let lang = self.lang();
         let s = match list_type {
-            ListType::Unit => items.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
-            ListType::And  => join_list(items, conjunction_and(lang)),
-            ListType::Or   => join_list(items, conjunction_or(lang)),
+            ListType::Unit => items
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            ListType::And => join_list(items, conjunction_and(lang)),
+            ListType::Or => join_list(items, conjunction_or(lang)),
         };
         AzString::from(s)
     }
@@ -391,7 +465,10 @@ impl IcuLocalizer {
             month: date.month as u16,
             day_of_week: 0,
             day: date.day as u16,
-            hour: 0, minute: 0, second: 0, milliseconds: 0,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            milliseconds: 0,
         };
         let flags = match length {
             FormatLength::Short | FormatLength::Medium => DATE_SHORTDATE,
@@ -400,12 +477,17 @@ impl IcuLocalizer {
         let locale_ptr = self.locale_wide.as_ptr();
         match fmt_buf(|buf, len| unsafe {
             (f.get_date_format_ex)(
-                locale_ptr, flags, &st,
-                core::ptr::null(), buf, len, core::ptr::null(),
+                locale_ptr,
+                flags,
+                &st,
+                core::ptr::null(),
+                buf,
+                len,
+                core::ptr::null(),
             )
         }) {
             Some(s) => IcuResult::ok(s),
-            None    => IcuResult::err("GetDateFormatEx failed"),
+            None => IcuResult::err("GetDateFormatEx failed"),
         }
     }
 
@@ -414,7 +496,10 @@ impl IcuLocalizer {
             return IcuResult::err("NLS unavailable");
         };
         let st = SystemTime {
-            year: 2000, month: 1, day_of_week: 0, day: 1,
+            year: 2000,
+            month: 1,
+            day_of_week: 0,
+            day: 1,
             hour: time.hour as u16,
             minute: time.minute as u16,
             second: time.second as u16,
@@ -426,7 +511,7 @@ impl IcuLocalizer {
             (f.get_time_format_ex)(locale_ptr, flags, &st, core::ptr::null(), buf, len)
         }) {
             Some(s) => IcuResult::ok(s),
-            None    => IcuResult::err("GetTimeFormatEx failed"),
+            None => IcuResult::err("GetTimeFormatEx failed"),
         }
     }
 
@@ -440,7 +525,11 @@ impl IcuLocalizer {
             IcuResult::Ok(s) => s,
             e => return e,
         };
-        IcuResult::ok(alloc::format!("{} {}", date_str.as_str(), time_str.as_str()))
+        IcuResult::ok(alloc::format!(
+            "{} {}",
+            date_str.as_str(),
+            time_str.as_str()
+        ))
     }
 
     // ── Collation ───────────────────────────────────────────────────────────
@@ -456,9 +545,7 @@ impl IcuLocalizer {
         // Clone the locale_wide to avoid borrow issues inside the closure.
         let locale_wide = self.locale_wide.clone();
         if let Some(f) = nls() {
-            strings.sort_by(|a, b| {
-                compare_nls(f, &locale_wide, a.as_str(), b.as_str())
-            });
+            strings.sort_by(|a, b| compare_nls(f, &locale_wide, a.as_str(), b.as_str()));
         } else {
             strings.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         }
@@ -613,7 +700,11 @@ mod autotest_generated {
         let buf = [104u16, 105, 0];
         // 0 and negatives are how the Win32 APIs report failure.
         for n in [0i32, -1, -7, i32::MIN] {
-            assert_eq!(from_wide_n(&buf, n), "", "n = {n} must yield an empty string");
+            assert_eq!(
+                from_wide_n(&buf, n),
+                "",
+                "n = {n} must yield an empty string"
+            );
         }
     }
 
@@ -658,9 +749,22 @@ mod autotest_generated {
     fn from_wide_n_round_trips_to_wide() {
         // encode == decode: to_wide's length includes the NUL, which is exactly
         // the `n` convention from_wide_n expects.
-        for s in ["", "a", "héllo", "日本語", "👍", "𝄞x", "a\u{0}b", "1,234.56"] {
+        for s in [
+            "",
+            "a",
+            "héllo",
+            "日本語",
+            "👍",
+            "𝄞x",
+            "a\u{0}b",
+            "1,234.56",
+        ] {
             let w = to_wide(s);
-            assert_eq!(from_wide_n(&w, w.len() as i32), s, "round-trip failed for {s:?}");
+            assert_eq!(
+                from_wide_n(&w, w.len() as i32),
+                s,
+                "round-trip failed for {s:?}"
+            );
         }
     }
 
@@ -700,7 +804,11 @@ mod autotest_generated {
             1
         });
         assert_eq!(seen_len.get(), 256);
-        assert_eq!(first.get(), 0, "buffer must be zeroed before the callee writes");
+        assert_eq!(
+            first.get(),
+            0,
+            "buffer must be zeroed before the callee writes"
+        );
         assert_eq!(out.as_deref(), Some(""));
     }
 
@@ -805,7 +913,10 @@ mod autotest_generated {
     #[test]
     fn join_list_three_or_more_use_an_oxford_comma() {
         assert_eq!(join_list(&azv(&["a", "b", "c"]), "and"), "a, b, and c");
-        assert_eq!(join_list(&azv(&["a", "b", "c", "d"]), "or"), "a, b, c, or d");
+        assert_eq!(
+            join_list(&azv(&["a", "b", "c", "d"]), "or"),
+            "a, b, c, or d"
+        );
     }
 
     #[test]
@@ -873,7 +984,11 @@ mod autotest_generated {
             assert_eq!(compare_nls(f, &loc, "x", "x"), Ordering::Equal);
             let ab = compare_nls(f, &loc, "a", "b");
             let ba = compare_nls(f, &loc, "b", "a");
-            assert_eq!(ab, ba.reverse(), "not antisymmetric under locale {locale:?}");
+            assert_eq!(
+                ab,
+                ba.reverse(),
+                "not antisymmetric under locale {locale:?}"
+            );
         }
     }
 
@@ -881,7 +996,14 @@ mod autotest_generated {
 
     #[test]
     fn new_keeps_the_locale_verbatim_and_caches_a_coherent_wide_form() {
-        for s in ["en-US", "", "de_DE", "zh-Hans-CN", "日本語", "x".repeat(10_000).as_str()] {
+        for s in [
+            "en-US",
+            "",
+            "de_DE",
+            "zh-Hans-CN",
+            "日本語",
+            "x".repeat(10_000).as_str(),
+        ] {
             let l = IcuLocalizer::new(s);
             assert_eq!(l.get_locale().as_str(), s);
             assert_locale_cache_coherent(&l);
@@ -893,7 +1015,10 @@ mod autotest_generated {
         // Everything after the NUL is invisible to every NLS call this type makes.
         let l = IcuLocalizer::new("en\u{0}-US");
         assert_locale_cache_coherent(&l);
-        assert_eq!(l.locale_wide[2], 0, "interior NUL truncates the locale for Win32");
+        assert_eq!(
+            l.locale_wide[2], 0,
+            "interior NUL truncates the locale for Win32"
+        );
     }
 
     #[test]
@@ -911,7 +1036,10 @@ mod autotest_generated {
         let l = IcuLocalizer::default();
         assert_eq!(l.get_locale().as_str(), "en-US");
         assert_eq!(l.get_language().as_str(), "en");
-        assert_eq!(l.get_region().map(|r| r.as_str().to_string()), Some("US".to_string()));
+        assert_eq!(
+            l.get_region().map(|r| r.as_str().to_string()),
+            Some("US".to_string())
+        );
         assert_locale_cache_coherent(&l);
     }
 
@@ -920,7 +1048,10 @@ mod autotest_generated {
         assert_eq!(IcuLocalizer::new("en-US").get_language().as_str(), "en");
         assert_eq!(IcuLocalizer::new("en_US").get_language().as_str(), "en");
         assert_eq!(IcuLocalizer::new("en").get_language().as_str(), "en");
-        assert_eq!(IcuLocalizer::new("zh-Hans-CN").get_language().as_str(), "zh");
+        assert_eq!(
+            IcuLocalizer::new("zh-Hans-CN").get_language().as_str(),
+            "zh"
+        );
     }
 
     #[test]
@@ -936,14 +1067,20 @@ mod autotest_generated {
     fn get_language_and_lang_agree() {
         for s in ["en-US", "de_DE", "", "zh-Hans-CN", "-", "_x"] {
             let l = IcuLocalizer::new(s);
-            assert_eq!(l.get_language().as_str(), l.lang(), "disagreement for {s:?}");
+            assert_eq!(
+                l.get_language().as_str(),
+                l.lang(),
+                "disagreement for {s:?}"
+            );
         }
     }
 
     #[test]
     fn get_region_only_splits_on_dash_and_returns_the_second_subtag() {
         assert_eq!(
-            IcuLocalizer::new("en-US").get_region().map(|r| r.as_str().to_string()),
+            IcuLocalizer::new("en-US")
+                .get_region()
+                .map(|r| r.as_str().to_string()),
             Some("US".to_string())
         );
         assert_eq!(IcuLocalizer::new("en").get_region(), None);
@@ -953,7 +1090,9 @@ mod autotest_generated {
         assert_eq!(IcuLocalizer::new("en_US").get_region(), None);
         // 2. and for a script-bearing tag the *script* is returned as the region.
         assert_eq!(
-            IcuLocalizer::new("zh-Hans-CN").get_region().map(|r| r.as_str().to_string()),
+            IcuLocalizer::new("zh-Hans-CN")
+                .get_region()
+                .map(|r| r.as_str().to_string()),
             Some("Hans".to_string())
         );
     }
@@ -983,7 +1122,17 @@ mod autotest_generated {
     #[test]
     fn format_integer_survives_the_i64_extremes_and_keeps_every_digit() {
         let mut l = IcuLocalizer::new("en-US");
-        for v in [0i64, 1, -1, 7, -7, 1_234_567, i64::MAX, i64::MIN, i64::MIN + 1] {
+        for v in [
+            0i64,
+            1,
+            -1,
+            7,
+            -7,
+            1_234_567,
+            i64::MAX,
+            i64::MIN,
+            i64::MIN + 1,
+        ] {
             let out = l.format_integer(v);
             let out = out.as_str();
             assert!(!out.is_empty(), "empty output for {v}");
@@ -1015,7 +1164,11 @@ mod autotest_generated {
     fn format_integer_does_not_panic_on_a_garbage_locale() {
         let mut l = IcuLocalizer::new("☃\u{0}not-a-locale");
         let out = l.format_integer(42);
-        assert!(digits(out.as_str()).starts_with('4'), "got {:?}", out.as_str());
+        assert!(
+            digits(out.as_str()).starts_with('4'),
+            "got {:?}",
+            out.as_str()
+        );
     }
 
     #[test]
@@ -1185,11 +1338,13 @@ mod autotest_generated {
         // English has no CLDR `zero` category, so the `zero` argument is dead.
         let mut l = IcuLocalizer::new("en-US");
         assert_eq!(
-            l.pluralize(0, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER").as_str(),
+            l.pluralize(0, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER")
+                .as_str(),
             "OTHER"
         );
         assert_eq!(
-            l.pluralize(1, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER").as_str(),
+            l.pluralize(1, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER")
+                .as_str(),
             "ONE"
         );
     }
@@ -1198,11 +1353,13 @@ mod autotest_generated {
     fn pluralize_arabic_reaches_the_zero_arm() {
         let mut l = IcuLocalizer::new("ar");
         assert_eq!(
-            l.pluralize(0, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER").as_str(),
+            l.pluralize(0, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER")
+                .as_str(),
             "ZERO"
         );
         assert_eq!(
-            l.pluralize(2, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER").as_str(),
+            l.pluralize(2, "ZERO", "ONE", "TWO", "FEW", "MANY", "OTHER")
+                .as_str(),
             "TWO"
         );
     }
@@ -1210,11 +1367,20 @@ mod autotest_generated {
     #[test]
     fn pluralize_handles_extremes_and_empty_templates() {
         let mut l = IcuLocalizer::new("en-US");
-        assert_eq!(l.pluralize(i64::MIN, "", "", "", "", "", "{}").as_str(), i64::MIN.to_string());
-        assert_eq!(l.pluralize(i64::MAX, "", "", "", "", "", "{}").as_str(), i64::MAX.to_string());
+        assert_eq!(
+            l.pluralize(i64::MIN, "", "", "", "", "", "{}").as_str(),
+            i64::MIN.to_string()
+        );
+        assert_eq!(
+            l.pluralize(i64::MAX, "", "", "", "", "", "{}").as_str(),
+            i64::MAX.to_string()
+        );
         assert_eq!(l.pluralize(5, "", "", "", "", "", "").as_str(), "");
         // A template with no placeholder is passed through untouched.
-        assert_eq!(l.pluralize(5, "", "", "", "", "", "no slot").as_str(), "no slot");
+        assert_eq!(
+            l.pluralize(5, "", "", "", "", "", "no slot").as_str(),
+            "no slot"
+        );
     }
 
     // ─── list formatting ──────────────────────────────────────────────────────
@@ -1322,12 +1488,36 @@ mod autotest_generated {
     fn format_time_rejects_out_of_range_fields_without_panicking() {
         let mut l = IcuLocalizer::new("en-US");
         let bad = [
-            IcuTime { hour: 24, minute: 0, second: 0 },
-            IcuTime { hour: 255, minute: 0, second: 0 },
-            IcuTime { hour: 0, minute: 99, second: 0 },
-            IcuTime { hour: 0, minute: 255, second: 0 },
-            IcuTime { hour: 0, minute: 0, second: 99 },
-            IcuTime { hour: 0, minute: 0, second: 255 },
+            IcuTime {
+                hour: 24,
+                minute: 0,
+                second: 0,
+            },
+            IcuTime {
+                hour: 255,
+                minute: 0,
+                second: 0,
+            },
+            IcuTime {
+                hour: 0,
+                minute: 99,
+                second: 0,
+            },
+            IcuTime {
+                hour: 0,
+                minute: 255,
+                second: 0,
+            },
+            IcuTime {
+                hour: 0,
+                minute: 0,
+                second: 99,
+            },
+            IcuTime {
+                hour: 0,
+                minute: 0,
+                second: 255,
+            },
         ];
         for t in bad {
             let r = l.format_time(t, true);
@@ -1346,8 +1536,16 @@ mod autotest_generated {
         }
         let mut l = IcuLocalizer::new("en-US");
         for t in [
-            IcuTime { hour: 0, minute: 0, second: 0 },
-            IcuTime { hour: 23, minute: 59, second: 59 },
+            IcuTime {
+                hour: 0,
+                minute: 0,
+                second: 0,
+            },
+            IcuTime {
+                hour: 23,
+                minute: 59,
+                second: 59,
+            },
         ] {
             assert!(
                 ok_text(&l.format_time(t, true)).is_some_and(|s| !s.is_empty()),
@@ -1362,7 +1560,11 @@ mod autotest_generated {
             return;
         }
         let mut l = IcuLocalizer::new("en-US");
-        let t = IcuTime { hour: 12, minute: 30, second: 45 };
+        let t = IcuTime {
+            hour: 12,
+            minute: 30,
+            second: 45,
+        };
         let with = ok_text(&l.format_time(t, true)).expect("with seconds");
         let without = ok_text(&l.format_time(t, false)).expect("without seconds");
         assert!(with.contains("45"), "seconds missing from {with:?}");
@@ -1377,7 +1579,11 @@ mod autotest_generated {
         }
         let mut l = IcuLocalizer::new("en-US");
         let date = IcuDate::new(2025, 1, 15);
-        let time = IcuTime { hour: 12, minute: 30, second: 45 };
+        let time = IcuTime {
+            hour: 12,
+            minute: 30,
+            second: 45,
+        };
         let dt = IcuDateTime { date, time };
         let combined = ok_text(&l.format_datetime(dt, FormatLength::Long)).expect("datetime");
         let d = ok_text(&l.format_date(date, FormatLength::Long)).expect("date");
@@ -1392,7 +1598,11 @@ mod autotest_generated {
         }
         let mut l = IcuLocalizer::new("en-US");
         let good_date = IcuDate::new(2025, 1, 15);
-        let good_time = IcuTime { hour: 1, minute: 2, second: 3 };
+        let good_time = IcuTime {
+            hour: 1,
+            minute: 2,
+            second: 3,
+        };
 
         let bad_date = IcuDateTime {
             date: IcuDate::new(2025, 13, 1),
@@ -1405,7 +1615,11 @@ mod autotest_generated {
 
         let bad_time = IcuDateTime {
             date: good_date,
-            time: IcuTime { hour: 99, minute: 0, second: 0 },
+            time: IcuTime {
+                hour: 99,
+                minute: 0,
+                second: 0,
+            },
         };
         // Must not return a half-formatted date.
         assert_eq!(
@@ -1455,7 +1669,9 @@ mod autotest_generated {
     #[test]
     fn sort_strings_is_a_permutation_and_is_idempotent() {
         let mut l = IcuLocalizer::new("en-US");
-        let input = azv(&["pear", "Apple", "banana", "", "apple", "éclair", "日本", "banana"]);
+        let input = azv(&[
+            "pear", "Apple", "banana", "", "apple", "éclair", "日本", "banana",
+        ]);
 
         let mut once = input.clone();
         l.sort_strings(&mut once);
@@ -1506,7 +1722,10 @@ mod autotest_generated {
         let mut l = IcuLocalizer::new("en-US");
         let input = azv(&["c", "a", "b"]);
         let out = l.sorted_strings(&input);
-        assert_eq!(strs(&input), vec!["c".to_string(), "a".to_string(), "b".to_string()]);
+        assert_eq!(
+            strs(&input),
+            vec!["c".to_string(), "a".to_string(), "b".to_string()]
+        );
 
         let mut in_place = input.clone();
         l.sort_strings(&mut in_place);

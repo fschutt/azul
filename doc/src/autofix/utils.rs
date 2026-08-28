@@ -457,7 +457,7 @@ pub fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<Vec<String>> {
 }
 
 /// Canonicalize a type name to its Option wrapper type name.
-/// 
+///
 /// This is the SINGLE SOURCE OF TRUTH for Option type naming.
 /// All code that constructs Option type names MUST use this function
 /// to ensure consistent naming (OptionU8, not Optionu8).
@@ -479,7 +479,7 @@ pub fn canonicalize_option_type_name(element_type: &str) -> String {
         "GLfloat" => "f32",
         other => other,
     };
-    
+
     // Canonicalize primitive types to their Option equivalents with proper casing
     match resolved_type {
         "u8" => "OptionU8".to_string(),

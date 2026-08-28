@@ -19,21 +19,35 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutJustifyContent, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutJustifyContent, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            LayoutPaddingTop,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderRightColor, StyleCursor, StyleTextAlign, StyleUserSelect, StyleTextColor, LayoutBorderLeftWidth, StyleBorderLeftStyle, StyleBorderLeftColor, StyleBorderTopLeftRadius, StyleBorderBottomLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomRightRadius},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString, StringVec,
+    AzString, StringVec,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
 
 static SEGMENTED_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-segmented"))];
-static SEGMENT_ITEM_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-segmented-item"))];
+static SEGMENT_ITEM_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-segmented-item",
+))];
 
 /// Callback function type invoked when the selected segment changes.
 pub type SegmentedOnChangeCallbackType =
@@ -148,7 +162,11 @@ static SEGMENTED_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 /// only the last on the right) are the position-dependent properties, so the
 /// style is built at runtime.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssPropertyWithConditionsVec {
+fn build_segment_style(
+    selected: bool,
+    is_first: bool,
+    is_last: bool,
+) -> CssPropertyWithConditionsVec {
     let (bg, text) = if selected {
         (SEG_SELECTED_BG, SEG_SELECTED_TEXT)
     } else {
@@ -168,9 +186,9 @@ fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssProp
             0,
         ))),
         // padding: 6px 12px
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            6,
-        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(6,)
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
             LayoutPaddingBottom::const_px(6),
         )),
@@ -191,9 +209,11 @@ fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssProp
         CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
             LayoutBorderRightWidth::const_px(1),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
             StyleBorderBottomStyle {
                 inner: BorderStyle::Solid,
@@ -204,9 +224,11 @@ fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssProp
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-            inner: SEG_BORDER_COLOR,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+            StyleBorderTopColor {
+                inner: SEG_BORDER_COLOR,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor {
                 inner: SEG_BORDER_COLOR,
@@ -218,7 +240,9 @@ fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssProp
             },
         )),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
         CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg)),
@@ -242,7 +266,9 @@ fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssProp
             }),
         ));
         v.push(CssPropertyWithConditions::simple(
-            CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(SEG_RADIUS)),
+            CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(
+                SEG_RADIUS,
+            )),
         ));
         v.push(CssPropertyWithConditions::simple(
             CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(
@@ -268,7 +294,8 @@ fn build_segment_style(selected: bool, is_first: bool, is_last: bool) -> CssProp
 
 impl Segmented {
     /// Creates a segmented control from the given labels, with the first segment selected.
-    #[must_use] pub fn create(labels: StringVec) -> Self {
+    #[must_use]
+    pub fn create(labels: StringVec) -> Self {
         Self {
             segmented_state: SegmentedStateWrapper {
                 inner: SegmentedState { selected_index: 0 },
@@ -289,13 +316,15 @@ impl Segmented {
 
     /// Builder-style setter for the selected segment index.
     #[inline]
-    #[must_use] pub const fn with_selected_index(mut self, selected_index: usize) -> Self {
+    #[must_use]
+    pub const fn with_selected_index(mut self, selected_index: usize) -> Self {
         self.set_selected_index(selected_index);
         self
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(StringVec::from_const_slice(&[]));
         core::mem::swap(&mut s, self);
         s
@@ -315,7 +344,8 @@ impl Segmented {
     }
 
     #[inline]
-    #[must_use] pub fn with_on_change<C: Into<SegmentedOnChangeCallback>>(
+    #[must_use]
+    pub fn with_on_change<C: Into<SegmentedOnChangeCallback>>(
         mut self,
         data: RefAny,
         on_change: C,
@@ -324,7 +354,8 @@ impl Segmented {
         self
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -414,7 +445,9 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
         let inner = seg.inner;
         let seg = &mut *seg;
         match seg.on_change.as_mut() {
-            Some(SegmentedOnChange { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+            Some(SegmentedOnChange { callback, refany }) => {
+                (callback.cb)(refany.clone(), info, inner)
+            }
             None => Update::DoNothing,
         }
     };
@@ -423,7 +456,10 @@ extern "C" fn on_segment_click(mut data: RefAny, mut info: CallbackInfo) -> Upda
     // the rest get the neutral fill + dark text.
     for (i, node) in segments.iter().enumerate() {
         if i == selected {
-            info.set_css_property(*node, CssProperty::const_background_content(SEG_SELECTED_BG));
+            info.set_css_property(
+                *node,
+                CssProperty::const_background_content(SEG_SELECTED_BG),
+            );
             info.set_css_property(
                 *node,
                 CssProperty::const_text_color(StyleTextColor {
@@ -496,7 +532,11 @@ mod autotest_generated {
 
     /// `n` distinct labels: `s0, s1, … s{n-1}`.
     fn n_labels(n: usize) -> StringVec {
-        StringVec::from_vec((0..n).map(|i| AzString::from(format!("s{i}"))).collect::<Vec<_>>())
+        StringVec::from_vec(
+            (0..n)
+                .map(|i| AzString::from(format!("s{i}")))
+                .collect::<Vec<_>>(),
+        )
     }
 
     /// The eight possible `(selected, is_first, is_last)` argument triples —
@@ -521,7 +561,10 @@ mod autotest_generated {
     fn property_kinds(
         v: &CssPropertyWithConditionsVec,
     ) -> Vec<core::mem::Discriminant<CssProperty>> {
-        v.as_ref().iter().map(|p| core::mem::discriminant(&p.property)).collect()
+        v.as_ref()
+            .iter()
+            .map(|p| core::mem::discriminant(&p.property))
+            .collect()
     }
 
     fn declares(v: &CssPropertyWithConditionsVec, pred: impl Fn(&CssProperty) -> bool) -> usize {
@@ -545,8 +588,9 @@ mod autotest_generated {
     fn padding_px(
         v: &CssPropertyWithConditionsVec,
     ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
-        let find =
-            |f: &dyn Fn(&CssProperty) -> Option<f32>| v.as_ref().iter().find_map(|p| f(&p.property));
+        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| {
+            v.as_ref().iter().find_map(|p| f(&p.property))
+        };
         (
             find(&|p| match p {
                 CssProperty::PaddingTop(x) => x.get_property().map(|x| px(&x.inner)),
@@ -571,8 +615,9 @@ mod autotest_generated {
     fn radii_px(
         v: &CssPropertyWithConditionsVec,
     ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
-        let find =
-            |f: &dyn Fn(&CssProperty) -> Option<f32>| v.as_ref().iter().find_map(|p| f(&p.property));
+        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| {
+            v.as_ref().iter().find_map(|p| f(&p.property))
+        };
         (
             find(&|p| match p {
                 CssProperty::BorderTopLeftRadius(r) => r.get_property().map(|r| px(&r.inner)),
@@ -597,8 +642,9 @@ mod autotest_generated {
     fn border_widths_px(
         v: &CssPropertyWithConditionsVec,
     ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
-        let find =
-            |f: &dyn Fn(&CssProperty) -> Option<f32>| v.as_ref().iter().find_map(|p| f(&p.property));
+        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| {
+            v.as_ref().iter().find_map(|p| f(&p.property))
+        };
         (
             find(&|p| match p {
                 CssProperty::BorderTopWidth(x) => x.get_property().map(|x| px(&x.inner)),
@@ -640,7 +686,11 @@ mod autotest_generated {
             CssProperty::BackgroundContent(b) => b.get_property(),
             _ => None,
         })?;
-        assert_eq!(bg.as_ref().len(), 1, "a segment must declare exactly one background layer");
+        assert_eq!(
+            bg.as_ref().len(),
+            1,
+            "a segment must declare exactly one background layer"
+        );
         match &bg.as_ref()[0] {
             StyleBackgroundContent::Color(c) => Some(*c),
             other => panic!("segment background is not a flat colour: {other:?}"),
@@ -672,13 +722,21 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
     }
 
     /// The true recursive descendant count of a `Dom` — what
     /// `estimated_total_children` is documented to cache.
     fn recursive_descendants(node: &Dom) -> usize {
-        node.children.as_ref().iter().map(|c| 1 + recursive_descendants(c)).sum()
+        node.children
+            .as_ref()
+            .iter()
+            .map(|c| 1 + recursive_descendants(c))
+            .sum()
     }
 
     /// Boundary + "negative" selection indices. `usize` has no negative values, so
@@ -772,14 +830,18 @@ mod autotest_generated {
         if let Some(mut probe) = data.downcast_mut::<ReentrantProbe>() {
             probe.calls += 1;
             let mut state = probe.state.clone();
-            probe.saw_index =
-                state.downcast_ref::<SegmentedStateWrapper>().map(|w| w.inner.selected_index);
+            probe.saw_index = state
+                .downcast_ref::<SegmentedStateWrapper>()
+                .map(|w| w.inner.selected_index);
         }
         Update::DoNothing
     }
 
     fn log_indices(data: &mut RefAny) -> Vec<usize> {
-        data.downcast_ref::<IndexLog>().expect("payload must still be an IndexLog").seen.clone()
+        data.downcast_ref::<IndexLog>()
+            .expect("payload must still be an IndexLog")
+            .seen
+            .clone()
     }
 
     fn selected_index_of(data: &mut RefAny) -> usize {
@@ -849,7 +911,9 @@ mod autotest_generated {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         if let Some(sd) = styled {
-            layout_window.layout_results.insert(DomId::ROOT_ID, layout_result(sd));
+            layout_window
+                .layout_results
+                .insert(DomId::ROOT_ID, layout_result(sd));
         }
 
         let renderer_resources = RendererResources::default();
@@ -901,14 +965,20 @@ mod autotest_generated {
     fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
         let mut out = Vec::new();
         for change in changes {
-            let CallbackChange::ChangeNodeCssProperties { node_id, properties, .. } = change else {
+            let CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } = change
+            else {
                 panic!("the restyle must only emit ChangeNodeCssProperties, got {change:?}");
             };
             for p in properties.as_ref() {
                 match p {
                     CssProperty::BackgroundContent(v) => {
-                        let layers =
-                            v.get_property().expect("restyle must write an exact background");
+                        let layers = v
+                            .get_property()
+                            .expect("restyle must write an exact background");
                         assert_eq!(layers.as_ref().len(), 1, "a segment fill is a single layer");
                         match &layers.as_ref()[0] {
                             StyleBackgroundContent::Color(c) => {
@@ -918,7 +988,9 @@ mod autotest_generated {
                         }
                     }
                     CssProperty::TextColor(v) => {
-                        let c = v.get_property().expect("restyle must write an exact text colour");
+                        let c = v
+                            .get_property()
+                            .expect("restyle must write an exact text colour");
                         out.push((node_id.index(), "text", c.inner));
                     }
                     other => panic!("unexpected restyle property: {other:?}"),
@@ -958,15 +1030,35 @@ mod autotest_generated {
 
             for (first, last) in [(false, false), (false, true), (true, false), (true, true)] {
                 let style = build_segment_style(selected, first, last);
-                assert_eq!(background_color(&style), Some(bg), "selected={selected}: background moved with position");
-                assert_eq!(text_color(&style), Some(fg), "selected={selected}: text colour moved with position");
+                assert_eq!(
+                    background_color(&style),
+                    Some(bg),
+                    "selected={selected}: background moved with position"
+                );
+                assert_eq!(
+                    text_color(&style),
+                    Some(fg),
+                    "selected={selected}: text colour moved with position"
+                );
             }
         }
 
-        assert_eq!(background_color(&build_segment_style(true, false, false)), Some(SEG_SELECTED_BG_COLOR));
-        assert_eq!(text_color(&build_segment_style(true, false, false)), Some(SEG_SELECTED_TEXT));
-        assert_eq!(background_color(&build_segment_style(false, false, false)), Some(SEG_UNSELECTED_BG_COLOR));
-        assert_eq!(text_color(&build_segment_style(false, false, false)), Some(SEG_UNSELECTED_TEXT));
+        assert_eq!(
+            background_color(&build_segment_style(true, false, false)),
+            Some(SEG_SELECTED_BG_COLOR)
+        );
+        assert_eq!(
+            text_color(&build_segment_style(true, false, false)),
+            Some(SEG_SELECTED_TEXT)
+        );
+        assert_eq!(
+            background_color(&build_segment_style(false, false, false)),
+            Some(SEG_UNSELECTED_BG_COLOR)
+        );
+        assert_eq!(
+            text_color(&build_segment_style(false, false, false)),
+            Some(SEG_UNSELECTED_TEXT)
+        );
     }
 
     #[test]
@@ -1002,10 +1094,26 @@ mod autotest_generated {
             let (tl, tr, bl, br) = radii_px(&style);
             let r = SEG_RADIUS as f32;
 
-            assert_eq!(tl, first.then_some(r), "({selected}, {first}, {last}): top-left radius");
-            assert_eq!(bl, first.then_some(r), "({selected}, {first}, {last}): bottom-left radius");
-            assert_eq!(tr, last.then_some(r), "({selected}, {first}, {last}): top-right radius");
-            assert_eq!(br, last.then_some(r), "({selected}, {first}, {last}): bottom-right radius");
+            assert_eq!(
+                tl,
+                first.then_some(r),
+                "({selected}, {first}, {last}): top-left radius"
+            );
+            assert_eq!(
+                bl,
+                first.then_some(r),
+                "({selected}, {first}, {last}): bottom-left radius"
+            );
+            assert_eq!(
+                tr,
+                last.then_some(r),
+                "({selected}, {first}, {last}): top-right radius"
+            );
+            assert_eq!(
+                br,
+                last.then_some(r),
+                "({selected}, {first}, {last}): bottom-right radius"
+            );
         }
 
         // A lone segment is a fully rounded pill; an interior segment is square.
@@ -1025,9 +1133,21 @@ mod autotest_generated {
             let (top, bottom, left, right) = border_widths_px(&style);
 
             assert_eq!(top, Some(1.0), "({selected}, {first}, {last}): top border");
-            assert_eq!(bottom, Some(1.0), "({selected}, {first}, {last}): bottom border");
-            assert_eq!(right, Some(1.0), "({selected}, {first}, {last}): right border");
-            assert_eq!(left, first.then_some(1.0), "({selected}, {first}, {last}): left border");
+            assert_eq!(
+                bottom,
+                Some(1.0),
+                "({selected}, {first}, {last}): bottom border"
+            );
+            assert_eq!(
+                right,
+                Some(1.0),
+                "({selected}, {first}, {last}): right border"
+            );
+            assert_eq!(
+                left,
+                first.then_some(1.0),
+                "({selected}, {first}, {last}): left border"
+            );
 
             // A width without a matching style/colour renders as no border at all.
             for count in [
@@ -1038,7 +1158,10 @@ mod autotest_generated {
                 declares(&style, |p| matches!(p, CssProperty::BorderBottomColor(_))),
                 declares(&style, |p| matches!(p, CssProperty::BorderRightColor(_))),
             ] {
-                assert_eq!(count, 1, "({selected}, {first}, {last}): a shared edge lost its style/colour");
+                assert_eq!(
+                    count, 1,
+                    "({selected}, {first}, {last}): a shared edge lost its style/colour"
+                );
             }
         }
     }
@@ -1077,7 +1200,11 @@ mod autotest_generated {
                 (Some(6.0), Some(6.0), Some(12.0), Some(12.0)),
                 "({selected}, {first}, {last}): padding is not 6px 12px"
             );
-            assert_eq!(font_size_px(&style), Some(13.0), "({selected}, {first}, {last}): font size");
+            assert_eq!(
+                font_size_px(&style),
+                Some(13.0),
+                "({selected}, {first}, {last}): font size"
+            );
         }
     }
 
@@ -1121,7 +1248,11 @@ mod autotest_generated {
         for (selected, first, last) in ALL_FLAGS {
             let a = build_segment_style(selected, first, last);
             let b = build_segment_style(selected, first, last);
-            assert_eq!(properties(&a), properties(&b), "({selected}, {first}, {last}): not pure");
+            assert_eq!(
+                properties(&a),
+                properties(&b),
+                "({selected}, {first}, {last}): not pure"
+            );
         }
     }
 
@@ -1132,9 +1263,15 @@ mod autotest_generated {
             let bg = background_color(&style).expect("background");
             let fg = text_color(&style).expect("text colour");
 
-            assert_eq!(bg.a, 255, "selected={selected}: a translucent fill lets the page bleed through");
+            assert_eq!(
+                bg.a, 255,
+                "selected={selected}: a translucent fill lets the page bleed through"
+            );
             assert_eq!(fg.a, 255, "selected={selected}: translucent label text");
-            assert_ne!(bg, fg, "selected={selected}: an invisible label is not a segment");
+            assert_ne!(
+                bg, fg,
+                "selected={selected}: an invisible label is not a segment"
+            );
             assert!(
                 (luma(bg) - luma(fg)).abs() >= 60.0,
                 "selected={selected}: brightness gap {:.1} is too low to read",
@@ -1202,7 +1339,10 @@ mod autotest_generated {
         ] {
             let seg = Segmented::create(labels(&case));
             let got: Vec<&str> = seg.labels.as_ref().iter().map(AzString::as_str).collect();
-            assert_eq!(got, case, "create must not reorder/drop/dedupe/rewrite labels");
+            assert_eq!(
+                got, case,
+                "create must not reorder/drop/dedupe/rewrite labels"
+            );
         }
     }
 
@@ -1211,7 +1351,11 @@ mod autotest_generated {
         for s in adversarial_strings() {
             let seg = Segmented::create(labels(&[s.as_str()]));
             let stored = seg.labels.as_ref()[0].as_str();
-            assert_eq!(stored, s.as_str(), "the caption changed on its way into the widget");
+            assert_eq!(
+                stored,
+                s.as_str(),
+                "the caption changed on its way into the widget"
+            );
             assert_eq!(
                 seg.labels.as_ref()[0].as_ref().len(),
                 s.len(),
@@ -1277,16 +1421,28 @@ mod autotest_generated {
         );
 
         for p in seg.container_style.as_ref() {
-            assert!(p.apply_if.as_ref().is_empty(), "{:?} is conditional", p.property);
+            assert!(
+                p.apply_if.as_ref().is_empty(),
+                "{:?} is conditional",
+                p.property
+            );
         }
     }
 
     #[test]
     fn create_with_no_labels_equals_default() {
         let empty = Segmented::create(StringVec::from_const_slice(&[]));
-        assert_eq!(empty, Segmented::default(), "Default must be the empty control");
+        assert_eq!(
+            empty,
+            Segmented::default(),
+            "Default must be the empty control"
+        );
         assert_eq!(empty.labels.as_ref().len(), 0);
-        assert!(Segmented::default().segmented_state.on_change.as_ref().is_none());
+        assert!(Segmented::default()
+            .segmented_state
+            .on_change
+            .as_ref()
+            .is_none());
     }
 
     #[test]
@@ -1309,7 +1465,10 @@ mod autotest_generated {
         for i in boundary_indices() {
             let mut seg = Segmented::create(labels(&["a", "b", "c"]));
             seg.set_selected_index(i);
-            assert_eq!(seg.segmented_state.inner.selected_index, i, "index {i} was not stored as-is");
+            assert_eq!(
+                seg.segmented_state.inner.selected_index, i,
+                "index {i} was not stored as-is"
+            );
         }
     }
 
@@ -1321,7 +1480,11 @@ mod autotest_generated {
         for i in [2usize, 3, 1_000, usize::MAX] {
             seg.set_selected_index(i);
             assert_eq!(seg.segmented_state.inner.selected_index, i);
-            assert_eq!(seg.labels.as_ref().len(), 2, "the setter must not touch the labels");
+            assert_eq!(
+                seg.labels.as_ref().len(),
+                2,
+                "the setter must not touch the labels"
+            );
         }
     }
 
@@ -1336,7 +1499,10 @@ mod autotest_generated {
         for i in [0usize, usize::MAX, 2, 0] {
             seg.set_selected_index(i);
         }
-        assert_eq!(seg.segmented_state.inner.selected_index, 0, "the last write must win");
+        assert_eq!(
+            seg.segmented_state.inner.selected_index, 0,
+            "the last write must win"
+        );
     }
 
     #[test]
@@ -1348,7 +1514,10 @@ mod autotest_generated {
         seg.set_selected_index(usize::MAX);
 
         assert_eq!(seg.labels, before.labels, "labels changed");
-        assert_eq!(seg.container_style, before.container_style, "container style changed");
+        assert_eq!(
+            seg.container_style, before.container_style,
+            "container style changed"
+        );
         assert_eq!(
             seg.segmented_state.on_change, before.segmented_state.on_change,
             "the callback was disturbed"
@@ -1362,7 +1531,10 @@ mod autotest_generated {
             let mut via_setter = Segmented::create(labels(&["a", "b"]));
             via_setter.set_selected_index(i);
 
-            assert_eq!(via_builder, via_setter, "index {i}: builder and setter diverge");
+            assert_eq!(
+                via_builder, via_setter,
+                "index {i}: builder and setter diverge"
+            );
             assert_eq!(via_builder.segmented_state.inner.selected_index, i);
         }
     }
@@ -1374,7 +1546,11 @@ mod autotest_generated {
 
         assert_eq!(built.labels, base.labels);
         assert_eq!(built.container_style, base.container_style);
-        assert_eq!(built.labels.as_ref().len(), 3, "len/contents must stay consistent");
+        assert_eq!(
+            built.labels.as_ref().len(),
+            3,
+            "len/contents must stay consistent"
+        );
         assert!(built.segmented_state.on_change.as_ref().is_none());
     }
 
@@ -1398,8 +1574,15 @@ mod autotest_generated {
 
         let taken = seg.swap_with_default();
 
-        assert_eq!(taken, expected, "the caller must get the original widget back");
-        assert_eq!(seg, Segmented::default(), "a default must be left in its place");
+        assert_eq!(
+            taken, expected,
+            "the caller must get the original widget back"
+        );
+        assert_eq!(
+            seg,
+            Segmented::default(),
+            "a default must be left in its place"
+        );
         assert_eq!(seg.labels.as_ref().len(), 0);
         assert_eq!(seg.segmented_state.inner.selected_index, 0);
     }
@@ -1437,7 +1620,11 @@ mod autotest_generated {
 
         assert_eq!(first.labels.as_ref().len(), 2);
         assert_eq!(first.segmented_state.inner.selected_index, 1);
-        assert_eq!(second, Segmented::default(), "the second take is the default we left behind");
+        assert_eq!(
+            second,
+            Segmented::default(),
+            "the second take is the default we left behind"
+        );
         assert_eq!(seg, Segmented::default());
     }
 
@@ -1462,9 +1649,15 @@ mod autotest_generated {
         let mut payload = RefAny::new(IndexLog { seen: Vec::new() });
         seg.set_on_change(payload.clone(), change_cb(record_index));
 
-        let installed =
-            seg.segmented_state.on_change.as_ref().expect("set_on_change must install a callback");
-        assert_eq!(installed.callback.cb as usize, record_index as usize, "wrong function installed");
+        let installed = seg
+            .segmented_state
+            .on_change
+            .as_ref()
+            .expect("set_on_change must install a callback");
+        assert_eq!(
+            installed.callback.cb as usize, record_index as usize,
+            "wrong function installed"
+        );
         assert!(
             matches!(installed.callback.ctx, OptionRefAny::None),
             "a native Rust callback carries no FFI context"
@@ -1474,10 +1667,16 @@ mod autotest_generated {
         // writing through the widget's handle must be visible to the caller.
         let mut stored = installed.refany.clone();
         {
-            let mut log = stored.downcast_mut::<IndexLog>().expect("payload type must survive");
+            let mut log = stored
+                .downcast_mut::<IndexLog>()
+                .expect("payload type must survive");
             log.seen.push(42);
         }
-        assert_eq!(log_indices(&mut payload), vec![42], "the payload was copied, not shared");
+        assert_eq!(
+            log_indices(&mut payload),
+            vec![42],
+            "the payload was copied, not shared"
+        );
     }
 
     #[test]
@@ -1487,7 +1686,10 @@ mod autotest_generated {
         seg.set_on_change(RefAny::new(2u8), change_cb(change_refresh_all));
 
         let installed = seg.segmented_state.on_change.as_ref().expect("callback");
-        assert_eq!(installed.callback.cb as usize, change_refresh_all as usize, "the last setter must win");
+        assert_eq!(
+            installed.callback.cb as usize, change_refresh_all as usize,
+            "the last setter must win"
+        );
         assert_ne!(installed.callback.cb as usize, record_index as usize);
     }
 
@@ -1497,7 +1699,10 @@ mod autotest_generated {
         seg.set_on_change(RefAny::new(0u8), change_cb(change_do_nothing));
 
         assert_eq!(seg.labels.as_ref().len(), 3);
-        assert_eq!(seg.segmented_state.inner.selected_index, 2, "installing a callback moved the selection");
+        assert_eq!(
+            seg.segmented_state.inner.selected_index, 2,
+            "installing a callback moved the selection"
+        );
     }
 
     #[test]
@@ -1508,7 +1713,10 @@ mod autotest_generated {
         let mut via_setter = Segmented::create(labels(&["a", "b"]));
         via_setter.set_on_change(payload, change_cb(change_do_nothing));
 
-        assert_eq!(via_builder, via_setter, "builder and setter must produce the same widget");
+        assert_eq!(
+            via_builder, via_setter,
+            "builder and setter must produce the same widget"
+        );
     }
 
     #[test]
@@ -1517,8 +1725,15 @@ mod autotest_generated {
             .with_selected_index(3)
             .with_on_change(RefAny::new(0u8), change_cb(change_refresh_all));
 
-        assert_eq!(seg.labels.as_ref().len(), 5, "label count must survive the builder chain");
-        assert_eq!(seg.segmented_state.inner.selected_index, 3, "the selection must survive");
+        assert_eq!(
+            seg.labels.as_ref().len(),
+            5,
+            "label count must survive the builder chain"
+        );
+        assert_eq!(
+            seg.segmented_state.inner.selected_index, 3,
+            "the selection must survive"
+        );
         assert_eq!(
             seg.container_style.as_ref(),
             SEGMENTED_CONTAINER_STYLE,
@@ -1546,15 +1761,28 @@ mod autotest_generated {
         let case = ["Day", "Week", "Month", "Year"];
         let dom = Segmented::create(labels(&case)).dom();
 
-        assert!(matches!(dom.root.get_node_type(), NodeType::Div), "the group is a div");
+        assert!(
+            matches!(dom.root.get_node_type(), NodeType::Div),
+            "the group is a div"
+        );
         assert!(dom.root.has_class("__azul-native-segmented"));
-        assert!(dom.root.get_callbacks().as_ref().is_empty(), "the container itself is not clickable");
+        assert!(
+            dom.root.get_callbacks().as_ref().is_empty(),
+            "the container itself is not clickable"
+        );
 
         let children = dom.children.as_ref();
         assert_eq!(children.len(), case.len());
         for (i, child) in children.iter().enumerate() {
-            assert_eq!(text_of(child), Some(case[i]), "segment {i} shows the wrong caption");
-            assert!(child.root.has_class("__azul-native-segmented-item"), "segment {i} lost its class");
+            assert_eq!(
+                text_of(child),
+                Some(case[i]),
+                "segment {i} shows the wrong caption"
+            );
+            assert!(
+                child.root.has_class("__azul-native-segmented-item"),
+                "segment {i} lost its class"
+            );
         }
     }
 
@@ -1567,14 +1795,20 @@ mod autotest_generated {
         assert!(dom.root.has_class("__azul-native-segmented"));
 
         let styled = StyledDom::create_from_dom(dom);
-        assert_eq!(styled.node_hierarchy.as_ref().len(), 1, "just the container");
+        assert_eq!(
+            styled.node_hierarchy.as_ref().len(),
+            1,
+            "just the container"
+        );
     }
 
     #[test]
     fn dom_styles_each_segment_by_its_position_and_selection() {
         for n in [1usize, 2, 3, 5] {
             for selected in 0..n {
-                let dom = Segmented::create(n_labels(n)).with_selected_index(selected).dom();
+                let dom = Segmented::create(n_labels(n))
+                    .with_selected_index(selected)
+                    .dom();
                 let children = dom.children.as_ref();
                 assert_eq!(children.len(), n);
 
@@ -1595,16 +1829,20 @@ mod autotest_generated {
     fn dom_marks_exactly_one_segment_as_selected() {
         for n in [1usize, 2, 4] {
             for selected in 0..n {
-                let dom = Segmented::create(n_labels(n)).with_selected_index(selected).dom();
+                let dom = Segmented::create(n_labels(n))
+                    .with_selected_index(selected)
+                    .dom();
                 let marked: Vec<usize> = dom
                     .children
                     .as_ref()
                     .iter()
                     .enumerate()
                     .filter(|(_, c)| {
-                        inline_properties(c).iter().any(|p| matches!(
+                        inline_properties(c).iter().any(|p| {
+                            matches!(
                             p, CssProperty::TextColor(t)
-                                if t.get_property().map(|t| t.inner) == Some(SEG_SELECTED_TEXT)))
+                                if t.get_property().map(|t| t.inner) == Some(SEG_SELECTED_TEXT))
+                        })
                     })
                     .map(|(i, _)| i)
                     .collect();
@@ -1619,8 +1857,14 @@ mod autotest_generated {
         // "nothing selected" rather than panicking or wrapping onto a real segment.
         let n = 3;
         for selected in [n, n + 1, 1_000, usize::MAX, usize::MAX - 1] {
-            let dom = Segmented::create(n_labels(n)).with_selected_index(selected).dom();
-            assert_eq!(dom.children.as_ref().len(), n, "selected={selected}: child count changed");
+            let dom = Segmented::create(n_labels(n))
+                .with_selected_index(selected)
+                .dom();
+            assert_eq!(
+                dom.children.as_ref().len(),
+                n,
+                "selected={selected}: child count changed"
+            );
 
             for (i, child) in dom.children.as_ref().iter().enumerate() {
                 let expected = properties(&build_segment_style(false, i == 0, i + 1 == n));
@@ -1652,7 +1896,9 @@ mod autotest_generated {
                     _ => None,
                 }),
                 find(&|p| match p {
-                    CssProperty::BorderBottomLeftRadius(x) => x.get_property().map(|x| px(&x.inner)),
+                    CssProperty::BorderBottomLeftRadius(x) => {
+                        x.get_property().map(|x| px(&x.inner))
+                    }
                     _ => None,
                 }),
                 find(&|p| match p {
@@ -1665,9 +1911,21 @@ mod autotest_generated {
         };
 
         let children = dom.children.as_ref();
-        assert_eq!(radii_of(&children[0]), (Some(r), None, Some(r), None), "first: left corners only");
-        assert_eq!(radii_of(&children[1]), (None, None, None, None), "interior segments are square");
-        assert_eq!(radii_of(&children[2]), (None, None, None, None), "interior segments are square");
+        assert_eq!(
+            radii_of(&children[0]),
+            (Some(r), None, Some(r), None),
+            "first: left corners only"
+        );
+        assert_eq!(
+            radii_of(&children[1]),
+            (None, None, None, None),
+            "interior segments are square"
+        );
+        assert_eq!(
+            radii_of(&children[2]),
+            (None, None, None, None),
+            "interior segments are square"
+        );
         assert_eq!(
             radii_of(&children[3]),
             (None, Some(r), None, Some(r)),
@@ -1696,7 +1954,10 @@ mod autotest_generated {
         for (i, child) in dom.children.as_ref().iter().enumerate() {
             let cbs = child.root.get_callbacks();
             assert_eq!(cbs.as_ref().len(), 1, "segment {i}: exactly one handler");
-            assert_eq!(cbs.as_ref()[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
+            assert_eq!(
+                cbs.as_ref()[0].event,
+                EventFilter::Hover(HoverEventFilter::MouseUp)
+            );
             assert_eq!(cbs.as_ref()[0].callback.cb, on_segment_click as usize);
             assert!(matches!(cbs.as_ref()[0].callback.ctx, OptionRefAny::None));
             assert_eq!(
@@ -1738,9 +1999,13 @@ mod autotest_generated {
             .with_on_change(RefAny::new(0u8), change_cb(change_refresh_all))
             .dom();
         let mut state = segment_state(&dom, 0);
-        let wrapper =
-            state.downcast_ref::<SegmentedStateWrapper>().expect("SegmentedStateWrapper");
-        let installed = wrapper.on_change.as_ref().expect("the user callback must reach the DOM");
+        let wrapper = state
+            .downcast_ref::<SegmentedStateWrapper>()
+            .expect("SegmentedStateWrapper");
+        let installed = wrapper
+            .on_change
+            .as_ref()
+            .expect("the user callback must reach the DOM");
         assert_eq!(installed.callback.cb as usize, change_refresh_all as usize);
     }
 
@@ -1753,8 +2018,16 @@ mod autotest_generated {
             match children[0].children.as_ref() {
                 [only] => match only.root.get_node_type() {
                     NodeType::Text(t) => {
-                        assert_eq!(t.as_ref().as_str(), s.as_str(), "the caption changed inside dom()");
-                        assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
+                        assert_eq!(
+                            t.as_ref().as_str(),
+                            s.as_str(),
+                            "the caption changed inside dom()"
+                        );
+                        assert_eq!(
+                            t.as_ref().len(),
+                            s.len(),
+                            "byte length changed (NUL truncation?)"
+                        );
                     }
                     other => panic!("expected a text node, got {other:?}"),
                 },
@@ -1800,7 +2073,10 @@ mod autotest_generated {
         let via_into: Dom = build().into();
         let via_dom = build().dom();
 
-        assert_eq!(via_into.children.as_ref().len(), via_dom.children.as_ref().len());
+        assert_eq!(
+            via_into.children.as_ref().len(),
+            via_dom.children.as_ref().len()
+        );
         assert_eq!(
             via_into.estimated_total_children,
             via_dom.estimated_total_children
@@ -1822,7 +2098,9 @@ mod autotest_generated {
     fn dom_with_duplicate_labels_still_produces_distinct_positional_segments() {
         // Selection is positional, not by caption: three identical captions must
         // still give exactly one selected segment, at the requested position.
-        let dom = Segmented::create(labels(&["same", "same", "same"])).with_selected_index(1).dom();
+        let dom = Segmented::create(labels(&["same", "same", "same"]))
+            .with_selected_index(1)
+            .dom();
         let children = dom.children.as_ref();
         for (i, child) in children.iter().enumerate() {
             assert_eq!(text_of(child), Some("same"));
@@ -1860,7 +2138,11 @@ mod autotest_generated {
                 "node {} must select segment {i}",
                 seg_node(i)
             );
-            assert_eq!(restyle_writes(&changes).len(), 2 * n, "every segment must be restyled");
+            assert_eq!(
+                restyle_writes(&changes).len(),
+                2 * n,
+                "every segment must be restyled"
+            );
         }
     }
 
@@ -1880,12 +2162,20 @@ mod autotest_generated {
                 let fresh = build_segment_style(i == clicked, i == 0, i + 1 == n);
                 assert_eq!(
                     writes[2 * i],
-                    (seg_node(i), "bg", background_color(&fresh).expect("background")),
+                    (
+                        seg_node(i),
+                        "bg",
+                        background_color(&fresh).expect("background")
+                    ),
                     "clicked={clicked}: segment {i} background"
                 );
                 assert_eq!(
                     writes[2 * i + 1],
-                    (seg_node(i), "text", text_color(&fresh).expect("text colour")),
+                    (
+                        seg_node(i),
+                        "text",
+                        text_color(&fresh).expect("text colour")
+                    ),
                     "clicked={clicked}: segment {i} text colour"
                 );
             }
@@ -1895,21 +2185,37 @@ mod autotest_generated {
     #[test]
     fn click_invokes_the_user_callback_with_the_updated_state() {
         let mut log = RefAny::new(IndexLog { seen: Vec::new() });
-        let seg = Segmented::create(n_labels(4))
-            .with_on_change(log.clone(), change_cb(record_index));
+        let seg =
+            Segmented::create(n_labels(4)).with_on_change(log.clone(), change_cb(record_index));
         let (styled, state) = flatten(seg);
 
         let (update, changes) = run_click(Some(styled.clone()), seg_node(2), state.clone());
-        assert_eq!(update, Update::RefreshDom, "the user's Update must propagate");
-        assert_eq!(log_indices(&mut log), vec![2], "the callback sees the *new* index");
-        assert_eq!(restyle_writes(&changes).len(), 8, "the restyle must still run");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user's Update must propagate"
+        );
+        assert_eq!(
+            log_indices(&mut log),
+            vec![2],
+            "the callback sees the *new* index"
+        );
+        assert_eq!(
+            restyle_writes(&changes).len(),
+            8,
+            "the restyle must still run"
+        );
 
         // A second click updates the shared state again — the index is not sticky.
         let (_, _) = run_click(Some(styled), seg_node(0), state.clone());
         assert_eq!(log_indices(&mut log), vec![2, 0]);
 
         let mut state = state;
-        assert_eq!(selected_index_of(&mut state), 0, "the state holds the *last* clicked index");
+        assert_eq!(
+            selected_index_of(&mut state),
+            0,
+            "the state holds the *last* clicked index"
+        );
     }
 
     #[test]
@@ -1918,8 +2224,7 @@ mod autotest_generated {
             (change_cb(change_do_nothing), Update::DoNothing),
             (change_cb(change_refresh_all), Update::RefreshDomAllWindows),
         ] {
-            let seg =
-                Segmented::create(labels(&["a", "b"])).with_on_change(RefAny::new(0u8), cb);
+            let seg = Segmented::create(labels(&["a", "b"])).with_on_change(RefAny::new(0u8), cb);
             let (styled, state) = flatten(seg);
             let (update, changes) = run_click(Some(styled), seg_node(1), state);
             assert_eq!(update, expected);
@@ -1975,7 +2280,10 @@ mod autotest_generated {
         let (update, changes) = run_click(Some(styled), 0, state);
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "nothing may be restyled when the click is not on a segment");
+        assert!(
+            changes.is_empty(),
+            "nothing may be restyled when the click is not on a segment"
+        );
         assert_eq!(selected_index_of(&mut probe), 0, "state must be untouched");
     }
 
@@ -1986,7 +2294,11 @@ mod autotest_generated {
 
         let (update, changes) = run_click(Some(styled), 9999, state);
 
-        assert_eq!(update, Update::DoNothing, "a hit node outside the tree must not panic");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "a hit node outside the tree must not panic"
+        );
         assert!(changes.is_empty());
         assert_eq!(selected_index_of(&mut probe), 0);
     }
@@ -1998,7 +2310,11 @@ mod autotest_generated {
 
         let (update, changes) = run_click(None, 1, state);
 
-        assert_eq!(update, Update::DoNothing, "an empty LayoutWindow must be handled, not unwrapped");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "an empty LayoutWindow must be handled, not unwrapped"
+        );
         assert!(changes.is_empty());
     }
 
@@ -2011,7 +2327,10 @@ mod autotest_generated {
         let (update, changes) = run_click(Some(styled), 1, RefAny::new(0u32));
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a failed downcast must not leave a half-applied restyle");
+        assert!(
+            changes.is_empty(),
+            "a failed downcast must not leave a half-applied restyle"
+        );
     }
 
     #[test]
@@ -2021,7 +2340,9 @@ mod autotest_generated {
         // A live mutable borrow on a sibling clone: `downcast_mut` inside the
         // handler must fail (returning DoNothing) instead of aliasing `&mut`.
         let mut held = state.clone();
-        let guard = held.downcast_mut::<SegmentedStateWrapper>().expect("first borrow succeeds");
+        let guard = held
+            .downcast_mut::<SegmentedStateWrapper>()
+            .expect("first borrow succeeds");
 
         let (update, changes) = run_click(Some(styled), 1, state);
 
@@ -2053,7 +2374,9 @@ mod autotest_generated {
             .into(),
         });
         {
-            let mut p = probe.downcast_mut::<ReentrantProbe>().expect("ReentrantProbe");
+            let mut p = probe
+                .downcast_mut::<ReentrantProbe>()
+                .expect("ReentrantProbe");
             p.state = state.clone();
         }
 
@@ -2061,11 +2384,20 @@ mod autotest_generated {
         let (update, changes) = run_click(Some(styled), seg_node(1), state.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(restyle_writes(&changes).len(), 4, "the restyle must still run afterwards");
+        assert_eq!(
+            restyle_writes(&changes).len(),
+            4,
+            "the restyle must still run afterwards"
+        );
 
-        let p = probe.downcast_ref::<ReentrantProbe>().expect("ReentrantProbe");
+        let p = probe
+            .downcast_ref::<ReentrantProbe>()
+            .expect("ReentrantProbe");
         assert_eq!(p.calls, 1, "the user callback must have run exactly once");
-        assert_eq!(p.saw_index, None, "a re-entrant read of the state must be refused, not aliased");
+        assert_eq!(
+            p.saw_index, None,
+            "a re-entrant read of the state must be refused, not aliased"
+        );
     }
 
     #[test]
@@ -2080,7 +2412,10 @@ mod autotest_generated {
             let (_, changes) = run_click(Some(styled.clone()), seg_node(i), state.clone());
             let idx = selected_index_of(&mut probe);
             assert_eq!(idx, i, "node {} sits at sibling position {i}", seg_node(i));
-            assert!(idx < n, "the reported index must always address a real label");
+            assert!(
+                idx < n,
+                "the reported index must always address a real label"
+            );
             assert_eq!(restyle_writes(&changes).len(), 2 * n);
         }
     }

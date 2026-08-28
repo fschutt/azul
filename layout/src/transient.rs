@@ -21,7 +21,9 @@ use azul_core::{
     id::NodeId,
     refany::OptionRefAny,
     styled_dom::StyledDom,
-    transient::{TransientAnchor, TransientDismiss, TransientDock, TransientTearoff, TransientWindowConfig},
+    transient::{
+        TransientAnchor, TransientDismiss, TransientDock, TransientTearoff, TransientWindowConfig,
+    },
 };
 
 /// Everything a backend needs to materialise one open transient window.
@@ -70,7 +72,11 @@ impl TransientPlacement {
     /// `cursor` is used only for [`TransientAnchor::Cursor`]; pass the current
     /// pointer position, or `None` to fall back to the anchor's corner.
     #[must_use]
-    pub fn resolve(&self, size: LogicalSize, cursor: Option<azul_core::geom::LogicalPosition>) -> azul_core::geom::LogicalPosition {
+    pub fn resolve(
+        &self,
+        size: LogicalSize,
+        cursor: Option<azul_core::geom::LogicalPosition>,
+    ) -> azul_core::geom::LogicalPosition {
         use azul_core::geom::LogicalPosition;
         let a = self.anchor_rect;
         match self.anchor {
@@ -102,16 +108,24 @@ impl TransientPlacement {
         let (max_x, max_y) = (bounds.max_x(), bounds.max_y());
         let mut pos = self.resolve(size, cursor);
         match self.anchor {
-            TransientAnchor::Bottom if pos.y + size.height > max_y && a.origin.y - size.height >= min_y => {
+            TransientAnchor::Bottom
+                if pos.y + size.height > max_y && a.origin.y - size.height >= min_y =>
+            {
                 pos.y = a.origin.y - size.height;
             }
-            TransientAnchor::Top if pos.y < min_y && a.origin.y + a.size.height + size.height <= max_y => {
+            TransientAnchor::Top
+                if pos.y < min_y && a.origin.y + a.size.height + size.height <= max_y =>
+            {
                 pos.y = a.origin.y + a.size.height;
             }
-            TransientAnchor::Right if pos.x + size.width > max_x && a.origin.x - size.width >= min_x => {
+            TransientAnchor::Right
+                if pos.x + size.width > max_x && a.origin.x - size.width >= min_x =>
+            {
                 pos.x = a.origin.x - size.width;
             }
-            TransientAnchor::Left if pos.x < min_x && a.origin.x + a.size.width + size.width <= max_x => {
+            TransientAnchor::Left
+                if pos.x < min_x && a.origin.x + a.size.width + size.width <= max_x =>
+            {
                 pos.x = a.origin.x + a.size.width;
             }
             _ => {}
@@ -151,14 +165,19 @@ pub fn collect_open_transient_windows(
 
     for node in nodes.linear_iter() {
         let Some(nd) = nodes.get(node) else { continue };
-        let NodeType::TransientWindow(cfg) = nd.get_node_type() else { continue };
+        let NodeType::TransientWindow(cfg) = nd.get_node_type() else {
+            continue;
+        };
         // The attribute, or a callback's `set_transient_window_open(true)`
         // held by the manager — a widget can open its own popup without the
         // app carrying a flag for it.
         if !cfg.open && !forced_open.contains(&node) {
             continue;
         }
-        let Some(parent) = hierarchy.get(node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) else {
+        let Some(parent) = hierarchy
+            .get(node)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+        else {
             continue; // a root transient window has nothing to anchor to
         };
         let zone_rect = anchor_overrides
@@ -183,7 +202,11 @@ pub fn collect_open_transient_windows(
 /// Build the placement for one open node. Split out so the pure mapping from
 /// config to placement is testable without a `StyledDom`.
 #[must_use]
-pub const fn placement_for(node: NodeId, anchor_rect: LogicalRect, cfg: &TransientWindowConfig) -> TransientPlacement {
+pub const fn placement_for(
+    node: NodeId,
+    anchor_rect: LogicalRect,
+    cfg: &TransientWindowConfig,
+) -> TransientPlacement {
     TransientPlacement {
         node,
         anchor_rect,
@@ -205,7 +228,9 @@ pub fn tearoff_zone_selector(styled_dom: &StyledDom, node: NodeId) -> Option<Str
     let nodes = styled_dom.node_data.as_container();
     let nd = nodes.get(node)?;
     nd.attributes().as_ref().iter().find_map(|a| match a {
-        AttributeType::Custom(kv) | AttributeType::Data(kv) if kv.attr_name.as_str() == "tearoff-zone" => {
+        AttributeType::Custom(kv) | AttributeType::Data(kv)
+            if kv.attr_name.as_str() == "tearoff-zone" =>
+        {
             Some(kv.value.as_str().to_owned())
         }
         _ => None,
@@ -224,7 +249,9 @@ pub fn nodes_matching_selector(styled_dom: &StyledDom, selector: &str) -> Vec<No
     let cascade = styled_dom.cascade_info.as_container();
     (0..nodes.len())
         .map(NodeId::new)
-        .filter(|n| azul_core::style::matches_html_element(&path, *n, &hierarchy, &nodes, &cascade, None))
+        .filter(|n| {
+            azul_core::style::matches_html_element(&path, *n, &hierarchy, &nodes, &cascade, None)
+        })
         .collect()
 }
 
@@ -268,16 +295,15 @@ pub fn decide_drop(
 /// `layout_results`.
 #[must_use]
 pub const fn transient_dom_id(index: usize) -> DomId {
-    DomId { inner: 0x1000_0000 + index }
+    DomId {
+        inner: 0x1000_0000 + index,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use azul_core::{
-        dom::Dom,
-        geom::LogicalPosition,
-    };
+    use azul_core::{dom::Dom, geom::LogicalPosition};
 
     fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
         LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
@@ -288,20 +314,16 @@ mod tests {
     #[test]
     fn only_open_windows_are_collected_and_anchored_to_their_parent() {
         let dom = Dom::create_body()
-            .with_child(
-                Dom::create_div().with_child(Dom::create_from_data(
-                    azul_core::dom::NodeData::create_node(NodeType::TransientWindow(
-                        TransientWindowConfig::opened(),
-                    )),
+            .with_child(Dom::create_div().with_child(Dom::create_from_data(
+                azul_core::dom::NodeData::create_node(NodeType::TransientWindow(
+                    TransientWindowConfig::opened(),
                 )),
-            )
-            .with_child(
-                Dom::create_div().with_child(Dom::create_from_data(
-                    azul_core::dom::NodeData::create_node(NodeType::TransientWindow(
-                        TransientWindowConfig::closed(),
-                    )),
+            )))
+            .with_child(Dom::create_div().with_child(Dom::create_from_data(
+                azul_core::dom::NodeData::create_node(NodeType::TransientWindow(
+                    TransientWindowConfig::closed(),
                 )),
-            );
+            )));
         let styled = StyledDom::create_from_dom(dom);
 
         // Give every node a distinct rect keyed by its index so we can tell
@@ -313,7 +335,10 @@ mod tests {
         let p = &found[0];
         // body=0, div=1, transient=2 — the anchor must be the DIV's rect (x=100),
         // not the transient node's own (x=200).
-        assert_eq!(p.anchor_rect.origin.x, 100.0, "anchored to the parent, not itself");
+        assert_eq!(
+            p.anchor_rect.origin.x, 100.0,
+            "anchored to the parent, not itself"
+        );
         assert_eq!(p.anchor, TransientAnchor::Bottom);
         assert_eq!(p.dismiss, TransientDismiss::Outside);
 
@@ -356,7 +381,11 @@ mod tests {
         let p = mk(TransientAnchor::Top, 10.0).resolve_within(size, None, bounds);
         assert_eq!(p.y, 30.0);
         // No room either way: clamped to the bounds.
-        let p = mk(TransientAnchor::Bottom, 590.0).resolve_within(LogicalSize::new(200.0, 700.0), None, bounds);
+        let p = mk(TransientAnchor::Bottom, 590.0).resolve_within(
+            LogicalSize::new(200.0, 700.0),
+            None,
+            bounds,
+        );
         assert_eq!(p.y, 0.0);
         // Bounds that START above/left of the parent (a monitor around a
         // window that sits at (300, 200) on it): a popup may hang below the
@@ -382,10 +411,22 @@ mod tests {
         };
         let popup = LogicalSize::new(300.0, 150.0);
 
-        assert_eq!(mk(TransientAnchor::Bottom).resolve(popup, None), LogicalPosition::new(100.0, 220.0));
-        assert_eq!(mk(TransientAnchor::Top).resolve(popup, None), LogicalPosition::new(100.0, 50.0));
-        assert_eq!(mk(TransientAnchor::Right).resolve(popup, None), LogicalPosition::new(140.0, 200.0));
-        assert_eq!(mk(TransientAnchor::Left).resolve(popup, None), LogicalPosition::new(-200.0, 200.0));
+        assert_eq!(
+            mk(TransientAnchor::Bottom).resolve(popup, None),
+            LogicalPosition::new(100.0, 220.0)
+        );
+        assert_eq!(
+            mk(TransientAnchor::Top).resolve(popup, None),
+            LogicalPosition::new(100.0, 50.0)
+        );
+        assert_eq!(
+            mk(TransientAnchor::Right).resolve(popup, None),
+            LogicalPosition::new(140.0, 200.0)
+        );
+        assert_eq!(
+            mk(TransientAnchor::Left).resolve(popup, None),
+            LogicalPosition::new(-200.0, 200.0)
+        );
         assert_eq!(
             mk(TransientAnchor::Cursor).resolve(popup, Some(LogicalPosition::new(7.0, 9.0))),
             LogicalPosition::new(7.0, 9.0)
@@ -510,7 +551,9 @@ impl TransientDocks {
             if *z != Some(zone) {
                 return None;
             }
-            let dom_parent = hierarchy.get(*node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            let dom_parent = hierarchy
+                .get(*node)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
             (dom_parent != Some(zone)).then_some(*node)
         })
     }
@@ -580,7 +623,10 @@ impl TransientDiff {
     /// Nothing to do.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.opened.is_empty() && self.moved.is_empty() && self.closed.is_empty() && self.torn_changes.is_empty()
+        self.opened.is_empty()
+            && self.moved.is_empty()
+            && self.closed.is_empty()
+            && self.torn_changes.is_empty()
     }
 
     /// Fold a later pass's diff into this one.
@@ -658,7 +704,10 @@ impl TransientWindowManager {
         if !self.dismissed.contains(&source_node) {
             self.dismissed.push(source_node);
         }
-        let i = self.open.iter().position(|w| w.source_node == source_node)?;
+        let i = self
+            .open
+            .iter()
+            .position(|w| w.source_node == source_node)?;
         self.dock_generation += 1;
         Some(self.open.remove(i))
     }
@@ -727,9 +776,13 @@ impl TransientWindowManager {
 
         // 0. A dismissed node is re-armed the moment the app stops asking for
         //    it (`open=false`); while it still asks, the dismissal wins.
-        self.dismissed.retain(|n| wanted.iter().any(|p| p.node == *n));
-        let wanted: Vec<TransientPlacement> =
-            wanted.iter().filter(|p| !self.dismissed.contains(&p.node)).copied().collect();
+        self.dismissed
+            .retain(|n| wanted.iter().any(|p| p.node == *n));
+        let wanted: Vec<TransientPlacement> = wanted
+            .iter()
+            .filter(|p| !self.dismissed.contains(&p.node))
+            .copied()
+            .collect();
 
         // 1. Close anything no longer wanted.
         let still_wanted = |w: &OpenTransientWindow| wanted.iter().any(|p| p.node == w.source_node);
@@ -753,7 +806,11 @@ impl TransientWindowManager {
                 // inside; a `width: 100%` panel measures to nothing on its
                 // own), and an inline panel is sized by its zone's layout.
                 let remeasure = existing.torn.is_none() && !existing.is_inline();
-                if let Some(sz) = if remeasure { content_size_of(existing.content_dom, p) } else { None } {
+                if let Some(sz) = if remeasure {
+                    content_size_of(existing.content_dom, p)
+                } else {
+                    None
+                } {
                     if moved || sz != existing.content_size {
                         existing.content_size = sz;
                         diff.moved.push(existing.content_dom);
@@ -788,7 +845,8 @@ impl TransientWindowManager {
             let Some(content_size) = content_size_of(content_dom, p) else {
                 continue; // content could not be laid out; do not open onto nothing
             };
-            let torn = (p.torn && p.tearoff != TransientTearoff::None).then(|| p.resolve(content_size, None));
+            let torn = (p.torn && p.tearoff != TransientTearoff::None)
+                .then(|| p.resolve(content_size, None));
             self.open.push(OpenTransientWindow {
                 source_node: p.node,
                 content_dom,
@@ -868,8 +926,15 @@ impl TransientWindowManager {
     /// it onto a zone. Returns the diff to accumulate and whether the
     /// window's torn-ness CHANGED (the lifecycle event the caller fires);
     /// `None` if no such window is open or it is not tear-off capable.
-    pub fn apply_drop(&mut self, source_node: NodeId, drop: TearDrop) -> Option<(TransientDiff, bool)> {
-        let i = self.open.iter().position(|w| w.source_node == source_node)?;
+    pub fn apply_drop(
+        &mut self,
+        source_node: NodeId,
+        drop: TearDrop,
+    ) -> Option<(TransientDiff, bool)> {
+        let i = self
+            .open
+            .iter()
+            .position(|w| w.source_node == source_node)?;
         if self.open[i].placement.tearoff == TransientTearoff::None {
             return None;
         }
@@ -905,7 +970,10 @@ impl TransientWindowManager {
     pub fn set_torn(&mut self, source_node: NodeId, torn: bool) -> Option<(TransientDiff, bool)> {
         let w = self.open.iter().find(|w| w.source_node == source_node)?;
         let drop = if torn {
-            TearDrop::TearOff(w.torn.unwrap_or_else(|| w.placement.resolve(w.content_size, None)))
+            TearDrop::TearOff(
+                w.torn
+                    .unwrap_or_else(|| w.placement.resolve(w.content_size, None)),
+            )
         } else {
             TearDrop::Dock
         };
@@ -956,8 +1024,16 @@ impl crate::managers::NodeIdRemap for TransientWindowManager {
         });
         self.closed_surfaces.extend(unmounted);
         // A dismissal follows its node too; an unmounted node's is moot.
-        self.dismissed = self.dismissed.iter().filter_map(|n| map.resolve(*n)).collect();
-        self.forced_open = self.forced_open.iter().filter_map(|n| map.resolve(*n)).collect();
+        self.dismissed = self
+            .dismissed
+            .iter()
+            .filter_map(|n| map.resolve(*n))
+            .collect();
+        self.forced_open = self
+            .forced_open
+            .iter()
+            .filter_map(|n| map.resolve(*n))
+            .collect();
     }
 }
 
@@ -969,7 +1045,10 @@ mod manager_tests {
     fn placement(node: usize, x: f32) -> TransientPlacement {
         TransientPlacement {
             node: NodeId::new(node),
-            anchor_rect: LogicalRect::new(LogicalPosition::new(x, 0.0), LogicalSize::new(10.0, 10.0)),
+            anchor_rect: LogicalRect::new(
+                LogicalPosition::new(x, 0.0),
+                LogicalSize::new(10.0, 10.0),
+            ),
             anchor: TransientAnchor::Bottom,
             dismiss: TransientDismiss::Outside,
             size: OptionLogicalSize::None,
@@ -994,7 +1073,11 @@ mod manager_tests {
 
         // Same node, same place: nothing happens.
         let d2 = m.reconcile(&[placement(4, 0.0)], sized);
-        assert_eq!(d2, TransientDiff::default(), "nothing changed, nothing to do");
+        assert_eq!(
+            d2,
+            TransientDiff::default(),
+            "nothing changed, nothing to do"
+        );
         assert_eq!(m.get(id).map(|w| w.source_node), Some(NodeId::new(4)));
 
         // Same node, anchor moved (the parent was resized): MOVED, not re-opened.
@@ -1014,7 +1097,10 @@ mod manager_tests {
         assert!(m.open_windows().is_empty());
 
         let second = m.reconcile(&[placement(4, 0.0)], sized).opened[0];
-        assert_ne!(first, second, "a stale handle to the old popup must not alias the new one");
+        assert_ne!(
+            first, second,
+            "a stale handle to the old popup must not alias the new one"
+        );
     }
 
     /// Content that cannot be laid out does not open a window.
@@ -1027,7 +1113,10 @@ mod manager_tests {
     }
 
     fn tearable(node: usize) -> TransientPlacement {
-        TransientPlacement { tearoff: TransientTearoff::Free, ..placement(node, 0.0) }
+        TransientPlacement {
+            tearoff: TransientTearoff::Free,
+            ..placement(node, 0.0)
+        }
     }
 
     #[test]
@@ -1040,7 +1129,10 @@ mod manager_tests {
         // Off the anchor: a toplevel at the drop origin, under a NEW id (the
         // backend sees close + open, never a popup that changes shape).
         let (d, changed) = m
-            .apply_drop(NodeId::new(4), TearDrop::TearOff(LogicalPosition::new(300.0, 40.0)))
+            .apply_drop(
+                NodeId::new(4),
+                TearDrop::TearOff(LogicalPosition::new(300.0, 40.0)),
+            )
             .unwrap();
         assert!(changed);
         assert_eq!(d.closed, vec![popup]);
@@ -1048,16 +1140,29 @@ mod manager_tests {
         let top = d.opened[0];
         assert_ne!(top, popup);
         assert!(m.get(popup).is_none(), "the old id is gone");
-        assert_eq!(m.get(top).unwrap().torn, Some(LogicalPosition::new(300.0, 40.0)));
-        assert_eq!(m.take_closed_surfaces().len(), 1, "the popup's surface is handed back");
+        assert_eq!(
+            m.get(top).unwrap().torn,
+            Some(LogicalPosition::new(300.0, 40.0))
+        );
+        assert_eq!(
+            m.take_closed_surfaces().len(),
+            1,
+            "the popup's surface is handed back"
+        );
 
         // A torn window dropped elsewhere just moves: same id, no diff.
         let (d, changed) = m
-            .apply_drop(NodeId::new(4), TearDrop::TearOff(LogicalPosition::new(10.0, 10.0)))
+            .apply_drop(
+                NodeId::new(4),
+                TearDrop::TearOff(LogicalPosition::new(10.0, 10.0)),
+            )
             .unwrap();
         assert!(!changed);
         assert!(d.is_empty());
-        assert_eq!(m.get(top).unwrap().torn, Some(LogicalPosition::new(10.0, 10.0)));
+        assert_eq!(
+            m.get(top).unwrap().torn,
+            Some(LogicalPosition::new(10.0, 10.0))
+        );
 
         // Back over the anchor: a popup again, again under a fresh id.
         let (d, changed) = m.apply_drop(NodeId::new(4), TearDrop::Dock).unwrap();
@@ -1087,7 +1192,10 @@ mod manager_tests {
     #[test]
     fn the_torn_attribute_is_followed_on_change_and_the_users_drag_stands_otherwise() {
         let mut m = TransientWindowManager::new();
-        let torn_attr = |torn: bool| TransientPlacement { torn, ..tearable(4) };
+        let torn_attr = |torn: bool| TransientPlacement {
+            torn,
+            ..tearable(4)
+        };
 
         // Opens torn when the app says so, at the anchor position.
         let d = m.reconcile(&[torn_attr(true)], sized);
@@ -1118,28 +1226,50 @@ mod manager_tests {
     #[test]
     fn docking_onto_a_zone_re_anchors_and_survives_remaps() {
         let mut m = TransientWindowManager::new();
-        m.reconcile(&[TransientPlacement { tearoff: TransientTearoff::Zone, ..placement(4, 0.0) }], sized);
-        let (d, changed) = m.apply_drop(NodeId::new(4), TearDrop::DockOnto(NodeId::new(9))).unwrap();
+        m.reconcile(
+            &[TransientPlacement {
+                tearoff: TransientTearoff::Zone,
+                ..placement(4, 0.0)
+            }],
+            sized,
+        );
+        let (d, changed) = m
+            .apply_drop(NodeId::new(4), TearDrop::DockOnto(NodeId::new(9)))
+            .unwrap();
         assert!(!changed, "popup to popup: same kind, the surface is kept");
         assert!(d.is_empty());
         assert_eq!(m.anchor_overrides(), vec![(NodeId::new(4), NodeId::new(9))]);
 
         // Torn off from the zone and docked back onto the anchor it has now.
-        m.apply_drop(NodeId::new(4), TearDrop::TearOff(LogicalPosition::zero())).unwrap();
+        m.apply_drop(NodeId::new(4), TearDrop::TearOff(LogicalPosition::zero()))
+            .unwrap();
         m.apply_drop(NodeId::new(4), TearDrop::Dock).unwrap();
-        assert_eq!(m.anchor_overrides(), vec![(NodeId::new(4), NodeId::new(9))], "Dock keeps the zone");
+        assert_eq!(
+            m.anchor_overrides(),
+            vec![(NodeId::new(4), NodeId::new(9))],
+            "Dock keeps the zone"
+        );
     }
 
     #[test]
     fn decide_drop_prefers_the_anchor_then_a_zone_then_tears_off() {
-        let anchor = LogicalRect::new(LogicalPosition::new(10.0, 10.0), LogicalSize::new(50.0, 20.0));
+        let anchor = LogicalRect::new(
+            LogicalPosition::new(10.0, 10.0),
+            LogicalSize::new(50.0, 20.0),
+        );
         let zone_at = |p: LogicalPosition| (p.x > 200.0).then_some(NodeId::new(7));
         let origin = LogicalPosition::new(400.0, 400.0);
-        assert_eq!(decide_drop(LogicalPosition::new(20.0, 20.0), anchor, origin, zone_at), TearDrop::Dock);
+        assert_eq!(
+            decide_drop(LogicalPosition::new(20.0, 20.0), anchor, origin, zone_at),
+            TearDrop::Dock
+        );
         assert_eq!(
             decide_drop(LogicalPosition::new(250.0, 20.0), anchor, origin, zone_at),
             TearDrop::DockOnto(NodeId::new(7))
         );
-        assert_eq!(decide_drop(LogicalPosition::new(100.0, 100.0), anchor, origin, zone_at), TearDrop::TearOff(origin));
+        assert_eq!(
+            decide_drop(LogicalPosition::new(100.0, 100.0), anchor, origin, zone_at),
+            TearDrop::TearOff(origin)
+        );
     }
 }

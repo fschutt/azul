@@ -67,12 +67,8 @@ use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory,
-};
-use super::{
-    ffi_type_name, idiomatic_method_name, sanitize_identifier, to_snake_case,
-};
+use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
+use super::{ffi_type_name, idiomatic_method_name, sanitize_identifier, to_snake_case};
 
 /// Generate the contents of `wrappers.go`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
@@ -108,11 +104,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 /// double-free-safe: the value is a fresh, unaliased allocation owned
 /// solely by the new wrapper, freed at most once (Close clears the
 /// finalizer; the finalizer path clears itself).
-fn owned_wrapper_return(
-    ret_ty: &str,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) -> Option<String> {
+fn owned_wrapper_return(ret_ty: &str, ir: &CodegenIR, config: &CodegenConfig) -> Option<String> {
     let t = ret_ty.trim();
     // Borrows / raw pointers are not owned — never attach a destructor.
     if t.starts_with('&') || t.starts_with('*') {
@@ -251,7 +243,9 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     for f in ir.functions_for_class(&s.name) {
         match f.kind {
             FunctionKind::Method | FunctionKind::MethodMut => {
-                emit_instance_method(b, &go_name, f, &self_arg, ir, config, /* clone */ false);
+                emit_instance_method(
+                    b, &go_name, f, &self_arg, ir, config, /* clone */ false,
+                );
             }
             FunctionKind::DeepCopy => {
                 emit_instance_method(b, &go_name, f, &self_arg, ir, config, /* clone */ true);
@@ -264,7 +258,10 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
     if has_delete {
         b.line("// Close releases the underlying native resources. It implements io.Closer.");
         b.line("// Safe to call more than once; subsequent calls are no-ops. The matching");
-        b.line(&format!("// `runtime.SetFinalizer` registered by `New{}` is cleared so the", go_name));
+        b.line(&format!(
+            "// `runtime.SetFinalizer` registered by `New{}` is cleared so the",
+            go_name
+        ));
         b.line("// destructor never runs twice.");
         b.line(&format!("func (self *{}) Close() error {{", go_name));
         b.indent();
@@ -443,10 +440,7 @@ fn emit_instance_method(
     };
 
     let header = if return_ty.is_empty() {
-        format!(
-            "func (self *{}) {}({}) {{",
-            go_name, safe_method, params
-        )
+        format!("func (self *{}) {}({}) {{", go_name, safe_method, params)
     } else {
         format!(
             "func (self *{}) {}({}) {} {{",
@@ -486,10 +480,7 @@ fn emit_instance_method(
     let call = format!("C.{}({})", c_symbol, call_args_full);
 
     if returns_self {
-        b.line(&format!(
-            "ret := &{}{{ inner: {} }}",
-            go_name, call
-        ));
+        b.line(&format!("ret := &{}{{ inner: {} }}", go_name, call));
         // Register the matching finalizer on the returned wrapper —
         // without this, the returned `*Foo` would never have its
         // `_delete` called and the underlying allocation leaks until
@@ -657,10 +648,9 @@ fn map_arg_type(type_name: &str, ref_kind: ArgRefKind, ir: &CodegenIR) -> String
 fn apply_arg_ref_kind(base: String, ref_kind: ArgRefKind) -> String {
     match ref_kind {
         ArgRefKind::Owned => base,
-        ArgRefKind::Ref
-        | ArgRefKind::RefMut
-        | ArgRefKind::Ptr
-        | ArgRefKind::PtrMut => format!("*{}", base),
+        ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+            format!("*{}", base)
+        }
     }
 }
 
@@ -696,9 +686,7 @@ fn map_return_type(ty: &str, ir: &CodegenIR) -> String {
         if go.is_empty() {
             return "".to_string();
         }
-        return super::primitive_to_cgo(trimmed)
-            .unwrap_or(go)
-            .to_string();
+        return super::primitive_to_cgo(trimmed).unwrap_or(go).to_string();
     }
 
     if ir.find_struct(trimmed).is_some()

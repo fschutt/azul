@@ -21,7 +21,6 @@ use azul_css::AzString;
 
 use super::{cpu_dialog_window, style};
 use crate::callbacks::CallbackInfo;
-use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 use crate::thread::{
     Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
     WriteBackCallbackType,
@@ -30,6 +29,7 @@ use crate::widgets::button::{Button, ButtonOnClickCallbackType};
 use crate::widgets::check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState};
 use crate::widgets::text_area::{TextArea, TextAreaOnTextInputCallbackType, TextAreaState};
 use crate::widgets::text_input::{OnTextInputReturn, TextInputValid};
+use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 use azul_core::dom::Dom;
 
 /// Where the report currently is.
@@ -245,12 +245,9 @@ extern "C" fn on_send(mut state: RefAny, mut info: CallbackInfo) -> Update {
         let screenshot = if s.attach_screenshot {
             match (&s.screenshot_png, s.redactions.is_empty()) {
                 (Some(png), true) => Some(png.clone()),
-                (Some(png), false) => crate::dialogs::report::redact_png(
-                    png,
-                    &s.redactions,
-                    s.preview_scale,
-                )
-                .ok(),
+                (Some(png), false) => {
+                    crate::dialogs::report::redact_png(png, &s.redactions, s.preview_scale).ok()
+                }
                 (None, _) => None,
             }
         } else {
@@ -258,14 +255,12 @@ extern "C" fn on_send(mut state: RefAny, mut info: CallbackInfo) -> Update {
         };
         SendTask {
             email: s.email.clone(),
-            report: build_report_text(
-                &s.message,
-                s.include_sysinfo,
-                s.include_actions,
-            ),
+            report: build_report_text(&s.message, s.include_sysinfo, s.include_actions),
             screenshot,
             recent_actions: if s.include_actions {
-                Some(crate::journal::recent_json(crate::journal::DEFAULT_CAPACITY))
+                Some(crate::journal::recent_json(
+                    crate::journal::DEFAULT_CAPACITY,
+                ))
             } else {
                 None
             },
@@ -293,7 +288,11 @@ fn build_report_text(message: &str, include_sysinfo: bool, include_actions: bool
     use std::fmt::Write as _;
     let env = crate::appenv::app_env();
     let mut out = String::new();
-    let _ = writeln!(out, "Problem report — {} {}", env.app_name, env.current_version);
+    let _ = writeln!(
+        out,
+        "Problem report — {} {}",
+        env.app_name, env.current_version
+    );
     let _ = writeln!(out, "----------------------------------------");
     if message.trim().is_empty() {
         let _ = writeln!(out, "(no user message)");
@@ -460,7 +459,10 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
     drop(ctx);
-    let state = info.get_ctx().into_option().unwrap_or_else(|| RefAny::new(()));
+    let state = info
+        .get_ctx()
+        .into_option()
+        .unwrap_or_else(|| RefAny::new(()));
 
     use azul_css::props::{
         basic::pixel::PixelValue,
@@ -494,13 +496,20 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
     match &snapshot.status {
         ReportStatus::Editing | ReportStatus::Failed(_) => {
             if let ReportStatus::Failed(e) = &snapshot.status {
-                children.push(Dom::create_p_with_text(format!("Previous attempt failed: {e}")));
+                children.push(Dom::create_p_with_text(format!(
+                    "Previous attempt failed: {e}"
+                )));
             }
             children.push(
                 TextArea::create()
                     .with_text(AzString::from(snapshot.message.as_str()))
-                    .with_placeholder(AzString::from("What were you doing when the problem happened?"))
-                    .with_on_text_input(state.clone(), on_message_input as TextAreaOnTextInputCallbackType)
+                    .with_placeholder(AzString::from(
+                        "What were you doing when the problem happened?",
+                    ))
+                    .with_on_text_input(
+                        state.clone(),
+                        on_message_input as TextAreaOnTextInputCallbackType,
+                    )
                     .dom(),
             );
             children.push(check_row(
@@ -630,8 +639,7 @@ fn preview_section(snapshot: &ReportProblemState, state: &RefAny) -> Vec<Dom> {
     let mut stack: Vec<Dom> = vec![image];
     for rect in &snapshot.redactions {
         let r = rect.normalized();
-        stack.push(
-            Dom::create_div().with_css_props(style(vec![
+        stack.push(Dom::create_div().with_css_props(style(vec![
                 CssProperty::position(LayoutPosition::Absolute),
                 CssProperty::left(LayoutLeft::px(r.x)),
                 CssProperty::top(LayoutTop::px(r.y)),
@@ -646,8 +654,7 @@ fn preview_section(snapshot: &ReportProblemState, state: &RefAny) -> Vec<Dom> {
                     })]
                     .into(),
                 ),
-            ])),
-        );
+            ])));
     }
 
     vec![
@@ -672,12 +679,7 @@ fn preview_section(snapshot: &ReportProblemState, state: &RefAny) -> Vec<Dom> {
     ]
 }
 
-fn check_row(
-    checked: bool,
-    label: &str,
-    cb: CheckBoxOnToggleCallbackType,
-    state: RefAny,
-) -> Dom {
+fn check_row(checked: bool, label: &str, cb: CheckBoxOnToggleCallbackType, state: RefAny) -> Dom {
     Dom::create_div().with_children(
         vec![
             CheckBox::create(checked).with_on_toggle(state, cb).dom(),

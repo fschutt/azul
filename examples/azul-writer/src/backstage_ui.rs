@@ -19,45 +19,39 @@ use azul_layout::widgets::backstage::{
 use azul_layout::widgets::button::ButtonOnClickCallbackType;
 use azul_layout::widgets::quick_access::QuickAccessBar;
 
-use crate::fonts::{self, TEXT, TEXT_FAINT, TEXT_GRAY, TITLE_GRAY, WHITE, OFFICE_BLUE};
+use crate::fonts::{self, OFFICE_BLUE, TEXT, TEXT_FAINT, TEXT_GRAY, TITLE_GRAY, WHITE};
 use crate::AppState;
 
 /// Export pane: "Create PDF/XPS Document" (the Office-2013-era wording), wired to
 /// the engine's DOM->PDF path.
 fn export_pane(state: &AppState, data: &RefAny) -> Dom {
-    let pages = crate::document::paginate_cached(
-        &state.document.content,
-        state.document.generation,
-    );
+    let pages =
+        crate::document::paginate_cached(&state.document.content, state.document.generation);
     let desc = format!(
         "Preserves layout, formatting and fonts. {} page{} at A4.",
         pages.len(),
         if pages.len() == 1 { "" } else { "s" }
     );
-    let button = azul_layout::widgets::button::Button::create(AzString::from(
-        "Create PDF/XPS",
-    ))
-    .with_on_click(
-        data.clone(),
-        crate::on_export_pdf as ButtonOnClickCallbackType,
-    );
-    pane_frame()
-        .with_child(pane_title("Export"))
-        .with_child(
-            Dom::create_div()
-                .with_css("flex-grow: 0; margin-top: 18px; display: flex; flex-direction: column;")
-                .with_child(fonts::text("Create PDF/XPS Document", 16, OFFICE_BLUE))
-                .with_child(
-                    Dom::create_div()
-                        .with_css("flex-grow: 0; margin-top: 6px;")
-                        .with_child(fonts::text(&desc, 12, TEXT_GRAY)),
-                )
-                .with_child(
-                    Dom::create_div()
-                        .with_css("flex-grow: 0; margin-top: 16px; width: 160px;")
-                        .with_child(button.dom()),
-                ),
-        )
+    let button = azul_layout::widgets::button::Button::create(AzString::from("Create PDF/XPS"))
+        .with_on_click(
+            data.clone(),
+            crate::on_export_pdf as ButtonOnClickCallbackType,
+        );
+    pane_frame().with_child(pane_title("Export")).with_child(
+        Dom::create_div()
+            .with_css("flex-grow: 0; margin-top: 18px; display: flex; flex-direction: column;")
+            .with_child(fonts::text("Create PDF/XPS Document", 16, OFFICE_BLUE))
+            .with_child(
+                Dom::create_div()
+                    .with_css("flex-grow: 0; margin-top: 6px;")
+                    .with_child(fonts::text(&desc, 12, TEXT_GRAY)),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_css("flex-grow: 0; margin-top: 16px; width: 160px;")
+                    .with_child(button.dom()),
+            ),
+    )
 }
 
 /// Big light pane title ("Info", "Open", …).
@@ -87,7 +81,9 @@ fn doc_icon() -> Dom {
 /// A margin-owning wrapper around a text node.
 fn boxed(css: &str, child: Dom) -> Dom {
     Dom::create_div()
-        .with_css(&format!("display: flex; flex-direction: row; flex-grow: 0; {css}"))
+        .with_css(&format!(
+            "display: flex; flex-direction: row; flex-grow: 0; {css}"
+        ))
         .with_child(child)
 }
 
@@ -104,7 +100,10 @@ fn info_action(icon: &str, button_label: &str, heading: &str, description: &str)
              :hover { background: #f2f7fc; }",
         )
         .with_child(Dom::create_icon(icon).with_css("font-size: 24px; color: #2b579a;"))
-        .with_child(boxed("margin-top: 3px;", fonts::text(button_label, 10, TEXT)));
+        .with_child(boxed(
+            "margin-top: 3px;",
+            fonts::text(button_label, 10, TEXT),
+        ));
     let text_col = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
         .with_child(boxed("", fonts::text(heading, 16, TEXT)))
@@ -134,7 +133,11 @@ fn property_row(label: &str, value: &str) -> Dom {
 
 fn info_pane(state: &AppState) -> Dom {
     let name = state.document.display_name();
-    let location = if state.document.path.is_some() { "Documents" } else { "Desktop" };
+    let location = if state.document.path.is_some() {
+        "Documents"
+    } else {
+        "Desktop"
+    };
     let words = state.document.word_count().to_string();
 
     let left = Dom::create_div()
@@ -164,7 +167,10 @@ fn info_pane(state: &AppState) -> Dom {
             "display: flex; flex-direction: column; flex-grow: 0; width: 280px; \
              margin-top: 30px;",
         )
-        .with_child(boxed("margin-bottom: 14px;", fonts::text("Properties", 15, TEXT)))
+        .with_child(boxed(
+            "margin-bottom: 14px;",
+            fonts::text("Properties", 15, TEXT),
+        ))
         .with_child(property_row("Size", "\u{2014}"))
         .with_child(property_row("Pages", "1"))
         .with_child(property_row("Words", &words))
@@ -178,7 +184,10 @@ fn info_pane(state: &AppState) -> Dom {
 
     pane_frame()
         .with_child(pane_title("Info"))
-        .with_child(boxed("margin-top: 16px;", fonts::text(&name, 20, OFFICE_BLUE)))
+        .with_child(boxed(
+            "margin-top: 16px;",
+            fonts::text(&name, 20, OFFICE_BLUE),
+        ))
         .with_child(boxed("", fonts::text(location, 12, TEXT_FAINT)))
         .with_child(
             Dom::create_div()
@@ -203,7 +212,9 @@ fn place_row(icon: &str, label: &str, active: bool) -> Dom {
             "display: flex; flex-direction: row; align-items: center; flex-grow: 0; \
              height: 46px; padding-left: 14px; cursor: pointer; {bg}",
         ))
-        .with_child(Dom::create_icon(icon).with_css("font-size: 20px; color: #2b579a; margin-right: 12px;"))
+        .with_child(
+            Dom::create_icon(icon).with_css("font-size: 20px; color: #2b579a; margin-right: 12px;"),
+        )
         .with_child(fonts::text(label, 13, TEXT))
 }
 
@@ -265,11 +276,17 @@ fn open_pane(data: &RefAny) -> Dom {
             "display: flex; flex-direction: column; flex-grow: 1; margin-top: 26px; \
              margin-left: 30px;",
         )
-        .with_child(boxed("margin-bottom: 12px;", fonts::text("Recent Documents", 16, OFFICE_BLUE)))
+        .with_child(boxed(
+            "margin-bottom: 12px;",
+            fonts::text("Recent Documents", 16, OFFICE_BLUE),
+        ))
         .with_child(recent_row("Welcome", "Desktop"))
         .with_child(recent_row("Project Notes", "Documents"))
         .with_child(recent_row("recipes", "Desktop \u{00bb} Personal"))
-        .with_child(recent_row("Meeting Minutes 2026", "Documents \u{00bb} Work"))
+        .with_child(recent_row(
+            "Meeting Minutes 2026",
+            "Documents \u{00bb} Work",
+        ))
         .with_child(recent_row("Velvet Market Segmentation", "Downloads"));
 
     pane_frame().with_child(pane_title("Open")).with_child(
@@ -306,18 +323,25 @@ pub fn backstage_screen(state: &AppState, data: &RefAny) -> Dom {
         2 => open_pane(data),
         7 => export_pane(state, data),
         i => {
-            let label = OFFICE_2013_NAV_LABELS
-                .get(i)
-                .copied()
-                .unwrap_or(if i == 9 { "Account" } else { "Options" });
+            let label = OFFICE_2013_NAV_LABELS.get(i).copied().unwrap_or(if i == 9 {
+                "Account"
+            } else {
+                "Options"
+            });
             pane_frame().with_child(pane_title(label))
         }
     };
 
     let mut backstage = Backstage::office_2013()
         .with_active_item(state.backstage_pane)
-        .with_on_nav_select(data.clone(), crate::on_backstage_nav as BackstageOnNavSelectCallbackType)
-        .with_on_back(data.clone(), crate::on_backstage_back as ButtonOnClickCallbackType)
+        .with_on_nav_select(
+            data.clone(),
+            crate::on_backstage_nav as BackstageOnNavSelectCallbackType,
+        )
+        .with_on_back(
+            data.clone(),
+            crate::on_backstage_back as ButtonOnClickCallbackType,
+        )
         .with_title_strip(title_strip)
         .with_content(content);
     // WORKAROUND(engine): pin the static UI font (inherits into the panes).

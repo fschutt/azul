@@ -17,21 +17,21 @@
 //!     → Phase E: start HTTP server, serve pages + /az/img/ + /az/font/
 //! ```
 
-pub mod config;
-pub mod server;
-pub mod html_render;
-pub mod loader_js;
 pub mod classify;
+pub mod config;
+pub mod eventloop;
+pub mod headless;
+pub mod html_render;
+pub mod hydration;
+pub mod loader_js;
+#[cfg(feature = "web-transpiler-static")]
+pub mod native_remill;
+pub mod server;
+#[cfg(feature = "web-transpiler")]
+pub mod symbol_table;
 pub mod transpiler;
 #[cfg(feature = "web-transpiler")]
 pub mod transpiler_remill;
-#[cfg(feature = "web-transpiler")]
-pub mod symbol_table;
-#[cfg(feature = "web-transpiler-static")]
-pub mod native_remill;
-pub mod eventloop;
-pub mod headless;
-pub mod hydration;
 
 /// Whether M10-D per-fn WASM sharding is active. Always `false` when the
 /// transpiler (and thus `symbol_table`) isn't compiled in — keeps the non-
@@ -129,8 +129,8 @@ use azul_core::callbacks::{CoreCallback, LayoutCallback};
 use azul_core::refany::RefAny;
 use azul_core::resources::{AppConfig, RouteMatch};
 use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 
 use crate::desktop::shell2::common::WindowError;
 
@@ -321,7 +321,11 @@ pub(crate) fn resolve_fn_ptr(fn_ptr: usize) -> FnPtrSymbol {
             return FnPtrSymbol {
                 name: entry.canonical_name.clone(),
                 addr: entry.canonical_addr,
-                size: if entry.size > 0 { entry.size } else { LIFT_READ_WINDOW },
+                size: if entry.size > 0 {
+                    entry.size
+                } else {
+                    LIFT_READ_WINDOW
+                },
             };
         }
         // Windows incremental-link thunk (ILT) chase. MSVC's
@@ -340,7 +344,11 @@ pub(crate) fn resolve_fn_ptr(fn_ptr: usize) -> FnPtrSymbol {
                 return FnPtrSymbol {
                     name: entry.canonical_name.clone(),
                     addr: entry.canonical_addr,
-                    size: if entry.size > 0 { entry.size } else { LIFT_READ_WINDOW },
+                    size: if entry.size > 0 {
+                        entry.size
+                    } else {
+                        LIFT_READ_WINDOW
+                    },
                 };
             }
         }
@@ -389,7 +397,12 @@ fn chase_ilt_thunk(_addr: usize) -> Option<usize> {
 /// verification checks that this fallback NEVER fires in the lift
 /// logs (any cb_<hex> indicates a missed symbol classification).
 fn resolve_fn_ptr_dladdr(fn_ptr: usize) -> FnPtrSymbol {
-    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    ))]
     unsafe {
         #[repr(C)]
         struct DlInfo {
@@ -448,7 +461,12 @@ pub(crate) fn resolve_fn_ptr_name(fn_ptr: usize) -> String {
 /// listed in [`EVENTLOOP_SYMBOLS`] so the remill lift pipeline can
 /// read function bytes from `.text`.
 pub(crate) fn dlsym_self(name: &str) -> Option<usize> {
-    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android"
+    ))]
     unsafe {
         // RTLD_DEFAULT: look up the symbol in the global scope of the
         // running process (matches the running dylib's exported
@@ -762,9 +780,7 @@ fn generate_mini_wasm_stub() -> Vec<u8> {
 /// transpiler isn't the real RemillTranspiler (e.g. StubTranspiler
 /// in tests) — the stub can't lift anything anyway.
 #[cfg(feature = "web-transpiler")]
-pub fn lift_boundary_shards(
-    initial_boundaries: &[usize],
-) -> Vec<BoundaryWasm> {
+pub fn lift_boundary_shards(initial_boundaries: &[usize]) -> Vec<BoundaryWasm> {
     use std::collections::{HashSet, VecDeque};
     use transpiler::Transpiler;
 
@@ -776,9 +792,7 @@ pub fn lift_boundary_shards(
 
     let transpiler = transpiler_remill::RemillTranspiler::new();
     if !transpiler.is_available() {
-        eprintln!(
-            "[azul-web] boundary-lift: transpiler unavailable, skipping shards"
-        );
+        eprintln!("[azul-web] boundary-lift: transpiler unavailable, skipping shards");
         return Vec::new();
     }
 
@@ -871,7 +885,10 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
         );
         eprintln!(
             "[azul-web]   layout-cb: {:<40} addr=0x{:016x} wasm={} client_side={}",
-            sym.name, sym.addr, wasm_bytes.len(), is_client_side,
+            sym.name,
+            sym.addr,
+            wasm_bytes.len(),
+            is_client_side,
         );
         let content_hash = fnv1a64_hex(sym.name.as_bytes());
         out.push(LayoutWasm {
@@ -945,7 +962,6 @@ pub fn run_web(
     root_window: WindowCreateOptions,
     web_config: config::WebConfig,
 ) -> Result<(), WindowError> {
-
     eprintln!("[azul-web] Starting web backend...");
 
     // M8.7a: validate the App can be hydrated on the wasm client.
@@ -1050,19 +1066,27 @@ pub fn run_web(
             None,
             config.bundled_fonts.as_ref(),
         );
-        eprintln!("[azul-web] Route / : {} bytes HTML, {} images, {} fonts, {} callbacks",
-            output.html.len(), output.images.len(), output.fonts.len(), output.callbacks.len());
+        eprintln!(
+            "[azul-web] Route / : {} bytes HTML, {} images, {} fonts, {} callbacks",
+            output.html.len(),
+            output.images.len(),
+            output.fonts.len(),
+            output.callbacks.len()
+        );
 
         let callback_index = build_callback_index(&output.callbacks);
         all_images.extend(output.images);
         all_fonts.extend(output.fonts);
         discovered_per_route.insert("/".to_string(), output.callbacks);
-        rendered_routes.insert("/".to_string(), server::RenderedRoute {
-            pattern: "/".to_string(),
-            html: output.html,
-            layout_callback: default_layout_callback.clone(),
-            callback_index,
-        });
+        rendered_routes.insert(
+            "/".to_string(),
+            server::RenderedRoute {
+                pattern: "/".to_string(),
+                html: output.html,
+                layout_callback: default_layout_callback.clone(),
+                callback_index,
+            },
+        );
     } else {
         // Pre-render each registered route
         for route in routes.iter() {
@@ -1085,9 +1109,14 @@ pub fn run_web(
                 config.bundled_fonts.as_ref(),
             );
 
-            eprintln!("[azul-web] Route {} : {} bytes HTML, {} images, {} fonts, {} callbacks",
-                pattern, output.html.len(), output.images.len(), output.fonts.len(),
-                output.callbacks.len());
+            eprintln!(
+                "[azul-web] Route {} : {} bytes HTML, {} images, {} fonts, {} callbacks",
+                pattern,
+                output.html.len(),
+                output.images.len(),
+                output.fonts.len(),
+                output.callbacks.len()
+            );
 
             // Rebase image/font IDs to avoid collisions across routes
             let img_offset = all_images.len();
@@ -1117,12 +1146,15 @@ pub fn run_web(
 
             let callback_index = build_callback_index(&output.callbacks);
             discovered_per_route.insert(pattern.to_string(), output.callbacks);
-            rendered_routes.insert(pattern.to_string(), server::RenderedRoute {
-                pattern: pattern.to_string(),
-                html,
-                layout_callback: route.layout_callback.clone(),
-                callback_index,
-            });
+            rendered_routes.insert(
+                pattern.to_string(),
+                server::RenderedRoute {
+                    pattern: pattern.to_string(),
+                    html,
+                    layout_callback: route.layout_callback.clone(),
+                    callback_index,
+                },
+            );
         }
     }
 
@@ -1132,7 +1164,8 @@ pub fn run_web(
     let mut cb_wasms = discover_and_transpile_callbacks(&discovered_per_route);
     eprintln!(
         "[azul-web] Discovered {} unique callbacks across {} route(s); transpile lift is stubbed",
-        cb_wasms.len(), discovered_per_route.len(),
+        cb_wasms.len(),
+        discovered_per_route.len(),
     );
     for cb in &cb_wasms {
         eprintln!(
@@ -1168,7 +1201,10 @@ pub fn run_web(
 
     eprintln!(
         "[azul-web] Pre-rendered {} routes, {} total images, {} total fonts, {} layout WASMs",
-        rendered_routes.len(), all_images.len(), all_fonts.len(), layout_wasms.len(),
+        rendered_routes.len(),
+        all_images.len(),
+        all_fonts.len(),
+        layout_wasms.len(),
     );
 
     // Phase F (M10-D): union every cb / layout used_boundaries set
@@ -1177,8 +1213,7 @@ pub fn run_web(
     // in legacy bundled mode (when AZ_ENABLE_SHARDS isn't set or
     // AZ_BUNDLED_LEGACY=1) — the cb / layout wasms still embed
     // their framework deps inline.
-    let mut initial_boundaries: std::collections::HashSet<usize> =
-        std::collections::HashSet::new();
+    let mut initial_boundaries: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for cb in &cb_wasms {
         for &addr in &cb.used_boundaries {
             initial_boundaries.insert(addr);
@@ -1286,7 +1321,11 @@ pub fn run_web(
     // startup seconds for a normal (post-wasm-opt) module, but if the module
     // is still huge (opt fell back) drop to q=9 so startup doesn't stall.
     let mini_wasm_br = {
-        let q = if mini_wasm.len() <= 8 * 1024 * 1024 { 11 } else { 9 };
+        let q = if mini_wasm.len() <= 8 * 1024 * 1024 {
+            11
+        } else {
+            9
+        };
         let br = server::brotli_compress(&mini_wasm, q);
         if let Some(ref b) = br {
             eprintln!(

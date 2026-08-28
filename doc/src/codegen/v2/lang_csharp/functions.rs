@@ -152,10 +152,9 @@ fn emit_dll_import(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR
                 // For references and pointers we use IntPtr in the
                 // P/Invoke signature. Wrappers can pass `ref` / `out`
                 // for blittable structs when convenient.
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "IntPtr".to_string(),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    "IntPtr".to_string()
+                }
             };
             format!("{} {}", cs_type, sanitize_identifier(&a.name))
         })

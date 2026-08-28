@@ -28,8 +28,10 @@ use azul_core::{
     refany::RefAny,
     task::OptionTimerId,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{OptionString, 
+use azul_css::css::BoxOrStatic;
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
+use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::*,
@@ -37,9 +39,8 @@ use azul_css::{OptionString,
         property::{CssProperty, *},
         style::*,
     },
-    *,
+    OptionString, *,
 };
-use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -743,7 +744,8 @@ azul_core::impl_managed_callback! {
     from_handle_fn: AzTextInputOnFocusLostCallback_createFromHostHandle,
     extra_args:     [ state: TextInputState ],
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Copy, Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum TextInputSelection {
@@ -798,7 +800,8 @@ impl Default for TextInputState {
 }
 
 impl TextInputState {
-    #[must_use] pub fn get_text(&self) -> String {
+    #[must_use]
+    pub fn get_text(&self) -> String {
         self.text
             .iter()
             .filter_map(|c| core::char::from_u32(*c))
@@ -828,11 +831,13 @@ impl TextInput {
         self
     }
 
-    #[must_use] pub fn create() -> Self {
+    #[must_use]
+    pub fn create() -> Self {
         Self::default()
     }
 
-    #[must_use] pub fn with_text(mut self, text: AzString) -> Self {
+    #[must_use]
+    pub fn with_text(mut self, text: AzString) -> Self {
         self.set_text(text);
         self
     }
@@ -852,7 +857,8 @@ impl TextInput {
         self.text_input_state.inner.placeholder = Some(placeholder).into();
     }
 
-    #[must_use] pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
+    #[must_use]
+    pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
         self.set_placeholder(placeholder);
         self
     }
@@ -927,7 +933,8 @@ impl TextInput {
         self.placeholder_style = style;
     }
 
-    #[must_use] pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_placeholder_style(style);
         self
     }
@@ -936,7 +943,8 @@ impl TextInput {
         self.container_style = style;
     }
 
-    #[must_use] pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
@@ -945,7 +953,8 @@ impl TextInput {
         self.label_style = style;
     }
 
-    #[must_use] pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_label_style(style);
         self
     }
@@ -965,10 +974,10 @@ impl TextInput {
     /// are `<p>` blocks wrapping a bare text node each; nothing else is emitted,
     /// in particular no caret node (the engine paints the caret and the
     /// selection from its display list).
-    #[must_use] pub fn dom(mut self) -> Dom {
+    #[must_use]
+    pub fn dom(mut self) -> Dom {
         // Read before the state is moved into the DOM/callbacks below.
-        let a11y_name: Option<AzString> =
-            self.text_input_state.inner.placeholder.as_ref().cloned();
+        let a11y_name: Option<AzString> = self.text_input_state.inner.placeholder.as_ref().cloned();
         let a11y_value: String = self
             .text_input_state
             .inner
@@ -1099,16 +1108,14 @@ impl TextInput {
 
 /// `style` with the placeholder taken out of the flow: `display: none` on top
 /// of `opacity: 0`, so a hidden prompt owns neither pixels nor an inline layout.
-fn hidden_placeholder_style(
-    style: &CssPropertyWithConditionsVec,
-) -> CssPropertyWithConditionsVec {
+fn hidden_placeholder_style(style: &CssPropertyWithConditionsVec) -> CssPropertyWithConditionsVec {
     let mut props = style.as_ref().to_vec();
-    props.push(CssPropertyWithConditions::simple(CssProperty::const_display(
-        LayoutDisplay::None,
-    )));
-    props.push(CssPropertyWithConditions::simple(CssProperty::const_opacity(
-        StyleOpacity::const_new(0),
-    )));
+    props.push(CssPropertyWithConditions::simple(
+        CssProperty::const_display(LayoutDisplay::None),
+    ));
+    props.push(CssPropertyWithConditions::simple(
+        CssProperty::const_opacity(StyleOpacity::const_new(0)),
+    ));
     CssPropertyWithConditionsVec::from_vec(props)
 }
 
@@ -1330,7 +1337,10 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         // A rebuild re-derives the placeholder from the widget's own text, so
         // the override written above must not outlive it. See
         // `clear_placeholder_override`.
-        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+        if matches!(
+            result.update,
+            Update::RefreshDom | Update::RefreshDomAllWindows
+        ) {
             clear_placeholder_override(&mut info, placeholder_node_id);
         }
         return Some(result.update);
@@ -1362,9 +1372,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
             Some(TextInputSelection::All) => current_chars,
             Some(TextInputSelection::FromTo(r)) => {
                 let (a, b) = (r.dir_from.min(r.dir_to), r.dir_from.max(r.dir_to));
-                if b <= current.len()
-                    && current.is_char_boundary(a)
-                    && current.is_char_boundary(b)
+                if b <= current.len() && current.is_char_boundary(a) && current.is_char_boundary(b)
                 {
                     current[a..b].chars().count()
                 } else {
@@ -1417,7 +1425,10 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         // must stay a strict no-op, which is what
         // `text_input_rejected_by_the_hook_leaves_the_buffer_and_the_screen_untouched`
         // pins.
-        if matches!(result.update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+        if matches!(
+            result.update,
+            Update::RefreshDom | Update::RefreshDomAllWindows
+        ) {
             clear_placeholder_override(&mut info, placeholder_node_id);
         }
     } else {
@@ -1541,21 +1552,21 @@ mod autotest_generated {
         " ",
         "a",
         "hello world",
-        "\0",           // a lone NUL is a perfectly good scalar
-        "a\0b",         // ... and it survives in the middle of a string, too
-        "\u{7f}",       // largest 1-byte scalar
-        "\u{80}",       // smallest 2-byte scalar
-        "\u{7ff}",      // largest 2-byte scalar
-        "\u{800}",      // smallest 3-byte scalar
-        "\u{ffff}",     // largest 3-byte scalar (and a non-character)
-        "\u{10000}",    // smallest 4-byte scalar
-        "\u{10ffff}",   // the largest scalar that exists at all
+        "\0",         // a lone NUL is a perfectly good scalar
+        "a\0b",       // ... and it survives in the middle of a string, too
+        "\u{7f}",     // largest 1-byte scalar
+        "\u{80}",     // smallest 2-byte scalar
+        "\u{7ff}",    // largest 2-byte scalar
+        "\u{800}",    // smallest 3-byte scalar
+        "\u{ffff}",   // largest 3-byte scalar (and a non-character)
+        "\u{10000}",  // smallest 4-byte scalar
+        "\u{10ffff}", // the largest scalar that exists at all
         "é",
-        "e\u{301}",     // e + COMBINING ACUTE: 2 scalars, 1 grapheme
-        "👨‍👩‍👧‍👦", // ZWJ family: 7 scalars, 1 grapheme, 25 bytes
+        "e\u{301}", // e + COMBINING ACUTE: 2 scalars, 1 grapheme
+        "👨‍👩‍👧‍👦",       // ZWJ family: 7 scalars, 1 grapheme, 25 bytes
         "日本語",
-        "مرحبا",        // RTL
-        "\u{200b}",     // zero-width space: invisible, but still one scalar
+        "مرحبا",    // RTL
+        "\u{200b}", // zero-width space: invisible, but still one scalar
         "\r\n\t",
     ];
 
@@ -1689,10 +1700,11 @@ mod autotest_generated {
         _: CallbackInfo,
         state: TextInputState,
     ) -> Update {
-        data.downcast_mut::<Recorder>().map_or(Update::RefreshDom, |mut log| {
-            log.seen.push(state);
-            log.update
-        })
+        data.downcast_mut::<Recorder>()
+            .map_or(Update::RefreshDom, |mut log| {
+                log.seen.push(state);
+                log.update
+            })
     }
 
     /// A `Callback`-shaped (2-argument) function — the shape FFI bindings hand in,
@@ -1881,7 +1893,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => {
                     let o = properties.as_ref().iter().find_map(|p| match p {
                         CssProperty::Opacity(o) => o.get_property().map(|o| o.inner.normalized()),
@@ -1940,7 +1954,10 @@ mod autotest_generated {
                 .get_node_type()
                 .format()
                 .expect("expected a bare text leaf"),
-            other => panic!("a label <p> wraps exactly one text node, found {}", other.len()),
+            other => panic!(
+                "a label <p> wraps exactly one text node, found {}",
+                other.len()
+            ),
         }
     }
 
@@ -2070,7 +2087,10 @@ mod autotest_generated {
             rendered.chars().count(),
             state.text.len(),
         );
-        assert_eq!(rendered.chars().count(), units.len() - NON_SCALAR_UNITS.len());
+        assert_eq!(
+            rendered.chars().count(),
+            units.len() - NON_SCALAR_UNITS.len()
+        );
     }
 
     #[test]
@@ -2088,7 +2108,9 @@ mod autotest_generated {
     fn get_text_on_a_very_large_buffer_does_not_panic() {
         let n = 50_000;
         let state = TextInputState {
-            text: core::iter::repeat_n(u32::from('ß'), n).collect::<Vec<_>>().into(),
+            text: core::iter::repeat_n(u32::from('ß'), n)
+                .collect::<Vec<_>>()
+                .into(),
             ..TextInputState::default()
         };
         let text = state.get_text();
@@ -2155,7 +2177,11 @@ mod autotest_generated {
         input.set_text("".into());
         assert!(input.text_input_state.inner.text.is_empty());
         assert_eq!(input.text_input_state.inner.get_text(), "");
-        assert_eq!(input, TextInput::create(), "clearing did not restore a fresh widget");
+        assert_eq!(
+            input,
+            TextInput::create(),
+            "clearing did not restore a fresh widget"
+        );
     }
 
     #[test]
@@ -2195,13 +2221,21 @@ mod autotest_generated {
         input.set_text("abc".into());
 
         assert_eq!(
-            input.text_input_state.inner.placeholder.as_ref().map(|s| s.as_str().to_string()),
+            input
+                .text_input_state
+                .inner
+                .placeholder
+                .as_ref()
+                .map(|s| s.as_str().to_string()),
             Some("type here".to_string()),
         );
         assert_eq!(input.placeholder_style, before.placeholder_style);
         assert_eq!(input.container_style, before.container_style);
         assert_eq!(input.label_style, before.label_style);
-        assert_eq!(input.text_input_state.inner.max_len, before.text_input_state.inner.max_len);
+        assert_eq!(
+            input.text_input_state.inner.max_len,
+            before.text_input_state.inner.max_len
+        );
         assert!(input.text_input_state.inner.selection.is_none());
     }
 
@@ -2230,7 +2264,11 @@ mod autotest_generated {
 
     #[test]
     fn placeholder_is_absent_on_a_fresh_widget() {
-        assert!(TextInput::create().text_input_state.inner.placeholder.is_none());
+        assert!(TextInput::create()
+            .text_input_state
+            .inner
+            .placeholder
+            .is_none());
     }
 
     #[test]
@@ -2239,10 +2277,17 @@ mod autotest_generated {
             let mut a = TextInput::create();
             a.set_placeholder(s.into());
             let b = TextInput::create().with_placeholder(s.into());
-            assert_eq!(a, b, "with_placeholder and set_placeholder disagree on {s:?}");
+            assert_eq!(
+                a, b,
+                "with_placeholder and set_placeholder disagree on {s:?}"
+            );
 
             assert_eq!(
-                a.text_input_state.inner.placeholder.as_ref().map(|p| p.as_str()),
+                a.text_input_state
+                    .inner
+                    .placeholder
+                    .as_ref()
+                    .map(|p| p.as_str()),
                 Some(s),
                 "the placeholder {s:?} was not stored byte-for-byte",
             );
@@ -2256,7 +2301,12 @@ mod autotest_generated {
         input.set_placeholder("".into());
         // An empty placeholder is still *a* placeholder, not the absence of one.
         assert_eq!(
-            input.text_input_state.inner.placeholder.as_ref().map(|p| p.as_str()),
+            input
+                .text_input_state
+                .inner
+                .placeholder
+                .as_ref()
+                .map(|p| p.as_str()),
             Some(""),
         );
     }
@@ -2359,7 +2409,9 @@ mod autotest_generated {
 
         let mut payload = slot.refany.clone();
         assert_eq!(
-            *payload.downcast_ref::<u32>().expect("the payload changed type"),
+            *payload
+                .downcast_ref::<u32>()
+                .expect("the payload changed type"),
             0xDEAD_BEEF,
         );
         assert!(
@@ -2411,7 +2463,10 @@ mod autotest_generated {
         let payload = RefAny::new(7_u16);
 
         let mut a = TextInput::create();
-        a.set_on_text_input(payload.clone(), record_text_input as TextInputOnTextInputCallbackType);
+        a.set_on_text_input(
+            payload.clone(),
+            record_text_input as TextInputOnTextInputCallbackType,
+        );
         assert_eq!(
             a,
             TextInput::create().with_on_text_input(
@@ -2434,11 +2489,16 @@ mod autotest_generated {
         );
 
         let mut c = TextInput::create();
-        c.set_on_focus_lost(payload.clone(), record_focus_lost as TextInputOnFocusLostCallbackType);
+        c.set_on_focus_lost(
+            payload.clone(),
+            record_focus_lost as TextInputOnFocusLostCallbackType,
+        );
         assert_eq!(
             c,
-            TextInput::create()
-                .with_on_focus_lost(payload, record_focus_lost as TextInputOnFocusLostCallbackType),
+            TextInput::create().with_on_focus_lost(
+                payload,
+                record_focus_lost as TextInputOnFocusLostCallbackType
+            ),
         );
     }
 
@@ -2454,14 +2514,21 @@ mod autotest_generated {
             record_virtual_key as TextInputOnTextInputCallbackType,
         );
 
-        let slot = input.text_input_state.on_text_input.as_ref().expect("slot is empty");
+        let slot = input
+            .text_input_state
+            .on_text_input
+            .as_ref()
+            .expect("slot is empty");
         assert_eq!(
             slot.callback.cb as *const () as usize,
             record_virtual_key as TextInputOnTextInputCallbackType as *const () as usize,
             "the second assignment did not win",
         );
         let mut payload = slot.refany.clone();
-        assert_eq!(*payload.downcast_ref::<u8>().expect("wrong payload type"), 2);
+        assert_eq!(
+            *payload.downcast_ref::<u8>().expect("wrong payload type"),
+            2
+        );
     }
 
     #[test]
@@ -2506,11 +2573,23 @@ mod autotest_generated {
         // Unlimited by default, like an <input> without `maxlength`.
         assert_eq!(input.text_input_state.inner.max_len, usize::MAX);
         assert!(input.text_input_state.on_text_input.as_ref().is_none());
-        assert!(input.text_input_state.on_virtual_key_down.as_ref().is_none());
+        assert!(input
+            .text_input_state
+            .on_virtual_key_down
+            .as_ref()
+            .is_none());
         assert!(input.text_input_state.on_focus_lost.as_ref().is_none());
         assert!(input.text_input_state.cursor_animation.is_none());
-        assert!(input.text_input_state.update_text_input_before_calling_focus_lost_fn);
-        assert!(input.text_input_state.update_text_input_before_calling_vk_down_fn);
+        assert!(
+            input
+                .text_input_state
+                .update_text_input_before_calling_focus_lost_fn
+        );
+        assert!(
+            input
+                .text_input_state
+                .update_text_input_before_calling_vk_down_fn
+        );
         assert!(!input.container_style.is_empty());
     }
 
@@ -2522,7 +2601,11 @@ mod autotest_generated {
         let old = input.swap_with_default();
 
         assert_eq!(old.text_input_state.inner.get_text(), "typed");
-        assert_eq!(input, TextInput::create(), "what was left behind is not a fresh widget");
+        assert_eq!(
+            input,
+            TextInput::create(),
+            "what was left behind is not a fresh widget"
+        );
     }
 
     #[test]
@@ -2574,7 +2657,10 @@ mod autotest_generated {
 
         let placeholder = &dom.children.as_ref()[PLACEHOLDER_CHILD];
         let label = &dom.children.as_ref()[LABEL_CHILD];
-        assert_eq!(classes(placeholder), vec!["__azul-native-text-input-placeholder"]);
+        assert_eq!(
+            classes(placeholder),
+            vec!["__azul-native-text-input-placeholder"]
+        );
         assert_eq!(classes(label), vec!["__azul-native-text-input-label"]);
 
         for block in [placeholder, label] {
@@ -2599,7 +2685,10 @@ mod autotest_generated {
             }
         }
         let mut all = Vec::new();
-        walk(&TextInput::create().with_text("typed".into()).dom(), &mut all);
+        walk(
+            &TextInput::create().with_text("typed".into()).dom(),
+            &mut all,
+        );
         assert!(
             !all.iter().any(|c| c.contains("cursor")),
             "the widget still emits a cursor node: {all:?}",
@@ -2613,7 +2702,9 @@ mod autotest_generated {
         // one are all inert. Every text node must be a bare leaf under a <p>.
         for input in [
             TextInput::create(),
-            TextInput::create().with_text("typed".into()).with_placeholder("hint".into()),
+            TextInput::create()
+                .with_text("typed".into())
+                .with_placeholder("hint".into()),
         ] {
             let mut bad = Vec::new();
             text_nodes_carrying_state(&input.dom(), false, &mut bad);
@@ -2711,7 +2802,10 @@ mod autotest_generated {
         // All five handlers plus the dataset must share ONE state; separate copies
         // would let the focus handler and the text handler drift apart.
         for c in callbacks {
-            assert_eq!(c.refany, callbacks[0].refany, "a handler got its own state copy");
+            assert_eq!(
+                c.refany, callbacks[0].refany,
+                "a handler got its own state copy"
+            );
         }
         assert_eq!(
             dom.root.get_dataset().expect("no dataset attached"),
@@ -2746,7 +2840,11 @@ mod autotest_generated {
                 .with_text(s.into())
                 .with_placeholder(s.into())
                 .dom();
-            assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]), s, "label mangled {s:?}");
+            assert_eq!(
+                text_of(&dom.children.as_ref()[LABEL_CHILD]),
+                s,
+                "label mangled {s:?}"
+            );
             assert_eq!(
                 text_of(&dom.children.as_ref()[PLACEHOLDER_CHILD]),
                 s,
@@ -2798,7 +2896,11 @@ mod autotest_generated {
             .dom();
 
         let inline = |node: &Dom| -> Vec<CssProperty> {
-            node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+            node.root
+                .style
+                .iter_inline_properties()
+                .map(|(p, _)| p.clone())
+                .collect()
         };
         let declared = |v: &CssPropertyWithConditionsVec| -> Vec<CssProperty> {
             v.as_ref().iter().map(|p| p.property.clone()).collect()
@@ -2809,7 +2911,10 @@ mod autotest_generated {
             inline(&dom.children.as_ref()[PLACEHOLDER_CHILD]),
             declared(&placeholder_style),
         );
-        assert_eq!(inline(&dom.children.as_ref()[LABEL_CHILD]), declared(&label_style));
+        assert_eq!(
+            inline(&dom.children.as_ref()[LABEL_CHILD]),
+            declared(&label_style)
+        );
     }
 
     #[test]
@@ -2839,7 +2944,10 @@ mod autotest_generated {
             default_on_focus_received(foreign.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a foreign payload still produced {changes:?}");
+        assert!(
+            changes.is_empty(),
+            "a foreign payload still produced {changes:?}"
+        );
     }
 
     #[test]
@@ -2853,7 +2961,10 @@ mod autotest_generated {
         });
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
-        assert!(nodes.placeholder.is_some(), "the fixture itself is malformed");
+        assert!(
+            nodes.placeholder.is_some(),
+            "the fixture itself is malformed"
+        );
     }
 
     #[test]
@@ -2868,7 +2979,10 @@ mod autotest_generated {
             default_on_focus_received(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a childless hit node still pushed {changes:?}");
+        assert!(
+            changes.is_empty(),
+            "a childless hit node still pushed {changes:?}"
+        );
     }
 
     #[test]
@@ -2916,8 +3030,9 @@ mod autotest_generated {
     #[test]
     fn focus_lost_shows_the_placeholder_only_while_the_buffer_is_empty() {
         let (styled_dom, state) = rendered(TextInput::create());
-        let (update, changes, nodes) =
-            run(Env::new(styled_dom), |info| default_on_focus_lost(state.clone(), info));
+        let (update, changes, nodes) = run(Env::new(styled_dom), |info| {
+            default_on_focus_lost(state.clone(), info)
+        });
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
             pushed_opacities(&changes),
@@ -2926,8 +3041,9 @@ mod autotest_generated {
         );
 
         let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
-        let (_, changes, _) =
-            run(Env::new(styled_dom), |info| default_on_focus_lost(state.clone(), info));
+        let (_, changes, _) = run(Env::new(styled_dom), |info| {
+            default_on_focus_lost(state.clone(), info)
+        });
         assert!(
             changes.is_empty(),
             "blurring a non-empty input revealed the placeholder over the text: {changes:?}",
@@ -2940,24 +3056,41 @@ mod autotest_generated {
         let (styled_dom, state) = rendered(
             TextInput::create()
                 .with_text("typed".into())
-                .with_on_focus_lost(probe.clone(), record_focus_lost as TextInputOnFocusLostCallbackType),
+                .with_on_focus_lost(
+                    probe.clone(),
+                    record_focus_lost as TextInputOnFocusLostCallbackType,
+                ),
         );
 
-        let (update, _, _) =
-            run(Env::new(styled_dom), |info| default_on_focus_lost(state.clone(), info));
+        let (update, _, _) = run(Env::new(styled_dom), |info| {
+            default_on_focus_lost(state.clone(), info)
+        });
 
-        assert_eq!(update, Update::RefreshDomAllWindows, "the hook's Update was swallowed");
+        assert_eq!(
+            update,
+            Update::RefreshDomAllWindows,
+            "the hook's Update was swallowed"
+        );
         let seen = recorded(&probe);
-        assert_eq!(seen.len(), 1, "the hook fired {} times, expected once", seen.len());
+        assert_eq!(
+            seen.len(),
+            1,
+            "the hook fired {} times, expected once",
+            seen.len()
+        );
         assert_eq!(seen[0].get_text(), "typed");
-        assert_eq!(seen[0].cursor_pos, 5, "the hook saw a cursor that dom() should have synced");
+        assert_eq!(
+            seen[0].cursor_pos, 5,
+            "the hook saw a cursor that dom() should have synced"
+        );
     }
 
     #[test]
     fn focus_lost_without_a_hook_reports_no_work_to_do() {
         let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
-        let (update, _, _) =
-            run(Env::new(styled_dom), |info| default_on_focus_lost(state.clone(), info));
+        let (update, _, _) = run(Env::new(styled_dom), |info| {
+            default_on_focus_lost(state.clone(), info)
+        });
         assert_eq!(update, Update::DoNothing);
     }
 
@@ -2978,7 +3111,10 @@ mod autotest_generated {
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
-        assert!(recorded(&probe).is_empty(), "the hook fired on a hit node that does not exist");
+        assert!(
+            recorded(&probe).is_empty(),
+            "the hook fired on a hit node that does not exist"
+        );
     }
 
     #[test]
@@ -2999,8 +3135,9 @@ mod autotest_generated {
     #[test]
     fn text_input_without_a_pending_changeset_does_nothing() {
         let (styled_dom, state) = rendered(TextInput::create());
-        let (update, changes, _) =
-            run(Env::new(styled_dom), |info| default_on_text_input(state.clone(), info));
+        let (update, changes, _) = run(Env::new(styled_dom), |info| {
+            default_on_text_input(state.clone(), info)
+        });
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
         assert_eq!(state_of(&state).get_text(), "");
@@ -3013,7 +3150,10 @@ mod autotest_generated {
             default_on_text_input(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "an empty insertion still repainted: {changes:?}");
+        assert!(
+            changes.is_empty(),
+            "an empty insertion still repainted: {changes:?}"
+        );
         assert_eq!(state_of(&state).get_text(), "abc");
         assert_eq!(state_of(&state).cursor_pos, 3);
     }
@@ -3025,7 +3165,11 @@ mod autotest_generated {
             default_on_text_input(state.clone(), info)
         });
 
-        assert_eq!(update, Update::DoNothing, "no hook is installed, so nothing needs redrawing");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "no hook is installed, so nothing needs redrawing"
+        );
         assert_eq!(state_of(&state).get_text(), "hi");
         assert_eq!(state_of(&state).cursor_pos, 2);
 
@@ -3057,17 +3201,28 @@ mod autotest_generated {
         let (styled_dom, state) = rendered(
             TextInput::create()
                 .with_text("ab".into())
-                .with_on_text_input(probe.clone(), record_text_input as TextInputOnTextInputCallbackType),
+                .with_on_text_input(
+                    probe.clone(),
+                    record_text_input as TextInputOnTextInputCallbackType,
+                ),
         );
 
         let (update, _, _) = run(Env::new(styled_dom).insert("c"), |info| {
             default_on_text_input(state.clone(), info)
         });
 
-        assert_eq!(update, Update::RefreshDom, "the hook's Update was swallowed");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the hook's Update was swallowed"
+        );
         let seen = recorded(&probe);
         assert_eq!(seen.len(), 1);
-        assert_eq!(seen[0].get_text(), "abc", "the hook was shown the pre-edit buffer");
+        assert_eq!(
+            seen[0].get_text(),
+            "abc",
+            "the hook was shown the pre-edit buffer"
+        );
         assert_eq!(seen[0].cursor_pos, 3);
     }
 
@@ -3078,16 +3233,31 @@ mod autotest_generated {
             TextInput::create()
                 .with_text("ab".into())
                 .with_placeholder("hint".into())
-                .with_on_text_input(probe.clone(), record_text_input as TextInputOnTextInputCallbackType),
+                .with_on_text_input(
+                    probe.clone(),
+                    record_text_input as TextInputOnTextInputCallbackType,
+                ),
         );
 
         let (update, changes, _) = run(Env::new(styled_dom).insert("c"), |info| {
             default_on_text_input(state.clone(), info)
         });
 
-        assert_eq!(update, Update::RefreshDomAllWindows, "a rejected edit still reports its Update");
-        assert_eq!(state_of(&state).get_text(), "ab", "a rejected edit was applied anyway");
-        assert_eq!(state_of(&state).cursor_pos, 2, "a rejected edit still moved the cursor");
+        assert_eq!(
+            update,
+            Update::RefreshDomAllWindows,
+            "a rejected edit still reports its Update"
+        );
+        assert_eq!(
+            state_of(&state).get_text(),
+            "ab",
+            "a rejected edit was applied anyway"
+        );
+        assert_eq!(
+            state_of(&state).cursor_pos,
+            2,
+            "a rejected edit still moved the cursor"
+        );
         assert!(
             changes
                 .iter()
@@ -3116,7 +3286,10 @@ mod autotest_generated {
         let after = state_of(&state);
         assert_eq!(after.get_text(), "é");
         assert_eq!(after.text.len(), 1, "the buffer holds one scalar");
-        assert_eq!(after.cursor_pos, 2, "but the cursor moved by the two UTF-8 bytes");
+        assert_eq!(
+            after.cursor_pos, 2,
+            "but the cursor moved by the two UTF-8 bytes"
+        );
         assert!(
             after.cursor_pos > after.text.len(),
             "the cursor is expected to overshoot here; see the KNOWN GAP above",
@@ -3166,9 +3339,16 @@ mod autotest_generated {
             default_on_text_input_inner(state.clone(), info)
         });
 
-        assert_eq!(result, None, "the handler claimed to have handled a malformed tree");
+        assert_eq!(
+            result, None,
+            "the handler claimed to have handled a malformed tree"
+        );
         assert!(changes.is_empty());
-        assert_eq!(state_of(&state).get_text(), "ab", "the buffer changed anyway");
+        assert_eq!(
+            state_of(&state).get_text(),
+            "ab",
+            "the buffer changed anyway"
+        );
     }
 
     #[test]
@@ -3240,10 +3420,12 @@ mod autotest_generated {
     fn virtual_key_down_without_a_pressed_key_does_nothing() {
         let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
         let (styled_dom, state) = rendered(
-            TextInput::create().with_text("ab".into()).with_on_virtual_key_down(
-                probe.clone(),
-                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
-            ),
+            TextInput::create()
+                .with_text("ab".into())
+                .with_on_virtual_key_down(
+                    probe.clone(),
+                    record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+                ),
         );
 
         let (update, changes, _) = run(Env::new(styled_dom), |info| {
@@ -3252,7 +3434,10 @@ mod autotest_generated {
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
-        assert!(recorded(&probe).is_empty(), "the hook fired without a key being down");
+        assert!(
+            recorded(&probe).is_empty(),
+            "the hook fired without a key being down"
+        );
         assert_eq!(state_of(&state).get_text(), "ab");
     }
 
@@ -3261,42 +3446,65 @@ mod autotest_generated {
         // Deletion is `SystemChange::ApplySelectionOp` on the engine side; a
         // widget that also popped its own buffer would double-delete.
         let (styled_dom, state) = rendered(TextInput::create().with_text("abc".into()));
-        let (update, changes, _) =
-            run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
-                default_on_virtual_key_down(state.clone(), info)
-            });
+        let (update, changes, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
+            default_on_virtual_key_down(state.clone(), info)
+        });
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "backspace still mutated the DOM: {changes:?}");
-        assert_eq!(state_of(&state).get_text(), "abc", "the widget deleted behind the engine");
+        assert!(
+            changes.is_empty(),
+            "backspace still mutated the DOM: {changes:?}"
+        );
+        assert_eq!(
+            state_of(&state).get_text(),
+            "abc",
+            "the widget deleted behind the engine"
+        );
     }
 
     #[test]
     fn every_key_reaches_the_hook_and_leaves_the_buffer_alone() {
-        for key in [VirtualKeyCode::A, VirtualKeyCode::Back, VirtualKeyCode::Return] {
+        for key in [
+            VirtualKeyCode::A,
+            VirtualKeyCode::Back,
+            VirtualKeyCode::Return,
+        ] {
             let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
             let (styled_dom, state) = rendered(
-                TextInput::create().with_text("ab".into()).with_on_virtual_key_down(
-                    probe.clone(),
-                    record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
-                ),
+                TextInput::create()
+                    .with_text("ab".into())
+                    .with_on_virtual_key_down(
+                        probe.clone(),
+                        record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+                    ),
             );
 
             let (update, changes, _) = run(Env::new(styled_dom).key(key), |info| {
                 default_on_virtual_key_down(state.clone(), info)
             });
 
-            assert_eq!(update, Update::RefreshDom, "{key:?} swallowed the hook's Update");
+            assert_eq!(
+                update,
+                Update::RefreshDom,
+                "{key:?} swallowed the hook's Update"
+            );
             if matches!(key, VirtualKeyCode::Return) {
                 // Single-line field: Enter must never edit the value, so the
                 // handler vetoes the engine's "\n" default — and nothing else.
-                assert_eq!(changes.len(), 1, "Return must veto exactly once: {changes:?}");
+                assert_eq!(
+                    changes.len(),
+                    1,
+                    "Return must veto exactly once: {changes:?}"
+                );
                 assert!(
                     matches!(changes[0], CallbackChange::PreventDefault),
                     "Return must veto the engine line break, and only that: {changes:?}"
                 );
             } else {
-                assert!(changes.is_empty(), "{key:?} repainted the value: {changes:?}");
+                assert!(
+                    changes.is_empty(),
+                    "{key:?} repainted the value: {changes:?}"
+                );
             }
             assert_eq!(state_of(&state).get_text(), "ab");
             assert_eq!(recorded(&probe).len(), 1, "the hook must see {key:?} too");
@@ -3307,10 +3515,12 @@ mod autotest_generated {
     fn a_rejecting_hook_vetoes_the_engines_default_and_keeps_its_update() {
         let probe = recorder(Update::RefreshDomAllWindows, TextInputValid::No);
         let (styled_dom, state) = rendered(
-            TextInput::create().with_text("abc".into()).with_on_virtual_key_down(
-                probe.clone(),
-                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
-            ),
+            TextInput::create()
+                .with_text("abc".into())
+                .with_on_virtual_key_down(
+                    probe.clone(),
+                    record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+                ),
         );
 
         let (update, changes, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
@@ -3335,10 +3545,12 @@ mod autotest_generated {
         // hook see" is exactly the thing a refactor gets wrong.
         let probe = recorder(Update::DoNothing, TextInputValid::Yes);
         let (styled_dom, state) = rendered(
-            TextInput::create().with_text("abc".into()).with_on_virtual_key_down(
-                probe.clone(),
-                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
-            ),
+            TextInput::create()
+                .with_text("abc".into())
+                .with_on_virtual_key_down(
+                    probe.clone(),
+                    record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+                ),
         );
 
         let (_, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
@@ -3355,20 +3567,27 @@ mod autotest_generated {
     fn virtual_key_down_on_a_none_hit_node_skips_the_hook_entirely() {
         let probe = recorder(Update::RefreshDom, TextInputValid::Yes);
         let (styled_dom, state) = rendered(
-            TextInput::create().with_text("abc".into()).with_on_virtual_key_down(
-                probe.clone(),
-                record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
-            ),
+            TextInput::create()
+                .with_text("abc".into())
+                .with_on_virtual_key_down(
+                    probe.clone(),
+                    record_virtual_key as TextInputOnVirtualKeyDownCallbackType,
+                ),
         );
 
         let (result, changes, _) = run(
-            Env::new(styled_dom).hit(node_none()).key(VirtualKeyCode::Back),
+            Env::new(styled_dom)
+                .hit(node_none())
+                .key(VirtualKeyCode::Back),
             |info| default_on_virtual_key_down_inner(state.clone(), info),
         );
 
         assert_eq!(result, None);
         assert!(changes.is_empty());
-        assert!(recorded(&probe).is_empty(), "the hook fired on a hit node that does not exist");
+        assert!(
+            recorded(&probe).is_empty(),
+            "the hook fired on a hit node that does not exist"
+        );
         assert_eq!(state_of(&state).get_text(), "abc");
     }
 
@@ -3395,7 +3614,11 @@ mod autotest_generated {
             let (update, _, _) = run(Env::new(styled_dom).key(VirtualKeyCode::Back), |info| {
                 default_on_virtual_key_down(state.clone(), info)
             });
-            assert_eq!(update, Update::DoNothing, "backspace #{i} reported work to do");
+            assert_eq!(
+                update,
+                Update::DoNothing,
+                "backspace #{i} reported work to do"
+            );
         }
         let after = state_of(&state);
         assert_eq!(after.get_text(), "abc");
@@ -3409,11 +3632,16 @@ mod autotest_generated {
     #[test]
     fn mouse_hover_is_inert_for_every_payload_and_every_hit_node() {
         let (styled_dom, state) = rendered(TextInput::create().with_text("abc".into()));
-        let (update, changes, _) =
-            run(Env::new(styled_dom), |info| default_on_mouse_hover(state.clone(), info));
+        let (update, changes, _) = run(Env::new(styled_dom), |info| {
+            default_on_mouse_hover(state.clone(), info)
+        });
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
-        assert_eq!(state_of(&state).get_text(), "abc", "hovering edited the buffer");
+        assert_eq!(
+            state_of(&state).get_text(),
+            "abc",
+            "hovering edited the buffer"
+        );
 
         let (styled_dom, _) = rendered(TextInput::create());
         let foreign = RefAny::new(0_u8);

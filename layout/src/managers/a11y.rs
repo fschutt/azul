@@ -148,7 +148,8 @@ impl Default for A11yManager {
 #[cfg(feature = "a11y")]
 impl A11yManager {
     /// Creates a new `A11yManager` with an empty tree containing only a root window node.
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         let root_id = A11yNodeId(0);
         Self {
             root_id,
@@ -205,7 +206,8 @@ impl A11yManager {
     /// accessibility tree with the visual representation.
     #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    #[must_use] pub fn update_tree(
+    #[must_use]
+    pub fn update_tree(
         root_id: A11yNodeId,
         layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
         scroll_manager: &crate::managers::scroll_state::ScrollManager,
@@ -254,19 +256,30 @@ impl A11yManager {
                 // Get layout info: absolute position from calculated_positions,
                 // size from layout node. Uses dom_to_layout to map DOM → layout index.
                 let dom_node_id = NodeId::new(dom_idx);
-                let layout_info = layout_result.layout_tree.dom_to_layout
+                let layout_info = layout_result
+                    .layout_tree
+                    .dom_to_layout
                     .get(&dom_node_id)
                     .and_then(|indices| indices.first())
                     .and_then(|&layout_idx| {
                         let hot = layout_result.layout_tree.get(layout_idx)?;
-                        let abs_pos = layout_result.calculated_positions
-                            .get(layout_idx.index()).copied();
+                        let abs_pos = layout_result
+                            .calculated_positions
+                            .get(layout_idx.index())
+                            .copied();
                         Some((hot, layout_idx, abs_pos))
                     });
 
                 let a11y_info_ref = a11y_info;
                 let mut node = if let Some((layout_node, _layout_idx, abs_pos)) = layout_info {
-                    Self::build_node(node_data, layout_node, abs_pos, a11y_info_ref, hidpi_factor, window_size)
+                    Self::build_node(
+                        node_data,
+                        layout_node,
+                        abs_pos,
+                        a11y_info_ref,
+                        hidpi_factor,
+                        window_size,
+                    )
                 } else {
                     // Same rule as `build_node` (which this branch stands in
                     // for when the node has no layout yet): only a SPECIFIED
@@ -323,25 +336,34 @@ impl A11yManager {
                     let dom_node_id_key = (*dom_id, NodeId::new(dom_idx));
 
                     // Use dirty text override if this node was edited since last RefreshDom
-                    let (text_content, has_non_text_children) = dirty_text_overrides.get(&dom_node_id_key).map_or_else(|| {
-                        let mut text = String::new();
-                        let mut has_non_text = false;
+                    let (text_content, has_non_text_children) =
+                        dirty_text_overrides.get(&dom_node_id_key).map_or_else(
+                            || {
+                                let mut text = String::new();
+                                let mut has_non_text = false;
 
-                        let mut child = hierarchy_item.first_child_id(NodeId::new(dom_idx));
-                        while let Some(child_id) = child {
-                            if let Some(child_data) = node_data_slice.get(child_id.index()) {
-                                if let NodeType::Text(t) = &child_data.node_type {
-                                    if !text.is_empty() { text.push(' '); }
-                                    text.push_str(t.as_str());
-                                } else {
-                                    has_non_text = true;
+                                let mut child = hierarchy_item.first_child_id(NodeId::new(dom_idx));
+                                while let Some(child_id) = child {
+                                    if let Some(child_data) = node_data_slice.get(child_id.index())
+                                    {
+                                        if let NodeType::Text(t) = &child_data.node_type {
+                                            if !text.is_empty() {
+                                                text.push(' ');
+                                            }
+                                            text.push_str(t.as_str());
+                                        } else {
+                                            has_non_text = true;
+                                        }
+                                    }
+                                    if child_id.index() >= node_hierarchy.len() {
+                                        break;
+                                    }
+                                    child = node_hierarchy[child_id.index()].next_sibling_id();
                                 }
-                            }
-                            if child_id.index() >= node_hierarchy.len() { break; }
-                            child = node_hierarchy[child_id.index()].next_sibling_id();
-                        }
-                        (text, has_non_text)
-                    }, |override_text| (override_text.clone(), false));
+                                (text, has_non_text)
+                            },
+                            |override_text| (override_text.clone(), false),
+                        );
 
                     if !text_content.is_empty() {
                         if node_data.is_contenteditable()
@@ -356,9 +378,8 @@ impl A11yManager {
                             // If cursor/selection is in this node, expose to screen readers
                             if let Some(ref ci) = cursor_info {
                                 if ci.dom_id == *dom_id && ci.node_id == NodeId::new(dom_idx) {
-                                    let char_lengths: Vec<u8> = text_content.chars()
-                                        .map(|c| c.len_utf16() as u8)
-                                        .collect();
+                                    let char_lengths: Vec<u8> =
+                                        text_content.chars().map(|c| c.len_utf16() as u8).collect();
                                     node.set_character_lengths(char_lengths.clone());
 
                                     let byte_to_char_idx = |byte_off: usize| -> usize {
@@ -413,7 +434,9 @@ impl A11yManager {
 
                 while let Some(parent_node_id) = current_parent {
                     iterations += 1;
-                    if iterations > 10_000 { break; }
+                    if iterations > 10_000 {
+                        break;
+                    }
 
                     let parent_idx = parent_node_id.index();
                     if let Some(parent_a11y_id) =
@@ -422,7 +445,9 @@ impl A11yManager {
                         accessible_parent_id = Some(*parent_a11y_id);
                         break;
                     }
-                    if parent_idx >= node_hierarchy.len() { break; }
+                    if parent_idx >= node_hierarchy.len() {
+                        break;
+                    }
                     current_parent = node_hierarchy[parent_idx].parent_id();
                 }
 
@@ -473,13 +498,17 @@ impl A11yManager {
         let focus = focused_node
             .and_then(|dom_node_id| {
                 let dom_idx = dom_node_id.node.into_crate_internal()?.index();
-                node_id_map.get(&(dom_node_id.dom.inner as u32, dom_idx as u32)).copied()
+                node_id_map
+                    .get(&(dom_node_id.dom.inner as u32, dom_idx as u32))
+                    .copied()
             })
             .unwrap_or_else(|| {
                 // Fallback: first non-container node
-                nodes.iter()
+                nodes
+                    .iter()
                     .find(|(id, node)| {
-                        *id != root_id && !matches!(node.role(), Role::GenericContainer | Role::Window)
+                        *id != root_id
+                            && !matches!(node.role(), Role::GenericContainer | Role::Window)
                     })
                     .map_or(root_id, |(id, _)| *id)
             });
@@ -489,7 +518,11 @@ impl A11yManager {
         // from a DOM that regenerated between the focus write and this build can
         // resolve to an id that was filtered out — degrade to the root instead of
         // aborting.
-        let focus = if node_ids.contains(&focus) { focus } else { root_id };
+        let focus = if node_ids.contains(&focus) {
+            focus
+        } else {
+            root_id
+        };
 
         TreeUpdate {
             nodes,
@@ -596,16 +629,36 @@ impl A11yManager {
         if let Some(info) = a11y_info {
             for state in info.states.as_ref() {
                 match state {
-                    AccessibilityState::Unavailable => { builder.set_disabled(); }
-                    AccessibilityState::Readonly => { builder.set_read_only(); }
-                    AccessibilityState::CheckedTrue => { builder.set_toggled(accesskit::Toggled::True); }
-                    AccessibilityState::CheckedFalse => { builder.set_toggled(accesskit::Toggled::False); }
-                    AccessibilityState::Expanded => { builder.set_expanded(true); }
-                    AccessibilityState::Collapsed => { builder.set_expanded(false); }
-                    AccessibilityState::Focusable => { builder.add_action(Action::Focus); }
-                    AccessibilityState::Selected => { builder.set_selected(true); }
-                    AccessibilityState::Busy => { builder.set_busy(); }
-                    AccessibilityState::Offscreen => { builder.set_hidden(); }
+                    AccessibilityState::Unavailable => {
+                        builder.set_disabled();
+                    }
+                    AccessibilityState::Readonly => {
+                        builder.set_read_only();
+                    }
+                    AccessibilityState::CheckedTrue => {
+                        builder.set_toggled(accesskit::Toggled::True);
+                    }
+                    AccessibilityState::CheckedFalse => {
+                        builder.set_toggled(accesskit::Toggled::False);
+                    }
+                    AccessibilityState::Expanded => {
+                        builder.set_expanded(true);
+                    }
+                    AccessibilityState::Collapsed => {
+                        builder.set_expanded(false);
+                    }
+                    AccessibilityState::Focusable => {
+                        builder.add_action(Action::Focus);
+                    }
+                    AccessibilityState::Selected => {
+                        builder.set_selected(true);
+                    }
+                    AccessibilityState::Busy => {
+                        builder.set_busy();
+                    }
+                    AccessibilityState::Offscreen => {
+                        builder.set_hidden();
+                    }
                     _ => {}
                 }
             }
@@ -627,12 +680,24 @@ impl A11yManager {
 
         // === Heading level ===
         match &node_data.node_type {
-            NodeType::H1 => { builder.set_level(1); }
-            NodeType::H2 => { builder.set_level(2); }
-            NodeType::H3 => { builder.set_level(3); }
-            NodeType::H4 => { builder.set_level(4); }
-            NodeType::H5 => { builder.set_level(5); }
-            NodeType::H6 => { builder.set_level(6); }
+            NodeType::H1 => {
+                builder.set_level(1);
+            }
+            NodeType::H2 => {
+                builder.set_level(2);
+            }
+            NodeType::H3 => {
+                builder.set_level(3);
+            }
+            NodeType::H4 => {
+                builder.set_level(4);
+            }
+            NodeType::H5 => {
+                builder.set_level(5);
+            }
+            NodeType::H6 => {
+                builder.set_level(6);
+            }
             _ => {}
         }
 
@@ -642,8 +707,7 @@ impl A11yManager {
                 azul_core::dom::AttributeType::AriaLabel(s) => {
                     builder.set_label(s.as_str());
                 }
-                azul_core::dom::AttributeType::Title(s)
-                | azul_core::dom::AttributeType::Alt(s) => {
+                azul_core::dom::AttributeType::Title(s) | azul_core::dom::AttributeType::Alt(s) => {
                     builder.set_description(s.as_str());
                 }
                 azul_core::dom::AttributeType::Placeholder(s) => {
@@ -698,8 +762,12 @@ impl A11yManager {
 
             let x0 = (f64::from(pos.x + pad_left) * s).max(0.0).min(ww);
             let y0 = (f64::from(pos.y + pad_top) * s).max(0.0).min(wh);
-            let x1 = (f64::from(pos.x + size.width - pad_right) * s).max(0.0).min(ww);
-            let y1 = (f64::from(pos.y + size.height - pad_bottom) * s).max(0.0).min(wh);
+            let x1 = (f64::from(pos.x + size.width - pad_right) * s)
+                .max(0.0)
+                .min(ww);
+            let y1 = (f64::from(pos.y + size.height - pad_bottom) * s)
+                .max(0.0)
+                .min(wh);
 
             if x1 > x0 && y1 > y0 {
                 builder.set_bounds(Rect { x0, y0, x1, y1 });
@@ -801,10 +869,15 @@ impl A11yManager {
             NodeType::Abbr | NodeType::Acronym => Role::Abbr,
             NodeType::Q => Role::Blockquote,
             NodeType::Time => Role::Time,
-            NodeType::Cite | NodeType::Dfn | NodeType::Var
-            | NodeType::Samp | NodeType::Kbd => Role::Label,
-            NodeType::Small | NodeType::Big | NodeType::Sub
-            | NodeType::Sup | NodeType::U | NodeType::S => Role::Label,
+            NodeType::Cite | NodeType::Dfn | NodeType::Var | NodeType::Samp | NodeType::Kbd => {
+                Role::Label
+            }
+            NodeType::Small
+            | NodeType::Big
+            | NodeType::Sub
+            | NodeType::Sup
+            | NodeType::U
+            | NodeType::S => Role::Label,
             NodeType::Ruby => Role::Ruby,
             NodeType::Rt => Role::RubyAnnotation,
             NodeType::Br => Role::LineBreak,
@@ -833,8 +906,12 @@ impl A11yManager {
             NodeType::Dialog => Role::Dialog,
 
             // === Headings ===
-            NodeType::H1 | NodeType::H2 | NodeType::H3
-            | NodeType::H4 | NodeType::H5 | NodeType::H6 => Role::Heading,
+            NodeType::H1
+            | NodeType::H2
+            | NodeType::H3
+            | NodeType::H4
+            | NodeType::H5
+            | NodeType::H6 => Role::Heading,
 
             // === Lists ===
             NodeType::Ul | NodeType::Ol | NodeType::Dir => Role::List,
@@ -962,7 +1039,6 @@ impl A11yManager {
             AccessibilityRole::Nothing => Role::GenericContainer,
         }
     }
-
 }
 
 /// Decodes an `A11yNodeId` back into its `(DomId, NodeId)` components.
@@ -972,7 +1048,8 @@ impl A11yManager {
 /// - Lower 32 bits: `NodeId + 1` (index within that DOM tree, offset by 1 to avoid
 ///   colliding with the accesskit root node id, matching the encoding in `update_tree`)
 #[cfg(feature = "a11y")]
-#[must_use] pub const fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
+#[must_use]
+pub const fn decode_a11y_node_id(a11y_node_id: A11yNodeId) -> (DomId, NodeId) {
     let raw = a11y_node_id.0;
     let dom_id = DomId {
         inner: (raw >> 32) as usize,
@@ -986,7 +1063,8 @@ impl A11yManager {
 /// Returns `None` if the action requires data that was not provided or is invalid.
 #[cfg(feature = "a11y")]
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
-#[must_use] pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
+#[must_use]
+pub fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
     use azul_css::{props::basic::FloatValue, AzString};
 
     let action = match request.action {
@@ -1105,9 +1183,7 @@ mod autotest_generated {
 
     use accesskit::{ActionData, Live, Point, TextPosition, TextSelection, Toggled, TreeId};
     use azul_core::{
-        dom::{
-            AttributeNameValue, AttributeType, FormattingContext, OptionDomNodeId,
-        },
+        dom::{AttributeNameValue, AttributeType, FormattingContext, OptionDomNodeId},
         styled_dom::NodeHierarchyItemId,
         window::OptionVirtualKeyCodeCombo,
     };
@@ -1306,7 +1382,11 @@ mod autotest_generated {
             let encoded = A11yManager::encode_a11y_node_id(dom, idx);
             let (decoded_dom, decoded_node) = decode_a11y_node_id(encoded);
             assert_eq!(decoded_dom.inner, dom, "dom round-trip for ({dom}, {idx})");
-            assert_eq!(decoded_node.index(), idx, "idx round-trip for ({dom}, {idx})");
+            assert_eq!(
+                decoded_node.index(),
+                idx,
+                "idx round-trip for ({dom}, {idx})"
+            );
         }
     }
 
@@ -1403,7 +1483,10 @@ mod autotest_generated {
     #[test]
     fn node_type_to_role_maps_the_documented_roles() {
         let cases: [(NodeType, Role); 18] = [
-            (NodeType::Text(BoxOrStatic::heap(AzString::from("x"))), Role::Label),
+            (
+                NodeType::Text(BoxOrStatic::heap(AzString::from("x"))),
+                Role::Label,
+            ),
             (NodeType::P, Role::Paragraph),
             (NodeType::Div, Role::Group),
             (NodeType::Body, Role::Group),
@@ -1435,7 +1518,12 @@ mod autotest_generated {
     fn node_type_to_role_falls_back_to_group_for_unmapped_types() {
         // The `_ => Role::Group` arm: metadata types that never reach the tree
         // must still produce a VoiceOver-visible role rather than a filtered one.
-        for node_type in [NodeType::Script, NodeType::Style, NodeType::Meta, NodeType::Head] {
+        for node_type in [
+            NodeType::Script,
+            NodeType::Style,
+            NodeType::Meta,
+            NodeType::Head,
+        ] {
             assert_eq!(A11yManager::node_type_to_role(&node_type), Role::Group);
         }
     }
@@ -1693,7 +1781,10 @@ mod autotest_generated {
                 AccessibilityAction::SetNumericValue(FloatValue::new(f32::NAN)),
                 Action::SetValue,
             ),
-            (AccessibilityAction::CustomAction(i32::MIN), Action::CustomAction),
+            (
+                AccessibilityAction::CustomAction(i32::MIN),
+                Action::CustomAction,
+            ),
         ];
         for (action, expected) in cases {
             assert_eq!(
@@ -1780,10 +1871,8 @@ mod autotest_generated {
             -1e300,
             f64::from(f32::MAX),
         ] {
-            let got = map_accesskit_action(request(
-                Action::SetValue,
-                Some(ActionData::NumericValue(v)),
-            ));
+            let got =
+                map_accesskit_action(request(Action::SetValue, Some(ActionData::NumericValue(v))));
             #[allow(clippy::cast_possible_truncation)]
             let expected = AccessibilityAction::SetNumericValue(FloatValue::new(v as f32));
             assert_eq!(got, Some(expected), "NumericValue({v}) must not panic");
@@ -1843,10 +1932,12 @@ mod autotest_generated {
         ));
         assert_eq!(
             got,
-            Some(AccessibilityAction::SetTextSelection(TextSelectionStartEnd {
-                selection_start: usize::MAX,
-                selection_end: 0,
-            })),
+            Some(AccessibilityAction::SetTextSelection(
+                TextSelectionStartEnd {
+                    selection_start: usize::MAX,
+                    selection_end: 0,
+                }
+            )),
             "an inverted, out-of-range selection must be forwarded verbatim, not clamped"
         );
     }
@@ -1872,7 +1963,11 @@ mod autotest_generated {
     fn build_node_bounds_are_padding_inset_and_hidpi_scaled() {
         let node_data = NodeData::create_node(NodeType::Div);
         // padding 5px top/bottom, 2px left/right (packed as tenths of a px).
-        let layout_node = hot(Some(LogicalSize::new(100.0, 50.0)), [50, 20, 50, 20], [0; 4]);
+        let layout_node = hot(
+            Some(LogicalSize::new(100.0, 50.0)),
+            [50, 20, 50, 20],
+            [0; 4],
+        );
         let node = A11yManager::build_node(
             &node_data,
             &layout_node,
@@ -1901,7 +1996,11 @@ mod autotest_generated {
             LogicalSize::new(800.0, 600.0),
         );
         let bounds = node.bounds().expect("clipped node still has bounds");
-        assert_eq!((bounds.x0, bounds.y0), (0.0, 0.0), "off-screen origin clamps to 0");
+        assert_eq!(
+            (bounds.x0, bounds.y0),
+            (0.0, 0.0),
+            "off-screen origin clamps to 0"
+        );
         assert_eq!(
             (bounds.x1, bounds.y1),
             (800.0, 600.0),
@@ -1913,7 +2012,11 @@ mod autotest_generated {
     fn build_node_omits_bounds_when_padding_exceeds_the_used_size() {
         // Degenerate box: x1 <= x0, so accesskit must not be handed an inverted rect.
         let node_data = NodeData::create_node(NodeType::Div);
-        let layout_node = hot(Some(LogicalSize::new(10.0, 10.0)), [500, 500, 500, 500], [0; 4]);
+        let layout_node = hot(
+            Some(LogicalSize::new(10.0, 10.0)),
+            [500, 500, 500, 500],
+            [0; 4],
+        );
         let node = A11yManager::build_node(
             &node_data,
             &layout_node,
@@ -2324,9 +2427,8 @@ mod autotest_generated {
     #[test]
     fn build_node_negative_col_and_row_span_sign_extend_to_usize_max() {
         let mut node_data = NodeData::create_node(NodeType::Td);
-        node_data.set_attributes(
-            vec![AttributeType::ColSpan(-1), AttributeType::RowSpan(-1)].into(),
-        );
+        node_data
+            .set_attributes(vec![AttributeType::ColSpan(-1), AttributeType::RowSpan(-1)].into());
         let node = A11yManager::build_node(
             &node_data,
             &plain_hot(),
@@ -2392,7 +2494,10 @@ mod autotest_generated {
         assert_eq!(update.nodes[0].1.role(), Role::Window);
         assert_eq!(update.nodes[0].1.label(), Some("title"));
         assert!(update.nodes[0].1.children().is_empty());
-        assert!(update.tree.is_some(), "the first update must carry the tree");
+        assert!(
+            update.tree.is_some(),
+            "the first update must carry the tree"
+        );
         assert_eq!(update.tree_id, TreeId::ROOT);
         assert_eq!(
             update.focus,
@@ -2441,7 +2546,11 @@ mod autotest_generated {
                 expected,
                 "{node_type:?} lost its role to a name-only declaration"
             );
-            assert_eq!(node.label(), Some("Accent colour"), "the name must survive too");
+            assert_eq!(
+                node.label(),
+                Some("Accent colour"),
+                "the name must survive too"
+            );
         }
     }
 
@@ -2508,10 +2617,15 @@ mod autotest_generated {
         let mut layout_results = BTreeMap::new();
         layout_results.insert(
             DomId { inner: 0 },
-            layout_result_of(StyledDom::create_from_dom(Dom::create_body().with_child(
-                Dom::create_button("Subscribe", azul_core::a11y::SmallAriaInfo::label("Subscribe"))
+            layout_result_of(StyledDom::create_from_dom(
+                Dom::create_body().with_child(
+                    Dom::create_button(
+                        "Subscribe",
+                        azul_core::a11y::SmallAriaInfo::label("Subscribe"),
+                    )
                     .with_accessibility_name("Subscribe"),
-            ))),
+                ),
+            )),
         );
         let gpu = GpuStateManager::new(
             azul_core::task::Duration::from_millis(0),
@@ -2633,7 +2747,8 @@ mod autotest_generated {
         }
         // 3. No node is its own child.
         assert!(
-            !map.get(&A11yNodeId(4)).is_some_and(|ch| ch.contains(&A11yNodeId(4))),
+            !map.get(&A11yNodeId(4))
+                .is_some_and(|ch| ch.contains(&A11yNodeId(4))),
             "self-parent survived the guard"
         );
         // 4. Every present non-root node is reachable exactly once (no orphan).
@@ -2642,7 +2757,10 @@ mod autotest_generated {
             if *id == root {
                 continue;
             }
-            assert!(reachable.contains(id), "node {id:?} is an orphan (unreachable from root)");
+            assert!(
+                reachable.contains(id),
+                "node {id:?} is an orphan (unreachable from root)"
+            );
         }
     }
 

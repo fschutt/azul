@@ -69,7 +69,9 @@ pub fn emit_managed_prelude(out: &mut String, ir: &CodegenIR) {
     out.push_str("function azul._register_callback(kind, fn)\n");
     out.push_str("    if fn == nil then return nil end\n");
     out.push_str("    if type(fn) ~= 'function' then\n");
-    out.push_str("        error(\"azul._register_callback: expected function, got \"..type(fn), 2)\n");
+    out.push_str(
+        "        error(\"azul._register_callback: expected function, got \"..type(fn), 2)\n",
+    );
     out.push_str("    end\n");
     out.push_str("    local id = _alloc_handle(fn)\n");
     let mut first = true;
@@ -88,7 +90,9 @@ pub fn emit_managed_prelude(out: &mut String, ir: &CodegenIR) {
         first = false;
     }
     out.push_str("    else\n");
-    out.push_str("        error(\"azul._register_callback: unknown kind '\"..tostring(kind)..\"'\", 2)\n");
+    out.push_str(
+        "        error(\"azul._register_callback: unknown kind '\"..tostring(kind)..\"'\", 2)\n",
+    );
     out.push_str("    end\n");
     out.push_str("end\n\n");
 

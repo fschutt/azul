@@ -13,11 +13,11 @@
 //! connected it shows a "connect a controller" prompt. Pure public `azul::`
 //! surface (P6.gamepad end-to-end).
 
-use azul::prelude::*;
+use azul::gamepad::GamepadButton;
 use azul::gamepad::GamepadState;
 use azul::option::OptionRefAny;
+use azul::prelude::*;
 use azul::task::TerminateTimer;
-use azul::gamepad::GamepadButton;
 
 /// The latest primary-controller snapshot, refreshed each Timer tick.
 struct PadState {
@@ -83,7 +83,9 @@ const TRIG_TRACK: &str = "width: 124px; height: 16px; border-radius: 8px; \
 fn chip(label: &str, pressed: bool) -> Dom {
     Dom::create_div()
         .with_css(if pressed { CHIP_ON } else { CHIP_OFF })
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            label,
+        ))
 }
 
 fn button_row(pad: &GamepadState, group: &[(&str, GamepadButton)]) -> Dom {
@@ -122,9 +124,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let pad = data.downcast_ref::<PadState>().and_then(|s| s.pad);
 
     let body = match pad {
-        None => Dom::create_div()
-            .with_css(WAITING)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("No controller connected — plug one in.")),
+        None => Dom::create_div().with_css(WAITING).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(
+                "No controller connected — plug one in.",
+            ),
+        ),
         Some(p) => Dom::create_div()
             .with_css(PANEL)
             .with_child(

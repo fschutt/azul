@@ -265,9 +265,21 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
                 let is_primitive = matches!(
                     trimmed,
                     "bool"
-                        | "u8" | "i8" | "u16" | "i16" | "u32" | "i32"
-                        | "u64" | "i64" | "f32" | "f64" | "usize" | "isize"
-                        | "c_void" | "()" | "void"
+                        | "u8"
+                        | "i8"
+                        | "u16"
+                        | "i16"
+                        | "u32"
+                        | "i32"
+                        | "u64"
+                        | "i64"
+                        | "f32"
+                        | "f64"
+                        | "usize"
+                        | "isize"
+                        | "c_void"
+                        | "()"
+                        | "void"
                 );
                 if is_primitive {
                     None
@@ -325,10 +337,7 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
         b.dedent();
         b.line("} catch (e) {");
         b.indent();
-        b.line(&format!(
-            "console.error('[azul] {} error:', e);",
-            wrapper
-        ));
+        b.line(&format!("console.error('[azul] {} error:', e);", wrapper));
         if cb_has_return {
             emit_catch_default_write(b, ir, cb);
         }
@@ -336,10 +345,7 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
         b.line("}");
         b.dedent();
         b.line("});");
-        b.line(&format!(
-            "_livePins.push({}Invoker);",
-            lower_first(wrapper)
-        ));
+        b.line(&format!("_livePins.push({}Invoker);", lower_first(wrapper)));
         b.line(&format!(
             "lib.AzApp_set{}Invoker({}Invoker);",
             wrapper,
@@ -443,7 +449,10 @@ fn emit_register_callback(b: &mut CodeBuilder, ir: &CodegenIR) {
         let wrapper = wrapper_name(cb);
         b.line(&format!("case '{}':", wrapper));
         b.indent();
-        b.line(&format!("return lib.Az{}_createFromHostHandle(id);", wrapper));
+        b.line(&format!(
+            "return lib.Az{}_createFromHostHandle(id);",
+            wrapper
+        ));
         b.dedent();
     }
     b.line("default:");

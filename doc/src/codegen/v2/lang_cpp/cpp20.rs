@@ -58,8 +58,11 @@ impl CppDialect for Cpp20Generator {
         // Synthesize struct entries for Option/Result tagged-union enums.
         let synthesized = synthesize_option_result_structs(ir);
         let sorted_structs = self.sort_types_by_dependencies(ir);
-        let all_structs: Vec<&StructDef> =
-            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
+        let all_structs: Vec<&StructDef> = sorted_structs
+            .iter()
+            .copied()
+            .chain(synthesized.iter())
+            .collect();
 
         // Forward declarations
         code.push_str("// Forward declarations\r\n");
@@ -100,7 +103,10 @@ impl CppDialect for Cpp20Generator {
             if !config.should_include_type(&enum_def.name) {
                 continue;
             }
-            if matches!(enum_def.category, TypeCategory::Option | TypeCategory::Result) {
+            if matches!(
+                enum_def.category,
+                TypeCategory::Option | TypeCategory::Result
+            ) {
                 continue;
             }
             self.generate_enum_wrapper(&mut code, enum_def, config);
@@ -413,8 +419,11 @@ impl CppDialect for Cpp23Generator {
 
         let synthesized = synthesize_option_result_structs(ir);
         let sorted_structs = self.sort_types_by_dependencies(ir);
-        let all_structs: Vec<&StructDef> =
-            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
+        let all_structs: Vec<&StructDef> = sorted_structs
+            .iter()
+            .copied()
+            .chain(synthesized.iter())
+            .collect();
 
         // Forward declarations
         code.push_str("// Forward declarations\r\n");
@@ -449,7 +458,10 @@ impl CppDialect for Cpp23Generator {
             if !config.should_include_type(&enum_def.name) {
                 continue;
             }
-            if matches!(enum_def.category, TypeCategory::Option | TypeCategory::Result) {
+            if matches!(
+                enum_def.category,
+                TypeCategory::Option | TypeCategory::Result
+            ) {
                 continue;
             }
             self.generate_enum_wrapper(&mut code, enum_def, config);
@@ -727,8 +739,16 @@ fn emit_cpp23_result_extras(
     // a wrapper (primitives, plain-enum errors) stay raw.
     let ok_has_wrapper = type_has_wrapper(&ok_t, ir);
     let err_has_wrapper = type_has_wrapper(&err_t, ir);
-    let ok_ty = if ok_has_wrapper { ok_t.clone() } else { c_ok.clone() };
-    let err_ty = if err_has_wrapper { err_t.clone() } else { c_err.clone() };
+    let ok_ty = if ok_has_wrapper {
+        ok_t.clone()
+    } else {
+        c_ok.clone()
+    };
+    let err_ty = if err_has_wrapper {
+        err_t.clone()
+    } else {
+        c_err.clone()
+    };
     let ok_expr = if ok_has_wrapper {
         format!("{}(v)", ok_t)
     } else {
@@ -906,9 +926,8 @@ fn emit_method_declarations(
         // for C++23 so the generated header compiles everywhere.
         let use_deducing_this = false;
         if use_deducing_this && standard >= CppStandard::Cpp23 && is_builder_method(func) {
-            let cpp_args = generate_args_signature_ex(
-                &func.args, ir, config, true, class_name, substitute,
-            );
+            let cpp_args =
+                generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
             let comma = if cpp_args.is_empty() { "" } else { ", " };
             code.push_str(&format!(
                 "    template<class Self> {} {}(this Self&& self{}{});\r\n",
@@ -920,7 +939,11 @@ fn emit_method_declarations(
         // value-self (consuming) methods are non-const (they relinquish inner_
         // via release() in the impl; a const dtor-double-free would crash).
         let self_is_value = has_self
-            && func.args.first().map(|a| a.ref_kind == ArgRefKind::Owned).unwrap_or(false);
+            && func
+                .args
+                .first()
+                .map(|a| a.ref_kind == ArgRefKind::Owned)
+                .unwrap_or(false);
         let is_const = has_self
             && !self_is_value
             && (matches!(func.kind, FunctionKind::Method) || func.is_const);
@@ -961,7 +984,8 @@ fn generate_method_implementations_shared(
         let substitute = should_substitute_callbacks(func);
         let cpp_args =
             generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
-        let call_args = generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
+        let call_args =
+            generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
 
         code.push_str(&format!(
             "inline {} {}::{}({}) {{\r\n",
@@ -987,7 +1011,8 @@ fn generate_method_implementations_shared(
         let substitute = should_substitute_callbacks(func);
         let cpp_args =
             generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
-        let call_args = generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
+        let call_args =
+            generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
 
         code.push_str(&format!(
             "inline {} {}::{}({}) {{\r\n",
@@ -1015,13 +1040,13 @@ fn generate_method_implementations_shared(
         // Deducing-this kept OFF (see emit_method_declarations — needs clang-18+),
         // so C++23 uses the normal builder-method definition path below.
         let use_deducing_this = false;
-        if use_deducing_this && dialect.standard() >= CppStandard::Cpp23 && is_builder_method(func) {
+        if use_deducing_this && dialect.standard() >= CppStandard::Cpp23 && is_builder_method(func)
+        {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
             let substitute = should_substitute_callbacks(func);
-            let cpp_args = generate_args_signature_ex(
-                &func.args, ir, config, true, class_name, substitute,
-            );
+            let cpp_args =
+                generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
             let call_args =
                 generate_call_args_ex(&func.args, ir, config, true, class_name, substitute);
             let self_is_value = func
@@ -1056,7 +1081,10 @@ fn generate_method_implementations_shared(
                     return_type_str, func.c_name, full_call_args
                 ));
             } else {
-                code.push_str(&format!("    return {}({});\r\n", func.c_name, full_call_args));
+                code.push_str(&format!(
+                    "    return {}({});\r\n",
+                    func.c_name, full_call_args
+                ));
             }
             code.push_str("}\r\n\r\n");
             continue;
@@ -1069,7 +1097,11 @@ fn generate_method_implementations_shared(
         // below), so they are non-const -- a const method here would leave
         // `this` owning the consumed inner_ and double-free it in its dtor.
         let self_is_value = has_self
-            && func.args.first().map(|a| a.ref_kind == ArgRefKind::Owned).unwrap_or(false);
+            && func
+                .args
+                .first()
+                .map(|a| a.ref_kind == ArgRefKind::Owned)
+                .unwrap_or(false);
         let is_const = has_self
             && !self_is_value
             && (matches!(func.kind, FunctionKind::Method) || func.is_const);
@@ -1083,7 +1115,11 @@ fn generate_method_implementations_shared(
         let full_call_args = if has_self {
             // release() relinquishes ownership (owned_=false / zero the source) so
             // the C-ABI-consumed inner_ is not double-freed; by-ref borrows.
-            let self_arg = if self_is_value { "release()" } else { "&inner_" };
+            let self_arg = if self_is_value {
+                "release()"
+            } else {
+                "&inner_"
+            };
             if call_args.is_empty() {
                 self_arg.to_string()
             } else {

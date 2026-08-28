@@ -195,7 +195,8 @@ pub enum LayoutPaddingParseError<'a> {
     TooManyValues,
     TooFewValues,
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Owned variant of [`LayoutPaddingParseError`].
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -207,7 +208,11 @@ pub enum LayoutPaddingParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl_spacing_parse_error!(LayoutPaddingParseError, LayoutPaddingParseErrorOwned, "padding");
+impl_spacing_parse_error!(
+    LayoutPaddingParseError,
+    LayoutPaddingParseErrorOwned,
+    "padding"
+);
 
 /// Result of parsing the CSS `padding` shorthand property (1–4 values).
 #[cfg(feature = "parser")]
@@ -223,9 +228,7 @@ pub struct LayoutPadding {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `padding` value.
-pub fn parse_layout_padding(
-    input: &str,
-) -> Result<LayoutPadding, LayoutPaddingParseError<'_>> {
+pub fn parse_layout_padding(input: &str) -> Result<LayoutPadding, LayoutPaddingParseError<'_>> {
     let values: Vec<_> = input.split_whitespace().collect();
 
     let parsed_values: Vec<PixelValueWithAuto> = values
@@ -291,7 +294,8 @@ pub enum LayoutMarginParseError<'a> {
     TooManyValues,
     TooFewValues,
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Owned variant of [`LayoutMarginParseError`].
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,7 +307,11 @@ pub enum LayoutMarginParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-impl_spacing_parse_error!(LayoutMarginParseError, LayoutMarginParseErrorOwned, "margin");
+impl_spacing_parse_error!(
+    LayoutMarginParseError,
+    LayoutMarginParseErrorOwned,
+    "margin"
+);
 
 /// Result of parsing the CSS `margin` shorthand property (1–4 values).
 #[cfg(feature = "parser")]
@@ -604,7 +612,8 @@ mod autotest_generated {
             let printed = parsed.print_as_css_value();
             let reparsed = $parse(printed.as_str()).expect("printed value must re-parse");
             assert_eq!(
-                parsed, reparsed,
+                parsed,
+                reparsed,
                 "{} did not survive {:?} -> {:?}",
                 stringify!($parse),
                 $input,
@@ -621,18 +630,66 @@ mod autotest_generated {
 
     macro_rules! assert_all_longhands_err {
         ($input:expr) => {{
-            assert!(parse_layout_padding_top($input).is_err(), "padding-top accepted {:?}", $input);
-            assert!(parse_layout_padding_right($input).is_err(), "padding-right accepted {:?}", $input);
-            assert!(parse_layout_padding_bottom($input).is_err(), "padding-bottom accepted {:?}", $input);
-            assert!(parse_layout_padding_left($input).is_err(), "padding-left accepted {:?}", $input);
-            assert!(parse_layout_padding_inline_start($input).is_err(), "padding-inline-start accepted {:?}", $input);
-            assert!(parse_layout_padding_inline_end($input).is_err(), "padding-inline-end accepted {:?}", $input);
-            assert!(parse_layout_margin_top($input).is_err(), "margin-top accepted {:?}", $input);
-            assert!(parse_layout_margin_right($input).is_err(), "margin-right accepted {:?}", $input);
-            assert!(parse_layout_margin_bottom($input).is_err(), "margin-bottom accepted {:?}", $input);
-            assert!(parse_layout_margin_left($input).is_err(), "margin-left accepted {:?}", $input);
-            assert!(parse_layout_column_gap($input).is_err(), "column-gap accepted {:?}", $input);
-            assert!(parse_layout_row_gap($input).is_err(), "row-gap accepted {:?}", $input);
+            assert!(
+                parse_layout_padding_top($input).is_err(),
+                "padding-top accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_padding_right($input).is_err(),
+                "padding-right accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_padding_bottom($input).is_err(),
+                "padding-bottom accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_padding_left($input).is_err(),
+                "padding-left accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_padding_inline_start($input).is_err(),
+                "padding-inline-start accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_padding_inline_end($input).is_err(),
+                "padding-inline-end accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_margin_top($input).is_err(),
+                "margin-top accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_margin_right($input).is_err(),
+                "margin-right accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_margin_bottom($input).is_err(),
+                "margin-bottom accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_margin_left($input).is_err(),
+                "margin-left accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_column_gap($input).is_err(),
+                "column-gap accepted {:?}",
+                $input
+            );
+            assert!(
+                parse_layout_row_gap($input).is_err(),
+                "row-gap accepted {:?}",
+                $input
+            );
         }};
     }
 
@@ -727,7 +784,9 @@ mod autotest_generated {
 
     #[test]
     fn empty_and_whitespace_only_input_is_too_few_values() {
-        for input in ["", " ", "   ", "\t", "\n", "\r\n", "\x0b", "\x0c", " \t\r\n "] {
+        for input in [
+            "", " ", "   ", "\t", "\n", "\r\n", "\x0b", "\x0c", " \t\r\n ",
+        ] {
             assert!(
                 matches!(
                     parse_layout_padding(input),
@@ -842,7 +901,10 @@ mod autotest_generated {
                 panic!("{input:?} did not parse to an exact length");
             };
             let raw = value.number.get();
-            assert!(raw.is_finite(), "{input:?} produced a non-finite length: {raw}");
+            assert!(
+                raw.is_finite(),
+                "{input:?} produced a non-finite length: {raw}"
+            );
         }
 
         // SPEC DIVERGENCE (pinned, not endorsed): CSS has no `NaN` value, but Rust's
@@ -873,7 +935,11 @@ mod autotest_generated {
         );
         // Truncation, not rounding: 1.9999px stays below 2px.
         assert_eq!(
-            parse_layout_padding_top("1.9999px").unwrap().inner.number.get(),
+            parse_layout_padding_top("1.9999px")
+                .unwrap()
+                .inner
+                .number
+                .get(),
             1.999
         );
     }
@@ -1075,17 +1141,38 @@ mod autotest_generated {
     fn longhand_parsers_reject_keywords_and_empty_input() {
         // The longhands go through `parse_pixel_value`, which -- unlike the shorthands
         // -- has no keyword table.
-        for input in ["", "   ", "auto", "none", "initial", "inherit", "oops", "10px 20px"] {
+        for input in [
+            "",
+            "   ",
+            "auto",
+            "none",
+            "initial",
+            "inherit",
+            "oops",
+            "10px 20px",
+        ] {
             assert_all_longhands_err!(input);
         }
     }
 
     #[test]
     fn every_longhand_spacing_parser_accepts_a_minimal_value() {
-        assert_eq!(parse_layout_padding_top("0").unwrap(), LayoutPaddingTop::px(0.0));
-        assert_eq!(parse_layout_padding_right("1px").unwrap(), LayoutPaddingRight::px(1.0));
-        assert_eq!(parse_layout_padding_bottom("2pt").unwrap(), LayoutPaddingBottom::pt(2.0));
-        assert_eq!(parse_layout_padding_left("2em").unwrap(), LayoutPaddingLeft::em(2.0));
+        assert_eq!(
+            parse_layout_padding_top("0").unwrap(),
+            LayoutPaddingTop::px(0.0)
+        );
+        assert_eq!(
+            parse_layout_padding_right("1px").unwrap(),
+            LayoutPaddingRight::px(1.0)
+        );
+        assert_eq!(
+            parse_layout_padding_bottom("2pt").unwrap(),
+            LayoutPaddingBottom::pt(2.0)
+        );
+        assert_eq!(
+            parse_layout_padding_left("2em").unwrap(),
+            LayoutPaddingLeft::em(2.0)
+        );
         assert_eq!(
             parse_layout_padding_inline_start("3px").unwrap(),
             LayoutPaddingInlineStart::px(3.0)
@@ -1094,12 +1181,30 @@ mod autotest_generated {
             parse_layout_padding_inline_end("4px").unwrap(),
             LayoutPaddingInlineEnd::px(4.0)
         );
-        assert_eq!(parse_layout_margin_top("-5px").unwrap(), LayoutMarginTop::px(-5.0));
-        assert_eq!(parse_layout_margin_right("6%").unwrap(), LayoutMarginRight::percent(6.0));
-        assert_eq!(parse_layout_margin_bottom("7px").unwrap(), LayoutMarginBottom::px(7.0));
-        assert_eq!(parse_layout_margin_left("8px").unwrap(), LayoutMarginLeft::px(8.0));
-        assert_eq!(parse_layout_column_gap("20px").unwrap(), LayoutColumnGap::px(20.0));
-        assert_eq!(parse_layout_row_gap("1.5em").unwrap(), LayoutRowGap::em(1.5));
+        assert_eq!(
+            parse_layout_margin_top("-5px").unwrap(),
+            LayoutMarginTop::px(-5.0)
+        );
+        assert_eq!(
+            parse_layout_margin_right("6%").unwrap(),
+            LayoutMarginRight::percent(6.0)
+        );
+        assert_eq!(
+            parse_layout_margin_bottom("7px").unwrap(),
+            LayoutMarginBottom::px(7.0)
+        );
+        assert_eq!(
+            parse_layout_margin_left("8px").unwrap(),
+            LayoutMarginLeft::px(8.0)
+        );
+        assert_eq!(
+            parse_layout_column_gap("20px").unwrap(),
+            LayoutColumnGap::px(20.0)
+        );
+        assert_eq!(
+            parse_layout_row_gap("1.5em").unwrap(),
+            LayoutRowGap::em(1.5)
+        );
     }
 
     #[test]
@@ -1128,7 +1233,9 @@ mod autotest_generated {
     #[test]
     fn printed_css_matches_the_source_text_for_representable_values() {
         assert_eq!(
-            parse_layout_padding_top("10px").unwrap().print_as_css_value(),
+            parse_layout_padding_top("10px")
+                .unwrap()
+                .print_as_css_value(),
             "10px"
         );
         assert_eq!(
@@ -1136,13 +1243,17 @@ mod autotest_generated {
             "50%"
         );
         assert_eq!(
-            parse_layout_margin_left("-2.5em").unwrap().print_as_css_value(),
+            parse_layout_margin_left("-2.5em")
+                .unwrap()
+                .print_as_css_value(),
             "-2.5em"
         );
         assert_eq!(LayoutRowGap::zero().print_as_css_value(), "0px");
         // A unitless number is a px length, and prints back *with* the unit.
         assert_eq!(
-            parse_layout_padding_bottom("3").unwrap().print_as_css_value(),
+            parse_layout_padding_bottom("3")
+                .unwrap()
+                .print_as_css_value(),
             "3px"
         );
     }

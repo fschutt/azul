@@ -21,16 +21,17 @@ const CSS: &str = r#"
 /// body=0 > div.clip=1 > div.editor=2 > text=3 (tall enough to scroll).
 fn build(animations: SystemAnimations) -> LayoutWindow {
     let mut editor = Dom::create_div();
-    editor = editor.with_ids_and_classes(
-        vec![azul_core::dom::IdOrClass::Class("editor".into())].into(),
-    );
+    editor =
+        editor.with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("editor".into())].into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
     let long = "line of text that wraps and wraps to make many lines ".repeat(20);
     let mut dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("clip".into())].into())
-            .with_child(editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(long.as_str()))),
+            .with_child(editor.with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(long.as_str()),
+            )),
     );
     let (css, _) = azul_css::parser2::new_from_str(CSS);
     let styled_dom = StyledDom::create(&mut dom, css);
@@ -46,12 +47,13 @@ fn build(animations: SystemAnimations) -> LayoutWindow {
         .unwrap();
 
     // Caret deep into the text (far below the 100px clip) + focus.
-    lw.focus_manager.set_focused_node(Some(azul_core::dom::DomNodeId {
-        dom: DomId::ROOT_ID,
-        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
-            2,
-        ))),
-    }));
+    lw.focus_manager
+        .set_focused_node(Some(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                NodeId::new(2),
+            )),
+        }));
     // Seed the clip node's scroll STATE (the shells do this via
     // register_scroll_nodes after layout; tests seed it directly).
     lw.scroll_manager.set_scroll_position(
@@ -78,8 +80,7 @@ fn build(animations: SystemAnimations) -> LayoutWindow {
 #[test]
 fn cursor_reveal_glides_through_the_physics_queue_by_default() {
     let mut lw = build(SystemAnimations::default());
-    let scrolled =
-        lw.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
+    let scrolled = lw.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
     assert!(scrolled, "the caret is off-screen: a scroll must happen");
     assert!(
         lw.scroll_manager.scroll_input_queue.has_pending(),
@@ -91,8 +92,7 @@ fn cursor_reveal_glides_through_the_physics_queue_by_default() {
 #[test]
 fn disabled_system_animations_keep_the_instant_jump() {
     let mut lw = build(SystemAnimations::disabled());
-    let scrolled =
-        lw.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
+    let scrolled = lw.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant);
     assert!(scrolled);
     assert!(
         !lw.scroll_manager.scroll_input_queue.has_pending(),

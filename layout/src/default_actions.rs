@@ -34,6 +34,7 @@
 //!
 //! See: https://html.spec.whatwg.org/multipage/interaction.html#activation-behavior
 
+use crate::window::DomLayoutResult;
 use alloc::vec::Vec;
 use azul_core::{
     callbacks::FocusTarget,
@@ -41,7 +42,6 @@ use azul_core::{
     events::{DefaultAction, DefaultActionResult, ScrollAmount, ScrollDirection},
     window::{KeyboardState, VirtualKeyCode},
 };
-use crate::window::DomLayoutResult;
 use std::collections::BTreeMap;
 
 /// Editing state of the focused node, as the caret sees it — built by the
@@ -65,7 +65,8 @@ pub struct EditingQueryState {
     pub host_preserves_newlines: bool,
 }
 
-#[must_use] pub fn determine_keyboard_default_action(
+#[must_use]
+pub fn determine_keyboard_default_action(
     keyboard_state: &KeyboardState,
     focused_node: Option<DomNodeId>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
@@ -87,7 +88,8 @@ pub struct EditingQueryState {
 /// Delete at block end record structural MERGES. `editing: None` behaves
 /// exactly like the editing-blind variant.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-#[must_use] pub fn determine_keyboard_default_action_with_editing(
+#[must_use]
+pub fn determine_keyboard_default_action_with_editing(
     keyboard_state: &KeyboardState,
     focused_node: Option<DomNodeId>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
@@ -139,9 +141,7 @@ pub struct EditingQueryState {
                     return DefaultAction::SplitBlockAtCursor { target: *focus };
                 }
                 if is_element_activatable(focus, layout_results) {
-                    DefaultAction::ActivateFocusedElement {
-                        target: *focus,
-                    }
+                    DefaultAction::ActivateFocusedElement { target: *focus }
                 } else {
                     // Enter on non-activatable element - might submit form
                     // For now, no action (form handling could be added later)
@@ -153,24 +153,18 @@ pub struct EditingQueryState {
         // Backspace at BLOCK START / Delete at BLOCK END in a contenteditable
         // host: structural block merges. Anywhere else these keys keep flowing
         // through the per-IFC text-edit path unchanged (this fn returns None).
-        VirtualKeyCode::Back => {
-            match (focused_node.as_ref(), editing) {
-                (Some(focus), Some(e))
-                    if e.is_contenteditable && e.cursor_at_block_start =>
-                {
-                    DefaultAction::MergeWithPrevious { target: *focus }
-                }
-                _ => DefaultAction::None,
+        VirtualKeyCode::Back => match (focused_node.as_ref(), editing) {
+            (Some(focus), Some(e)) if e.is_contenteditable && e.cursor_at_block_start => {
+                DefaultAction::MergeWithPrevious { target: *focus }
             }
-        }
-        VirtualKeyCode::Delete => {
-            match (focused_node.as_ref(), editing) {
-                (Some(focus), Some(e)) if e.is_contenteditable && e.cursor_at_block_end => {
-                    DefaultAction::MergeWithNext { target: *focus }
-                }
-                _ => DefaultAction::None,
+            _ => DefaultAction::None,
+        },
+        VirtualKeyCode::Delete => match (focused_node.as_ref(), editing) {
+            (Some(focus), Some(e)) if e.is_contenteditable && e.cursor_at_block_end => {
+                DefaultAction::MergeWithNext { target: *focus }
             }
-        }
+            _ => DefaultAction::None,
+        },
 
         // Activation (Space key) — or page-scroll when nothing activatable
         // has focus (MWA-C-scroll: the browser default; Shift+Space pages up).
@@ -206,7 +200,10 @@ pub struct EditingQueryState {
         }
 
         // Arrow keys - scroll or navigate
-        VirtualKeyCode::Up | VirtualKeyCode::Down | VirtualKeyCode::Left | VirtualKeyCode::Right => {
+        VirtualKeyCode::Up
+        | VirtualKeyCode::Down
+        | VirtualKeyCode::Left
+        | VirtualKeyCode::Right => {
             let direction = match current_key {
                 VirtualKeyCode::Up => ScrollDirection::Up,
                 VirtualKeyCode::Down => ScrollDirection::Down,
@@ -235,18 +232,14 @@ pub struct EditingQueryState {
         }
 
         // Page Up/Down
-        VirtualKeyCode::PageUp => {
-            DefaultAction::ScrollFocusedContainer {
-                direction: ScrollDirection::Up,
-                amount: ScrollAmount::Page,
-            }
-        }
-        VirtualKeyCode::PageDown => {
-            DefaultAction::ScrollFocusedContainer {
-                direction: ScrollDirection::Down,
-                amount: ScrollAmount::Page,
-            }
-        }
+        VirtualKeyCode::PageUp => DefaultAction::ScrollFocusedContainer {
+            direction: ScrollDirection::Up,
+            amount: ScrollAmount::Page,
+        },
+        VirtualKeyCode::PageDown => DefaultAction::ScrollFocusedContainer {
+            direction: ScrollDirection::Down,
+            amount: ScrollAmount::Page,
+        },
 
         // Home/End
         VirtualKeyCode::Home => {
@@ -280,14 +273,20 @@ pub struct EditingQueryState {
 }
 
 /// Check if an element is activatable (can receive synthetic click from Enter/Space).
-fn is_element_activatable(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayoutResult>) -> bool {
+fn is_element_activatable(
+    node_id: &DomNodeId,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> bool {
     let Some(layout) = layout_results.get(&node_id.dom) else {
         return false;
     };
     let Some(internal_id) = node_id.node.into_crate_internal() else {
         return false;
     };
-    layout.styled_dom.node_data.as_container()
+    layout
+        .styled_dom
+        .node_data
+        .as_container()
         .get(internal_id)
         .is_some_and(azul_core::dom::NodeData::is_activatable)
 }
@@ -317,7 +316,8 @@ fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayout
 ///
 /// This bridges the gap between the abstract `DefaultAction` and the
 /// concrete `FocusTarget` that the `FocusManager` understands.
-#[must_use] pub const fn default_action_to_focus_target(action: &DefaultAction) -> Option<FocusTarget> {
+#[must_use]
+pub const fn default_action_to_focus_target(action: &DefaultAction) -> Option<FocusTarget> {
     match action {
         DefaultAction::FocusNext => Some(FocusTarget::Next),
         DefaultAction::FocusPrevious => Some(FocusTarget::Previous),
@@ -338,14 +338,10 @@ mod tests {
     fn test_tab_focus_next() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
-        
-        let result = determine_keyboard_default_action(
-            &keyboard_state,
-            None,
-            &BTreeMap::new(),
-            false,
-        );
-        
+
+        let result =
+            determine_keyboard_default_action(&keyboard_state, None, &BTreeMap::new(), false);
+
         assert!(matches!(result.action, DefaultAction::FocusNext));
         assert!(!result.prevented);
     }
@@ -356,15 +352,12 @@ mod tests {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
         // Add LShift to pressed keys to simulate Shift being held
-        keyboard_state.pressed_virtual_keycodes = vec![VirtualKeyCode::LShift, VirtualKeyCode::Tab].into();
-        
-        let result = determine_keyboard_default_action(
-            &keyboard_state,
-            None,
-            &BTreeMap::new(),
-            false,
-        );
-        
+        keyboard_state.pressed_virtual_keycodes =
+            vec![VirtualKeyCode::LShift, VirtualKeyCode::Tab].into();
+
+        let result =
+            determine_keyboard_default_action(&keyboard_state, None, &BTreeMap::new(), false);
+
         assert!(matches!(result.action, DefaultAction::FocusPrevious));
     }
 
@@ -373,19 +366,15 @@ mod tests {
     fn test_escape_clears_focus() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
-        
+
         let focused = Some(DomNodeId {
             dom: DomId { inner: 0 },
             node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
         });
-        
-        let result = determine_keyboard_default_action(
-            &keyboard_state,
-            focused,
-            &BTreeMap::new(),
-            false,
-        );
-        
+
+        let result =
+            determine_keyboard_default_action(&keyboard_state, focused, &BTreeMap::new(), false);
+
         assert!(matches!(result.action, DefaultAction::ClearFocus));
     }
 
@@ -394,7 +383,7 @@ mod tests {
     fn test_prevented_returns_no_action() {
         let mut keyboard_state = KeyboardState::default();
         keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
-        
+
         let result = determine_keyboard_default_action(
             &keyboard_state,
             None,
@@ -530,7 +519,10 @@ mod autotest_generated {
             r(VirtualKeyCode::Delete, &at_end),
             DefaultAction::MergeWithNext { .. }
         ));
-        assert!(matches!(r(VirtualKeyCode::Delete, &mid), DefaultAction::None));
+        assert!(matches!(
+            r(VirtualKeyCode::Delete, &mid),
+            DefaultAction::None
+        ));
     }
 
     use std::collections::HashMap;
@@ -647,7 +639,10 @@ mod autotest_generated {
     /// Locate the fixture node with the given `NodeType`. Scanning (instead of
     /// assuming `child i == NodeId(i + 1)`) keeps the tests honest even if the
     /// flatten order or anonymous-box insertion ever changes.
-    fn node_of(layouts: &BTreeMap<DomId, DomLayoutResult>, matcher: fn(&NodeType) -> bool) -> DomNodeId {
+    fn node_of(
+        layouts: &BTreeMap<DomId, DomLayoutResult>,
+        matcher: fn(&NodeType) -> bool,
+    ) -> DomNodeId {
         let layout = layouts.get(&DomId::ROOT_ID).expect("fixture dom missing");
         let container = layout.styled_dom.node_data.as_container();
         for i in 0..container.len() {
@@ -789,7 +784,10 @@ mod autotest_generated {
                 for focus in focus_states {
                     let result =
                         determine_keyboard_default_action(&kbd(*key, mods), focus, &layouts, true);
-                    assert!(result.prevented, "prevent_default() must be reported for {key:?}");
+                    assert!(
+                        result.prevented,
+                        "prevent_default() must be reported for {key:?}"
+                    );
                     assert_eq!(
                         result.action,
                         DefaultAction::None,
@@ -805,8 +803,7 @@ mod autotest_generated {
         let layouts = fixture();
         // Modifiers held, keys "pressed", but no `current_virtual_keycode`.
         let mut ks = KeyboardState::default();
-        ks.pressed_virtual_keycodes =
-            vec![VirtualKeyCode::LShift, VirtualKeyCode::LControl].into();
+        ks.pressed_virtual_keycodes = vec![VirtualKeyCode::LShift, VirtualKeyCode::LControl].into();
 
         let result =
             determine_keyboard_default_action(&ks, Some(button(&layouts)), &layouts, false);
@@ -946,12 +943,7 @@ mod autotest_generated {
         let empty: BTreeMap<DomId, DomLayoutResult> = BTreeMap::new();
 
         // Bogus node ids against a populated map.
-        for focus in [
-            missing_dom(),
-            out_of_bounds_node(),
-            null_node(),
-            max_node(),
-        ] {
+        for focus in [missing_dom(), out_of_bounds_node(), null_node(), max_node()] {
             let result = determine_keyboard_default_action(
                 &kbd(VirtualKeyCode::Return, &[]),
                 Some(focus),
@@ -1045,7 +1037,10 @@ mod autotest_generated {
                 &layouts,
                 false,
             );
-            assert_eq!(down.action, scroll(ScrollDirection::Down, ScrollAmount::Page));
+            assert_eq!(
+                down.action,
+                scroll(ScrollDirection::Down, ScrollAmount::Page)
+            );
 
             let up = determine_keyboard_default_action(
                 &kbd(VirtualKeyCode::Space, &[VirtualKeyCode::RShift]),
@@ -1116,12 +1111,8 @@ mod autotest_generated {
                 Some(missing_dom()),
                 Some(null_node()),
             ] {
-                let result = determine_keyboard_default_action(
-                    &kbd(key, &[]),
-                    focus,
-                    &layouts,
-                    false,
-                );
+                let result =
+                    determine_keyboard_default_action(&kbd(key, &[]), focus, &layouts, false);
                 assert_eq!(
                     result.action,
                     scroll(direction, ScrollAmount::Line),
@@ -1153,12 +1144,8 @@ mod autotest_generated {
         ] {
             for mods in MOD_SETS {
                 for focus in [None, Some(textarea(&layouts)), Some(button(&layouts))] {
-                    let result = determine_keyboard_default_action(
-                        &kbd(key, mods),
-                        focus,
-                        &layouts,
-                        false,
-                    );
+                    let result =
+                        determine_keyboard_default_action(&kbd(key, mods), focus, &layouts, false);
                     assert_eq!(result.action, scroll(direction, ScrollAmount::Page));
                 }
             }
@@ -1170,17 +1157,28 @@ mod autotest_generated {
         let layouts = fixture();
 
         for ctrl in [VirtualKeyCode::LControl, VirtualKeyCode::RControl] {
-            let home =
-                determine_keyboard_default_action(&kbd(VirtualKeyCode::Home, &[ctrl]), None, &layouts, false);
+            let home = determine_keyboard_default_action(
+                &kbd(VirtualKeyCode::Home, &[ctrl]),
+                None,
+                &layouts,
+                false,
+            );
             assert_eq!(home.action, DefaultAction::FocusFirst);
 
-            let end =
-                determine_keyboard_default_action(&kbd(VirtualKeyCode::End, &[ctrl]), None, &layouts, false);
+            let end = determine_keyboard_default_action(
+                &kbd(VirtualKeyCode::End, &[ctrl]),
+                None,
+                &layouts,
+                false,
+            );
             assert_eq!(end.action, DefaultAction::FocusLast);
 
             // Ctrl still wins when Shift/Alt are also held.
             let home_shift = determine_keyboard_default_action(
-                &kbd(VirtualKeyCode::Home, &[ctrl, VirtualKeyCode::LShift, VirtualKeyCode::LAlt]),
+                &kbd(
+                    VirtualKeyCode::Home,
+                    &[ctrl, VirtualKeyCode::LShift, VirtualKeyCode::LAlt],
+                ),
                 Some(textarea(&layouts)),
                 &layouts,
                 false,
@@ -1197,7 +1195,10 @@ mod autotest_generated {
                 &layouts,
                 false,
             );
-            assert_eq!(home.action, scroll(ScrollDirection::Up, ScrollAmount::Document));
+            assert_eq!(
+                home.action,
+                scroll(ScrollDirection::Up, ScrollAmount::Document)
+            );
 
             let end = determine_keyboard_default_action(
                 &kbd(VirtualKeyCode::End, &[]),
@@ -1205,7 +1206,10 @@ mod autotest_generated {
                 &layouts,
                 false,
             );
-            assert_eq!(end.action, scroll(ScrollDirection::Down, ScrollAmount::Document));
+            assert_eq!(
+                end.action,
+                scroll(ScrollDirection::Down, ScrollAmount::Document)
+            );
         }
     }
 
@@ -1222,7 +1226,11 @@ mod autotest_generated {
             for focus in [None, Some(button(&layouts)), Some(textarea(&layouts))] {
                 let result =
                     determine_keyboard_default_action(&kbd(key, &[]), focus, &layouts, false);
-                assert_eq!(result.action, DefaultAction::None, "{key:?} has no default action");
+                assert_eq!(
+                    result.action,
+                    DefaultAction::None,
+                    "{key:?} has no default action"
+                );
             }
         }
     }
@@ -1284,14 +1292,34 @@ mod autotest_generated {
     fn is_element_activatable_true_and_false_cases() {
         let layouts = fixture();
         for (node, expected, why) in [
-            (button(&layouts), true, "a <button> is inherently activatable"),
+            (
+                button(&layouts),
+                true,
+                "a <button> is inherently activatable",
+            ),
             (anchor(&layouts), true, "an <a> is inherently activatable"),
-            (clickable_p(&layouts), true, "a click callback grants activation behaviour"),
-            (role_only(&layouts), true, "the CheckButton a11y role grants activation behaviour"),
-            (div(&layouts), false, "a plain <div> has no activation behaviour"),
+            (
+                clickable_p(&layouts),
+                true,
+                "a click callback grants activation behaviour",
+            ),
+            (
+                role_only(&layouts),
+                true,
+                "the CheckButton a11y role grants activation behaviour",
+            ),
+            (
+                div(&layouts),
+                false,
+                "a plain <div> has no activation behaviour",
+            ),
             (body(&layouts), false, "the root <body> is not activatable"),
             (textarea(&layouts), false, "a text input is not activatable"),
-            (disabled(&layouts), false, "an Unavailable control is not activatable"),
+            (
+                disabled(&layouts),
+                false,
+                "an Unavailable control is not activatable",
+            ),
         ] {
             assert_eq!(is_element_activatable(&node, &layouts), expected, "{why}");
         }
@@ -1302,12 +1330,7 @@ mod autotest_generated {
         let layouts = fixture();
         let empty: BTreeMap<DomId, DomLayoutResult> = BTreeMap::new();
 
-        for node in [
-            missing_dom(),
-            out_of_bounds_node(),
-            null_node(),
-            max_node(),
-        ] {
+        for node in [missing_dom(), out_of_bounds_node(), null_node(), max_node()] {
             assert!(!is_element_activatable(&node, &layouts));
         }
 
@@ -1324,8 +1347,16 @@ mod autotest_generated {
     fn is_text_input_true_and_false_cases() {
         let layouts = fixture();
         for (node, expected, why) in [
-            (textarea(&layouts), true, "a Focus(TextInput) callback marks a text input"),
-            (anchor(&layouts), true, "even an <a> counts if it has a TextInput callback"),
+            (
+                textarea(&layouts),
+                true,
+                "a Focus(TextInput) callback marks a text input",
+            ),
+            (
+                anchor(&layouts),
+                true,
+                "even an <a> counts if it has a TextInput callback",
+            ),
             (button(&layouts), false, "a <button> is not a text input"),
             (div(&layouts), false, "a plain <div> is not a text input"),
             (body(&layouts), false, "the root <body> is not a text input"),
@@ -1334,7 +1365,11 @@ mod autotest_generated {
                 false,
                 "a non-TextInput callback must not be mistaken for a text input",
             ),
-            (disabled(&layouts), false, "a disabled control is not a text input"),
+            (
+                disabled(&layouts),
+                false,
+                "a disabled control is not a text input",
+            ),
         ] {
             assert_eq!(is_text_input(&node, &layouts), expected, "{why}");
         }
@@ -1345,12 +1380,7 @@ mod autotest_generated {
         let layouts = fixture();
         let empty: BTreeMap<DomId, DomLayoutResult> = BTreeMap::new();
 
-        for node in [
-            missing_dom(),
-            out_of_bounds_node(),
-            null_node(),
-            max_node(),
-        ] {
+        for node in [missing_dom(), out_of_bounds_node(), null_node(), max_node()] {
             assert!(!is_text_input(&node, &layouts));
         }
 
@@ -1366,7 +1396,10 @@ mod autotest_generated {
             is_element_activatable(&root, &layouts),
             is_element_activatable(&root, &layouts)
         );
-        assert_eq!(is_text_input(&root, &layouts), is_text_input(&root, &layouts));
+        assert_eq!(
+            is_text_input(&root, &layouts),
+            is_text_input(&root, &layouts)
+        );
         assert!(!is_element_activatable(&root, &layouts));
         assert!(!is_text_input(&root, &layouts));
     }
@@ -1397,7 +1430,11 @@ mod autotest_generated {
             ScrollDirection::Left,
             ScrollDirection::Right,
         ] {
-            for amount in [ScrollAmount::Line, ScrollAmount::Page, ScrollAmount::Document] {
+            for amount in [
+                ScrollAmount::Line,
+                ScrollAmount::Page,
+                ScrollAmount::Document,
+            ] {
                 v.push(scroll(direction, amount));
             }
         }

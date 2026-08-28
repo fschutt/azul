@@ -49,12 +49,14 @@ pub struct KeyringManager {
 }
 
 impl KeyringManager {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Most recent keyring outcome, or `None` until the first op resolves.
-    #[must_use] pub const fn last_result(&self) -> Option<&KeyringResult> {
+    #[must_use]
+    pub const fn last_result(&self) -> Option<&KeyringResult> {
         self.last_result.as_ref()
     }
 
@@ -85,7 +87,8 @@ impl KeyringManager {
 
     /// `true` while a dispatched op's outcome is still outstanding
     /// (MWA-A1b arming signal).
-    #[must_use] pub const fn has_pending_async(&self) -> bool {
+    #[must_use]
+    pub const fn has_pending_async(&self) -> bool {
         self.in_flight > 0
     }
 }
@@ -111,20 +114,23 @@ impl EventProvider for KeyringManager {
 
 // ────────── Request channel (callback → platform backend) ─────────────
 
-static PENDING_REQUESTS: std::sync::Mutex<Vec<KeyringRequest>> =
-    std::sync::Mutex::new(Vec::new());
+static PENDING_REQUESTS: std::sync::Mutex<Vec<KeyringRequest>> = std::sync::Mutex::new(Vec::new());
 
 /// Queue a keyring op from a callback. Drained by the dll layout pass and
 /// dispatched to the native keyring. Thread-safe; poison-recovering.
 pub fn push_keyring_request(request: KeyringRequest) {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_REQUESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(request);
 }
 
 /// Drain every queued keyring op, in arrival order. Called once per
 /// layout pass; the dll dispatches each to the platform backend.
 pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_REQUESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -138,21 +144,24 @@ pub fn has_queued_requests() -> bool {
 
 // ────────── Result channel (platform backend → manager) ───────────────
 
-static PENDING_RESULTS: std::sync::Mutex<Vec<KeyringResult>> =
-    std::sync::Mutex::new(Vec::new());
+static PENDING_RESULTS: std::sync::Mutex<Vec<KeyringResult>> = std::sync::Mutex::new(Vec::new());
 
 /// Park a keyring result delivered by a platform backend (in the dll).
 /// Thread-safe; poison-recovering (a biometry-bound `Get` resolves from
 /// the OS prompt's reply on an arbitrary thread).
 pub fn push_keyring_result(result: KeyringResult) {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(result);
 }
 
 /// Drain every parked keyring result, in arrival order. Called once per
 /// layout pass; the caller applies them via [`KeyringManager::set_last_result`].
 pub fn drain_keyring_results() -> Vec<KeyringResult> {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -235,7 +244,9 @@ mod tests {
             mgr.set_last_result(r);
         }
         assert_eq!(
-            mgr.last_result().and_then(|r| r.secret()).map(AzString::as_str),
+            mgr.last_result()
+                .and_then(|r| r.secret())
+                .map(AzString::as_str),
             Some("s"),
             "the last applied result wins"
         );
@@ -390,7 +401,11 @@ mod autotest_generated {
                 .expect("Retrieved must expose its secret");
             assert_eq!(s.as_str(), payload);
             assert_eq!(s.as_str().as_bytes(), payload.as_bytes());
-            assert_eq!(s.as_str().len(), payload.len(), "nothing truncated at the NUL");
+            assert_eq!(
+                s.as_str().len(),
+                payload.len(),
+                "nothing truncated at the NUL"
+            );
         }
     }
 
@@ -422,7 +437,9 @@ mod autotest_generated {
         mgr.mark_requests_dispatched(0);
 
         assert_eq!(
-            mgr.last_result().and_then(KeyringResult::secret).map(AzString::as_str),
+            mgr.last_result()
+                .and_then(KeyringResult::secret)
+                .map(AzString::as_str),
             Some("keep-me"),
             "neither the event flag nor the in-flight counter may clobber the outcome"
         );
@@ -535,7 +552,10 @@ mod autotest_generated {
 
         mgr.mark_requests_dispatched(5);
         mgr.mark_requests_dispatched(0);
-        assert_eq!(mgr.in_flight, 5, "a zero dispatch must not disturb the count");
+        assert_eq!(
+            mgr.in_flight, 5,
+            "a zero dispatch must not disturb the count"
+        );
     }
 
     #[test]
@@ -563,7 +583,11 @@ mod autotest_generated {
         assert_eq!(mgr.in_flight, u32::MAX);
 
         mgr.mark_requests_dispatched(1);
-        assert_eq!(mgr.in_flight, u32::MAX, "saturating_add clamps at the ceiling");
+        assert_eq!(
+            mgr.in_flight,
+            u32::MAX,
+            "saturating_add clamps at the ceiling"
+        );
         mgr.mark_requests_dispatched(u32::MAX);
         assert_eq!(mgr.in_flight, u32::MAX);
         assert!(mgr.has_pending_async());
@@ -660,7 +684,10 @@ mod autotest_generated {
         assert_eq!(e.source, CoreEventSource::User);
         assert_eq!(e.target, DomNodeId::ROOT, "keyring events are window-level");
         assert_eq!(e.current_target, DomNodeId::ROOT);
-        assert_eq!(e.timestamp, stamp, "the caller's timestamp is echoed verbatim");
+        assert_eq!(
+            e.timestamp, stamp,
+            "the caller's timestamp is echoed verbatim"
+        );
         assert!(
             matches!(e.data, EventData::None),
             "the outcome is read via CallbackInfo, not carried in the event"
@@ -757,7 +784,10 @@ mod autotest_generated {
         push_keyring_request(KeyringRequest::Get {
             key: AzString::from("k"),
         });
-        assert!(has_queued_requests(), "a parked-but-undispatched request arms the pump");
+        assert!(
+            has_queued_requests(),
+            "a parked-but-undispatched request arms the pump"
+        );
         // Reading the predicate does not consume the request.
         assert!(has_queued_requests());
 
@@ -857,7 +887,11 @@ mod autotest_generated {
         }
 
         let drained = drain_keyring_requests();
-        assert_eq!(drained.len(), THREADS * PER_THREAD, "no request lost or duplicated");
+        assert_eq!(
+            drained.len(),
+            THREADS * PER_THREAD,
+            "no request lost or duplicated"
+        );
 
         // Cross-thread interleaving is unspecified, but the multiset of keys
         // must be exactly what was pushed.
@@ -897,7 +931,9 @@ mod autotest_generated {
             mgr.set_last_result(r);
         }
         assert_eq!(
-            mgr.last_result().and_then(KeyringResult::secret).map(AzString::as_str),
+            mgr.last_result()
+                .and_then(KeyringResult::secret)
+                .map(AzString::as_str),
             Some(NASTY_UNICODE),
             "the last applied result wins"
         );

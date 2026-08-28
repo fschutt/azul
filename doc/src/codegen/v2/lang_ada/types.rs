@@ -49,10 +49,7 @@ pub fn emit_forward_declarations(
             // Opaque placeholder for skipped categories so field
             // references (`Foo : Az_U8VecRef;`) resolve to a
             // System.Address-shaped value.
-            builder.line(&format!(
-                "subtype {} is System.Address;",
-                name
-            ));
+            builder.line(&format!("subtype {} is System.Address;", name));
             continue;
         }
         builder.line(&format!("type {};", name));
@@ -62,10 +59,7 @@ pub fn emit_forward_declarations(
     for e in &ir.enums {
         let name = ada_ffi_type_name(&e.name);
         if !should_emit_enum(e, config) {
-            builder.line(&format!(
-                "subtype {} is System.Address;",
-                name
-            ));
+            builder.line(&format!("subtype {} is System.Address;", name));
             continue;
         }
         // Unit enums don't strictly need an incomplete-type forward decl
@@ -110,11 +104,7 @@ pub fn emit_forward_declarations(
     builder.blank();
 }
 
-pub fn emit_types(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) -> Result<()> {
+pub fn emit_types(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) -> Result<()> {
     builder.line("-- ----------------------------------------------------------------------");
     builder.line("-- Type definitions: unit enums, tagged-union variant records, records.");
     builder.line("-- ----------------------------------------------------------------------");
@@ -413,8 +403,7 @@ fn emit_monomorphized_alias(
             // Enumerated type + integer representation clause, same
             // shape as emit_unit_enum.
             builder.line(&format!("type {} is", name));
-            let lits: Vec<String> =
-                variants.iter().map(|v| sanitize_identifier(v)).collect();
+            let lits: Vec<String> = variants.iter().map(|v| sanitize_identifier(v)).collect();
             builder.line(&format!("   ({});", lits.join(", ")));
             builder.line(&format!("for {} use", name));
             builder.line("   (");
@@ -466,8 +455,7 @@ fn emit_monomorphized_alias(
             builder.line(&format!("pragma Convention (C, {});", tag_name));
             builder.blank();
 
-            let default_variant =
-                lits.first().cloned().unwrap_or_else(|| "V0".to_string());
+            let default_variant = lits.first().cloned().unwrap_or_else(|| "V0".to_string());
             builder.line(&format!(
                 "type {} (Tag : {} := {}) is record",
                 name, tag_name, default_variant
@@ -480,8 +468,7 @@ fn emit_monomorphized_alias(
                 match &v.payload_type {
                     None => builder.line("         null;"),
                     Some(payload_ty) => {
-                        let ada_ty =
-                            ref_kind_field_type(payload_ty, &v.payload_ref_kind, ir);
+                        let ada_ty = ref_kind_field_type(payload_ty, &v.payload_ref_kind, ir);
                         builder.line(&format!(
                             "         Payload_{} : {};",
                             variant_suffix, ada_ty

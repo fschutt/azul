@@ -1,17 +1,16 @@
 //! An implementation of the Knuth-Plass line-breaking algorithm
 //! for simple rectangular layouts.
 
-#[cfg(feature = "text_layout_hyphenation")]
-use hyphenation::{Hyphenator, Standard};
 #[cfg(not(feature = "text_layout_hyphenation"))]
 use crate::text3::cache::Standard;
+#[cfg(feature = "text_layout_hyphenation")]
+use hyphenation::{Hyphenator, Standard};
 
 use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, is_no_break_space, is_word_separator,
-    is_zero_width_space,
-    AvailableSpace, BidiDirection, JustifyContent, LayoutError, LoadedFonts,
-    LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem,
-    ShapedItem, TextAlign, UnifiedConstraints, UnifiedLayout,
+    is_zero_width_space, AvailableSpace, BidiDirection, JustifyContent, LayoutError, LoadedFonts,
+    LogicalItem, OverflowInfo, ParsedFontTrait, Point, PositionedItem, ShapedItem, TextAlign,
+    UnifiedConstraints, UnifiedLayout,
 };
 
 const INFINITY_BADNESS: f32 = 10000.0;
@@ -150,8 +149,7 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                 }
             }
             ShapedItem::Cluster(cluster)
-                if cluster.text().ends_with('\u{002D}')
-                    || cluster.text().ends_with('\u{2010}') =>
+                if cluster.text().ends_with('\u{002D}') || cluster.text().ends_with('\u{2010}') =>
             {
                 let width = get_item_measure(item, is_vertical);
                 nodes.push(LayoutNode::Box(item.clone(), width));
@@ -351,7 +349,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
 }
 
 /// Uses dynamic programming to find the optimal set of line breaks.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[allow(clippy::cognitive_complexity)] // cohesive Knuth-Plass DP: one branch per break class
 fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstraints) -> Vec<usize> {
@@ -557,7 +556,8 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
 /// Takes the optimal break points and performs the final positioning.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn position_lines_from_breaks(
     nodes: &[LayoutNode],
@@ -606,9 +606,11 @@ fn position_lines_from_breaks(
         let line_width: f32 = line_items.iter().map(|i| get_item_measure(i, false)).sum();
 
         // the last line and lines ending with a forced break
-        let ends_with_forced_break = line_nodes.iter().any(|n| matches!(
-            n, LayoutNode::Penalty { penalty, .. } if *penalty <= -INFINITY_BADNESS
-        ));
+        let ends_with_forced_break = line_nodes.iter().any(|n| {
+            matches!(
+                n, LayoutNode::Penalty { penalty, .. } if *penalty <= -INFINITY_BADNESS
+            )
+        });
         let effective_align = super::cache::resolve_effective_alignment(
             constraints.text_align,
             constraints.text_align_last,
@@ -629,10 +631,7 @@ fn position_lines_from_breaks(
         // greedy path documents the same trap (see cache.rs
         // "Without this check, ALL text gets justified").
         let should_justify = constraints.text_justify != JustifyContent::None
-            && matches!(
-                effective_align,
-                TextAlign::Justify | TextAlign::JustifyAll
-            );
+            && matches!(effective_align, TextAlign::Justify | TextAlign::JustifyAll);
 
         // Get the available width as f32 for calculations
         // For MinContent/MaxContent, we use the actual computed line_width
@@ -774,9 +773,16 @@ mod kp_fix_tests {
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            source_text: Arc::from(text), source_byte_len: text.len() as u16,
-            source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
-            source_content_index: ContentIndex { run_index: 0, item_index: 0 },
+            source_text: Arc::from(text),
+            source_byte_len: text.len() as u16,
+            source_cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            source_content_index: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
             source_node_id: None,
             glyphs: smallvec::SmallVec::new(),
             advance,
@@ -816,11 +822,19 @@ mod kp_fix_tests {
     fn bug1_terminal_break_wraps_word_ending_paragraph() {
         // "aaaa aaaa" (ends in a Box, no trailing space) must wrap at width 60.
         let nodes = nodes_for("aaaa aaaa");
-        assert!(matches!(nodes.last(), Some(LayoutNode::Penalty { penalty, .. }) if *penalty <= -INFINITY_BADNESS),
-            "a terminal forced break must be appended");
-        let c = UnifiedConstraints { available_width: AvailableSpace::Definite(60.0), ..Default::default() };
+        assert!(
+            matches!(nodes.last(), Some(LayoutNode::Penalty { penalty, .. }) if *penalty <= -INFINITY_BADNESS),
+            "a terminal forced break must be appended"
+        );
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            ..Default::default()
+        };
         let breaks = find_optimal_breakpoints(&nodes, &c);
-        assert!(breaks.len() >= 2, "must break into >=2 lines, got {breaks:?}");
+        assert!(
+            breaks.len() >= 2,
+            "must break into >=2 lines, got {breaks:?}"
+        );
         assert_eq!(*breaks.last().unwrap(), nodes.len(), "final break at n");
     }
 
@@ -835,8 +849,10 @@ mod kp_fix_tests {
                 if cc.text() == "-" {
                     match nodes.get(i + 1) {
                         Some(LayoutNode::Penalty { penalty, width, .. }) => {
-                            assert!(*width == 0.0 && *penalty > -INFINITY_BADNESS,
-                                "hyphen must be followed by a zero-width soft penalty");
+                            assert!(
+                                *width == 0.0 && *penalty > -INFINITY_BADNESS,
+                                "hyphen must be followed by a zero-width soft penalty"
+                            );
                             found = true;
                         }
                         other => panic!("expected penalty after hyphen, got {other:?}"),
@@ -846,20 +862,32 @@ mod kp_fix_tests {
         }
         assert!(found, "hyphen box must exist");
         // and it must actually enable a wrap at width 60
-        let c = UnifiedConstraints { available_width: AvailableSpace::Definite(60.0), ..Default::default() };
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::Definite(60.0),
+            ..Default::default()
+        };
         let breaks = find_optimal_breakpoints(&nodes, &c);
-        assert!(breaks.len() >= 2, "hyphenated token must wrap, got {breaks:?}");
+        assert!(
+            breaks.len() >= 2,
+            "hyphenated token must wrap, got {breaks:?}"
+        );
     }
 
     #[test]
     fn bug4_min_content_breaks_every_word() {
         // "aaaa aaaa" min-content: two words => two content lines (widest = one word).
         let nodes = nodes_for("aaaa aaaa");
-        let c = UnifiedConstraints { available_width: AvailableSpace::MinContent, ..Default::default() };
+        let c = UnifiedConstraints {
+            available_width: AvailableSpace::MinContent,
+            ..Default::default()
+        };
         let breaks = find_optimal_breakpoints(&nodes, &c);
         // there must be a break after the first word's trailing space penalty,
         // i.e. more than one break -> not a single spanning line.
-        assert!(breaks.len() >= 2, "min-content must break per word, got {breaks:?}");
+        assert!(
+            breaks.len() >= 2,
+            "min-content must break per word, got {breaks:?}"
+        );
     }
 
     #[test]
@@ -878,7 +906,10 @@ mod kp_fix_tests {
             .iter()
             .filter(|it| it.line_index == 0 && is_word_separator(&it.item))
             .count();
-        assert_eq!(line0_spaces, 0, "trailing space must be trimmed from line 0");
+        assert_eq!(
+            line0_spaces, 0,
+            "trailing space must be trimmed from line 0"
+        );
         // Rightmost cluster edge on line 0 == 4*12 = 48px (not 53 incl. the space).
         let max_x = layout
             .items
@@ -886,7 +917,10 @@ mod kp_fix_tests {
             .filter(|it| it.line_index == 0)
             .filter_map(|it| it.item.as_cluster().map(|cc| it.position.x + cc.advance))
             .fold(0.0f32, f32::max);
-        assert!((max_x - 48.0).abs() < 0.01, "line 0 right edge {max_x} should be 48px");
+        assert!(
+            (max_x - 48.0).abs() < 0.01,
+            "line 0 right edge {max_x} should be 48px"
+        );
     }
 }
 
@@ -915,7 +949,8 @@ mod autotest_generated {
     fn cl(text: &str, advance: f32) -> ShapedItem {
         ShapedItem::Cluster(ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            source_text: Arc::from(text), source_byte_len: text.len() as u16,
+            source_text: Arc::from(text),
+            source_byte_len: text.len() as u16,
             source_cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
@@ -1129,7 +1164,10 @@ mod autotest_generated {
     #[test]
     fn convert_appends_exactly_one_terminal_forced_break() {
         let nodes = nodes_for("ab cd");
-        assert!(is_forced(nodes.last().unwrap()), "paragraph must be anchored");
+        assert!(
+            is_forced(nodes.last().unwrap()),
+            "paragraph must be anchored"
+        );
         assert_eq!(
             nodes.iter().filter(|n| is_forced(n)).count(),
             1,
@@ -1141,7 +1179,11 @@ mod autotest_generated {
     fn convert_does_not_duplicate_terminal_break_after_an_explicit_break() {
         let items = vec![cl("a", 12.0), hard_break()];
         let nodes = nodes_of(&items);
-        assert_eq!(nodes.len(), 2, "Box + the Break's own forced Penalty, no more");
+        assert_eq!(
+            nodes.len(),
+            2,
+            "Box + the Break's own forced Penalty, no more"
+        );
         assert!(is_forced(&nodes[1]));
         assert_eq!(nodes.iter().filter(|n| is_forced(n)).count(), 1);
     }
@@ -1163,10 +1205,7 @@ mod autotest_generated {
                 assert_eq!(*width, 5.0);
                 assert_eq!(*stretch, 5.0 * SPACE_STRETCH_RATIO);
                 assert_eq!(*shrink, 5.0 * SPACE_SHRINK_RATIO);
-                assert!(
-                    *shrink < *width,
-                    "a space may never shrink past zero width"
-                );
+                assert!(*shrink < *width, "a space may never shrink past zero width");
             }
             _ => unreachable!(),
         }
@@ -1288,7 +1327,11 @@ mod autotest_generated {
         // a soft-wrap opportunity after each ideograph, exactly like the
         // greedy path (line-breaking:16e64c). Two inter-cluster penalties +
         // the terminal forced break.
-        let items = vec![cl("\u{4E00}", 16.0), cl("\u{3000}", 16.0), cl("\u{4E8C}", 16.0)];
+        let items = vec![
+            cl("\u{4E00}", 16.0),
+            cl("\u{3000}", 16.0),
+            cl("\u{4E8C}", 16.0),
+        ];
         let nodes = nodes_of(&items);
         assert_eq!(
             penalty_count(&nodes),
@@ -1317,7 +1360,10 @@ mod autotest_generated {
         let nodes = nodes_of(&items);
         // Nothing is a separator or a hyphen, so every cluster stays a Box.
         assert_eq!(
-            nodes.iter().filter(|n| matches!(n, LayoutNode::Box(..))).count(),
+            nodes
+                .iter()
+                .filter(|n| matches!(n, LayoutNode::Box(..)))
+                .count(),
             items.len()
         );
         let layout = kp_layout(&items, &[], &definite(30.0), None, &no_fonts());
@@ -1725,7 +1771,10 @@ mod autotest_generated {
 
         // LTR paragraph: start = left, end = right.
         assert_eq!(
-            line_left(&position_lines_from_breaks(&nodes, &breaks, &[], &c_start), 0),
+            line_left(
+                &position_lines_from_breaks(&nodes, &breaks, &[], &c_start),
+                0
+            ),
             0.0
         );
         assert_eq!(
@@ -1744,7 +1793,10 @@ mod autotest_generated {
             64.0
         );
         assert_eq!(
-            line_left(&position_lines_from_breaks(&nodes, &breaks, &rtl, &c_end), 0),
+            line_left(
+                &position_lines_from_breaks(&nodes, &breaks, &rtl, &c_end),
+                0
+            ),
             0.0
         );
     }
@@ -1780,15 +1832,20 @@ mod autotest_generated {
         // "aaaa" = four 12px clusters, no spaces. At 30px it can only wrap if
         // word-break: break-all inserts opportunities between clusters.
         let nodes_normal = {
-            let items: Vec<ShapedItem> = "aaaa".chars().map(|ch| cl(&ch.to_string(), 12.0)).collect();
+            let items: Vec<ShapedItem> =
+                "aaaa".chars().map(|ch| cl(&ch.to_string(), 12.0)).collect();
             let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
             let c = UnifiedConstraints::default();
             convert_items_to_nodes(&items, None, &fonts, &c, BidiDirection::Ltr)
         };
-        let n_pen_normal = nodes_normal.iter().filter(|n| matches!(n, LayoutNode::Penalty { .. })).count();
+        let n_pen_normal = nodes_normal
+            .iter()
+            .filter(|n| matches!(n, LayoutNode::Penalty { .. }))
+            .count();
 
         let nodes_break_all = {
-            let items: Vec<ShapedItem> = "aaaa".chars().map(|ch| cl(&ch.to_string(), 12.0)).collect();
+            let items: Vec<ShapedItem> =
+                "aaaa".chars().map(|ch| cl(&ch.to_string(), 12.0)).collect();
             let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
             let c = UnifiedConstraints {
                 word_break: WordBreak::BreakAll,
@@ -1796,7 +1853,10 @@ mod autotest_generated {
             };
             convert_items_to_nodes(&items, None, &fonts, &c, BidiDirection::Ltr)
         };
-        let n_pen_break_all = nodes_break_all.iter().filter(|n| matches!(n, LayoutNode::Penalty { .. })).count();
+        let n_pen_break_all = nodes_break_all
+            .iter()
+            .filter(|n| matches!(n, LayoutNode::Penalty { .. }))
+            .count();
 
         assert!(
             n_pen_break_all > n_pen_normal,
@@ -1816,32 +1876,32 @@ mod autotest_generated {
         return; // dictionary feature not embedded in this build
         #[cfg(feature = "text_layout_hyphenation")]
         {
-        use hyphenation::Load;
-        let Ok(hyph) = Standard::from_embedded(hyphenation::Language::EnglishUS) else {
-            return;
-        };
-        // Glyph-less test clusters PANIC inside find_all_hyphenation_breaks
-        // (it indexes cluster.glyphs), so this test is doubly binding: with a
-        // mismatched direction the hyphenator must never be CONSULTED - if
-        // the gate regressed, the panic itself would fail the test before
-        // the assertion does.
-        let items: Vec<ShapedItem> = "hyphenation"
-            .chars()
-            .map(|ch| cl(&ch.to_string(), 12.0))
-            .collect();
-        let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
-        let c = UnifiedConstraints::default();
+            use hyphenation::Load;
+            let Ok(hyph) = Standard::from_embedded(hyphenation::Language::EnglishUS) else {
+                return;
+            };
+            // Glyph-less test clusters PANIC inside find_all_hyphenation_breaks
+            // (it indexes cluster.glyphs), so this test is doubly binding: with a
+            // mismatched direction the hyphenator must never be CONSULTED - if
+            // the gate regressed, the panic itself would fail the test before
+            // the assertion does.
+            let items: Vec<ShapedItem> = "hyphenation"
+                .chars()
+                .map(|ch| cl(&ch.to_string(), 12.0))
+                .collect();
+            let fonts: LoadedFonts<FontRef> = LoadedFonts::new();
+            let c = UnifiedConstraints::default();
 
-        let mismatched =
-            convert_items_to_nodes(&items, Some(&hyph), &fonts, &c, BidiDirection::Rtl);
-        let hyphen_penalties = mismatched
-            .iter()
-            .filter(|n| matches!(n, LayoutNode::Penalty { item: Some(_), .. }))
-            .count();
-        assert_eq!(
-            hyphen_penalties, 0,
-            "an LTR word in an RTL paragraph must not receive hyphen penalties"
-        );
+            let mismatched =
+                convert_items_to_nodes(&items, Some(&hyph), &fonts, &c, BidiDirection::Rtl);
+            let hyphen_penalties = mismatched
+                .iter()
+                .filter(|n| matches!(n, LayoutNode::Penalty { item: Some(_), .. }))
+                .count();
+            assert_eq!(
+                hyphen_penalties, 0,
+                "an LTR word in an RTL paragraph must not receive hyphen penalties"
+            );
         }
     }
 
@@ -1883,11 +1943,24 @@ mod autotest_generated {
         let hyphen = cl("-", 6.0);
         let nodes = vec![
             LayoutNode::Box(aa, 24.0),
-            LayoutNode::Penalty { penalty: 50.0, width: 6.0, item: Some(hyphen) },
+            LayoutNode::Penalty {
+                penalty: 50.0,
+                width: 6.0,
+                item: Some(hyphen),
+            },
             LayoutNode::Box(bb, 24.0),
-            LayoutNode::Glue { item: sp, width: 5.0, stretch: 2.5, shrink: 1.6 },
+            LayoutNode::Glue {
+                item: sp,
+                width: 5.0,
+                stretch: 2.5,
+                shrink: 1.6,
+            },
             LayoutNode::Box(ccx, 24.0),
-            LayoutNode::Penalty { penalty: -INFINITY_BADNESS, width: 0.0, item: None },
+            LayoutNode::Penalty {
+                penalty: -INFINITY_BADNESS,
+                width: 0.0,
+                item: None,
+            },
         ];
         let c = UnifiedConstraints {
             available_width: AvailableSpace::Definite(120.0),
@@ -1929,7 +2002,11 @@ mod autotest_generated {
                 it.position
             );
         }
-        assert_eq!(line_right(&layout, 0), 48.0, "nothing to stretch, no stretch");
+        assert_eq!(
+            line_right(&layout, 0),
+            48.0,
+            "nothing to stretch, no stretch"
+        );
     }
 
     #[test]
@@ -1993,7 +2070,10 @@ mod autotest_generated {
         let breaks = find_optimal_breakpoints(&nodes, &c);
         let layout = position_lines_from_breaks(&nodes, &breaks, &[], &c);
         let b = layout.overflow.unclipped_bounds;
-        assert!(layout.overflow.overflow_items.is_empty(), "nothing is dropped");
+        assert!(
+            layout.overflow.overflow_items.is_empty(),
+            "nothing is dropped"
+        );
         for it in &layout.items {
             assert!(
                 it.position.x >= b.x - 0.01 && it.position.x <= b.x + b.width + 0.01,

@@ -51,10 +51,7 @@ impl TooltipWindow {
     ///
     /// Creates an X11 window with override-redirect for tooltip display.
     /// The window is initially unmapped and can be shown with `show()`.
-    pub fn new(
-        xlib: Rc<Xlib>,
-        display: *mut super::dlopen::Display,
-    ) -> Result<Self, String> {
+    pub fn new(xlib: Rc<Xlib>, display: *mut super::dlopen::Display) -> Result<Self, String> {
         unsafe {
             // Get screen and root window
             let screen = (xlib.XDefaultScreen)(display);
@@ -121,7 +118,8 @@ impl TooltipWindow {
             self.text = text.to_string();
 
             // Calculate window size based on text length
-            let text_width = (text.len() as f32 * TOOLTIP_CHAR_WIDTH_PX + TOOLTIP_PADDING_PX) as u32;
+            let text_width =
+                (text.len() as f32 * TOOLTIP_CHAR_WIDTH_PX + TOOLTIP_PADDING_PX) as u32;
             let text_width = text_width.min(TOOLTIP_MAX_WIDTH).max(TOOLTIP_MIN_WIDTH);
             let text_height = TOOLTIP_HEIGHT;
 

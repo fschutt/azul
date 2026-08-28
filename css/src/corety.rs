@@ -17,14 +17,14 @@ use crate::props::basic::ColorU;
 // ============================================================================
 
 /// FFI-safe void type to replace `()` in Result types.
-/// 
+///
 /// Since `()` (unit type) has zero size, it's not FFI-safe.
 /// This type provides a minimal 1-byte representation that can be
 /// safely passed across the C ABI boundary.
-/// 
+///
 /// # Usage
 /// Instead of `Result<(), Error>`, use `Result<EmptyStruct, Error>`.
-/// 
+///
 /// # Example
 /// ```ignore
 /// fn do_something() -> Result<EmptyStruct, MyError> {
@@ -43,7 +43,6 @@ pub struct EmptyStruct {
     pub _reserved: u8,
 }
 
-
 impl EmptyStruct {
     /// Create a new `EmptyStruct` value (equivalent to `()`)
     #[must_use]
@@ -59,9 +58,7 @@ impl From<()> for EmptyStruct {
 }
 
 impl From<EmptyStruct> for () {
-    fn from(_: EmptyStruct) -> Self {
-        
-    }
+    fn from(_: EmptyStruct) -> Self {}
 }
 
 // ============================================================================
@@ -88,7 +85,6 @@ pub enum LayoutDebugMessageType {
     DisplayType,
     PositionCalculation,
 }
-
 
 /// A debug message emitted during layout, with severity, text, and source location.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd)]
@@ -221,7 +217,8 @@ impl core::fmt::Display for AzString {
 
 impl AzString {
     #[inline]
-    #[must_use] pub const fn from_const_str(s: &'static str) -> Self {
+    #[must_use]
+    pub const fn from_const_str(s: &'static str) -> Self {
         Self {
             vec: U8Vec::from_const_slice(s.as_bytes()),
         }
@@ -242,14 +239,17 @@ impl AzString {
     /// mismatch at codegen-call sites. We cast internally before
     /// handing the pointer to `CStr::from_ptr`.
     #[inline]
-    #[must_use] pub unsafe fn from_c_str(ptr: *const i8) -> Self { unsafe {
-        if ptr.is_null() {
-            return Self::default();
+    #[must_use]
+    pub unsafe fn from_c_str(ptr: *const i8) -> Self {
+        unsafe {
+            if ptr.is_null() {
+                return Self::default();
+            }
+            let c_str = core::ffi::CStr::from_ptr(ptr as *const core::ffi::c_char);
+            let bytes = c_str.to_bytes();
+            Self::copy_from_bytes(bytes.as_ptr(), 0, bytes.len())
         }
-        let c_str = core::ffi::CStr::from_ptr(ptr as *const core::ffi::c_char);
-        let bytes = c_str.to_bytes();
-        Self::copy_from_bytes(bytes.as_ptr(), 0, bytes.len())
-    }}
+    }
 
     /// Copies bytes from a pointer into a new `AzString`.
     /// This is useful for C FFI where you have a char* buffer.
@@ -264,7 +264,8 @@ impl AzString {
     /// empty `AzString`); inlining lets the wrapper do the alloc/memcpy directly
     /// with the standard X8-sret ABI the cascade proves works.
     #[inline]
-    #[must_use] pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
+    #[must_use]
+    pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         let raw = U8Vec::copy_from_bytes(ptr, start, len);
         // web-lift FIX (2026-06-03): FAST PATH for already-valid UTF-8 (the common case, incl. all
         // ASCII like "Hello") — wrap the U8Vec directly, avoiding the `String::from_utf8_lossy()
@@ -280,32 +281,36 @@ impl AzString {
     }
 
     #[inline] // web-lift: inline through the sret-in-X0 chain (see copy_from_bytes)
-    #[must_use] pub const fn from_string(s: String) -> Self {
+    #[must_use]
+    pub const fn from_string(s: String) -> Self {
         Self {
             vec: U8Vec::from_vec(s.into_bytes()),
         }
     }
 
     #[inline]
-    #[must_use] pub fn as_str(&self) -> &str {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
         unsafe { core::str::from_utf8_unchecked(self.vec.as_ref()) }
     }
 
     /// NOTE: CLONES the memory if the memory is external or &'static
     /// Moves the memory out if the memory is library-allocated
     #[inline]
-    #[must_use] pub fn clone_self(&self) -> Self {
+    #[must_use]
+    pub fn clone_self(&self) -> Self {
         Self {
             vec: self.vec.clone_self(),
         }
     }
 
     #[inline]
-    #[must_use] pub fn into_library_owned_string(self) -> String {
+    #[must_use]
+    pub fn into_library_owned_string(self) -> String {
         match self.vec.destructor {
-            U8VecDestructor::NoDestructor | U8VecDestructor::External(_) | U8VecDestructor::AlreadyDestroyed => {
-                self.as_str().to_string()
-            }
+            U8VecDestructor::NoDestructor
+            | U8VecDestructor::External(_)
+            | U8VecDestructor::AlreadyDestroyed => self.as_str().to_string(),
             U8VecDestructor::DefaultRust => {
                 let m = core::mem::ManuallyDrop::new(self);
                 unsafe { String::from_raw_parts(m.vec.ptr.cast_mut(), m.vec.len, m.vec.cap) }
@@ -314,12 +319,14 @@ impl AzString {
     }
 
     #[inline]
-    #[must_use] pub fn as_bytes(&self) -> &[u8] {
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
         self.vec.as_ref()
     }
 
     #[inline]
-    #[must_use] pub fn into_bytes(self) -> U8Vec {
+    #[must_use]
+    pub fn into_bytes(self) -> U8Vec {
         let m = core::mem::ManuallyDrop::new(self);
         U8Vec {
             ptr: m.vec.ptr,
@@ -331,13 +338,15 @@ impl AzString {
 
     /// Returns the length of the string in bytes (not including null terminator)
     #[inline]
-    #[must_use] pub const fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.vec.len
     }
 
     /// Returns true if the string is empty
     #[inline]
-    #[must_use] pub const fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.vec.len == 0
     }
 
@@ -347,7 +356,8 @@ impl AzString {
     ///
     /// Use this when you need to pass a string to C code that expects `const char*`.
     #[inline]
-    #[must_use] pub fn to_c_str(&self) -> U8Vec {
+    #[must_use]
+    pub fn to_c_str(&self) -> U8Vec {
         let bytes = self.as_bytes();
         let mut result = Vec::with_capacity(bytes.len() + 1);
         result.extend_from_slice(bytes);
@@ -364,24 +374,26 @@ impl AzString {
         ptr: *const u8,
         len: usize,
         from_bytes: fn([u8; 2]) -> u16,
-    ) -> Self { unsafe {
-        if ptr.is_null() || len == 0 {
-            return Self::default();
+    ) -> Self {
+        unsafe {
+            if ptr.is_null() || len == 0 {
+                return Self::default();
+            }
+
+            // UTF-16 requires pairs of bytes
+            if !len.is_multiple_of(2) {
+                return Self::default();
+            }
+
+            let byte_slice = core::slice::from_raw_parts(ptr, len);
+            let code_units: Vec<u16> = byte_slice
+                .chunks_exact(2)
+                .map(|chunk| from_bytes([chunk[0], chunk[1]]))
+                .collect();
+
+            String::from_utf16(&code_units).map_or_else(|_| Self::default(), Self::from_string)
         }
-
-        // UTF-16 requires pairs of bytes
-        if !len.is_multiple_of(2) {
-            return Self::default();
-        }
-
-        let byte_slice = core::slice::from_raw_parts(ptr, len);
-        let code_units: Vec<u16> = byte_slice
-            .chunks_exact(2)
-            .map(|chunk| from_bytes([chunk[0], chunk[1]]))
-            .collect();
-
-        String::from_utf16(&code_units).map_or_else(|_| Self::default(), Self::from_string)
-    }}
+    }
 
     /// Creates a new `AzString` from UTF-16 encoded bytes (little-endian).
     /// Returns an empty string if the input is invalid UTF-16 or has odd length.
@@ -394,9 +406,9 @@ impl AzString {
     /// - `ptr` must be valid for reading `len` bytes
     /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
     #[inline]
-    pub unsafe fn from_utf16_le(ptr: *const u8, len: usize) -> Self { unsafe {
-        Self::from_utf16_with_byte_order(ptr, len, u16::from_le_bytes)
-    }}
+    pub unsafe fn from_utf16_le(ptr: *const u8, len: usize) -> Self {
+        unsafe { Self::from_utf16_with_byte_order(ptr, len, u16::from_le_bytes) }
+    }
 
     /// Creates a new `AzString` from UTF-16 encoded bytes (big-endian).
     /// Returns an empty string if the input is invalid UTF-16 or has odd length.
@@ -409,9 +421,9 @@ impl AzString {
     /// - `ptr` must be valid for reading `len` bytes
     /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
     #[inline]
-    pub unsafe fn from_utf16_be(ptr: *const u8, len: usize) -> Self { unsafe {
-        Self::from_utf16_with_byte_order(ptr, len, u16::from_be_bytes)
-    }}
+    pub unsafe fn from_utf16_be(ptr: *const u8, len: usize) -> Self {
+        unsafe { Self::from_utf16_with_byte_order(ptr, len, u16::from_be_bytes) }
+    }
 
     /// Creates a new `AzString` from UTF-8 bytes with lossy conversion.
     /// Invalid UTF-8 sequences are replaced with the Unicode replacement character (U+FFFD).
@@ -419,15 +431,18 @@ impl AzString {
     /// # Safety
     /// - `ptr` must be valid for reading `len` bytes
     #[inline]
-    #[must_use] pub unsafe fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { unsafe {
-        if ptr.is_null() || len == 0 {
-            return Self::default();
+    #[must_use]
+    pub unsafe fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self {
+        unsafe {
+            if ptr.is_null() || len == 0 {
+                return Self::default();
+            }
+
+            let byte_slice = core::slice::from_raw_parts(ptr, len);
+            let s = String::from_utf8_lossy(byte_slice).into_owned();
+            Self::from_string(s)
         }
-        
-        let byte_slice = core::slice::from_raw_parts(ptr, len);
-        let s = String::from_utf8_lossy(byte_slice).into_owned();
-        Self::from_string(s)
-    }}
+    }
 
     /// Creates a new `AzString` from UTF-8 bytes.
     /// Returns an empty string if the input is not valid UTF-8.
@@ -435,15 +450,18 @@ impl AzString {
     /// # Safety
     /// - `ptr` must be valid for reading `len` bytes
     #[inline]
-    #[must_use] pub unsafe fn from_utf8(ptr: *const u8, len: usize) -> Self { unsafe {
-        if ptr.is_null() || len == 0 {
-            return Self::default();
+    #[must_use]
+    pub unsafe fn from_utf8(ptr: *const u8, len: usize) -> Self {
+        unsafe {
+            if ptr.is_null() || len == 0 {
+                return Self::default();
+            }
+
+            let byte_slice = core::slice::from_raw_parts(ptr, len);
+            core::str::from_utf8(byte_slice)
+                .map_or_else(|_| Self::default(), |s| Self::from_string(s.to_string()))
         }
-        
-        let byte_slice = core::slice::from_raw_parts(ptr, len);
-        core::str::from_utf8(byte_slice)
-            .map_or_else(|_| Self::default(), |s| Self::from_string(s.to_string()))
-    }}
+    }
 }
 
 impl From<String> for AzString {
@@ -501,7 +519,14 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(u8, U8Vec, U8VecDestructor, U8VecDestructorType, U8VecSlice, OptionU8);
+impl_vec!(
+    u8,
+    U8Vec,
+    U8VecDestructor,
+    U8VecDestructorType,
+    U8VecSlice,
+    OptionU8
+);
 impl_vec_mut!(u8, U8Vec);
 impl_vec_debug!(u8, U8Vec);
 impl_vec_partialord!(u8, U8Vec);
@@ -519,8 +544,10 @@ impl U8Vec {
     /// - `ptr` must be valid for reading `start + len` bytes
     /// - `start + len` must not overflow
     #[inline] // web-lift: inline through the sret-in-X0 chain (see AzString::copy_from_bytes)
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
-    #[must_use] pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+    #[must_use]
+    pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self {
         if ptr.is_null() || len == 0 {
             return Self::new();
         }
@@ -540,7 +567,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Ord, PartialOrd, Eq, Hash]
 );
 
-impl_vec!(u16, U16Vec, U16VecDestructor, U16VecDestructorType, U16VecSlice, OptionU16);
+impl_vec!(
+    u16,
+    U16Vec,
+    U16VecDestructor,
+    U16VecDestructorType,
+    U16VecSlice,
+    OptionU16
+);
 impl_vec_debug!(u16, U16Vec);
 impl_vec_partialord!(u16, U16Vec);
 impl_vec_ord!(u16, U16Vec);
@@ -549,14 +583,28 @@ impl_vec_partialeq!(u16, U16Vec);
 impl_vec_eq!(u16, U16Vec);
 impl_vec_hash!(u16, U16Vec);
 
-impl_vec!(f32, F32Vec, F32VecDestructor, F32VecDestructorType, F32VecSlice, OptionF32);
+impl_vec!(
+    f32,
+    F32Vec,
+    F32VecDestructor,
+    F32VecDestructorType,
+    F32VecSlice,
+    OptionF32
+);
 impl_vec_debug!(f32, F32Vec);
 impl_vec_partialord!(f32, F32Vec);
 impl_vec_clone!(f32, F32Vec, F32VecDestructor);
 impl_vec_partialeq!(f32, F32Vec);
 
 // Vec<char>
-impl_vec!(u32, U32Vec, U32VecDestructor, U32VecDestructorType, U32VecSlice, OptionU32);
+impl_vec!(
+    u32,
+    U32Vec,
+    U32VecDestructor,
+    U32VecDestructorType,
+    U32VecSlice,
+    OptionU32
+);
 impl_vec_mut!(u32, U32Vec);
 impl_vec_debug!(u32, U32Vec);
 impl_vec_partialord!(u32, U32Vec);
@@ -566,7 +614,14 @@ impl_vec_partialeq!(u32, U32Vec);
 impl_vec_eq!(u32, U32Vec);
 impl_vec_hash!(u32, U32Vec);
 
-impl_vec!(AzString, StringVec, StringVecDestructor, StringVecDestructorType, StringVecSlice, OptionString);
+impl_vec!(
+    AzString,
+    StringVec,
+    StringVecDestructor,
+    StringVecDestructorType,
+    StringVecSlice,
+    OptionString
+);
 impl_vec_debug!(AzString, StringVec);
 impl_vec_partialord!(AzString, StringVec);
 impl_vec_ord!(AzString, StringVec);
@@ -619,7 +674,11 @@ impl_option!(
     OptionI32,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
-impl_option!(bool, OptionBool, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    bool,
+    OptionBool,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq]);
 impl_option!(f64, OptionF64, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
@@ -724,7 +783,8 @@ impl StringArena {
     /// for small documents.
     pub const CHUNK_SIZE: usize = 64 * 1024;
 
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             inner: Arc::new(StringArenaInner {
                 chunks: UnsafeCell::new(Vec::new()),
@@ -734,7 +794,8 @@ impl StringArena {
     }
 
     /// Returns `(chunk_count, total_bytes_used)` for metrics.
-    #[must_use] pub fn metrics(&self) -> (usize, usize) {
+    #[must_use]
+    pub fn metrics(&self) -> (usize, usize) {
         // Safety: metrics is read-only; the caller holds &self so no
         // concurrent mutation via &mut self is possible.
         unsafe {
@@ -882,7 +943,10 @@ mod string_arena_tests {
             strings.push(arena.intern(&format!("s{i}")));
         }
         let (chunks, _bytes) = arena.metrics();
-        assert!(chunks <= 2, "expected ≤2 chunks for 100 small strings, got {chunks}");
+        assert!(
+            chunks <= 2,
+            "expected ≤2 chunks for 100 small strings, got {chunks}"
+        );
         for (i, s) in strings.iter().enumerate() {
             assert_eq!(s.as_str(), format!("s{i}"));
         }
@@ -1100,7 +1164,10 @@ mod autotest_generated {
         assert_eq!(m.message_type, LayoutDebugMessageType::Info);
         assert!(m.message.is_empty());
         assert!(m.location.is_empty(), "default() does not track a caller");
-        assert_eq!(LayoutDebugMessageType::default(), LayoutDebugMessageType::Info);
+        assert_eq!(
+            LayoutDebugMessageType::default(),
+            LayoutDebugMessageType::Info
+        );
     }
 
     #[test]
@@ -1647,9 +1714,8 @@ mod autotest_generated {
         };
         assert_eq!(via_shared.as_str(), "Az");
 
-        let swapped = unsafe {
-            AzString::from_utf16_with_byte_order(le.as_ptr(), le.len(), swap_halves)
-        };
+        let swapped =
+            unsafe { AzString::from_utf16_with_byte_order(le.as_ptr(), le.len(), swap_halves) };
         assert_eq!(swapped.as_str(), "\u{4100}\u{7A00}");
 
         // The odd-length / null guards live in the shared impl, so check them here too.
@@ -1711,7 +1777,13 @@ mod autotest_generated {
         assert_eq!(AzString::from_const_str("é").len(), 2);
         assert_eq!(AzString::from_const_str("\u{1F600}").len(), 4);
         assert_eq!(AzString::from_const_str("e\u{0301}").len(), 3); // combining accent
-        assert_eq!(AzString::from_const_str("\u{1F600}").as_str().chars().count(), 1);
+        assert_eq!(
+            AzString::from_const_str("\u{1F600}")
+                .as_str()
+                .chars()
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1764,7 +1836,10 @@ mod autotest_generated {
             let s = arena.intern("interned");
             s.into_library_owned_string()
         };
-        assert_eq!(owned, "interned", "must outlive the arena it was copied from");
+        assert_eq!(
+            owned, "interned",
+            "must outlive the arena it was copied from"
+        );
         // Empty / default.
         assert_eq!(AzString::default().into_library_owned_string(), "");
     }
@@ -1856,9 +1931,19 @@ mod autotest_generated {
     fn azstring_debug_matches_str_debug_and_escapes() {
         let s = AzString::from("a\"b\\c\nd");
         let expected = format!("{:?}", "a\"b\\c\nd");
-        assert_eq!(format!("{s:?}"), expected, "Debug must delegate to str::fmt");
-        assert!(format!("{s:?}").starts_with('"'), "Debug output must be quoted");
-        assert!(!format!("{s:?}").contains('\n'), "Debug must escape newlines");
+        assert_eq!(
+            format!("{s:?}"),
+            expected,
+            "Debug must delegate to str::fmt"
+        );
+        assert!(
+            format!("{s:?}").starts_with('"'),
+            "Debug output must be quoted"
+        );
+        assert!(
+            !format!("{s:?}").contains('\n'),
+            "Debug must escape newlines"
+        );
     }
 
     #[test]
@@ -1902,7 +1987,10 @@ mod autotest_generated {
             arena.intern("key"),
         ];
         for v in &variants {
-            assert_eq!(*v, variants[0], "equality must compare CONTENT, not pointers");
+            assert_eq!(
+                *v, variants[0],
+                "equality must compare CONTENT, not pointers"
+            );
             assert_eq!(
                 hash_of(v),
                 hash_of(&variants[0]),
@@ -1969,7 +2057,10 @@ mod autotest_generated {
         assert!(e.is_empty());
         assert_eq!(e.as_str(), "");
         assert_eq!(arena.metrics(), (0, 0), "empty strings need no storage");
-        assert!(!e.vec.ptr.is_null(), "the dangling ptr must still be non-null");
+        assert!(
+            !e.vec.ptr.is_null(),
+            "the dangling ptr must still be non-null"
+        );
     }
 
     #[test]
@@ -2115,7 +2206,11 @@ mod autotest_generated {
         let big = "x".repeat(StringArena::CHUNK_SIZE);
         let big_len = big.len();
         let interned_big = arena.intern(&big);
-        assert_eq!(interned_big.as_str(), big.as_str(), "valid before the next intern");
+        assert_eq!(
+            interned_big.as_str(),
+            big.as_str(),
+            "valid before the next intern"
+        );
 
         // 3. another small string: must NOT be appended into the full chunk
         let _small2 = arena.intern("y");
@@ -2162,7 +2257,10 @@ mod autotest_generated {
             1,
             "the destructor must release exactly one Arc reference"
         );
-        assert_eq!(v.cap, 0, "cap must be zeroed to guard against a double drop");
+        assert_eq!(
+            v.cap, 0,
+            "cap must be zeroed to guard against a double drop"
+        );
 
         // A second call must be a no-op rather than a double free.
         arena_string_destructor(&mut v);

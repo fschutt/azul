@@ -46,10 +46,8 @@ use model::{Finding, Semantic, Stroke, Tool, VoiceClip};
 /// Autosave lands here. A review is long and interruptible; losing ink to a
 /// crash would make the tool untrustworthy for the one job it has.
 pub(crate) fn scratch_dir() -> PathBuf {
-    std::env::var("AZ_REVIEW_DIR").map_or_else(
-        |_| std::env::temp_dir().join("azreview"),
-        PathBuf::from,
-    )
+    std::env::var("AZ_REVIEW_DIR")
+        .map_or_else(|_| std::env::temp_dir().join("azreview"), PathBuf::from)
 }
 
 pub struct AppState {
@@ -169,9 +167,10 @@ fn derive_findings(
 // ───────── entry point ─────────
 
 pub fn run() {
-    let root = std::env::args()
-        .nth(1)
-        .map_or_else(|| std::env::current_dir().unwrap_or_default(), PathBuf::from);
+    let root = std::env::args().nth(1).map_or_else(
+        || std::env::current_dir().unwrap_or_default(),
+        PathBuf::from,
+    );
     let files = code::load_tree(&root, 400);
     let status = if files.is_empty() {
         format!("no reviewable files under {}", root.display())
@@ -223,7 +222,11 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
         // there is no separate "delete finding" affordance to keep in sync.
         let hit = s.strokes.iter().rposition(|st| {
             let (x0, y0, x1, y1) = st.bounds();
-            st.page == page && p.x >= x0 - 6.0 && p.x <= x1 + 6.0 && p.y >= y0 - 6.0 && p.y <= y1 + 6.0
+            st.page == page
+                && p.x >= x0 - 6.0
+                && p.x <= x1 + 6.0
+                && p.y >= y0 - 6.0
+                && p.y <= y1 + 6.0
         });
         if let Some(i) = hit {
             s.strokes.remove(i);
@@ -239,13 +242,22 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     // produce findings whose ink shape contradicts their label.
     let semantic = s.tool.semantic_for(s.active);
     let epoch = s.epoch;
-    s.live = Some(Stroke { page, semantic, points: vec![p], id, epoch });
+    s.live = Some(Stroke {
+        page,
+        semantic,
+        points: vec![p],
+        id,
+        epoch,
+    });
 
     // The audio pen starts recording by being used. Any other way round means
     // remembering to arm it first, and the remark worth saying out loud is the
     // one made without stopping to think about the tool.
     if s.tool.records_audio() && s.recording.is_none() {
-        s.recording = Some(VoiceClip { sample_rate: 48_000, ..VoiceClip::default() });
+        s.recording = Some(VoiceClip {
+            sample_rate: 48_000,
+            ..VoiceClip::default()
+        });
     }
     if let Some(clip) = s.recording.as_mut() {
         clip.stroke_ids.push(id);
@@ -354,10 +366,15 @@ fn arm_idle_timer(info: &mut CallbackInfo, data: RefAny, id: TimerId) {
     info.remove_timer(id);
     let timer = Timer::create(
         data,
-        TimerCallback { cb: on_annotation_idle, ctx: OptionRefAny::None },
+        TimerCallback {
+            cb: on_annotation_idle,
+            ctx: OptionRefAny::None,
+        },
         info.get_system_time_fn(),
     )
-    .with_delay(Duration::System(SystemTimeDiff::from_millis(ANNOTATION_IDLE_MS)));
+    .with_delay(Duration::System(SystemTimeDiff::from_millis(
+        ANNOTATION_IDLE_MS,
+    )));
     info.add_timer(id, timer);
 }
 
@@ -561,7 +578,10 @@ pub extern "C" fn on_toggle_record(mut data: RefAny, _: CallbackInfo) -> Update 
         s.level_samples = 0;
         session::save(&s);
     } else {
-        s.recording = Some(VoiceClip { sample_rate: 48_000, ..VoiceClip::default() });
+        s.recording = Some(VoiceClip {
+            sample_rate: 48_000,
+            ..VoiceClip::default()
+        });
         s.status = "recording - strokes drawn now carry this audio".to_string();
     }
     Update::RefreshDom

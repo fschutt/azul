@@ -25,7 +25,7 @@ use azul_layout::{
     font::loading::build_font_cache,
     font_traits::{FontManager, TextLayoutCache},
     paged::FragmentationContext,
-    solver3::{pagination::FakePageConfig, paged_layout::layout_document_paged_with_config},
+    solver3::{paged_layout::layout_document_paged_with_config, pagination::FakePageConfig},
     text3::default::PathLoader,
     xml::DomXmlExt,
     Solver3LayoutCache,
@@ -55,11 +55,7 @@ fn empty_cache() -> Solver3LayoutCache {
 }
 
 /// Lay out `html` and return the used size of the node at `node_index`.
-fn layout_and_measure(
-    html: &str,
-    node_index: usize,
-    with_registry: bool,
-) -> LogicalSize {
+fn layout_and_measure(html: &str, node_index: usize, with_registry: bool) -> LogicalSize {
     let styled_dom = Dom::from_xml_string(html);
 
     let fc_cache = build_font_cache();
@@ -80,10 +76,9 @@ fn layout_and_measure(
         size: content_size,
     };
     let loader = PathLoader::new();
-    let font_loader =
-        |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
-            loader.load_font_shared(bytes, index)
-        };
+    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
 
     layout_document_paged_with_config(
         &mut layout_cache,
@@ -241,8 +236,8 @@ fn eight_families_produce_eight_distinct_font_ids() {
     use azul_layout::text3::mock_fonts::{mock_font_ranges, MOCK_MONO_TTF};
 
     let fc_cache = build_font_cache();
-    let mut fm = FontManager::<azul_css::props::basic::FontRef>::new(fc_cache)
-        .expect("font manager");
+    let mut fm =
+        FontManager::<azul_css::props::basic::FontRef>::new(fc_cache).expect("font manager");
 
     let mut ids = std::collections::BTreeSet::new();
     for i in 0..8 {
@@ -250,10 +245,17 @@ fn eight_families_produce_eight_distinct_font_ids() {
         let id = fm.register_named_font(&family, MOCK_MONO_TTF, mock_font_ranges());
         assert!(ids.insert(id), "family {family} reused FontId {id:?}");
     }
-    assert_eq!(ids.len(), 8, "8 distinct families must yield 8 distinct FontIds");
+    assert_eq!(
+        ids.len(),
+        8,
+        "8 distinct families must yield 8 distinct FontIds"
+    );
 
     // Registering the same family twice must be idempotent (same id), not
     // mint a second id for the same bytes.
     let again = fm.register_named_font("Azul Test Family 0", MOCK_MONO_TTF, mock_font_ranges());
-    assert!(ids.contains(&again), "re-registration must reuse the FontId");
+    assert!(
+        ids.contains(&again),
+        "re-registration must reuse the FontId"
+    );
 }

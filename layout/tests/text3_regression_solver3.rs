@@ -7,7 +7,6 @@
 //! Fake metrics @ size 20: 'a' 600u => 12px · 'A' 700u => 14px · space 5px ·
 //! line-height normal 20px. FakeFallback covers Greek α/β/γ/δ + '#' at 16px.
 
-
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -46,16 +45,40 @@ fn fake_font_cache() -> FcFontCache {
     let fc_cache = FcFontCache::default();
     fc_cache.with_memory_fonts(vec![
         (
-            FcPattern { name: Some(FAKE_FAMILY.to_string()), family: Some(FAKE_FAMILY.to_string()), ..Default::default() },
-            FcFont { bytes: bytes.clone(), font_index: 0, id: "faketest".to_string() },
+            FcPattern {
+                name: Some(FAKE_FAMILY.to_string()),
+                family: Some(FAKE_FAMILY.to_string()),
+                ..Default::default()
+            },
+            FcFont {
+                bytes: bytes.clone(),
+                font_index: 0,
+                id: "faketest".to_string(),
+            },
         ),
         (
-            FcPattern { name: Some("serif sans-serif monospace".to_string()), family: Some("serif sans-serif monospace".to_string()), ..Default::default() },
-            FcFont { bytes, font_index: 0, id: "faketest_fallback".to_string() },
+            FcPattern {
+                name: Some("serif sans-serif monospace".to_string()),
+                family: Some("serif sans-serif monospace".to_string()),
+                ..Default::default()
+            },
+            FcFont {
+                bytes,
+                font_index: 0,
+                id: "faketest_fallback".to_string(),
+            },
         ),
         (
-            FcPattern { name: Some(FAKE_FALLBACK_FAMILY.to_string()), family: Some(FAKE_FALLBACK_FAMILY.to_string()), ..Default::default() },
-            FcFont { bytes: fb, font_index: 0, id: "fakefallback".to_string() },
+            FcPattern {
+                name: Some(FAKE_FALLBACK_FAMILY.to_string()),
+                family: Some(FAKE_FALLBACK_FAMILY.to_string()),
+                ..Default::default()
+            },
+            FcFont {
+                bytes: fb,
+                font_index: 0,
+                id: "fakefallback".to_string(),
+            },
         ),
     ]);
     fc_cache
@@ -76,7 +99,10 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
     font_manager.register_named_font(
         PROP,
         &prop_bytes,
-        vec![rust_fontconfig::UnicodeRange { start: 0x20, end: 0x7E }],
+        vec![rust_fontconfig::UnicodeRange {
+            start: 0x20,
+            end: 0x7E,
+        }],
     );
     // Register the disjoint fallback face with EXPLICIT Greek coverage so the
     // font-chain resolver can find it for a codepoint the primary lacks. (The
@@ -86,8 +112,14 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
         FAKE_FALLBACK_FAMILY,
         &simple_fallback_font(),
         vec![
-            rust_fontconfig::UnicodeRange { start: 0x0023, end: 0x0023 }, // '#'
-            rust_fontconfig::UnicodeRange { start: 0x03B1, end: 0x03B4 }, // α..δ
+            rust_fontconfig::UnicodeRange {
+                start: 0x0023,
+                end: 0x0023,
+            }, // '#'
+            rust_fontconfig::UnicodeRange {
+                start: 0x03B1,
+                end: 0x03B4,
+            }, // α..δ
         ],
     );
 
@@ -103,13 +135,19 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
         previous_positions: Vec::new(),
         cached_display_list: None,
         prev_dom_ptr: 0,
-        prev_viewport: LogicalRect { origin: LogicalPosition::zero(), size: LogicalSize::zero() },
+        prev_viewport: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize::zero(),
+        },
         ..Default::default()
     };
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(800.0, 600.0);
     let fragmentation_context = FragmentationContext::new_paged(content_size);
-    let viewport = LogicalRect { origin: LogicalPosition::zero(), size: content_size };
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
     let renderer_resources = RendererResources::default();
     let mut debug_messages = Some(Vec::new());
     let loader = PathLoader::new();
@@ -134,7 +172,9 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
@@ -145,7 +185,10 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
 fn intrinsics(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
     let tree = cache.tree.as_ref().expect("layout tree");
     (0..64)
-        .filter_map(|i| tree.warm(azul_layout::solver3::LayoutNodeId::new(i)).and_then(|w| w.intrinsic_sizes))
+        .filter_map(|i| {
+            tree.warm(azul_layout::solver3::LayoutNodeId::new(i))
+                .and_then(|w| w.intrinsic_sizes)
+        })
         .map(|s| (s.min_content_width, s.max_content_width))
         .collect()
 }
@@ -153,17 +196,24 @@ fn intrinsics(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
 fn used_sizes(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
     let tree = cache.tree.as_ref().expect("layout tree");
     (0..64)
-        .filter_map(|i| tree.get(azul_layout::solver3::LayoutNodeId::new(i)).and_then(|n| n.used_size))
+        .filter_map(|i| {
+            tree.get(azul_layout::solver3::LayoutNodeId::new(i))
+                .and_then(|n| n.used_size)
+        })
         .map(|s| (s.width, s.height))
         .collect()
 }
 
 fn any_max_content(cache: &Solver3LayoutCache, expected: f32) -> bool {
-    intrinsics(cache).iter().any(|(_, mx)| (mx - expected).abs() <= EPS)
+    intrinsics(cache)
+        .iter()
+        .any(|(_, mx)| (mx - expected).abs() <= EPS)
 }
 
 fn has_box(cache: &Solver3LayoutCache, w: f32, h: f32) -> bool {
-    used_sizes(cache).iter().any(|(bw, bh)| (bw - w).abs() <= EPS && (bh - h).abs() <= EPS)
+    used_sizes(cache)
+        .iter()
+        .any(|(bw, bh)| (bw - w).abs() <= EPS && (bh - h).abs() <= EPS)
 }
 
 // ===========================================================================
@@ -180,7 +230,11 @@ fn text_transform_uppercase_widens_to_56() {
          </style></head><body><span class=\"t\">aaaa</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 56.0), "uppercase 'AAAA' = 56px; intrinsics = {:?}", intrinsics(&cache));
+    assert!(
+        any_max_content(&cache, 56.0),
+        "uppercase 'AAAA' = 56px; intrinsics = {:?}",
+        intrinsics(&cache)
+    );
 }
 
 #[test]
@@ -195,7 +249,11 @@ fn text_transform_lowercase_narrows_to_16() {
          </style></head><body><span class=\"t\">IIII</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 16.0), "lowercase 'iiii' = 16px; intrinsics = {:?}", intrinsics(&cache));
+    assert!(
+        any_max_content(&cache, 16.0),
+        "lowercase 'iiii' = 16px; intrinsics = {:?}",
+        intrinsics(&cache)
+    );
 }
 
 #[test]
@@ -207,7 +265,11 @@ fn fixed_width_wraps_three_words_to_two_lines() {
             margin: 0; padding: 0; }}</style></head><body><div class=\"b\">aaaa aaaa aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(has_box(&cache, 110.0, 40.0), "expected 110x40 (2 line boxes); used sizes = {:?}", used_sizes(&cache));
+    assert!(
+        has_box(&cache, 110.0, 40.0),
+        "expected 110x40 (2 line boxes); used sizes = {:?}",
+        used_sizes(&cache)
+    );
 }
 
 #[test]
@@ -220,7 +282,11 @@ fn white_space_nowrap_keeps_one_line_box() {
          </style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(has_box(&cache, 60.0, 20.0), "nowrap => single 20px line; used sizes = {:?}", used_sizes(&cache));
+    assert!(
+        has_box(&cache, 60.0, 20.0),
+        "nowrap => single 20px line; used sizes = {:?}",
+        used_sizes(&cache)
+    );
 }
 
 #[test]
@@ -232,7 +298,11 @@ fn br_forces_second_line_box() {
             margin: 0; padding: 0; }}</style></head><body><div class=\"b\">aaaa<br/>aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(has_box(&cache, 200.0, 40.0), "expected 200x40 (<br> => 2 lines); used sizes = {:?}", used_sizes(&cache));
+    assert!(
+        has_box(&cache, 200.0, 40.0),
+        "expected 200x40 (<br> => 2 lines); used sizes = {:?}",
+        used_sizes(&cache)
+    );
 }
 
 #[test]
@@ -245,7 +315,11 @@ fn word_spacing_widens_max_content() {
          </style></head><body><span class=\"b\">aa aa</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 53.0), "word-spacing 3px => 53px; intrinsics = {:?}", intrinsics(&cache));
+    assert!(
+        any_max_content(&cache, 53.0),
+        "word-spacing 3px => 53px; intrinsics = {:?}",
+        intrinsics(&cache)
+    );
 }
 
 #[test]
@@ -258,7 +332,11 @@ fn letter_spacing_widens_max_content_after_every_cluster() {
          </style></head><body><span class=\"b\">aaaa</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 48.0), "letter-spacing 2px * 4 clusters => 48px; intrinsics = {:?}", intrinsics(&cache));
+    assert!(
+        any_max_content(&cache, 48.0),
+        "letter-spacing 2px * 4 clusters => 48px; intrinsics = {:?}",
+        intrinsics(&cache)
+    );
 }
 
 #[test]
@@ -271,7 +349,11 @@ fn border_reduces_content_width_like_padding() {
          </style></head><body><div class=\"b\">aaaa aaaa</div></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(has_box(&cache, 70.0, 50.0), "expected 70x50 border box; used sizes = {:?}", used_sizes(&cache));
+    assert!(
+        has_box(&cache, 70.0, 50.0),
+        "expected 70x50 border box; used sizes = {:?}",
+        used_sizes(&cache)
+    );
 }
 
 #[test]
@@ -284,7 +366,11 @@ fn two_block_divs_stack_to_double_height() {
          </style></head><body><div class=\"wrap\"><div>aaaa</div><div>aaaa</div></div></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(has_box(&cache, 100.0, 40.0), "two stacked 20px divs => 100x40; used sizes = {:?}", used_sizes(&cache));
+    assert!(
+        has_box(&cache, 100.0, 40.0),
+        "two stacked 20px divs => 100x40; used sizes = {:?}",
+        used_sizes(&cache)
+    );
 }
 
 #[test]
@@ -302,5 +388,9 @@ fn font_fallback_covers_uncovered_codepoint() {
          </style></head><body><span class=\"b\">a\u{03B1}</span></body></html>"
     );
     let cache = run_layout(&html);
-    assert!(any_max_content(&cache, 26.0), "fallback 'α' (16px) => 26px total; intrinsics = {:?}", intrinsics(&cache));
+    assert!(
+        any_max_content(&cache, 26.0),
+        "fallback 'α' (16px) => 26px total; intrinsics = {:?}",
+        intrinsics(&cache)
+    );
 }

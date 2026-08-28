@@ -7,7 +7,6 @@
 //! 4. `RestyleResult.max_relayout_scope` is tracked during restyle
 //! 5. IFC layouts with text produce correct item_metrics
 
-use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -18,6 +17,7 @@ use azul_layout::paged::FragmentationContext;
 use azul_layout::solver3::layout_tree::{CachedInlineLayout, InlineItemMetrics};
 use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
 use azul_layout::solver3::pagination::FakePageConfig;
+use azul_layout::solver3::LayoutNodeId;
 use azul_layout::text3::cache::AvailableSpace;
 use azul_layout::text3::default::PathLoader;
 use azul_layout::xml::DomXmlExt;
@@ -280,14 +280,12 @@ fn test_cached_inline_layout_empty_layout_has_empty_metrics() {
         overflow: OverflowInfo::default(),
     });
 
-    let cached = CachedInlineLayout::new(
-        empty_layout,
-        AvailableSpace::Definite(400.0),
-        false,
-    );
+    let cached = CachedInlineLayout::new(empty_layout, AvailableSpace::Definite(400.0), false);
 
-    assert!(cached.item_metrics.is_empty(),
-        "Empty UnifiedLayout should produce empty item_metrics");
+    assert!(
+        cached.item_metrics.is_empty(),
+        "Empty UnifiedLayout should produce empty item_metrics"
+    );
 }
 
 #[test]
@@ -321,11 +319,7 @@ fn test_cached_inline_layout_validity_check_unchanged() {
         overflow: OverflowInfo::default(),
     });
 
-    let cached = CachedInlineLayout::new(
-        layout,
-        AvailableSpace::Definite(400.0),
-        false,
-    );
+    let cached = CachedInlineLayout::new(layout, AvailableSpace::Definite(400.0), false);
 
     // Same width, no floats → valid
     assert!(cached.is_valid_for(AvailableSpace::Definite(400.0), false));
@@ -392,7 +386,9 @@ fn layout_html_and_get_tree(html: &str) -> Solver3LayoutCache {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
@@ -414,7 +410,10 @@ fn test_ifc_layout_produces_item_metrics() {
     let tree = cache.tree.as_ref().expect("Layout tree should exist");
 
     // Find nodes with inline_layout_result (IFC roots)
-    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
+    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree
+        .nodes
+        .iter()
+        .enumerate()
         .filter_map(|(idx, _)| {
             tree.warm(LayoutNodeId::new(idx))
                 .and_then(|w| w.inline_layout_result.as_ref())
@@ -422,7 +421,10 @@ fn test_ifc_layout_produces_item_metrics() {
         })
         .collect();
 
-    assert!(!ifc_nodes.is_empty(), "Should have at least one IFC root node");
+    assert!(
+        !ifc_nodes.is_empty(),
+        "Should have at least one IFC root node"
+    );
 
     for (idx, cached) in &ifc_nodes {
         // (d7) materialized(): the stored layout is the retirement
@@ -445,12 +447,16 @@ fn test_ifc_layout_produces_item_metrics() {
             assert!(
                 metric.advance_width >= 0.0,
                 "Node {}, item {}: advance_width should be >= 0, got {}",
-                idx, i, metric.advance_width
+                idx,
+                i,
+                metric.advance_width
             );
             assert!(
                 metric.line_height_contribution >= 0.0,
                 "Node {}, item {}: line_height_contribution should be >= 0, got {}",
-                idx, i, metric.line_height_contribution
+                idx,
+                i,
+                metric.line_height_contribution
             );
         }
     }
@@ -469,7 +475,10 @@ fn test_ifc_layout_metrics_have_correct_line_indices() {
     let cache = layout_html_and_get_tree(html);
     let tree = cache.tree.as_ref().expect("Layout tree should exist");
 
-    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
+    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree
+        .nodes
+        .iter()
+        .enumerate()
         .filter_map(|(idx, _)| {
             tree.warm(LayoutNodeId::new(idx))
                 .and_then(|w| w.inline_layout_result.as_ref())
@@ -479,14 +488,15 @@ fn test_ifc_layout_metrics_have_correct_line_indices() {
 
     // With width: 50px, text should wrap to multiple lines
     for (_idx, cached) in &ifc_nodes {
-
         if cached.item_metrics.is_empty() {
             continue;
         }
 
         // Verify line_index values are valid (non-negative, which they always are as u32).
         // Also verify that items on the same line have consistent line_index values.
-        let max_line = cached.item_metrics.iter()
+        let max_line = cached
+            .item_metrics
+            .iter()
             .map(|m| m.line_index)
             .max()
             .unwrap_or(0);
@@ -512,7 +522,10 @@ fn test_ifc_layout_metrics_x_offsets_increase_on_same_line() {
     let cache = layout_html_and_get_tree(html);
     let tree = cache.tree.as_ref().expect("Layout tree should exist");
 
-    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
+    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree
+        .nodes
+        .iter()
+        .enumerate()
         .filter_map(|(idx, _)| {
             tree.warm(LayoutNodeId::new(idx))
                 .and_then(|w| w.inline_layout_result.as_ref())
@@ -534,7 +547,10 @@ fn test_ifc_layout_metrics_x_offsets_increase_on_same_line() {
                 assert!(
                     item.x_offset >= prev_x,
                     "Node {}, line {}: x_offset {} should be >= prev {}",
-                    idx, line_idx, item.x_offset, prev_x
+                    idx,
+                    line_idx,
+                    item.x_offset,
+                    prev_x
                 );
                 prev_x = item.x_offset;
             }
@@ -555,7 +571,10 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
     let cache = layout_html_and_get_tree(html);
     let tree = cache.tree.as_ref().expect("Layout tree should exist");
 
-    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree.nodes.iter().enumerate()
+    let ifc_nodes: Vec<(usize, &CachedInlineLayout)> = tree
+        .nodes
+        .iter()
+        .enumerate()
         .filter_map(|(idx, _)| {
             tree.warm(LayoutNodeId::new(idx))
                 .and_then(|w| w.inline_layout_result.as_ref())
@@ -566,19 +585,18 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
     assert!(!ifc_nodes.is_empty(), "Should have IFC root nodes");
 
     // At least some items should have source_node_id set (text clusters)
-    let total_items: usize = ifc_nodes.iter()
+    let total_items: usize = ifc_nodes
+        .iter()
         .map(|(_, cached)| cached.item_metrics.len())
         .sum();
 
-    let items_with_source: usize = ifc_nodes.iter()
+    let items_with_source: usize = ifc_nodes
+        .iter()
         .flat_map(|(_, cached)| cached.item_metrics.iter())
         .filter(|m| m.source_node_id.is_some())
         .count();
 
-    assert!(
-        total_items > 0,
-        "Should have inline items from text"
-    );
+    assert!(total_items > 0, "Should have inline items from text");
     assert!(
         items_with_source > 0,
         "At least some items should have source_node_id (text clusters), \
@@ -588,15 +606,24 @@ fn test_ifc_layout_metrics_source_node_ids_for_text() {
 
 #[test]
 fn test_ifc_layout_replace_preserves_metrics_structure() {
-    use azul_layout::text3::cache::{OverflowInfo, PositionedItem, UnifiedLayout, ShapedItem,
-        ShapedCluster, ContentIndex, GraphemeClusterId, Point};
+    use azul_layout::text3::cache::{
+        ContentIndex, GraphemeClusterId, OverflowInfo, Point, PositionedItem, ShapedCluster,
+        ShapedItem, UnifiedLayout,
+    };
 
     // Create a mock UnifiedLayout with one cluster item
     let cluster = ShapedCluster {
         flags: azul_layout::text3::cache::ClusterFlags::classify("A".to_string().as_ref()),
-        source_text: Arc::from("A"), source_byte_len: 1,
-        source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
-        source_content_index: ContentIndex { run_index: 0, item_index: 0 },
+        source_text: Arc::from("A"),
+        source_byte_len: 1,
+        source_cluster_id: GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: 0,
+        },
+        source_content_index: ContentIndex {
+            run_index: 0,
+            item_index: 0,
+        },
         source_node_id: Some(azul_core::dom::NodeId::new(3)),
         glyphs: smallvec::smallvec![],
         advance: 10.0,
@@ -616,14 +643,13 @@ fn test_ifc_layout_replace_preserves_metrics_structure() {
         overflow: OverflowInfo::default(),
     });
 
-    let cached = CachedInlineLayout::new(
-        layout.clone(),
-        AvailableSpace::Definite(800.0),
-        false,
-    );
+    let cached = CachedInlineLayout::new(layout.clone(), AvailableSpace::Definite(800.0), false);
 
     assert_eq!(cached.item_metrics.len(), 1);
-    assert_eq!(cached.item_metrics[0].source_node_id, Some(azul_core::dom::NodeId::new(3)));
+    assert_eq!(
+        cached.item_metrics[0].source_node_id,
+        Some(azul_core::dom::NodeId::new(3))
+    );
     assert!((cached.item_metrics[0].advance_width - 10.0).abs() < 0.01);
     assert_eq!(cached.item_metrics[0].line_index, 0);
     assert!((cached.item_metrics[0].x_offset - 5.0).abs() < 0.01);

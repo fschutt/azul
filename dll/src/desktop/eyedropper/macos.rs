@@ -12,9 +12,9 @@
 //! parks the answer in the layout manager's result channel and wakes every
 //! window so the asking window's next pass reads it.
 
+use azul_css::props::basic::color::ColorU;
 use block2::RcBlock;
 use objc2_app_kit::{NSColor, NSColorSampler, NSColorSpace};
-use azul_css::props::basic::color::ColorU;
 
 /// Start a sampling session for `request_id`. Returns `false` when the
 /// class is missing (pre-10.15), so the caller can fall back.

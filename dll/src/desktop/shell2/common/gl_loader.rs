@@ -9,7 +9,9 @@ use gl_context_loader::GenericGlContext;
 /// Populates every field of [`GenericGlContext`] by calling `get_func` with
 /// the GL symbol name. Each platform provides its own closure that resolves
 /// symbols via the appropriate mechanism (eglGetProcAddress, dlsym, wglGetProcAddress, etc.).
-pub fn load_gl_context(get_func: impl Fn(&str) -> *mut gl_context_loader::c_void) -> GenericGlContext {
+pub fn load_gl_context(
+    get_func: impl Fn(&str) -> *mut gl_context_loader::c_void,
+) -> GenericGlContext {
     GenericGlContext {
         glAccum: get_func("glAccum"),
         glActiveTexture: get_func("glActiveTexture"),

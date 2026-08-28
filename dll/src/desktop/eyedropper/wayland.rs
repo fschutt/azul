@@ -30,7 +30,10 @@ pub fn capture(scale: f32) -> Option<Screenshot> {
     let decoded = match azul_layout::image::decode::decode_raw_image_from_any_bytes(&png) {
         azul_layout::image::decode::ResultRawImageDecodeImageError::Ok(img) => img,
         azul_layout::image::decode::ResultRawImageDecodeImageError::Err(e) => {
-            crate::plog_warn!("[eyedropper] wayland: the portal screenshot did not decode: {:?}", e);
+            crate::plog_warn!(
+                "[eyedropper] wayland: the portal screenshot did not decode: {:?}",
+                e
+            );
             return None;
         }
     };
@@ -70,7 +73,10 @@ fn portal_screenshot_png() -> Option<Vec<u8>> {
     // immediate), then wait for it.
     let unique = conn.unique_name().map(|n| n.to_string())?;
     let sender_token = unique.trim_start_matches(':').replace('.', "_");
-    let token = format!("azuleyedropper{}", REQUEST_COUNTER.fetch_add(1, Ordering::SeqCst));
+    let token = format!(
+        "azuleyedropper{}",
+        REQUEST_COUNTER.fetch_add(1, Ordering::SeqCst)
+    );
     let request_path = format!("/org/freedesktop/portal/desktop/request/{sender_token}/{token}");
     let req_proxy = zbus::blocking::Proxy::new(
         &conn,
@@ -108,10 +114,14 @@ fn portal_screenshot_png() -> Option<Vec<u8>> {
         .deserialize::<(u32, HashMap<String, zbus::zvariant::OwnedValue>)>()
         .ok()?;
     if code != 0 {
-        crate::plog_info!("[eyedropper] wayland: screenshot declined (code {code}) - pick cancelled");
+        crate::plog_info!(
+            "[eyedropper] wayland: screenshot declined (code {code}) - pick cancelled"
+        );
         return None;
     }
-    let uri: String = results.get("uri").and_then(|v| String::try_from(v.clone()).ok())?;
+    let uri: String = results
+        .get("uri")
+        .and_then(|v| String::try_from(v.clone()).ok())?;
     let path = uri.strip_prefix("file://").unwrap_or(uri.as_str());
     let bytes = std::fs::read(path).ok()?;
     // The portal's file is ours to clean up.

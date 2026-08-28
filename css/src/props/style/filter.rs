@@ -21,7 +21,10 @@ use crate::{
     codegen::format::GetHash,
     props::{
         basic::{
-            angle::{AngleValue, parse_angle_value, CssAngleValueParseError, CssAngleValueParseErrorOwned},
+            angle::{
+                parse_angle_value, AngleValue, CssAngleValueParseError,
+                CssAngleValueParseErrorOwned,
+            },
             color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
             length::{FloatValue, PercentageParseError, PercentageValue},
             pixel::{
@@ -71,7 +74,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(StyleFilter, StyleFilterVec, StyleFilterVecDestructor, StyleFilterVecDestructorType, StyleFilterVecSlice, OptionStyleFilter);
+impl_vec!(
+    StyleFilter,
+    StyleFilterVec,
+    StyleFilterVecDestructor,
+    StyleFilterVecDestructorType,
+    StyleFilterVecSlice,
+    OptionStyleFilter
+);
 impl_vec_clone!(StyleFilter, StyleFilterVec, StyleFilterVecDestructor);
 impl_vec_debug!(StyleFilter, StyleFilterVec);
 impl_vec_eq!(StyleFilter, StyleFilterVec);
@@ -115,7 +125,8 @@ pub struct StyleColorMatrix {
 }
 
 impl StyleColorMatrix {
-    #[must_use] pub const fn to_array(&self) -> [FloatValue; 20] {
+    #[must_use]
+    pub const fn to_array(&self) -> [FloatValue; 20] {
         [
             self.m0, self.m1, self.m2, self.m3, self.m4, self.m5, self.m6, self.m7, self.m8,
             self.m9, self.m10, self.m11, self.m12, self.m13, self.m14, self.m15, self.m16,
@@ -141,7 +152,8 @@ pub struct ArithmeticCoefficients {
     pub k3: FloatValue,
     pub k4: FloatValue,
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleCompositeFilter {
@@ -234,10 +246,11 @@ impl PrintAsCssValue for StyleCompositeFilter {
 
 #[cfg(feature = "parser")]
 pub mod parser {
-    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
+    #[allow(clippy::wildcard_imports)]
+    // parser submodule reuses the parent module's value types
     use super::*;
-    use crate::props::basic::parse_percentage_value;
     use crate::corety::AzString;
+    use crate::props::basic::parse_percentage_value;
 
     // -- Top-level Filter Error --
 
@@ -334,7 +347,8 @@ pub mod parser {
     }
 
     impl CssStyleFilterParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> CssStyleFilterParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> CssStyleFilterParseErrorOwned {
             match self {
                 Self::InvalidFilter(s) => {
                     CssStyleFilterParseErrorOwned::InvalidFilter((*s).to_string().into())
@@ -361,7 +375,8 @@ pub mod parser {
     }
 
     impl CssStyleFilterParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> CssStyleFilterParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> CssStyleFilterParseError<'_> {
             match self {
                 Self::InvalidFilter(s) => CssStyleFilterParseError::InvalidFilter(s),
                 Self::InvalidParenthesis(e) => {
@@ -406,7 +421,8 @@ pub mod parser {
     }
 
     impl CssStyleBlurParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> CssStyleBlurParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> CssStyleBlurParseErrorOwned {
             match self {
                 Self::Pixel(e) => CssStyleBlurParseErrorOwned::Pixel(e.to_contained()),
                 Self::TooManyComponents(s) => {
@@ -417,7 +433,8 @@ pub mod parser {
     }
 
     impl CssStyleBlurParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> CssStyleBlurParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> CssStyleBlurParseError<'_> {
             match self {
                 Self::Pixel(e) => CssStyleBlurParseError::Pixel(e.to_shared()),
                 Self::TooManyComponents(s) => CssStyleBlurParseError::TooManyComponents(s),
@@ -445,7 +462,8 @@ pub mod parser {
             Self::Float(p)
         }
     }
-    #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+    #[allow(variant_size_differences)]
+    // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[repr(C, u8)]
     pub enum CssStyleColorMatrixParseErrorOwned {
@@ -454,31 +472,37 @@ pub mod parser {
     }
 
     impl CssStyleColorMatrixParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> CssStyleColorMatrixParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> CssStyleColorMatrixParseErrorOwned {
             match self {
                 Self::Float(e) => CssStyleColorMatrixParseErrorOwned::Float(e.clone().into()),
                 Self::WrongNumberOfComponents {
                     expected,
                     got,
                     input,
-                } => CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
-                    expected: *expected,
-                    got: *got,
-                    input: (*input).to_string().into(),
-                }),
+                } => CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents(
+                    WrongComponentCountError {
+                        expected: *expected,
+                        got: *got,
+                        input: (*input).to_string().into(),
+                    },
+                ),
             }
         }
     }
 
     impl CssStyleColorMatrixParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> CssStyleColorMatrixParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> CssStyleColorMatrixParseError<'_> {
             match self {
                 Self::Float(e) => CssStyleColorMatrixParseError::Float(e.to_std()),
-                Self::WrongNumberOfComponents(e) => CssStyleColorMatrixParseError::WrongNumberOfComponents {
-                    expected: e.expected,
-                    got: e.got,
-                    input: e.input.as_str(),
-                },
+                Self::WrongNumberOfComponents(e) => {
+                    CssStyleColorMatrixParseError::WrongNumberOfComponents {
+                        expected: e.expected,
+                        got: e.got,
+                        input: e.input.as_str(),
+                    }
+                }
             }
         }
     }
@@ -511,31 +535,37 @@ pub mod parser {
     }
 
     impl CssStyleFilterOffsetParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> CssStyleFilterOffsetParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> CssStyleFilterOffsetParseErrorOwned {
             match self {
                 Self::Pixel(e) => CssStyleFilterOffsetParseErrorOwned::Pixel(e.to_contained()),
                 Self::WrongNumberOfComponents {
                     expected,
                     got,
                     input,
-                } => CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
-                    expected: *expected,
-                    got: *got,
-                    input: (*input).to_string().into(),
-                }),
+                } => CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents(
+                    WrongComponentCountError {
+                        expected: *expected,
+                        got: *got,
+                        input: (*input).to_string().into(),
+                    },
+                ),
             }
         }
     }
 
     impl CssStyleFilterOffsetParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> CssStyleFilterOffsetParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> CssStyleFilterOffsetParseError<'_> {
             match self {
                 Self::Pixel(e) => CssStyleFilterOffsetParseError::Pixel(e.to_shared()),
-                Self::WrongNumberOfComponents(e) => CssStyleFilterOffsetParseError::WrongNumberOfComponents {
-                    expected: e.expected,
-                    got: e.got,
-                    input: e.input.as_str(),
-                },
+                Self::WrongNumberOfComponents(e) => {
+                    CssStyleFilterOffsetParseError::WrongNumberOfComponents {
+                        expected: e.expected,
+                        got: e.got,
+                        input: e.input.as_str(),
+                    }
+                }
             }
         }
     }
@@ -576,7 +606,8 @@ pub mod parser {
     }
 
     impl CssStyleCompositeFilterParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> CssStyleCompositeFilterParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> CssStyleCompositeFilterParseErrorOwned {
             match self {
                 Self::Invalid(e) => {
                     CssStyleCompositeFilterParseErrorOwned::Invalid(e.to_contained())
@@ -586,25 +617,30 @@ pub mod parser {
                     expected,
                     got,
                     input,
-                } => CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
-                    expected: *expected,
-                    got: *got,
-                    input: (*input).to_string().into(),
-                }),
+                } => CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents(
+                    WrongComponentCountError {
+                        expected: *expected,
+                        got: *got,
+                        input: (*input).to_string().into(),
+                    },
+                ),
             }
         }
     }
 
     impl CssStyleCompositeFilterParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> CssStyleCompositeFilterParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> CssStyleCompositeFilterParseError<'_> {
             match self {
                 Self::Invalid(e) => CssStyleCompositeFilterParseError::Invalid(e.to_shared()),
                 Self::Float(e) => CssStyleCompositeFilterParseError::Float(e.to_std()),
-                Self::WrongNumberOfComponents(e) => CssStyleCompositeFilterParseError::WrongNumberOfComponents {
-                    expected: e.expected,
-                    got: e.got,
-                    input: e.input.as_str(),
-                },
+                Self::WrongNumberOfComponents(e) => {
+                    CssStyleCompositeFilterParseError::WrongNumberOfComponents {
+                        expected: e.expected,
+                        got: e.got,
+                        input: e.input.as_str(),
+                    }
+                }
             }
         }
     }
@@ -667,9 +703,7 @@ pub mod parser {
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `filter` value.
-    pub fn parse_style_filter(
-        input: &str,
-    ) -> Result<StyleFilter, CssStyleFilterParseError<'_>> {
+    pub fn parse_style_filter(input: &str) -> Result<StyleFilter, CssStyleFilterParseError<'_>> {
         let (filter_type, filter_values) = parse_parentheses(
             input,
             &[
@@ -736,7 +770,9 @@ pub mod parser {
                 }
                 Ok(StyleFilter::Contrast(val))
             }
-            "grayscale" => Ok(StyleFilter::Grayscale(parse_percentage_value(filter_values)?)),
+            "grayscale" => Ok(StyleFilter::Grayscale(parse_percentage_value(
+                filter_values,
+            )?)),
             "hue-rotate" => Ok(StyleFilter::HueRotate(parse_angle_value(filter_values)?)),
             "invert" => Ok(StyleFilter::Invert(parse_percentage_value(filter_values)?)),
             "saturate" => {
@@ -1238,7 +1274,13 @@ pub mod parser {
         #[test]
         fn parse_style_filter_opacity_range_is_enforced_at_both_ends() {
             // In range.
-            for input in ["opacity(0)", "opacity(0%)", "opacity(1)", "opacity(100%)", "opacity(-0%)"] {
+            for input in [
+                "opacity(0)",
+                "opacity(0%)",
+                "opacity(1)",
+                "opacity(100%)",
+                "opacity(-0%)",
+            ] {
                 let f = parse_style_filter(input).unwrap_or_else(|e| panic!("{input:?}: {e}"));
                 let StyleFilter::Opacity(v) = f else {
                     panic!("{input:?} did not parse as Opacity")
@@ -1347,12 +1389,12 @@ pub mod parser {
         #[test]
         fn parse_style_filter_unicode_input_does_not_panic() {
             for input in [
-                "\u{1F600}(5px)",         // emoji function name
-                "blur(5px\u{1F600})",     // emoji in the payload
-                "blur(\u{FF15}px)",       // FULLWIDTH DIGIT FIVE
-                "blur(5\u{0301}px)",      // digit + combining acute
-                "blur(\u{2212}5px)",      // U+2212 MINUS SIGN, not ASCII '-'
-                "\u{FC}ber(5px)",         // multi-byte name
+                "\u{1F600}(5px)",     // emoji function name
+                "blur(5px\u{1F600})", // emoji in the payload
+                "blur(\u{FF15}px)",   // FULLWIDTH DIGIT FIVE
+                "blur(5\u{0301}px)",  // digit + combining acute
+                "blur(\u{2212}5px)",  // U+2212 MINUS SIGN, not ASCII '-'
+                "\u{FC}ber(5px)",     // multi-byte name
                 "flood(\u{1F600})",
                 "composite(\u{1F600})",
                 "hue-rotate(90\u{00B0})", // DEGREE SIGN instead of "deg"
@@ -1512,7 +1554,11 @@ pub mod parser {
                 .unwrap_or_else(|e| panic!("re-parsing {printed:?} failed: {e}"));
 
             assert_eq!(parsed, reparsed, "round-trip changed the filter list");
-            assert_eq!(printed, reparsed.print_as_css_value(), "printing is unstable");
+            assert_eq!(
+                printed,
+                reparsed.print_as_css_value(),
+                "printing is unstable"
+            );
         }
 
         #[test]
@@ -1541,7 +1587,10 @@ pub mod parser {
                 let printed = parsed.print_as_css_value();
                 let reparsed = parse_style_filter(&printed)
                     .unwrap_or_else(|e| panic!("{src:?} printed as {printed:?}, reparse: {e}"));
-                assert_eq!(parsed, reparsed, "{src:?} -> {printed:?} did not round-trip");
+                assert_eq!(
+                    parsed, reparsed,
+                    "{src:?} -> {printed:?} did not round-trip"
+                );
             }
         }
 
@@ -1607,7 +1656,9 @@ pub mod parser {
             // No '(' at all -> InvalidFilter, carrying the whole input.
             assert!(matches!(
                 parse_one_filter_function("component-transfer"),
-                Err(CssStyleFilterParseError::InvalidFilter("component-transfer"))
+                Err(CssStyleFilterParseError::InvalidFilter(
+                    "component-transfer"
+                ))
             ));
             assert!(matches!(
                 parse_one_filter_function(")"),
@@ -1791,7 +1842,12 @@ pub mod parser {
         #[test]
         fn parse_style_blur_long_and_nested_input_terminates() {
             let long = format!("{}px", "9".repeat(200_000));
-            assert!(parse_style_blur(&long).unwrap().width.number.get().is_finite());
+            assert!(parse_style_blur(&long)
+                .unwrap()
+                .width
+                .number
+                .get()
+                .is_finite());
 
             let long_junk = "a".repeat(200_000);
             assert!(parse_style_blur(&long_junk).is_err());
@@ -1929,7 +1985,10 @@ pub mod parser {
         #[test]
         fn parse_color_matrix_long_and_nested_input_terminates() {
             // One 100k-digit component: parses to inf, then saturates.
-            let huge = format!("{} 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0", "9".repeat(100_000));
+            let huge = format!(
+                "{} 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0",
+                "9".repeat(100_000)
+            );
             let m = parse_color_matrix(&huge).unwrap();
             assert_eq!(m.m0.number(), isize::MAX);
             assert!(m.m0.get().is_finite());
@@ -2042,7 +2101,12 @@ pub mod parser {
         #[test]
         fn parse_filter_offset_long_input_terminates() {
             let long = format!("{}px 0px", "9".repeat(200_000));
-            assert!(parse_filter_offset(&long).unwrap().x.number.get().is_finite());
+            assert!(parse_filter_offset(&long)
+                .unwrap()
+                .x
+                .number
+                .get()
+                .is_finite());
 
             let many = "1px ".repeat(100_000);
             assert!(matches!(
@@ -2072,7 +2136,11 @@ pub mod parser {
                 ("xor", StyleCompositeFilter::Xor),
                 ("lighter", StyleCompositeFilter::Lighter),
             ] {
-                assert_eq!(parse_filter_composite(input).unwrap(), expected, "{input:?}");
+                assert_eq!(
+                    parse_filter_composite(input).unwrap(),
+                    expected,
+                    "{input:?}"
+                );
                 // Surrounding whitespace is eaten by split_whitespace().
                 let padded = format!("  \t{input}\n ");
                 assert_eq!(parse_filter_composite(&padded).unwrap(), expected);
@@ -2091,7 +2159,17 @@ pub mod parser {
 
         #[test]
         fn parse_filter_composite_empty_whitespace_and_garbage_are_invalid_operators() {
-            for input in ["", "   ", "\t\n", "OVER", "Over", "arithmetics", ";", "\0", "\u{1F600}"] {
+            for input in [
+                "",
+                "   ",
+                "\t\n",
+                "OVER",
+                "Over",
+                "arithmetics",
+                ";",
+                "\0",
+                "\u{1F600}",
+            ] {
                 assert!(
                     matches!(
                         parse_filter_composite(input),
@@ -2103,11 +2181,15 @@ pub mod parser {
             // The offending operator is echoed back verbatim.
             assert!(matches!(
                 parse_filter_composite(""),
-                Err(CssStyleCompositeFilterParseError::Invalid(InvalidValueErr("")))
+                Err(CssStyleCompositeFilterParseError::Invalid(InvalidValueErr(
+                    ""
+                )))
             ));
             assert!(matches!(
                 parse_filter_composite("nope 1 2 3 4"),
-                Err(CssStyleCompositeFilterParseError::Invalid(InvalidValueErr("nope")))
+                Err(CssStyleCompositeFilterParseError::Invalid(InvalidValueErr(
+                    "nope"
+                )))
             ));
         }
 
@@ -2205,8 +2287,7 @@ pub mod parser {
 
             // A 100k-digit coefficient saturates rather than hanging.
             let long_coeff = format!("arithmetic {} 0 0 0", "9".repeat(100_000));
-            let StyleCompositeFilter::Arithmetic(k) =
-                parse_filter_composite(&long_coeff).unwrap()
+            let StyleCompositeFilter::Arithmetic(k) = parse_filter_composite(&long_coeff).unwrap()
             else {
                 panic!("not arithmetic")
             };
@@ -2292,7 +2373,9 @@ pub mod parser {
                     },
                 ),
                 CssStyleFilterParseError::Angle(CssAngleValueParseError::EmptyString),
-                CssStyleFilterParseError::Angle(CssAngleValueParseError::InvalidAngle("90\u{00B0}")),
+                CssStyleFilterParseError::Angle(CssAngleValueParseError::InvalidAngle(
+                    "90\u{00B0}",
+                )),
                 CssStyleFilterParseError::Angle(CssAngleValueParseError::NoValueGiven(
                     "deg",
                     AngleMetric::Degree,

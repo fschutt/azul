@@ -95,10 +95,5 @@ fn emit_extern(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         .map(|r| format!(" {}", map_type_to_v(r, ir)))
         .unwrap_or_default();
 
-    b.line(&format!(
-        "fn C.{}({}){}",
-        func.c_name,
-        args.join(", "),
-        ret
-    ));
+    b.line(&format!("fn C.{}({}){}", func.c_name, args.join(", "), ret));
 }

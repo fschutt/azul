@@ -58,7 +58,8 @@ impl CodegenBackend for RustBackend {
 }
 
 /// Render a parsed [`Css`] as Rust source code (a `const CSS: Css = ...;`).
-#[must_use] pub fn css_to_rust_code(css: &Css) -> String {
+#[must_use]
+pub fn css_to_rust_code(css: &Css) -> String {
     let mut output = String::new();
 
     output.push_str("const CSS: Css = Css {\r\n");
@@ -66,21 +67,16 @@ impl CodegenBackend for RustBackend {
 
     for block in &css.rules {
         output.push_str("\t\tCssRuleBlock {\r\n");
-        let _ = write!(output,
+        let _ = write!(
+            output,
             "\t\t\tpath: {},\r\n",
             print_block_path(&block.path, 3)
         );
-        let _ = write!(output,
-            "\t\t\tpriority: {},\r\n",
-            block.priority,
-        );
+        let _ = write!(output, "\t\t\tpriority: {},\r\n", block.priority,);
 
         output.push_str("\t\t\tdeclarations: [\r\n");
         for declaration in &block.declarations {
-            let _ = write!(output,
-                "\t\t\t\t{},\r\n",
-                print_declaration(declaration, 4)
-            );
+            let _ = write!(output, "\t\t\t\t{},\r\n", print_declaration(declaration, 4));
         }
         output.push_str("\t\t\t]\r\n");
 
@@ -93,8 +89,10 @@ impl CodegenBackend for RustBackend {
     output.replace('\t', "    ")
 }
 
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-#[must_use] pub const fn format_node_type(n: &NodeTypeTag) -> &'static str {
+#[allow(clippy::too_many_lines)]
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+#[must_use]
+pub const fn format_node_type(n: &NodeTypeTag) -> &'static str {
     match n {
         // Document structure
         NodeTypeTag::Html => "NodeTypeTag::Html",
@@ -322,7 +320,8 @@ impl CodegenBackend for RustBackend {
     }
 }
 
-#[must_use] pub fn print_block_path(path: &CssPath, tabs: usize) -> String {
+#[must_use]
+pub fn print_block_path(path: &CssPath, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
@@ -334,7 +333,8 @@ impl CodegenBackend for RustBackend {
     )
 }
 
-#[must_use] pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
+#[must_use]
+pub fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
@@ -347,7 +347,8 @@ impl CodegenBackend for RustBackend {
     format!("vec![\r\n{selectors_formatted}\r\n{t}].into()")
 }
 
-#[must_use] pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
+#[must_use]
+pub fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
     match p {
         CssPathSelector::Global => "CssPathSelector::Global".to_string(),
         CssPathSelector::Root(r) => format!(
@@ -374,7 +375,8 @@ impl CodegenBackend for RustBackend {
     }
 }
 
-#[must_use] pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
+#[must_use]
+pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
     match p {
         CssPathPseudoSelector::First => "CssPathPseudoSelector::First".to_string(),
         CssPathPseudoSelector::Last => "CssPathPseudoSelector::Last".to_string(),
@@ -396,7 +398,8 @@ impl CodegenBackend for RustBackend {
     }
 }
 
-#[must_use] pub fn format_attribute_selector(a: &CssAttributeSelector) -> String {
+#[must_use]
+pub fn format_attribute_selector(a: &CssAttributeSelector) -> String {
     let value = a.value.as_ref().map_or_else(
         || "OptionString::None".to_string(),
         |v| {
@@ -414,7 +417,8 @@ impl CodegenBackend for RustBackend {
     )
 }
 
-#[must_use] pub fn format_attribute_match_op(op: &AttributeMatchOp) -> String {
+#[must_use]
+pub fn format_attribute_match_op(op: &AttributeMatchOp) -> String {
     match op {
         AttributeMatchOp::Exists => "AttributeMatchOp::Exists".to_string(),
         AttributeMatchOp::Eq => "AttributeMatchOp::Eq".to_string(),
@@ -426,7 +430,8 @@ impl CodegenBackend for RustBackend {
     }
 }
 
-#[must_use] pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
+#[must_use]
+pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
     match n {
         CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({num})"),
         CssNthChildSelector::Even => "CssNthChildSelector::Even".to_string(),
@@ -440,7 +445,8 @@ impl CodegenBackend for RustBackend {
     }
 }
 
-#[must_use] pub fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
+#[must_use]
+pub fn print_declaration(decl: &CssDeclaration, tabs: usize) -> String {
     match decl {
         CssDeclaration::Static(s) => format!(
             "CssDeclaration::Static({})",
@@ -453,7 +459,8 @@ impl CodegenBackend for RustBackend {
     }
 }
 
-#[must_use] pub fn format_dynamic_css_prop(decl: &DynamicCssProperty, tabs: usize) -> String {
+#[must_use]
+pub fn format_dynamic_css_prop(decl: &DynamicCssProperty, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     format!(
         "DynamicCssProperty {{\r\n{}    dynamic_id: {:?},\r\n{}    default_value: {},\r\n{}}}",

@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use azul_css::{AzString, StringVec, impl_option, impl_option_inner};
+use azul_css::{impl_option, impl_option_inner, AzString, StringVec};
 
 /// A format argument value that can hold any primitive type or string.
 /// Used in [`FmtArg`] to pass typed values into `strfmt`-based formatting.
@@ -97,8 +97,20 @@ pub struct FmtArg {
     pub value: FmtValue,
 }
 
-azul_css::impl_option!(FmtArg, OptionFmtArg, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
-azul_css::impl_vec!(FmtArg, FmtArgVec, FmtArgVecDestructor, FmtArgVecDestructorType, FmtArgVecSlice, OptionFmtArg);
+azul_css::impl_option!(
+    FmtArg,
+    OptionFmtArg,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+azul_css::impl_vec!(
+    FmtArg,
+    FmtArgVec,
+    FmtArgVecDestructor,
+    FmtArgVecDestructorType,
+    FmtArgVecSlice,
+    OptionFmtArg
+);
 azul_css::impl_vec_clone!(FmtArg, FmtArgVec, FmtArgVecDestructor);
 azul_css::impl_vec_debug!(FmtArg, FmtArgVec);
 azul_css::impl_vec_partialeq!(FmtArg, FmtArgVec);
@@ -108,7 +120,8 @@ azul_css::impl_vec_partialord!(FmtArg, FmtArgVec);
 /// Returns the error message as a string on failure (for C FFI ergonomics).
 // FFI-exported formatter: owned AzString/FmtArgVec args are the api.json signature.
 #[allow(clippy::needless_pass_by_value)]
-#[must_use] pub fn fmt_string(format: AzString, args: FmtArgVec) -> String {
+#[must_use]
+pub fn fmt_string(format: AzString, args: FmtArgVec) -> String {
     use strfmt::Format;
     let format_map = args
         .iter()
@@ -489,7 +502,10 @@ mod autotest_generated {
     #[test]
     fn keys_values_and_literals_may_be_non_ascii() {
         assert_eq!(
-            run("こんにちは、{名前}！🦀", &[("名前", FmtValue::Str(az("世界")))]),
+            run(
+                "こんにちは、{名前}！🦀",
+                &[("名前", FmtValue::Str(az("世界")))]
+            ),
             "こんにちは、世界！🦀"
         );
     }
@@ -554,7 +570,10 @@ mod autotest_generated {
     #[test]
     fn strvec_renders_as_a_bracketed_comma_list() {
         assert_eq!(run("{v}", &[("v", FmtValue::StrVec(strvec(&[])))]), "[]");
-        assert_eq!(run("{v}", &[("v", FmtValue::StrVec(strvec(&["a"])))]), "[a]");
+        assert_eq!(
+            run("{v}", &[("v", FmtValue::StrVec(strvec(&["a"])))]),
+            "[a]"
+        );
         assert_eq!(
             run("{v}", &[("v", FmtValue::StrVec(strvec(&["a", "b", "c"])))]),
             "[a, b, c]"
@@ -598,7 +617,10 @@ mod autotest_generated {
     #[test]
     fn a_long_literal_format_string_is_returned_verbatim() {
         let big = "y".repeat(100_000);
-        assert_eq!(fmt_string(AzString::from(big.clone()), FmtArgVec::new()), big);
+        assert_eq!(
+            fmt_string(AzString::from(big.clone()), FmtArgVec::new()),
+            big
+        );
     }
 
     // ------------------------------------------------------------------
@@ -623,8 +645,14 @@ mod autotest_generated {
         assert_eq!(FmtValue::Sshort(i16::MIN).to_string(), "-32768");
         assert_eq!(FmtValue::Ulong(u64::MAX).to_string(), u64::MAX.to_string());
         assert_eq!(FmtValue::Slong(i64::MIN).to_string(), i64::MIN.to_string());
-        assert_eq!(FmtValue::Usize(usize::MAX).to_string(), usize::MAX.to_string());
-        assert_eq!(FmtValue::Isize(isize::MIN).to_string(), isize::MIN.to_string());
+        assert_eq!(
+            FmtValue::Usize(usize::MAX).to_string(),
+            usize::MAX.to_string()
+        );
+        assert_eq!(
+            FmtValue::Isize(isize::MIN).to_string(),
+            isize::MIN.to_string()
+        );
         assert_eq!(FmtValue::Float(f32::NAN).to_string(), "NaN");
         assert_eq!(FmtValue::Double(f64::INFINITY).to_string(), "inf");
         assert_eq!(FmtValue::Double(f64::NEG_INFINITY).to_string(), "-inf");

@@ -24,8 +24,8 @@ use azul_core::dom::DomNodeId;
 use azul_core::events::{
     EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
 };
-use azul_core::task::Instant;
 pub use azul_core::gamepad::{GamepadAxis, GamepadButton, GamepadId, GamepadState};
+use azul_core::task::Instant;
 
 /// Cross-platform gamepad state. One per `App` — the OS exposes a single
 /// per-process controller subscription, not per-window.
@@ -46,23 +46,27 @@ pub struct GamepadManager {
 }
 
 impl GamepadManager {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Latest state for `id`, or `None` if that pad was never seen.
-    #[must_use] pub fn state(&self, id: GamepadId) -> Option<GamepadState> {
+    #[must_use]
+    pub fn state(&self, id: GamepadId) -> Option<GamepadState> {
         self.pads.iter().find(|p| p.id == id).copied()
     }
 
     /// The first currently-connected pad — the common single-controller
     /// case, so a callback doesn't have to track ids.
-    #[must_use] pub fn primary(&self) -> Option<GamepadState> {
+    #[must_use]
+    pub fn primary(&self) -> Option<GamepadState> {
         self.pads.iter().find(|p| p.connected).copied()
     }
 
     /// Every pad slot seen this session (connected or not).
-    #[must_use] pub fn gamepads(&self) -> &[GamepadState] {
+    #[must_use]
+    pub fn gamepads(&self) -> &[GamepadState] {
         &self.pads
     }
 
@@ -96,7 +100,8 @@ impl GamepadManager {
     }
 
     /// `true` while the capability pump should poll the controller backend.
-    #[must_use] pub const fn has_listeners(&self) -> bool {
+    #[must_use]
+    pub const fn has_listeners(&self) -> bool {
         self.has_listeners
     }
 }
@@ -145,7 +150,9 @@ static PENDING_STATES: std::sync::Mutex<Vec<GamepadState>> = std::sync::Mutex::n
 /// Park a gamepad state delivered by a platform backend (in the dll).
 /// Thread-safe; poison-recovering.
 pub fn push_gamepad_state(state: GamepadState) {
-    let mut q = PENDING_STATES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_STATES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(state);
 }
 
@@ -153,7 +160,9 @@ pub fn push_gamepad_state(state: GamepadState) {
 /// Called once per layout pass; the caller applies them through
 /// [`GamepadManager::set_state`] (the last per id wins).
 pub fn drain_gamepad_states() -> Vec<GamepadState> {
-    let mut q = PENDING_STATES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_STATES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -195,7 +204,11 @@ mod tests {
 
     #[test]
     fn is_pressed_decodes_the_bitset() {
-        let s = st(0, true, GamepadButton::South.bit() | GamepadButton::Start.bit());
+        let s = st(
+            0,
+            true,
+            GamepadButton::South.bit() | GamepadButton::Start.bit(),
+        );
         assert!(s.is_pressed(GamepadButton::South));
         assert!(s.is_pressed(GamepadButton::Start));
         assert!(!s.is_pressed(GamepadButton::East));
@@ -204,7 +217,10 @@ mod tests {
     #[test]
     fn listener_flag_gates_polling_decision() {
         let mut mgr = GamepadManager::new();
-        assert!(!mgr.has_listeners(), "no listeners until the relayout walk reports some");
+        assert!(
+            !mgr.has_listeners(),
+            "no listeners until the relayout walk reports some"
+        );
         mgr.set_has_listeners(true);
         assert!(mgr.has_listeners());
         mgr.set_has_listeners(false);
@@ -224,7 +240,10 @@ mod tests {
         for s in &drained {
             mgr.set_state(*s);
         }
-        assert_eq!(mgr.state(GamepadId { id: 0 }).map(|p| p.buttons), Some(0b10));
+        assert_eq!(
+            mgr.state(GamepadId { id: 0 }).map(|p| p.buttons),
+            Some(0b10)
+        );
         assert_eq!(mgr.gamepads().len(), 2);
         assert!(drain_gamepad_states().is_empty());
     }
@@ -318,8 +337,14 @@ mod autotest_generated {
         assert!(mgr.gamepads().is_empty());
         assert_eq!(mgr.gamepads().len(), 0);
         assert_eq!(mgr.primary(), None);
-        assert!(!mgr.has_listeners(), "polling must be disarmed until a relayout arms it");
-        assert!(!mgr.pending_event, "a manager nobody touched cannot have a pending event");
+        assert!(
+            !mgr.has_listeners(),
+            "polling must be disarmed until a relayout arms it"
+        );
+        assert!(
+            !mgr.pending_event,
+            "a manager nobody touched cannot have a pending event"
+        );
         assert!(
             mgr.get_pending_events(ts(0)).is_empty(),
             "a fresh manager must not synthesise a GamepadInput event"
@@ -338,13 +363,21 @@ mod autotest_generated {
     fn state_returns_none_for_ids_never_seen() {
         let mut mgr = GamepadManager::new();
         for id in [0, 1, u32::MAX / 2, u32::MAX - 1, u32::MAX] {
-            assert_eq!(mgr.state(GamepadId { id }), None, "id {id} on an empty manager");
+            assert_eq!(
+                mgr.state(GamepadId { id }),
+                None,
+                "id {id} on an empty manager"
+            );
         }
 
         mgr.set_state(connected(7));
         assert!(mgr.state(GamepadId { id: 7 }).is_some());
         for id in [0, 6, 8, u32::MAX] {
-            assert_eq!(mgr.state(GamepadId { id }), None, "id {id} was never pushed");
+            assert_eq!(
+                mgr.state(GamepadId { id }),
+                None,
+                "id {id} was never pushed"
+            );
         }
     }
 
@@ -375,7 +408,10 @@ mod autotest_generated {
         for (id, fingerprint) in pads {
             let got = mgr.state(GamepadId { id }).expect("pad was pushed");
             assert_eq!(got.id.id, id);
-            assert_eq!(got.buttons, fingerprint, "id {id} returned another pad's snapshot");
+            assert_eq!(
+                got.buttons, fingerprint,
+                "id {id} returned another pad's snapshot"
+            );
         }
     }
 
@@ -396,14 +432,20 @@ mod autotest_generated {
         s.right_z = f32::MAX;
         mgr.set_state(s);
 
-        let got = mgr.state(GamepadId { id: u32::MAX }).expect("pad u32::MAX was pushed");
+        let got = mgr
+            .state(GamepadId { id: u32::MAX })
+            .expect("pad u32::MAX was pushed");
         assert!(
             same_bits(&got, &s),
             "state() did not return the pushed snapshot bit-exactly: {got:?} vs {s:?}"
         );
         // …and the NaN axis really is a NaN, i.e. nothing sanitised it on the way.
         assert!(got.left_stick_x.is_nan());
-        assert_eq!(got.left_stick_y.to_bits(), (-0.0f32).to_bits(), "−0.0 collapsed to +0.0");
+        assert_eq!(
+            got.left_stick_y.to_bits(),
+            (-0.0f32).to_bits(),
+            "−0.0 collapsed to +0.0"
+        );
     }
 
     /// `state()` is a read-only view: calling it (even for a missing id) leaves
@@ -419,7 +461,10 @@ mod autotest_generated {
             let _ = mgr.state(GamepadId { id });
         }
         assert_eq!(mgr, before);
-        assert!(!mgr.pending_event, "a read must not raise the pending-event flag");
+        assert!(
+            !mgr.pending_event,
+            "a read must not raise the pending-event flag"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -437,8 +482,16 @@ mod autotest_generated {
 
         mgr.set_state(pad(0)); // connected = false
         mgr.set_state(pad(1));
-        assert_eq!(mgr.gamepads().len(), 2, "disconnected pads still occupy slots");
-        assert_eq!(mgr.primary(), None, "a disconnected slot is not a primary pad");
+        assert_eq!(
+            mgr.gamepads().len(),
+            2,
+            "disconnected pads still occupy slots"
+        );
+        assert_eq!(
+            mgr.primary(),
+            None,
+            "a disconnected slot is not a primary pad"
+        );
     }
 
     /// basic_access, pinned against the plausible misreading: "first" means
@@ -453,7 +506,11 @@ mod autotest_generated {
         mgr.set_state(connected(1));
 
         assert_eq!(mgr.primary().map(|p| p.id.id), Some(9));
-        assert_eq!(mgr.gamepads().first().map(|p| p.id.id), Some(3), "arrival order kept");
+        assert_eq!(
+            mgr.gamepads().first().map(|p| p.id.id),
+            Some(3),
+            "arrival order kept"
+        );
     }
 
     /// A disconnect must hand primacy to the next connected pad, and the last
@@ -466,8 +523,16 @@ mod autotest_generated {
         assert_eq!(mgr.primary().map(|p| p.id.id), Some(0));
 
         mgr.set_state(pad(0)); // unplug pad 0
-        assert_eq!(mgr.primary().map(|p| p.id.id), Some(1), "primacy must fall through to pad 1");
-        assert_eq!(mgr.gamepads().len(), 2, "the unplugged slot must be retained");
+        assert_eq!(
+            mgr.primary().map(|p| p.id.id),
+            Some(1),
+            "primacy must fall through to pad 1"
+        );
+        assert_eq!(
+            mgr.gamepads().len(),
+            2,
+            "the unplugged slot must be retained"
+        );
         assert_eq!(
             mgr.state(GamepadId { id: 0 }).map(|p| p.connected),
             Some(false),
@@ -480,7 +545,11 @@ mod autotest_generated {
 
         mgr.set_state(connected(0)); // re-plug: the same slot comes back, no new one
         assert_eq!(mgr.primary().map(|p| p.id.id), Some(0));
-        assert_eq!(mgr.gamepads().len(), 2, "a re-plug must reuse the id's slot");
+        assert_eq!(
+            mgr.gamepads().len(),
+            2,
+            "a re-plug must reuse the id's slot"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -504,7 +573,11 @@ mod autotest_generated {
         }
 
         let ids: Vec<u32> = mgr.gamepads().iter().map(|p| p.id.id).collect();
-        assert_eq!(ids, alloc::vec![5, 0, u32::MAX], "arrival order / dedup by id broken");
+        assert_eq!(
+            ids,
+            alloc::vec![5, 0, u32::MAX],
+            "arrival order / dedup by id broken"
+        );
         assert_eq!(mgr.gamepads().len(), 3);
 
         // 1000 further updates to a known id must not add a single slot.
@@ -527,7 +600,11 @@ mod autotest_generated {
         mgr.set_state(connected(8));
 
         for p in mgr.gamepads() {
-            assert_eq!(mgr.state(p.id).as_ref(), Some(p), "slice and state() disagree for {p:?}");
+            assert_eq!(
+                mgr.state(p.id).as_ref(),
+                Some(p),
+                "slice and state() disagree for {p:?}"
+            );
         }
         assert_eq!(
             mgr.primary().as_ref(),
@@ -549,7 +626,10 @@ mod autotest_generated {
         let mut s = connected(0);
 
         assert!(mgr.set_state(s), "a never-seen id is always a change");
-        assert!(!mgr.set_state(s), "an idle controller must not look changed");
+        assert!(
+            !mgr.set_state(s),
+            "an idle controller must not look changed"
+        );
         assert!(!mgr.set_state(s), "…and must keep not looking changed");
 
         s.buttons = GamepadButton::South.bit();
@@ -587,14 +667,20 @@ mod autotest_generated {
         );
 
         assert!(mgr.set_state(s), "first sighting of the pad is a change");
-        assert!(!mgr.set_state(s), "a stuck NaN axis must NOT look like a change every frame");
+        assert!(
+            !mgr.set_state(s),
+            "a stuck NaN axis must NOT look like a change every frame"
+        );
         assert!(!mgr.set_state(s));
 
         // A *different* NaN payload is a different bit pattern → a change.
         let mut other = s;
         other.left_stick_x = f32::from_bits(f32::NAN.to_bits() | 0x1);
         assert!(other.left_stick_x.is_nan());
-        assert!(mgr.set_state(other), "a different NaN bit pattern is a bitwise change");
+        assert!(
+            mgr.set_state(other),
+            "a different NaN bit pattern is a bitwise change"
+        );
         assert!(!mgr.set_state(other));
     }
 
@@ -612,10 +698,14 @@ mod autotest_generated {
         // Precondition: the two zeroes compare *equal* under `==` (IEEE) yet
         // differ in their bits — which is exactly what set_state must key on.
         assert_ne!((0.0f32).to_bits(), (-0.0f32).to_bits());
-        assert!(mgr.set_state(s), "a +0.0 → −0.0 sign flip is a bitwise change");
+        assert!(
+            mgr.set_state(s),
+            "a +0.0 → −0.0 sign flip is a bitwise change"
+        );
         assert!(!mgr.set_state(s));
         assert_eq!(
-            mgr.state(GamepadId { id: 0 }).map(|p| p.left_stick_y.to_bits()),
+            mgr.state(GamepadId { id: 0 })
+                .map(|p| p.left_stick_y.to_bits()),
             Some((-0.0f32).to_bits())
         );
     }
@@ -631,7 +721,10 @@ mod autotest_generated {
         assert!(mgr.set_state(base));
         let mut flipped = base;
         flipped.connected = false;
-        assert!(mgr.set_state(flipped), "a change in `connected` went unnoticed");
+        assert!(
+            mgr.set_state(flipped),
+            "a change in `connected` went unnoticed"
+        );
 
         // `buttons` — every defined bit, one at a time.
         for bit in 0..17u32 {
@@ -639,7 +732,10 @@ mod autotest_generated {
             assert!(mgr.set_state(base));
             let mut s = base;
             s.buttons = 1 << bit;
-            assert!(mgr.set_state(s), "a change in button bit {bit} went unnoticed");
+            assert!(
+                mgr.set_state(s),
+                "a change in button bit {bit} went unnoticed"
+            );
         }
 
         // the six axes.
@@ -649,7 +745,10 @@ mod autotest_generated {
             let mut s = base;
             set(&mut s, 1.0);
             assert!(mgr.set_state(s), "a change in axis `{name}` went unnoticed");
-            assert!(!mgr.set_state(s), "…and re-reporting `{name}` is not a second change");
+            assert!(
+                !mgr.set_state(s),
+                "…and re-reporting `{name}` is not a second change"
+            );
         }
     }
 
@@ -668,11 +767,18 @@ mod autotest_generated {
                     set(&mut s, v);
                     mgr.set_state(s);
                     let got = mgr.state(GamepadId { id }).expect("just pushed");
-                    assert!(same_bits(&got, &s), "pushing {v:?} into pad {id} did not round-trip");
+                    assert!(
+                        same_bits(&got, &s),
+                        "pushing {v:?} into pad {id} did not round-trip"
+                    );
                 }
             }
         }
-        assert_eq!(mgr.gamepads().len(), 2, "two ids must occupy exactly two slots");
+        assert_eq!(
+            mgr.gamepads().len(),
+            2,
+            "two ids must occupy exactly two slots"
+        );
     }
 
     /// Upserting one pad must not touch any other slot — the `find` walks by
@@ -698,7 +804,10 @@ mod autotest_generated {
             if i == 2 {
                 assert!(same_bits(p, &updated), "the targeted slot was not updated");
             } else {
-                assert!(same_bits(p, &before[i]), "slot {i} was corrupted by an upsert of pad 2");
+                assert!(
+                    same_bits(p, &before[i]),
+                    "slot {i} was corrupted by an upsert of pad 2"
+                );
             }
         }
     }
@@ -717,7 +826,10 @@ mod autotest_generated {
 
         mgr.clear_pending_event();
         assert!(!mgr.set_state(s), "idle re-report");
-        assert!(!mgr.pending_event, "an idle re-report must NOT raise the pending flag");
+        assert!(
+            !mgr.pending_event,
+            "an idle re-report must NOT raise the pending flag"
+        );
 
         // Three changes, one flag.
         s.buttons = 1;
@@ -727,7 +839,11 @@ mod autotest_generated {
         s.left_z = 1.0;
         assert!(mgr.set_state(s));
         assert!(mgr.pending_event);
-        assert_eq!(mgr.get_pending_events(ts(0)).len(), 1, "changes must coalesce into one event");
+        assert_eq!(
+            mgr.get_pending_events(ts(0)).len(),
+            1,
+            "changes must coalesce into one event"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -750,17 +866,29 @@ mod autotest_generated {
         mgr.clear_pending_event();
         assert!(!mgr.pending_event);
         mgr.clear_pending_event();
-        assert!(!mgr.pending_event, "a second clear must not resurrect the flag");
+        assert!(
+            !mgr.pending_event,
+            "a second clear must not resurrect the flag"
+        );
 
         assert_eq!(mgr.gamepads().len(), 1, "clearing must not drop pad slots");
-        assert!(mgr.has_listeners(), "clearing must not disarm the listener flag");
-        assert!(mgr.get_pending_events(ts(1)).is_empty(), "no event after a clear");
+        assert!(
+            mgr.has_listeners(),
+            "clearing must not disarm the listener flag"
+        );
+        assert!(
+            mgr.get_pending_events(ts(1)).is_empty(),
+            "no event after a clear"
+        );
 
         // …and a fresh change re-arms it, so the flag is not one-shot.
         let mut s = connected(1);
         s.buttons = 1;
         assert!(mgr.set_state(s));
-        assert!(mgr.pending_event, "the flag must be re-raisable after a clear");
+        assert!(
+            mgr.pending_event,
+            "the flag must be re-raisable after a clear"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -773,7 +901,10 @@ mod autotest_generated {
     #[test]
     fn has_listeners_roundtrips_and_is_independent_of_pad_state() {
         let mut mgr = GamepadManager::new();
-        assert!(!mgr.has_listeners(), "default must be disarmed — no listeners, no polling");
+        assert!(
+            !mgr.has_listeners(),
+            "default must be disarmed — no listeners, no polling"
+        );
 
         for _ in 0..3 {
             mgr.set_has_listeners(true);
@@ -786,7 +917,10 @@ mod autotest_generated {
 
         // Pads arriving must not arm polling by themselves…
         mgr.set_state(connected(0));
-        assert!(!mgr.has_listeners(), "a connected pad must not arm the pump on its own");
+        assert!(
+            !mgr.has_listeners(),
+            "a connected pad must not arm the pump on its own"
+        );
         // …and arming must not fabricate pads or events.
         let mut fresh = GamepadManager::new();
         fresh.set_has_listeners(true);
@@ -812,9 +946,15 @@ mod autotest_generated {
         }
         let copy = s;
 
-        assert_ne!(s, copy, "precondition: derived PartialEq is non-reflexive over NaN");
+        assert_ne!(
+            s, copy,
+            "precondition: derived PartialEq is non-reflexive over NaN"
+        );
         assert!(state_bitwise_eq(&s, &s), "bitwise eq must be reflexive");
-        assert!(state_bitwise_eq(&s, &copy), "a bit-identical copy must compare equal");
+        assert!(
+            state_bitwise_eq(&s, &copy),
+            "a bit-identical copy must compare equal"
+        );
         assert!(state_bitwise_eq(&copy, &s), "…symmetrically");
     }
 
@@ -858,8 +998,14 @@ mod autotest_generated {
 
         assert_eq!(mutations.len(), 9, "all nine fields must be exercised");
         for (name, m) in mutations {
-            assert!(!state_bitwise_eq(&base, &m), "a change in `{name}` was not detected");
-            assert!(!state_bitwise_eq(&m, &base), "…and the relation must be symmetric (`{name}`)");
+            assert!(
+                !state_bitwise_eq(&base, &m),
+                "a change in `{name}` was not detected"
+            );
+            assert!(
+                !state_bitwise_eq(&m, &base),
+                "…and the relation must be symmetric (`{name}`)"
+            );
         }
     }
 
@@ -876,7 +1022,10 @@ mod autotest_generated {
             set(&mut pos, 0.0);
             let mut neg = base;
             set(&mut neg, -0.0);
-            assert_eq!(pos, neg, "precondition: ±0.0 compare equal via derived PartialEq");
+            assert_eq!(
+                pos, neg,
+                "precondition: ±0.0 compare equal via derived PartialEq"
+            );
             assert!(
                 !state_bitwise_eq(&pos, &neg),
                 "axis `{name}`: +0.0 and −0.0 must differ bitwise"
@@ -908,11 +1057,17 @@ mod autotest_generated {
             let mut a = connected(0);
             set(&mut a, f32::INFINITY);
             let b = a;
-            assert!(state_bitwise_eq(&a, &b), "axis `{name}`: +inf must equal +inf");
+            assert!(
+                state_bitwise_eq(&a, &b),
+                "axis `{name}`: +inf must equal +inf"
+            );
 
             let mut c = connected(0);
             set(&mut c, f32::NEG_INFINITY);
-            assert!(!state_bitwise_eq(&a, &c), "axis `{name}`: +inf must not equal −inf");
+            assert!(
+                !state_bitwise_eq(&a, &c),
+                "axis `{name}`: +inf must not equal −inf"
+            );
         }
     }
 
@@ -935,14 +1090,29 @@ mod autotest_generated {
         let ev = &evs[0];
         assert_eq!(ev.event_type, EventType::GamepadInput);
         assert_eq!(ev.source, CoreEventSource::User);
-        assert_eq!(ev.target, DomNodeId::ROOT, "the gamepad event is window-level");
-        assert_eq!(ev.timestamp, ts(42), "the caller's timestamp must be carried through");
-        assert_eq!(ev.data, EventData::None, "the payload is read via CallbackInfo, not the event");
+        assert_eq!(
+            ev.target,
+            DomNodeId::ROOT,
+            "the gamepad event is window-level"
+        );
+        assert_eq!(
+            ev.timestamp,
+            ts(42),
+            "the caller's timestamp must be carried through"
+        );
+        assert_eq!(
+            ev.data,
+            EventData::None,
+            "the payload is read via CallbackInfo, not the event"
+        );
 
         // Still pending until it is explicitly cleared.
         assert_eq!(mgr.get_pending_events(ts(43)).len(), 1);
         mgr.clear_pending_event();
-        assert!(mgr.get_pending_events(ts(44)).is_empty(), "cleared → no more events");
+        assert!(
+            mgr.get_pending_events(ts(44)).is_empty(),
+            "cleared → no more events"
+        );
     }
 
     /// The listener flag arms the *pump*, not the event stream: it must not, by
@@ -952,7 +1122,10 @@ mod autotest_generated {
     fn listener_flag_does_not_fabricate_or_suppress_events() {
         let mut mgr = GamepadManager::new();
         mgr.set_has_listeners(true);
-        assert!(mgr.get_pending_events(ts(0)).is_empty(), "arming alone must not emit an event");
+        assert!(
+            mgr.get_pending_events(ts(0)).is_empty(),
+            "arming alone must not emit an event"
+        );
 
         mgr.set_state(connected(0));
         mgr.set_has_listeners(false);

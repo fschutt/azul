@@ -25,7 +25,10 @@ use super::super::ir::{
     FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
 };
 use super::types::{java_boxed, ref_kind_field_type};
-use super::{emit_file, ffi_type_name, map_jvm_type, map_jvm_type_byvalue, sanitize_identifier, snake_to_lower_camel};
+use super::{
+    emit_file, ffi_type_name, map_jvm_type, map_jvm_type_byvalue, sanitize_identifier,
+    snake_to_lower_camel,
+};
 
 // ============================================================================
 // Top-level driver
@@ -164,9 +167,8 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // Iterable only when the element type is an emitted struct
     // wrapper class — skip enum/typedef elements (`IdOrClass`,
     // `DynamicSelector`, etc.) which don't get their own class.
-    let elem_has_wrapper = |elem: &str| -> bool {
-        ir.find_struct(elem).is_some() && has_delete_function(elem, ir)
-    };
+    let elem_has_wrapper =
+        |elem: &str| -> bool { ir.find_struct(elem).is_some() && has_delete_function(elem, ir) };
     let interfaces = match &vec_elem_type {
         Some(elem) if elem_has_wrapper(elem) => {
             let elem_wrapper = wrapper_class_name(elem);
@@ -220,7 +222,8 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.line("long vecLen = ptr.getLong(8);");
         builder.line("if (vecPtr == null || vecLen <= 0) return \"\";");
         builder.line("byte[] bytes = vecPtr.getByteArray(0, (int) vecLen);");
-        builder.line("return new java.lang.String(bytes, java.nio.charset.StandardCharsets.UTF_8);");
+        builder
+            .line("return new java.lang.String(bytes, java.nio.charset.StandardCharsets.UTF_8);");
         builder.dedent();
         builder.line("}");
         builder.blank();
@@ -298,10 +301,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         let register_fn = format!("register{}", info.callback_wrapper);
         let native_class = super::functions::native_class_for_class(&info.class_name, ir);
         let field_path = info.field_path.join(".");
-        let sam_raw = format!(
-            "AzulNativeManaged.{}InvokerCallback",
-            info.callback_wrapper
-        );
+        let sam_raw = format!("AzulNativeManaged.{}InvokerCallback", info.callback_wrapper);
         let sam_typed = format!("AzulHostInvoker.{}", info.callback_wrapper);
 
         // Emit two overloads — raw (4-arg outPtr-write) and typed
@@ -410,11 +410,9 @@ fn emit_equals_hashcode_if_supported(
 ) {
     let native = super::functions::native_class_for_class(&s.name, ir);
     let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq
-        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
     let hash_sym = format!("Az{}_hash", s.name);
-    let has_hash = s.traits.is_hash
-        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+    let has_hash = s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == hash_sym);
 
     if has_eq {
         builder.line("/**");
@@ -424,7 +422,10 @@ fn emit_equals_hashcode_if_supported(
         builder.line("@Override");
         builder.line("public boolean equals(Object other) {");
         builder.indent();
-        builder.line(&format!("if (!(other instanceof {})) return false;", class_name));
+        builder.line(&format!(
+            "if (!(other instanceof {})) return false;",
+            class_name
+        ));
         builder.line(&format!("{} o = ({}) other;", class_name, class_name));
         builder.line("if (this.ptr == null || o.ptr == null) return this.ptr == o.ptr;");
         // JNA maps C `bool` to `byte` on macOS/Linux (no explicit
@@ -447,10 +448,7 @@ fn emit_equals_hashcode_if_supported(
         builder.line("public int hashCode() {");
         builder.indent();
         builder.line("if (ptr == null) return 0;");
-        builder.line(&format!(
-            "long h = {}.INSTANCE.{}(ptr);",
-            native, hash_sym
-        ));
+        builder.line(&format!("long h = {}.INSTANCE.{}(ptr);", native, hash_sym));
         builder.line("return (int) (h ^ (h >>> 32));");
         builder.dedent();
         builder.line("}");
@@ -473,17 +471,12 @@ fn emit_equals_hashcode_if_supported(
 /// codegen-emitted `Az<X>_toDbgString` C export when TypeTraits.is_debug
 /// is set and the helper actually exists. Skips when this is the String
 /// wrapper class — that already has a vec-direct toString.
-fn emit_toString_if_supported(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug
-        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
     if !has_dbg {
         return;
     }
@@ -529,15 +522,10 @@ fn detect_vec_elem_type_jvm(s: &StructDef) -> Option<String> {
     if s.fields.len() != 4 {
         return None;
     }
-    if s.fields[0].name != "ptr"
-        || s.fields[1].name != "len"
-        || s.fields[2].name != "cap"
-    {
+    if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {
         return None;
     }
-    if s.fields[1].type_name.trim() != "usize"
-        || s.fields[2].type_name.trim() != "usize"
-    {
+    if s.fields[1].type_name.trim() != "usize" || s.fields[2].type_name.trim() != "usize" {
         return None;
     }
     let raw = s.fields[0].type_name.trim();
@@ -587,23 +575,13 @@ fn emit_jvm_vec_iterator(
         elem_wrapper
     ));
     if clone_call.is_some() {
-        builder.line(
-            " * element is deep-cloned via the type's _clone C export so the",
-        );
-        builder.line(
-            " * yielded wrapper owns its own heap allocations and survives",
-        );
+        builder.line(" * element is deep-cloned via the type's _clone C export so the");
+        builder.line(" * yielded wrapper owns its own heap allocations and survives");
         builder.line(" * the Vec being closed.");
     } else {
-        builder.line(
-            " * element is a buffer-borrowed wrapper marked consumed (no",
-        );
-        builder.line(
-            " * finalize-time AzX_delete on Vec-internal memory). Treat",
-        );
-        builder.line(
-            " * iteration as single-pass: don't store yielded wrappers past",
-        );
+        builder.line(" * element is a buffer-borrowed wrapper marked consumed (no");
+        builder.line(" * finalize-time AzX_delete on Vec-internal memory). Treat");
+        builder.line(" * iteration as single-pass: don't store yielded wrappers past");
         builder.line(" * the Vec's lifetime.");
     }
     builder.line(" */");
@@ -641,10 +619,7 @@ fn emit_jvm_vec_iterator(
         // Deep-clone via the type's _clone C export. The returned
         // wrapper owns its own heap allocations; safe even after
         // the Vec is closed.
-        builder.line(&format!(
-            "{}.ByValue __cloned = {}(__ep);",
-            elem_ffi, clone
-        ));
+        builder.line(&format!("{}.ByValue __cloned = {}(__ep);", elem_ffi, clone));
         builder.line("__cloned.write();");
         builder.line(&format!(
             "return new {}(__cloned.getPointer());",
@@ -680,11 +655,7 @@ fn emit_jvm_vec_iterator(
 /// Rust primitive name from `detect_vec_elem_type_jvm`; non-
 /// primitives fall through (no method emitted) and the caller
 /// gets the `Iterable<T>` clone-each path instead.
-fn emit_jvm_vec_primitive_array(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    elem_rust: &str,
-) {
+fn emit_jvm_vec_primitive_array(builder: &mut CodeBuilder, s: &StructDef, elem_rust: &str) {
     // Map Rust primitive → (JVM array type, JNA getXxxArray method).
     let (arr_ty, getter, method_name) = match elem_rust.trim() {
         "u8" | "i8" | "bool" => ("byte[]", "getByteArray", "toByteArray"),
@@ -718,16 +689,18 @@ fn emit_jvm_vec_primitive_array(
         "if (__raw.ptr == null || __raw.len <= 0) return new {}[0];",
         elem_arr_ty
     ));
-    builder.line(&format!(
-        "return __raw.ptr.{}(0, (int) __raw.len);",
-        getter
-    ));
+    builder.line(&format!("return __raw.ptr.{}(0, (int) __raw.len);", getter));
     builder.dedent();
     builder.line("}");
     builder.blank();
 }
 
-fn emit_close_method(builder: &mut CodeBuilder, raw_type_name: &str, class_name: &str, ir: &CodegenIR) {
+fn emit_close_method(
+    builder: &mut CodeBuilder,
+    raw_type_name: &str,
+    class_name: &str,
+    ir: &CodegenIR,
+) {
     builder.line("/** Frees the underlying native resources. Idempotent. */");
     builder.line("@Override");
     builder.line("public void close() {");
@@ -991,10 +964,9 @@ fn emit_wrapper_method(
             } else {
                 match a.ref_kind {
                     ArgRefKind::Owned => map_jvm_type_byvalue(&a.type_name, ir),
-                    ArgRefKind::Ref
-                    | ArgRefKind::RefMut
-                    | ArgRefKind::Ptr
-                    | ArgRefKind::PtrMut => "Pointer".to_string(),
+                    ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                        "Pointer".to_string()
+                    }
                 }
             };
             format!("{} {}", jt, sanitize_identifier(&a.name))
@@ -1229,19 +1201,13 @@ fn emit_wrapper_method(
         // ByValue Structure. We adopt its `Pointer` for the wrapper.
         builder.line(&format!("{} __raw = {};", return_jvm, call));
         emit_consume(builder);
-        builder.line(&format!(
-            "return new {}(__raw.getPointer());",
-            class_name
-        ));
+        builder.line(&format!("return new {}(__raw.getPointer());", class_name));
     } else if let Some(ref wrapper) = returns_wrapper_other {
         // Non-self wrapper-class return: same shape as returns_self
         // but wraps in the return-type's wrapper class.
         builder.line(&format!("{} __raw = {};", return_jvm, call));
         emit_consume(builder);
-        builder.line(&format!(
-            "return new {}(__raw.getPointer());",
-            wrapper
-        ));
+        builder.line(&format!("return new {}(__raw.getPointer());", wrapper));
     } else {
         // The Option/Result type name for the _delete call lookup
         // (e.g. "OptionDom", "ResultIcuError"). Same string the IR
@@ -1419,9 +1385,10 @@ fn format_option_delete_call_jvm(option_type_name: &str, ir: &CodegenIR) -> Opti
 /// `_clone` C export exists.
 fn format_clone_call_jvm(payload_type_name: &str, ir: &CodegenIR) -> Option<String> {
     use super::super::ir::FunctionKind;
-    let has_clone = ir.functions.iter().any(|f| {
-        f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy)
-    });
+    let has_clone = ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy));
     if !has_clone {
         return None;
     }
@@ -1528,10 +1495,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                     "/** Construct the {}.{} variant. */",
                     e.name, v.name
                 ));
-                builder.line(&format!(
-                    "public static {} {}() {{",
-                    ffi_name, mname
-                ));
+                builder.line(&format!("public static {} {}() {{", ffi_name, mname));
                 builder.indent();
                 builder.line(&format!("{} u = new {}();", ffi_name, ffi_name));
                 builder.line(&format!(
@@ -1606,7 +1570,10 @@ fn idiomatic_method_name(method_name: &str) -> String {
         format!("{}_", camel)
     } else if camel == "close" {
         "closeInner".to_string()
-    } else if matches!(camel.as_str(), "toString" | "hashCode" | "equals" | "getClass" | "clone" | "finalize") {
+    } else if matches!(
+        camel.as_str(),
+        "toString" | "hashCode" | "equals" | "getClass" | "clone" | "finalize"
+    ) {
         // Methods declared on java.lang.Object have fixed signatures.
         // A user-API method called `toString` returning `AzString.ByValue`
         // cannot legally override `Object.toString()` (which returns

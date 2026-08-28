@@ -27,17 +27,16 @@ use azul_css::AzString;
 
 use super::{cpu_dialog_window, markdown, style};
 use crate::callbacks::CallbackInfo;
-use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 use crate::thread::{
     Thread, ThreadCallbackType, ThreadReceiveMsg, ThreadSender, ThreadWriteBackMsg,
     WriteBackCallbackType,
 };
 use crate::updater::{
     apply_update, check_for_updates_blocking, default_state_dir, download_and_verify,
-    effective_mode,
-    InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdateState,
+    effective_mode, InstallKind, ReleaseInfo, UpdateCheckResult, UpdateMode, UpdateState,
 };
 use crate::widgets::button::{Button, ButtonOnClickCallbackType};
+use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 use azul_core::dom::Dom;
 
 /// Where the dialog currently is.
@@ -62,7 +61,6 @@ pub enum UpdatePhase {
         effective: UpdateMode,
         /// "your package manager" wording for notify-only installs.
         install_hint: String,
-
     },
     /// Install consented; download/swap in progress.
     Installing { version: String },
@@ -116,7 +114,8 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
     drop(task);
 
     let install = InstallKind::detect();
-    let effective = crate::updater::apply_shared_update_policy(effective_mode(env.update_mode, &install));
+    let effective =
+        crate::updater::apply_shared_update_policy(effective_mode(env.update_mode, &install));
     let phase = match (env.update_manifest.as_deref(), effective) {
         (_, UpdateMode::Disabled) => UpdatePhase::Failed {
             error: "updates are disabled in this build".to_owned(),
@@ -219,8 +218,7 @@ extern "C" fn on_install_now(mut state: RefAny, mut info: CallbackInfo) -> Updat
         let Some(mut s) = state.downcast_mut::<UpdateDialogState>() else {
             return Update::DoNothing;
         };
-        let UpdatePhase::Available { release, .. } = s.phase.clone()
-        else {
+        let UpdatePhase::Available { release, .. } = s.phase.clone() else {
             return Update::DoNothing;
         };
         let version = release.version.as_str().to_owned();
@@ -338,7 +336,10 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
         }),
     ]);
 
-    let state = info.get_ctx().into_option().unwrap_or_else(|| RefAny::new(()));
+    let state = info
+        .get_ctx()
+        .into_option()
+        .unwrap_or_else(|| RefAny::new(()));
     let mut children: Vec<Dom> = Vec::new();
     match phase {
         UpdatePhase::Checking => {

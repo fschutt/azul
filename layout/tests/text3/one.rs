@@ -144,7 +144,7 @@ fn test_simple_line_break() {
         text: Arc::from("a a a a a a"), // 6 chars * 8px + 5 spaces * 5px = 48 + 25 = 73px
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let flow_chain = [LayoutFragment {
@@ -157,12 +157,17 @@ fn test_simple_line_break() {
 
     // Using layout_flow is complex for mocks, so we'll test stages
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout =
-        super::perform_fragment_layout_compat(&mut cursor, &logical_items, &flow_chain[0].constraints).unwrap();
+    let layout = super::perform_fragment_layout_compat(
+        &mut cursor,
+        &logical_items,
+        &flow_chain[0].constraints,
+    )
+    .unwrap();
 
     // "a a a a " = 4*8 + 4*5 = 32 + 20 = 52, which overflows.
     // Safe break is after 3rd space: "a a a " = 3*8 + 3*5 = 24 + 15 = 39px.
@@ -185,7 +190,7 @@ fn test_justification_inter_word() {
         text: Arc::from("a b"), // a=8, space=5, b=9 (mocked) => total 22px
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let constraints = UnifiedConstraints {
@@ -196,7 +201,8 @@ fn test_justification_inter_word() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
 
     let (positioned, _) = super::position_one_line_compat(
@@ -214,7 +220,7 @@ fn test_justification_inter_word() {
         0,
         constraints.text_align,
         BidiDirection::Ltr, // Added base_direction argument
-        false,          // Not last line, so justify
+        false,              // Not last line, so justify
         &constraints,
     );
 
@@ -244,10 +250,14 @@ fn test_hyphenation_break() {
             ..(*default_style()).clone()
         }),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let shaped_items = super::shape_visual_items_compat(
-        &super::reorder_logical_items_compat(&super::create_logical_items_compat(&content, &[]), BidiDirection::Ltr).unwrap(),
+        &super::reorder_logical_items_compat(
+            &super::create_logical_items_compat(&content, &[]),
+            BidiDirection::Ltr,
+        )
+        .unwrap(),
         &manager,
     )
     .unwrap();
@@ -259,7 +269,7 @@ fn test_hyphenation_break() {
             priority: 0,
         }],
         total_available: 50.0,
-            is_min_content: false,
+        is_min_content: false,
     };
 
     let (line1_items, was_hyphenated) =
@@ -302,10 +312,14 @@ fn test_hyphenation_break_2() {
             ..(*default_style()).clone()
         }),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let shaped_items = super::shape_visual_items_compat(
-        &super::reorder_logical_items_compat(&super::create_logical_items_compat(&content, &[]), BidiDirection::Ltr).unwrap(),
+        &super::reorder_logical_items_compat(
+            &super::create_logical_items_compat(&content, &[]),
+            BidiDirection::Ltr,
+        )
+        .unwrap(),
         &manager,
     )
     .unwrap();
@@ -317,7 +331,7 @@ fn test_hyphenation_break_2() {
             priority: 0,
         }],
         total_available: 60.0,
-            is_min_content: false,
+        is_min_content: false,
     };
 
     // "hy-phen-ation".
@@ -362,8 +376,8 @@ fn test_empty_input_layout() {
         },
     }];
 
-    let result = super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager)
-        .unwrap();
+    let result =
+        super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager).unwrap();
 
     assert!(result
         .fragment_layouts

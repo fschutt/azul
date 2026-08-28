@@ -83,14 +83,18 @@ pub fn generate_types(
     }
 
     if !ir.callback_typedefs.is_empty() {
-        builder.line(";; ----------------------------------------------------------------------------");
+        builder.line(
+            ";; ----------------------------------------------------------------------------",
+        );
         builder.line(";; Callback typedefs (raw function pointers).");
         builder.line(";;");
         builder.line(";; Racket closures become real C fn-ptrs via `_fun`; user code passes");
         builder.line(";; plain procedures to the wrapper setters (e.g. button-set-on-click),");
         builder.line(";; which route through `register-callback`. These `_fpointer` aliases are");
         builder.line(";; the opaque ctype for the `cb` slot inside each callback-wrapper struct.");
-        builder.line(";; ----------------------------------------------------------------------------");
+        builder.line(
+            ";; ----------------------------------------------------------------------------",
+        );
         builder.blank();
         for cb in &ir.callback_typedefs {
             emit_callback_typedef(builder, cb);

@@ -50,12 +50,15 @@
 //! AZ_E2E=tests.json ./my_app
 //! ```
 
-use std::{ffi::c_void, sync::{Arc, Mutex}};
+use std::{
+    ffi::c_void,
+    sync::{Arc, Mutex},
+};
 
 use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 
 use super::common::debug_server;
 use super::common::debug_server::LogCategory;
@@ -63,9 +66,9 @@ use super::common::event::PlatformWindow;
 use super::common::event::SharedUndoManager;
 use crate::{log_debug, log_error, log_info, log_trace};
 
+use super::common::WindowError;
 #[cfg(target_os = "macos")]
 use super::macos::MacOSWindow;
-use super::common::WindowError;
 
 /// Resolve the rendering backend from env vars and config.
 fn resolve_backend(options: &WindowCreateOptions) -> super::AzBackend {
@@ -225,7 +228,11 @@ fn load_e2e_tests(path: &str) -> Vec<debug_server::E2eTest> {
             let contents = match std::fs::read_to_string(file) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("error: cannot read E2E test file '{}': {}", file.display(), e);
+                    eprintln!(
+                        "error: cannot read E2E test file '{}': {}",
+                        file.display(),
+                        e
+                    );
                     std::process::exit(1);
                 }
             };
@@ -262,7 +269,11 @@ fn setup_e2e_runner(test_file: &str) {
         .collect();
 
     let total = tests.len();
-    eprintln!("\nrunning {} test{}", total, if total == 1 { "" } else { "s" });
+    eprintln!(
+        "\nrunning {} test{}",
+        total,
+        if total == 1 { "" } else { "s" }
+    );
 
     // Push the event onto the queue (this also sets E2E_ACTIVE so
     // is_debug_enabled() returns true and the timer gets registered).
@@ -410,15 +421,17 @@ fn run_headless(
     tray: Option<azul_core::tray::TrayIconData>,
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
-    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    font_manager: Option<
+        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
     debug_request_rx: Option<spmc::Receiver<debug_server::DebugRequest>>,
     component_map: Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) -> Result<(), WindowError> {
-    use std::cell::RefCell;
-    use azul_core::icon::SharedIconProvider;
     use super::headless::HeadlessWindow;
+    use azul_core::icon::SharedIconProvider;
+    use std::cell::RefCell;
 
     log_info!(
         LogCategory::EventLoop,
@@ -430,7 +443,15 @@ fn run_headless(
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
     let app_data_arc = Arc::new(RefCell::new(app_data));
-    let mut window = HeadlessWindow::new(root_window, app_data_arc, undo_manager, config, shared_icon_provider, fc_cache, font_registry)?;
+    let mut window = HeadlessWindow::new(
+        root_window,
+        app_data_arc,
+        undo_manager,
+        config,
+        shared_icon_provider,
+        fc_cache,
+        font_registry,
+    )?;
 
     // Register debug timer if debug/E2E is active
     if let (Some(rx), Some(cm)) = (debug_request_rx, component_map) {
@@ -469,9 +490,9 @@ fn setup_debug_and_e2e(
         let needs_debug = debug_port.is_some() || e2e_file.is_some();
 
         let (debug_request_rx, component_map) = if needs_debug {
-            let cm = Arc::new(Mutex::new(
-                azul_core::xml::ComponentMap::from_libraries(&config.component_libraries),
-            ));
+            let cm = Arc::new(Mutex::new(azul_core::xml::ComponentMap::from_libraries(
+                &config.component_libraries,
+            )));
             let rx = if let Some(port) = debug_port {
                 let (_handle, rx) = debug_server::start_debug_server(port);
                 rx
@@ -527,7 +548,9 @@ pub fn run(
     tray: Option<azul_core::tray::TrayIconData>,
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
-    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    font_manager: Option<
+        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
@@ -562,7 +585,14 @@ pub fn run(
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = &backend {
         let web_cfg = web_cfg.clone();
-        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
+        return crate::web::run_web(
+            app_data,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            web_cfg,
+        );
     }
 
     // Say so if an AZ_* knob was set that this build cannot honour, BEFORE any
@@ -572,7 +602,19 @@ pub fn run(
 
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
+        return run_headless(
+            app_data,
+            undo_manager,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            tray,
+            font_manager,
+            app_icon,
+            debug_request_rx,
+            component_map,
+        );
     }
 
     use azul_core::icon::SharedIconProvider;
@@ -586,13 +628,13 @@ pub fn run(
         "Starting macOS event loop setup",
         None,
     );
-    
+
     // Extract the icon_provider from config, replacing it with an empty one.
     // This allows us to move icon_provider into SharedIconProvider while still
     // being able to use the rest of config.
     let mut config = config;
     let icon_provider_handle = core::mem::take(&mut config.icon_provider);
-    
+
     // Convert IconProviderHandle to SharedIconProvider once - this will be cloned to all windows
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
@@ -625,7 +667,6 @@ pub fn run(
             crate::desktop::shell2::macos::setup_main_menu(&app, mtm);
         }
 
-
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
         debug_server::log(
@@ -634,8 +675,18 @@ pub fn run(
             "Creating MacOSWindow...",
             None,
         );
-        let mut window =
-            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), undo_manager.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), font_manager.clone(), None, mtm)?;
+        let mut window = MacOSWindow::new_with_fc_cache(
+            root_window,
+            app_data.clone(),
+            undo_manager.clone(),
+            config.clone(),
+            shared_icon_provider.clone(),
+            fc_cache.clone(),
+            font_registry.clone(),
+            font_manager.clone(),
+            None,
+            mtm,
+        )?;
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::Window,
@@ -662,12 +713,18 @@ pub fn run(
         // whose `embedded_fonts` pool holds the icon face.
         if let Some(spec) = app_icon.as_ref() {
             let fm_for_icon = font_manager.as_ref().map(|fm| fm.clone_shared());
-            if let Some(fm) = fm_for_icon
-                .as_ref()
-                .or_else(|| window.common.layout_window.as_ref().map(|lw| &lw.font_manager))
-            {
-                let outcome =
-                    crate::desktop::app_icon::set_app_icon(spec.as_str(), &shared_icon_provider, fm);
+            if let Some(fm) = fm_for_icon.as_ref().or_else(|| {
+                window
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .map(|lw| &lw.font_manager)
+            }) {
+                let outcome = crate::desktop::app_icon::set_app_icon(
+                    spec.as_str(),
+                    &shared_icon_provider,
+                    fm,
+                );
                 log_debug!(
                     debug_server::LogCategory::Resources,
                     "[app-icon] {:?} -> {:?}",
@@ -702,10 +759,13 @@ pub fn run(
                 fm
             });
 
-            match own
-                .as_ref()
-                .or_else(|| window.common.layout_window.as_ref().map(|lw| &lw.font_manager))
-            {
+            match own.as_ref().or_else(|| {
+                window
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .map(|lw| &lw.font_manager)
+            }) {
                 Some(fm) => {
                     crate::desktop::tray::install_tray(tray, &shared_icon_provider, fm);
                 }
@@ -805,9 +865,7 @@ pub fn run(
                             #[cfg(feature = "a11y")]
                             window.process_accessibility_actions();
 
-                            while let Some(pending_create) =
-                                window.pending_window_creates.pop()
-                            {
+                            while let Some(pending_create) = window.pending_window_creates.pop() {
                                 match super::macos::MacOSWindow::new_with_fc_cache(
                                     pending_create,
                                     app_data.clone(),
@@ -825,10 +883,8 @@ pub fn run(
                                     mtm,
                                 ) {
                                     Ok(new_window) => unsafe {
-                                        let new_window_ptr =
-                                            Box::into_raw(Box::new(new_window));
-                                        let new_ns_window =
-                                            (*new_window_ptr).get_ns_window_ptr();
+                                        let new_window_ptr = Box::into_raw(Box::new(new_window));
+                                        let new_ns_window = (*new_window_ptr).get_ns_window_ptr();
                                         (*new_window_ptr).setup_gl_view_back_pointer();
                                         (*new_window_ptr).finalize_delegate_pointer();
                                         super::macos::registry::register_window(
@@ -1124,8 +1180,14 @@ pub fn run(
 // Store initial options globally for the AppDelegate to retrieve.
 // Unsafe, but simple for this minimal example.
 #[cfg(target_os = "ios")]
-pub(super) static mut INITIAL_OPTIONS: Option<(RefAny, SharedUndoManager, AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
-    None;
+pub(super) static mut INITIAL_OPTIONS: Option<(
+    RefAny,
+    SharedUndoManager,
+    AppConfig,
+    Arc<FcFontCache>,
+    Option<Arc<FcFontRegistry>>,
+    WindowCreateOptions,
+)> = None;
 
 // On iOS, the `run` function doesn't manage an event loop.
 // Instead, it calls a bootstrap function that sets up the native
@@ -1144,20 +1206,45 @@ pub fn run(
     tray: Option<azul_core::tray::TrayIconData>,
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
-    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    font_manager: Option<
+        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
-        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
+        return crate::web::run_web(
+            app_data,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            web_cfg,
+        );
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, _debug_request_rx, _component_map);
+        return run_headless(
+            app_data,
+            undo_manager,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            _debug_request_rx,
+            _component_map,
+        );
     }
     unsafe {
-        INITIAL_OPTIONS = Some((app_data, undo_manager, config, fc_cache, font_registry, root_window));
+        INITIAL_OPTIONS = Some((
+            app_data,
+            undo_manager,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+        ));
         crate::desktop::shell2::ios::launch_app();
         Ok(()) // Unreachable
     }
@@ -1173,9 +1260,14 @@ pub fn run(
 // loop from there.
 
 #[cfg(target_os = "android")]
-pub(super) static mut ANDROID_INITIAL_OPTIONS:
-    Option<(RefAny, SharedUndoManager, AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
-    None;
+pub(super) static mut ANDROID_INITIAL_OPTIONS: Option<(
+    RefAny,
+    SharedUndoManager,
+    AppConfig,
+    Arc<FcFontCache>,
+    Option<Arc<FcFontRegistry>>,
+    WindowCreateOptions,
+)> = None;
 
 #[cfg(target_os = "android")]
 pub fn run(
@@ -1191,20 +1283,34 @@ pub fn run(
     tray: Option<azul_core::tray::TrayIconData>,
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
-    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    font_manager: Option<
+        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         return run_headless(
-            app_data, undo_manager, config, fc_cache, font_registry, root_window,
-            _debug_request_rx, _component_map,
+            app_data,
+            undo_manager,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            _debug_request_rx,
+            _component_map,
         );
     }
     unsafe {
-        ANDROID_INITIAL_OPTIONS =
-            Some((app_data, undo_manager, config, fc_cache, font_registry, root_window));
+        ANDROID_INITIAL_OPTIONS = Some((
+            app_data,
+            undo_manager,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+        ));
     }
     Ok(())
 }
@@ -1223,17 +1329,38 @@ pub fn run(
     tray: Option<azul_core::tray::TrayIconData>,
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
-    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    font_manager: Option<
+        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
-        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
+        return crate::web::run_web(
+            app_data,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            web_cfg,
+        );
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
+        return run_headless(
+            app_data,
+            undo_manager,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            tray,
+            font_manager,
+            app_icon,
+            debug_request_rx,
+            component_map,
+        );
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     crate::plog_info!(
@@ -1260,7 +1387,15 @@ pub fn run(
         LogCategory::Window,
         "[shell2::run] calling Win32Window::new"
     );
-    let mut window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone(), undo_manager.clone(), font_manager.clone())?;
+    let mut window = Win32Window::new(
+        root_window,
+        config.clone(),
+        fc_cache.clone(),
+        font_registry.clone(),
+        app_data_arc.clone(),
+        undo_manager.clone(),
+        font_manager.clone(),
+    )?;
     log_trace!(
         LogCategory::Window,
         "[shell2::run] Win32Window::new returned successfully"
@@ -1568,7 +1703,9 @@ pub fn run(
                         // Retire ONLY the request this frame observed: a lifecycle callback
                         // running inside the render above can raise a new one, and a bare
                         // `= false` here would erase it.
-                        window.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+                        window
+                            .common
+                            .clear_regeneration_unless_reraised(regen_epoch_seen);
 
                         // Request WM_PAINT
                         use std::ptr;
@@ -1659,7 +1796,9 @@ pub fn run(
     tray: Option<azul_core::tray::TrayIconData>,
     // THE app-level font manager, so windows and the tray share one set of font
     // pools instead of each building a private universe. See `AppInternal`.
-    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    font_manager: Option<
+        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
@@ -1698,11 +1837,30 @@ pub fn run(
     #[cfg(feature = "web")]
     if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
         crate::plog_info!("[Linux] backend resolved to Web");
-        return crate::web::run_web(app_data, config, fc_cache, font_registry, root_window, web_cfg);
+        return crate::web::run_web(
+            app_data,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            web_cfg,
+        );
     }
     if resolve_backend(&root_window) == super::AzBackend::Headless {
         crate::plog_info!("[Linux] backend resolved to Headless (AZ_BACKEND=headless)");
-        return run_headless(app_data, undo_manager, config, fc_cache, font_registry, root_window, tray, font_manager, app_icon, debug_request_rx, component_map);
+        return run_headless(
+            app_data,
+            undo_manager,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            tray,
+            font_manager,
+            app_icon,
+            debug_request_rx,
+            component_map,
+        );
     }
     use std::cell::RefCell;
 
@@ -1731,13 +1889,21 @@ pub fn run(
     // Create the root window — log a failure HERE (with the concrete error)
     // before propagating, so a window-creation failure is never silent even if
     // the caller discards the Result.
-    let mut window = match LinuxWindow::new_with_resources(root_window, app_data_arc, undo_manager.clone(), resources.clone()) {
+    let mut window = match LinuxWindow::new_with_resources(
+        root_window,
+        app_data_arc,
+        undo_manager.clone(),
+        resources.clone(),
+    ) {
         Ok(w) => {
             crate::plog_info!("[Linux] root window created successfully");
             w
         }
         Err(e) => {
-            crate::plog_error!("[Linux] FAILED to create root window: {:?} — app cannot start", e);
+            crate::plog_error!(
+                "[Linux] FAILED to create root window: {:?} — app cannot start",
+                e
+            );
             return Err(e);
         }
     };
@@ -1873,10 +2039,7 @@ pub fn run(
 
                                     // Register in global registry
                                     unsafe {
-                                        registry::register_window(
-                                            new_window_id,
-                                            new_window_ptr,
-                                        );
+                                        registry::register_window(new_window_id, new_window_ptr);
                                     }
 
                                     log_debug!(debug_server::LogCategory::Window, "[Linux] Successfully created and registered new X11 window (ID: {})", new_window_id);
@@ -1953,10 +2116,7 @@ pub fn run(
 
                                     // Register in global registry
                                     unsafe {
-                                        registry::register_window(
-                                            new_window_id,
-                                            new_window_ptr,
-                                        );
+                                        registry::register_window(new_window_id, new_window_ptr);
                                     }
 
                                     log_debug!(debug_server::LogCategory::Window, "[Linux] Successfully created and registered new Wayland window (ID: {})", new_window_id);
@@ -2181,7 +2341,12 @@ fn invoke_tray_callbacks<W: crate::desktop::shell2::common::event::PlatformWindo
     let mut needs_redraw = false;
     for cb in callbacks {
         if !matches!(
-            window.invoke_menu_callback(cb, MenuInvocation::Native { site: "macos.tray_menu" }),
+            window.invoke_menu_callback(
+                cb,
+                MenuInvocation::Native {
+                    site: "macos.tray_menu"
+                }
+            ),
             ProcessEventResult::DoNothing
         ) {
             needs_redraw = true;
@@ -2220,7 +2385,9 @@ pub fn run_tray_only(
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     tray: azul_core::tray::TrayIconData,
-    font_manager: Option<std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    font_manager: Option<
+        std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+    >,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
 
@@ -2269,9 +2436,11 @@ pub fn run_tray_only(
         }
         fm
     });
-    match own
+    match own.as_ref().or(headless
+        .common
+        .layout_window
         .as_ref()
-        .or(headless.common.layout_window.as_ref().map(|lw| &lw.font_manager))
+        .map(|lw| &lw.font_manager))
     {
         Some(fm) => crate::desktop::tray::install_tray(tray, &shared_icon_provider, fm),
         None => {
@@ -2284,16 +2453,18 @@ pub fn run_tray_only(
     // Drain tray clicks into the headless window. 33ms matches the windowed
     // path's timer.
     let headless_ptr: *mut HeadlessWindow = &mut headless;
-    let drain = block2::RcBlock::new(move |_timer: core::ptr::NonNull<objc2_foundation::NSTimer>| {
-        let callbacks = crate::desktop::tray::pump_tray();
-        if !callbacks.is_empty() {
-            // Safe: single-threaded main-loop timer, and `headless` outlives the
-            // run loop below (it is dropped only after `app.run()` returns).
-            let window = unsafe { &mut *headless_ptr };
-            // Nothing to repaint: there is no window on screen.
-            let _ = invoke_tray_callbacks(window, callbacks);
-        }
-    });
+    let drain = block2::RcBlock::new(
+        move |_timer: core::ptr::NonNull<objc2_foundation::NSTimer>| {
+            let callbacks = crate::desktop::tray::pump_tray();
+            if !callbacks.is_empty() {
+                // Safe: single-threaded main-loop timer, and `headless` outlives the
+                // run loop below (it is dropped only after `app.run()` returns).
+                let window = unsafe { &mut *headless_ptr };
+                // Nothing to repaint: there is no window on screen.
+                let _ = invoke_tray_callbacks(window, callbacks);
+            }
+        },
+    );
     let _timer: objc2::rc::Retained<objc2_foundation::NSTimer> = unsafe {
         objc2::msg_send![
             objc2::class!(NSTimer),

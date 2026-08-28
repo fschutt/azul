@@ -1,8 +1,8 @@
 //! CSS property types for direction (for gradients).
 
+use crate::corety::AzString;
 use alloc::string::String;
 use core::{fmt, num::ParseFloatError};
-use crate::corety::AzString;
 
 use crate::props::{
     basic::{
@@ -55,8 +55,11 @@ impl PrintAsCssValue for DirectionCorner {
 }
 
 impl DirectionCorner {
-    #[must_use] pub const fn opposite(&self) -> Self {
-        use self::DirectionCorner::{Right, Left, Top, Bottom, TopRight, BottomLeft, TopLeft, BottomRight};
+    #[must_use]
+    pub const fn opposite(&self) -> Self {
+        use self::DirectionCorner::{
+            Bottom, BottomLeft, BottomRight, Left, Right, Top, TopLeft, TopRight,
+        };
         match *self {
             Right => Left,
             Left => Right,
@@ -69,8 +72,11 @@ impl DirectionCorner {
         }
     }
 
-    #[must_use] pub const fn combine(&self, other: &Self) -> Option<Self> {
-        use self::DirectionCorner::{Right, Top, TopRight, Left, TopLeft, Bottom, BottomRight, BottomLeft};
+    #[must_use]
+    pub const fn combine(&self, other: &Self) -> Option<Self> {
+        use self::DirectionCorner::{
+            Bottom, BottomLeft, BottomRight, Left, Right, Top, TopLeft, TopRight,
+        };
         match (*self, *other) {
             (Right, Top) | (Top, Right) => Some(TopRight),
             (Left, Top) | (Top, Left) => Some(TopLeft),
@@ -80,8 +86,11 @@ impl DirectionCorner {
         }
     }
 
-    #[must_use] pub const fn to_point(&self, rect: &LayoutRect) -> LayoutPoint {
-        use self::DirectionCorner::{Right, Left, Top, Bottom, TopRight, TopLeft, BottomRight, BottomLeft};
+    #[must_use]
+    pub const fn to_point(&self, rect: &LayoutRect) -> LayoutPoint {
+        use self::DirectionCorner::{
+            Bottom, BottomLeft, BottomRight, Left, Right, Top, TopLeft, TopRight,
+        };
         match *self {
             Right => LayoutPoint {
                 x: rect.size.width,
@@ -154,7 +163,8 @@ impl PrintAsCssValue for Direction {
 }
 
 impl Direction {
-    #[must_use] pub fn to_points(&self, rect: &LayoutRect) -> (LayoutPoint, LayoutPoint) {
+    #[must_use]
+    pub fn to_points(&self, rect: &LayoutRect) -> (LayoutPoint, LayoutPoint) {
         match self {
             Self::Angle(angle_value) => {
                 // Convert the angle to start/end points on the rectangle.
@@ -212,7 +222,8 @@ pub enum CssDirectionCornerParseErrorOwned {
 }
 
 impl CssDirectionCornerParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssDirectionCornerParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssDirectionCornerParseErrorOwned {
         match self {
             CssDirectionCornerParseError::InvalidDirection(s) => {
                 CssDirectionCornerParseErrorOwned::InvalidDirection((*s).to_string().into())
@@ -222,11 +233,10 @@ impl CssDirectionCornerParseError<'_> {
 }
 
 impl CssDirectionCornerParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssDirectionCornerParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssDirectionCornerParseError<'_> {
         match self {
-            Self::InvalidDirection(s) => {
-                CssDirectionCornerParseError::InvalidDirection(s.as_str())
-            }
+            Self::InvalidDirection(s) => CssDirectionCornerParseError::InvalidDirection(s.as_str()),
         }
     }
 }
@@ -267,9 +277,12 @@ pub enum CssDirectionParseErrorOwned {
 }
 
 impl CssDirectionParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssDirectionParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssDirectionParseErrorOwned {
         match self {
-            CssDirectionParseError::Error(s) => CssDirectionParseErrorOwned::Error((*s).to_string().into()),
+            CssDirectionParseError::Error(s) => {
+                CssDirectionParseErrorOwned::Error((*s).to_string().into())
+            }
             CssDirectionParseError::InvalidArguments(s) => {
                 CssDirectionParseErrorOwned::InvalidArguments((*s).to_string().into())
             }
@@ -287,21 +300,14 @@ impl CssDirectionParseError<'_> {
 }
 
 impl CssDirectionParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssDirectionParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssDirectionParseError<'_> {
         match self {
             Self::Error(s) => CssDirectionParseError::Error(s.as_str()),
-            Self::InvalidArguments(s) => {
-                CssDirectionParseError::InvalidArguments(s.as_str())
-            }
-            Self::ParseFloat(e) => {
-                CssDirectionParseError::ParseFloat(e.to_std())
-            }
-            Self::CornerError(e) => {
-                CssDirectionParseError::CornerError(e.to_shared())
-            }
-            Self::AngleError(e) => {
-                CssDirectionParseError::AngleError(e.to_shared())
-            }
+            Self::InvalidArguments(s) => CssDirectionParseError::InvalidArguments(s.as_str()),
+            Self::ParseFloat(e) => CssDirectionParseError::ParseFloat(e.to_std()),
+            Self::CornerError(e) => CssDirectionParseError::CornerError(e.to_shared()),
+            Self::AngleError(e) => CssDirectionParseError::AngleError(e.to_shared()),
         }
     }
 }
@@ -617,7 +623,10 @@ mod autotest_generated {
                         // Only perpendicular side pairs may combine, and the
                         // result is always a diagonal.
                         assert!(SIDES.contains(&a) && SIDES.contains(&b));
-                        assert!(DIAGONALS.contains(&c), "combine({a}, {b}) = {c}, not a corner");
+                        assert!(
+                            DIAGONALS.contains(&c),
+                            "combine({a}, {b}) = {c}, not a corner"
+                        );
                         assert_ne!(a, b);
                         assert_ne!(a.opposite(), b, "opposite sides must not combine");
                         // The corner name must mention both inputs.
@@ -648,10 +657,7 @@ mod autotest_generated {
             assert_eq!(c.combine(&c), None, "{c} combined with itself");
             assert_eq!(c.combine(&c.opposite()), None, "{c} combined with opposite");
         }
-        assert_eq!(
-            DirectionCorner::Top.combine(&DirectionCorner::Bottom),
-            None
-        );
+        assert_eq!(DirectionCorner::Top.combine(&DirectionCorner::Bottom), None);
         assert_eq!(DirectionCorner::Left.combine(&DirectionCorner::Right), None);
         // A diagonal never combines with anything.
         for d in DIAGONALS {
@@ -688,7 +694,10 @@ mod autotest_generated {
             DirectionCorner::TopRight.to_point(&r),
             LayoutPoint::new(200, 0)
         );
-        assert_eq!(DirectionCorner::TopLeft.to_point(&r), LayoutPoint::new(0, 0));
+        assert_eq!(
+            DirectionCorner::TopLeft.to_point(&r),
+            LayoutPoint::new(0, 0)
+        );
         assert_eq!(
             DirectionCorner::BottomRight.to_point(&r),
             LayoutPoint::new(200, 100)
@@ -976,7 +985,10 @@ mod autotest_generated {
         assert_eq!(parse_direction_corner("right"), Ok(DirectionCorner::Right));
         assert_eq!(parse_direction_corner("left"), Ok(DirectionCorner::Left));
         assert_eq!(parse_direction_corner("top"), Ok(DirectionCorner::Top));
-        assert_eq!(parse_direction_corner("bottom"), Ok(DirectionCorner::Bottom));
+        assert_eq!(
+            parse_direction_corner("bottom"),
+            Ok(DirectionCorner::Bottom)
+        );
     }
 
     #[cfg(feature = "parser")]
@@ -985,9 +997,28 @@ mod autotest_generated {
         // parse_direction_corner does NOT trim and is case-sensitive; every one
         // of these must be a clean Err carrying the input verbatim.
         for bad in [
-            "", " ", "   ", "\t", "\n", "\r\n", " right", "right ", "right\n", "Right", "RIGHT",
-            "rIgHt", "top right", "top-right", "topright", "right;", "right)", "center", "start",
-            "end", "to", "to right",
+            "",
+            " ",
+            "   ",
+            "\t",
+            "\n",
+            "\r\n",
+            " right",
+            "right ",
+            "right\n",
+            "Right",
+            "RIGHT",
+            "rIgHt",
+            "top right",
+            "top-right",
+            "topright",
+            "right;",
+            "right)",
+            "center",
+            "start",
+            "end",
+            "to",
+            "to right",
         ] {
             assert_eq!(
                 parse_direction_corner(bad),
@@ -1007,14 +1038,14 @@ mod autotest_generated {
             "right\u{0}",
             "\u{1F600}",
             "to \u{1F600}",
-            "ri\u{0301}ght",   // combining acute on 'i'
-            "\u{0440}ight",    // Cyrillic 'р'
-            "\u{200b}right",   // zero-width space (not Rust whitespace)
+            "ri\u{0301}ght", // combining acute on 'i'
+            "\u{0440}ight",  // Cyrillic 'р'
+            "\u{200b}right", // zero-width space (not Rust whitespace)
             "right\u{200b}",
-            "\u{feff}right",   // BOM
-            "\u{202e}right",   // RTL override
-            "ｒｉｇｈｔ",       // fullwidth
-            "\u{a0}right",     // NBSP (Rust whitespace, but not trimmed here)
+            "\u{feff}right", // BOM
+            "\u{202e}right", // RTL override
+            "ｒｉｇｈｔ",    // fullwidth
+            "\u{a0}right",   // NBSP (Rust whitespace, but not trimmed here)
         ] {
             assert_eq!(
                 parse_direction_corner(bad),
@@ -1077,7 +1108,9 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn parse_direction_empty_and_whitespace_only() {
-        for empty in ["", " ", "   ", "\t", "\n", "\r\n", "\t \n \r", "\u{a0}", "\u{3000}"] {
+        for empty in [
+            "", " ", "   ", "\t", "\n", "\r\n", "\t \n \r", "\u{a0}", "\u{3000}",
+        ] {
             assert!(
                 matches!(
                     parse_direction(empty),
@@ -1245,7 +1278,7 @@ mod autotest_generated {
             "\u{0}",
             "\u{1F600}",
             "to \u{1F600}",
-            "45\u{00b0}",   // degree sign, not a CSS unit
+            "45\u{00b0}", // degree sign, not a CSS unit
             "to right\u{200b}",
             "\u{feff}to right",
             "ｔｏ right",
@@ -1296,9 +1329,9 @@ mod autotest_generated {
             "9223372036854775807",
             "-9223372036854775808deg",
             "340282350000000000000000000000000000000deg", // ~f32::MAX
-            "1e400",       // parses to f32 inf
+            "1e400",                                      // parses to f32 inf
             "-1e400deg",
-            "1e-400deg",   // underflows to 0
+            "1e-400deg", // underflows to 0
             "NaN",
             "nan deg",
             "inf",
@@ -1431,7 +1464,10 @@ mod autotest_generated {
         });
         assert_eq!(weird.print_as_css_value(), "to right");
         let reparsed = parse_direction("to right").unwrap();
-        assert_ne!(reparsed, weird, "dir_from unexpectedly survived the round-trip");
+        assert_ne!(
+            reparsed, weird,
+            "dir_from unexpectedly survived the round-trip"
+        );
         assert_eq!(reparsed, canonical(DirectionCorner::Right));
     }
 
@@ -1440,7 +1476,14 @@ mod autotest_generated {
     #[test]
     fn corner_error_to_contained_and_to_shared_round_trip() {
         let long = "x".repeat(100_000);
-        for s in ["", " ", "bogus", "\u{1F600}\u{0301}", "\u{0}", long.as_str()] {
+        for s in [
+            "",
+            " ",
+            "bogus",
+            "\u{1F600}\u{0301}",
+            "\u{0}",
+            long.as_str(),
+        ] {
             let err = CssDirectionCornerParseError::InvalidDirection(s);
             let owned = err.to_contained();
             assert_eq!(owned.to_shared(), err, "round-trip failed for {s:?}");
@@ -1494,7 +1537,10 @@ mod autotest_generated {
     fn error_display_is_non_empty_and_keeps_the_offending_input() {
         let corner = CssDirectionCornerParseError::InvalidDirection("bogus");
         let printed = format!("{corner}");
-        assert!(printed.contains("bogus"), "display lost the input: {printed}");
+        assert!(
+            printed.contains("bogus"),
+            "display lost the input: {printed}"
+        );
 
         for err in [
             CssDirectionParseError::Error("boom"),

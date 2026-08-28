@@ -219,7 +219,11 @@ pub enum StructuralPreview {
         content: azul_core::dom::Dom,
     },
     /// `parent`'s children `[start, end)` render REMOVED.
-    Remove { parent: NodeId, start: u32, end: u32 },
+    Remove {
+        parent: NodeId,
+        start: u32,
+        end: u32,
+    },
     /// `parent`'s children `[start, end)` render REPLACED by a pending
     /// subtree.
     Replace {
@@ -369,44 +373,54 @@ impl ContentOverlay {
     ) {
         use crate::managers::changeset::DocumentOperation as Op;
         let preview = match &changeset.operation {
-            Op::SplitNode(sp) => sp.node.node.into_crate_internal().map(|node| {
-                StructuralPreview::Split {
-                    node,
-                    at: sp.at,
-                    part_ids: [OverlayPartId::mint(), OverlayPartId::mint()],
-                }
-            }),
+            Op::SplitNode(sp) => {
+                sp.node
+                    .node
+                    .into_crate_internal()
+                    .map(|node| StructuralPreview::Split {
+                        node,
+                        at: sp.at,
+                        part_ids: [OverlayPartId::mint(), OverlayPartId::mint()],
+                    })
+            }
             Op::MergeNodes(m) => match (
                 m.first.node.into_crate_internal(),
                 m.second.node.into_crate_internal(),
             ) {
-                (Some(first), Some(second)) => {
-                    Some(StructuralPreview::Merge { first, second })
-                }
+                (Some(first), Some(second)) => Some(StructuralPreview::Merge { first, second }),
                 _ => None,
             },
-            Op::InsertChildren(i) => i.parent.node.into_crate_internal().map(|parent| {
-                StructuralPreview::Insert {
-                    parent,
-                    index: i.index,
-                    content: i.content.clone(),
-                }
-            }),
-            Op::RemoveChildren(r) => r.parent.node.into_crate_internal().map(|parent| {
-                StructuralPreview::Remove {
-                    parent,
-                    start: r.start,
-                    end: r.end,
-                }
-            }),
-            Op::ReplaceChildren(r) => r.parent.node.into_crate_internal().map(|parent| {
-                StructuralPreview::Replace {
-                    parent,
-                    start: r.start,
-                    end: r.end,
-                    content: r.content.clone(),
-                }
-            }),
+            Op::InsertChildren(i) => {
+                i.parent
+                    .node
+                    .into_crate_internal()
+                    .map(|parent| StructuralPreview::Insert {
+                        parent,
+                        index: i.index,
+                        content: i.content.clone(),
+                    })
+            }
+            Op::RemoveChildren(r) => {
+                r.parent
+                    .node
+                    .into_crate_internal()
+                    .map(|parent| StructuralPreview::Remove {
+                        parent,
+                        start: r.start,
+                        end: r.end,
+                    })
+            }
+            Op::ReplaceChildren(r) => {
+                r.parent
+                    .node
+                    .into_crate_internal()
+                    .map(|parent| StructuralPreview::Replace {
+                        parent,
+                        start: r.start,
+                        end: r.end,
+                        content: r.content.clone(),
+                    })
+            }
             // Wrap/unwrap previews are staged with the render consumption
             // (they restructure WITHIN a node — the child-list adjustment
             // needs the part-aware renderer to matter visually).
@@ -462,7 +476,9 @@ impl ContentOverlay {
                                 s.push_str(t.as_str());
                             }
                         }
-                        child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+                        child = hierarchy
+                            .get(c)
+                            .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
                     }
                 }
                 s
@@ -555,10 +571,14 @@ impl ResolvedContent<'_> {
     pub fn children_for_node(&self, node_id: NodeId) -> Vec<ResolvedChild<'_>> {
         let hierarchy = self.styled_dom.node_hierarchy.as_container();
         let mut out: Vec<ResolvedChild<'_>> = Vec::new();
-        let mut child = hierarchy.get(node_id).and_then(|n| n.first_child_id(node_id));
+        let mut child = hierarchy
+            .get(node_id)
+            .and_then(|n| n.first_child_id(node_id));
         while let Some(c) = child {
             out.push(ResolvedChild::Existing(c));
-            child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+            child = hierarchy
+                .get(c)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
 
         let Some(overlay) = self.overlay else {
@@ -605,9 +625,7 @@ impl ResolvedContent<'_> {
                         .iter()
                         .any(|c| matches!(c, ResolvedChild::Existing(n) if n == second))
                     {
-                        out.retain(
-                            |c| !matches!(c, ResolvedChild::Existing(n) if n == second),
-                        );
+                        out.retain(|c| !matches!(c, ResolvedChild::Existing(n) if n == second));
                     }
                     if *first == node_id {
                         let mut sc = hierarchy
@@ -615,7 +633,9 @@ impl ResolvedContent<'_> {
                             .and_then(|n| n.first_child_id(*second));
                         while let Some(c) = sc {
                             out.push(ResolvedChild::Existing(c));
-                            sc = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+                            sc = hierarchy.get(c).and_then(
+                                azul_core::styled_dom::NodeHierarchyItem::next_sibling_id,
+                            );
                         }
                     }
                 }
@@ -732,11 +752,7 @@ impl ContentJournal {
     pub fn begin_frame(&mut self) {
         self.frame_seq = self.frame_seq.wrapping_add(1);
         let cutoff = self.frame_seq.saturating_sub(JOURNAL_RETENTION_FRAMES);
-        while self
-            .entries
-            .front()
-            .is_some_and(|e| e.frame_seq < cutoff)
-        {
+        while self.entries.front().is_some_and(|e| e.frame_seq < cutoff) {
             self.entries.pop_front();
         }
     }
@@ -771,12 +787,7 @@ impl ContentJournal {
     /// frames back): the `old` of the first change recorded AFTER that frame,
     /// or `None` if the node's image hasn't changed since (current is valid).
     #[must_use]
-    pub fn image_as_of(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-        frame_seq: u64,
-    ) -> Option<&ImageRef> {
+    pub fn image_as_of(&self, dom_id: DomId, node_id: NodeId, frame_seq: u64) -> Option<&ImageRef> {
         self.entries.iter().find_map(|e| match &e.change {
             AppliedChange::Image {
                 dom_id: d,
@@ -815,7 +826,12 @@ mod tests {
     use super::*;
 
     fn img(w: usize, h: usize) -> ImageRef {
-        ImageRef::null_image(w, h, azul_core::resources::RawImageFormat::BGRA8, Vec::new())
+        ImageRef::null_image(
+            w,
+            h,
+            azul_core::resources::RawImageFormat::BGRA8,
+            Vec::new(),
+        )
     }
 
     fn dom0() -> DomId {
@@ -840,7 +856,10 @@ mod tests {
         for _ in 0..=JOURNAL_RETENTION_FRAMES {
             journal.begin_frame();
         }
-        assert!(journal.is_empty(), "entries older than the swapchain depth must retire");
+        assert!(
+            journal.is_empty(),
+            "entries older than the swapchain depth must retire"
+        );
     }
 
     #[test]
@@ -865,7 +884,9 @@ mod tests {
         assert_eq!(as_of.map(ImageRef::get_hash), Some(old_hash));
 
         // As of frame 2 (change applied in it), the current image is valid.
-        assert!(journal.image_as_of(dom0(), node, journal.frame_seq()).is_none());
+        assert!(journal
+            .image_as_of(dom0(), node, journal.frame_seq())
+            .is_none());
     }
 
     #[test]
@@ -911,9 +932,13 @@ mod tests {
         // exact ids come from creation order; resolve them dynamically).
         let mut dom = Dom::create_div();
         let mut p1 = Dom::create_p();
-        p1.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("one"));
+        p1.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "one",
+        ));
         let mut p2 = Dom::create_p();
-        p2.add_child(Dom::create_text_do_not_use_without_block_level_wrapper("two"));
+        p2.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "two",
+        ));
         dom.add_child(p1);
         dom.add_child(p2);
         let styled = StyledDom::create_from_dom(dom);
@@ -940,9 +965,7 @@ mod tests {
         };
         let base = resolved.children_for_node(root);
         assert_eq!(base.len(), 2);
-        assert!(base
-            .iter()
-            .all(|c| matches!(c, ResolvedChild::Existing(_))));
+        assert!(base.iter().all(|c| matches!(c, ResolvedChild::Existing(_))));
 
         // A recorded INSERT previews a PENDING subtree between them — the
         // .insertChild made visible without any DOM mutation.
@@ -990,7 +1013,11 @@ mod tests {
             dom_id: dom0(),
         };
         let with_both = resolved.children_for_node(root);
-        assert_eq!(with_both.len(), 2, "insert(+1) then remove(-1): {with_both:?}");
+        assert_eq!(
+            with_both.len(),
+            2,
+            "insert(+1) then remove(-1): {with_both:?}"
+        );
 
         // A new generation ends every preview.
         overlay.gc_splits(dom0());
@@ -1017,7 +1044,9 @@ mod tests {
 
         // DOM: div > [text "committed"]
         let mut dom = azul_core::dom::Dom::create_div();
-        dom.add_child(azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper("committed"));
+        dom.add_child(
+            azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper("committed"),
+        );
         let styled = StyledDom::create_from_dom(dom);
         let text_node = NodeId::new(1);
 
@@ -1071,9 +1100,14 @@ mod tests {
 
         assert!(overlay.image_for_node(dom0(), NodeId::new(1)).is_some());
         assert!(overlay.image_for_node(dom0(), NodeId::new(2)).is_none());
-        assert!(overlay.image_for_node(dom0(), NodeId::new(3)).is_none(), "unmounted dropped");
+        assert!(
+            overlay.image_for_node(dom0(), NodeId::new(3)).is_none(),
+            "unmounted dropped"
+        );
         assert_eq!(
-            overlay.image_for_node(other_dom, NodeId::new(2)).map(ImageRef::get_hash),
+            overlay
+                .image_for_node(other_dom, NodeId::new(2))
+                .map(ImageRef::get_hash),
             Some(other_hash),
             "other DOMs untouched"
         );

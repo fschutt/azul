@@ -108,8 +108,7 @@ pub(super) fn clear_native_copy() {
 /// valid for the duration of the call.
 fn with_wayland_window<R>(f: impl FnOnce(&mut super::WaylandWindow) -> R) -> Option<R> {
     for id in crate::desktop::shell2::linux::registry::get_all_window_ids() {
-        let Some(ptr) = (unsafe { crate::desktop::shell2::linux::registry::get_window(id) })
-        else {
+        let Some(ptr) = (unsafe { crate::desktop::shell2::linux::registry::get_window(id) }) else {
             continue;
         };
         let win = unsafe { &mut *ptr };
@@ -170,8 +169,7 @@ pub(crate) fn write_payload(payload: &ClipboardPayload) -> Result<(), ClipboardE
             payload.len()
         );
     }
-    super::super::x11::clipboard::write_to_clipboard(&text)
-        .map_err(|_| ClipboardError::WriteFailed)
+    super::super::x11::clipboard::write_to_clipboard(&text).map_err(|_| ClipboardError::WriteFailed)
 }
 
 /// Read every flavor the Wayland selection offers.
@@ -271,8 +269,7 @@ pub(crate) fn write_to_primary(text: &str) -> Result<(), ClipboardError> {
     // 42): try XWayland, which shares the X PRIMARY selection with the rest of
     // the session and does track ownership. Queued to the X11 worker, so this
     // stays off the UI thread.
-    super::super::x11::clipboard::write_to_primary(text)
-        .map_err(|_| ClipboardError::WriteFailed)
+    super::super::x11::clipboard::write_to_primary(text).map_err(|_| ClipboardError::WriteFailed)
 }
 
 /// Read the primary selection — the middle-click paste source.

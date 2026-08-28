@@ -60,10 +60,7 @@ use super::{
 
 /// Collect every struct that should be wrapped in a `.cls` Class
 /// Module — i.e. every struct with a matching `_delete` extern.
-pub fn collect_class_targets<'a>(
-    ir: &'a CodegenIR,
-    config: &CodegenConfig,
-) -> Vec<&'a StructDef> {
+pub fn collect_class_targets<'a>(ir: &'a CodegenIR, config: &CodegenConfig) -> Vec<&'a StructDef> {
     let delete_set: BTreeSet<&str> = ir
         .functions
         .iter()
@@ -107,11 +104,7 @@ pub fn class_name_for(raw: &str) -> String {
 
 /// Build the `.cls` body for a single disposable type. Returned string
 /// is what the orchestrator writes to `<ClassName>.cls`.
-pub fn emit_class_module(
-    s: &StructDef,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) -> Result<String> {
+pub fn emit_class_module(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let mut builder = CodeBuilder::new(&config.indent);
     let class_name = class_name_for(&s.name);
     let raw_record = ffi_type_name(&s.name);
@@ -172,9 +165,7 @@ pub fn emit_class_module(
     builder.line("' WrapRaw: take ownership of an existing AzXxx record (passed via VarPtr).");
     builder.line(&format!("Public Sub WrapRaw(ByVal rawPtr As Long)"));
     builder.indent();
-    builder.line(&format!(
-        "CopyMemory m_raw, ByVal rawPtr, LenB(m_raw)"
-    ));
+    builder.line(&format!("CopyMemory m_raw, ByVal rawPtr, LenB(m_raw)"));
     builder.line("m_owned = True");
     builder.dedent();
     builder.line("End Sub");
@@ -361,10 +352,7 @@ fn emit_method(builder: &mut CodeBuilder, raw_record: &str, func: &FunctionDef, 
             // We still emit the wrapper so user code compiles, but the
             // actual call may fail — see functions.rs SKIPPED comment.
             if args_str.is_empty() {
-                builder.line(&format!(
-                    "Public Function {}() As {}",
-                    method_name, vb_ret
-                ));
+                builder.line(&format!("Public Function {}() As {}", method_name, vb_ret));
             } else {
                 builder.line(&format!(
                     "Public Function {}({}) As {}",

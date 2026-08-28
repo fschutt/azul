@@ -4,7 +4,11 @@
 //! nodes that the CPU renderer blits). A 0-height/blank regression here is what
 //! made video appear not to play.
 
-#![cfg(all(feature = "cpurender", feature = "text_layout", feature = "font_loading"))]
+#![cfg(all(
+    feature = "cpurender",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
 
 use azul_core::dom::{Dom, IdOrClass};
 use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
@@ -54,9 +58,19 @@ fn render(dom: Dom, style: azul_css::css::Css, w: f32, h: f32) -> AzulPixmap {
 
 #[test]
 fn cpurender_blits_rawimage_native() {
-    let pm = render(img_dom(RawImageFormat::RGBA8), css("width:100px;height:100px;"), 100.0, 100.0);
+    let pm = render(
+        img_dom(RawImageFormat::RGBA8),
+        css("width:100px;height:100px;"),
+        100.0,
+        100.0,
+    );
     assert_green(&pm, 50, 50, "rgba native");
-    let pm = render(img_dom(RawImageFormat::BGRA8), css("width:100px;height:100px;"), 100.0, 100.0);
+    let pm = render(
+        img_dom(RawImageFormat::BGRA8),
+        css("width:100px;height:100px;"),
+        100.0,
+        100.0,
+    );
     assert_green(&pm, 50, 50, "bgra native");
 }
 
@@ -64,6 +78,11 @@ fn cpurender_blits_rawimage_native() {
 fn cpurender_blits_rawimage_scaled() {
     // 100x100 source downscaled into a 60x60 box at the origin — pixel (20,20) is
     // inside it. Guards image scaling (cf. #7 low-res images).
-    let pm = render(img_dom(RawImageFormat::RGBA8), css("width:60px;height:60px;"), 100.0, 100.0);
+    let pm = render(
+        img_dom(RawImageFormat::RGBA8),
+        css("width:60px;height:60px;"),
+        100.0,
+        100.0,
+    );
     assert_green(&pm, 20, 20, "rgba scaled 60x60");
 }

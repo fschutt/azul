@@ -68,7 +68,8 @@ fn is_suppressed() -> bool {
         let v = std::env::var("AZ_SUPPRESS")
             .or_else(|_| std::env::var("AZ_SUPRESS"))
             .unwrap_or_default();
-        v.split(',').any(|t| t.trim().eq_ignore_ascii_case(SUPPRESS_TAG))
+        v.split(',')
+            .any(|t| t.trim().eq_ignore_ascii_case(SUPPRESS_TAG))
     })
 }
 
@@ -221,7 +222,9 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
         while let Some(cc) = child {
             child_count += 1;
             has_text_child |= is_text(node_data[cc].get_node_type());
-            child = hierarchy.get(cc).and_then(NodeHierarchyItem::next_sibling_id);
+            child = hierarchy
+                .get(cc)
+                .and_then(NodeHierarchyItem::next_sibling_id);
         }
         if !has_text_child {
             // The overwhelmingly common case: no display lookup, no second
@@ -255,7 +258,9 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
                     has_block_child = true;
                     break;
                 }
-                sibling = hierarchy.get(sib).and_then(NodeHierarchyItem::next_sibling_id);
+                sibling = hierarchy
+                    .get(sib)
+                    .and_then(NodeHierarchyItem::next_sibling_id);
             }
             if !has_block_child {
                 continue;
@@ -268,7 +273,9 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
             if is_text(node_data[cc].get_node_type()) {
                 found.push((cc.index(), finding));
             }
-            child = hierarchy.get(cc).and_then(NodeHierarchyItem::next_sibling_id);
+            child = hierarchy
+                .get(cc)
+                .and_then(NodeHierarchyItem::next_sibling_id);
         }
     }
 
@@ -376,7 +383,10 @@ fn dedup_key(styled_dom: &StyledDom, node_id: NodeId, finding: Finding) -> u64 {
     }
 
     hash_identity(&node_data[node_id], &mut hasher);
-    match hierarchy.get(node_id).and_then(NodeHierarchyItem::parent_id) {
+    match hierarchy
+        .get(node_id)
+        .and_then(NodeHierarchyItem::parent_id)
+    {
         None => 0u8.hash(&mut hasher),
         Some(parent_id) => {
             1u8.hash(&mut hasher);
@@ -495,7 +505,10 @@ mod autotest_generated {
     #[test]
     fn state_on_a_text_node_is_reported_as_inert() {
         let text = raw_text("styled").with_tab_index(TabIndex::Auto);
-        let sd = styled(Dom::create_body().with_child(Dom::create_p().with_child(text)), "");
+        let sd = styled(
+            Dom::create_body().with_child(Dom::create_p().with_child(text)),
+            "",
+        );
         let w = collect_text_placement_warnings(&sd);
         assert_eq!(w.len(), 1, "{w:?}");
         assert!(w[0].contains("INERT"), "{w:?}");
@@ -622,12 +635,14 @@ mod autotest_generated {
         for (name, dom) in crate::widgets::all_widget_doms_for_lint() {
             let sd = styled(Dom::create_body().with_child(dom), "");
             let w = collect_text_placement_warnings(&sd);
-            assert_eq!(w, Vec::<String>::new(), "widget {name} trips the text lint: {w:?}");
+            assert_eq!(
+                w,
+                Vec::<String>::new(),
+                "widget {name} trips the text lint: {w:?}"
+            );
         }
     }
 }
-
-
 
 // ============================================================================
 // Suppression, once, for every lint
@@ -643,7 +658,10 @@ mod autotest_generated {
 ///
 /// Read once per tag and cached: these run inside the layout pass.
 pub fn lint_suppressed(tag: &str) -> bool {
-    use std::{collections::BTreeMap, sync::{Mutex, OnceLock}};
+    use std::{
+        collections::BTreeMap,
+        sync::{Mutex, OnceLock},
+    };
     static CACHE: OnceLock<Mutex<BTreeMap<String, bool>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
     if let Ok(c) = cache.lock() {
@@ -701,7 +719,10 @@ pub fn warn_div_used_as_text_container(styled_dom: &StyledDom) {
     let hierarchy = styled_dom.node_hierarchy.as_container();
 
     let mut reported = 0usize;
-    for (node_id, node) in nodes.linear_iter().filter_map(|id| nodes.get(id).map(|n| (id, n))) {
+    for (node_id, node) in nodes
+        .linear_iter()
+        .filter_map(|id| nodes.get(id).map(|n| (id, n)))
+    {
         if !matches!(node.get_node_type(), NodeType::Div) {
             continue;
         }
@@ -787,7 +808,10 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
     let hierarchy = styled_dom.node_hierarchy.as_container();
 
     let mut reported = 0usize;
-    for (node_id, node) in nodes.linear_iter().filter_map(|id| nodes.get(id).map(|n| (id, n))) {
+    for (node_id, node) in nodes
+        .linear_iter()
+        .filter_map(|id| nodes.get(id).map(|n| (id, n)))
+    {
         // "Interactive" = the app attached a callback to it.
         if node.get_callbacks().is_empty() {
             continue;
@@ -814,9 +838,10 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
                 if let NodeType::Text(t) = cn.get_node_type() {
                     // A private-use glyph is an ICON, not a name: it reads as a
                     // meaningless codepoint.
-                    if t.as_str().chars().any(|ch| {
-                        ch.is_alphanumeric() && !('\u{e000}'..='\u{f8ff}').contains(&ch)
-                    }) {
+                    if t.as_str()
+                        .chars()
+                        .any(|ch| ch.is_alphanumeric() && !('\u{e000}'..='\u{f8ff}').contains(&ch))
+                    {
                         has_readable_text = true;
                         break;
                     }
@@ -827,7 +852,9 @@ pub fn warn_interactive_without_accessibility(styled_dom: &StyledDom) {
                     let mut sib = Some(first);
                     while let Some(sid) = sib {
                         stack.push(sid);
-                        sib = hierarchy.get(sid).and_then(NodeHierarchyItem::next_sibling_id);
+                        sib = hierarchy
+                            .get(sid)
+                            .and_then(NodeHierarchyItem::next_sibling_id);
                     }
                 }
             }
@@ -926,9 +953,7 @@ mod semantic_and_a11y_lint_tests {
                 azul_core::refany::RefAny::new(()),
                 crate::callbacks::Callback::from_ptr(noop_cb),
             );
-        warn_interactive_without_accessibility(&styled(
-            Dom::create_body().with_child(icon_button),
-        ));
+        warn_interactive_without_accessibility(&styled(Dom::create_body().with_child(icon_button)));
         assert!(
             azul_core::diagnostics::any_contains("[azul][a11y]"),
             "an icon-only control with no accessible name must be reported: {:?}",
@@ -947,15 +972,11 @@ mod semantic_and_a11y_lint_tests {
         let text_button = Dom::create_div()
             .with_child(Dom::create_span_with_text("Unmute mic"))
             .with_callback(
-                azul_core::dom::EventFilter::Hover(
-                    azul_core::dom::HoverEventFilter::MouseUp,
-                ),
+                azul_core::dom::EventFilter::Hover(azul_core::dom::HoverEventFilter::MouseUp),
                 azul_core::refany::RefAny::new(()),
                 crate::callbacks::Callback::from_ptr(noop_cb),
             );
-        warn_interactive_without_accessibility(&styled(
-            Dom::create_body().with_child(text_button),
-        ));
+        warn_interactive_without_accessibility(&styled(Dom::create_body().with_child(text_button)));
         assert!(
             !azul_core::diagnostics::any_contains("[azul][a11y]"),
             "a control with a readable text label already announces itself: {:?}",
@@ -971,8 +992,6 @@ mod semantic_and_a11y_lint_tests {
         azul_core::callbacks::Update::DoNothing
     }
 }
-
-
 
 /// The azul widget a node came from, if it says so.
 ///
@@ -1024,9 +1043,10 @@ fn has_readable_text_label(styled_dom: &StyledDom, node_id: NodeId) -> bool {
         }
         if let Some(cn) = nodes.get(cur) {
             if let NodeType::Text(t) = cn.get_node_type() {
-                if t.as_str().chars().any(|ch| {
-                    ch.is_alphanumeric() && !('\u{e000}'..='\u{f8ff}').contains(&ch)
-                }) {
+                if t.as_str()
+                    .chars()
+                    .any(|ch| ch.is_alphanumeric() && !('\u{e000}'..='\u{f8ff}').contains(&ch))
+                {
                     return true;
                 }
             }
@@ -1036,7 +1056,9 @@ fn has_readable_text_label(styled_dom: &StyledDom, node_id: NodeId) -> bool {
                 let mut sib = Some(first);
                 while let Some(sid) = sib {
                     stack.push(sid);
-                    sib = hierarchy.get(sid).and_then(NodeHierarchyItem::next_sibling_id);
+                    sib = hierarchy
+                        .get(sid)
+                        .and_then(NodeHierarchyItem::next_sibling_id);
                 }
             }
         }
@@ -1091,7 +1113,10 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut reported = 0usize;
 
-    for (node_id, node) in nodes.linear_iter().filter_map(|id| nodes.get(id).map(|n| (id, n))) {
+    for (node_id, node) in nodes
+        .linear_iter()
+        .filter_map(|id| nodes.get(id).map(|n| (id, n)))
+    {
         if reported >= 8 {
             break; // one screenful is enough to act on
         }
@@ -1149,7 +1174,9 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
 
         if matches!(
             role,
-            AccessibilityRole::Slider | AccessibilityRole::ProgressBar | AccessibilityRole::ScrollBar
+            AccessibilityRole::Slider
+                | AccessibilityRole::ProgressBar
+                | AccessibilityRole::ScrollBar
         ) && !has_value
         {
             reported += 1;
@@ -1163,10 +1190,18 @@ pub fn warn_a11y_shape(styled_dom: &StyledDom) {
             continue;
         }
 
-        if matches!(role, AccessibilityRole::CheckButton | AccessibilityRole::RadioButton) {
+        if matches!(
+            role,
+            AccessibilityRole::CheckButton | AccessibilityRole::RadioButton
+        ) {
             let states = info.states.as_ref();
             let declares_checked = states.iter().any(|s| {
-                matches!(s, AccessibilityState::CheckedTrue | AccessibilityState::CheckedFalse | AccessibilityState::Selected)
+                matches!(
+                    s,
+                    AccessibilityState::CheckedTrue
+                        | AccessibilityState::CheckedFalse
+                        | AccessibilityState::Selected
+                )
             });
             if !declares_checked {
                 reported += 1;

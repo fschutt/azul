@@ -1,6 +1,5 @@
 use super::*;
 
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use agg_rust::basics::{FillingRule, VertexSource};
 use agg_rust::color::Rgba8;
 use agg_rust::conv_transform::ConvTransform;
@@ -16,11 +15,13 @@ use agg_rust::span_allocator::SpanAllocator;
 use agg_rust::span_gradient::{GradientFunction, SpanGradient};
 use agg_rust::span_interpolator_linear::SpanInterpolatorLinear;
 use agg_rust::trans_affine::TransAffine;
+use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
 pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
 
 /// Compute the intersection of two logical rects.
-#[must_use] pub fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<LogicalRect> {
+#[must_use]
+pub fn rect_intersection(a: &LogicalRect, b: &LogicalRect) -> Option<LogicalRect> {
     let x1 = a.origin.x.max(b.origin.x);
     let y1 = a.origin.y.max(b.origin.y);
     let x2 = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
@@ -39,7 +40,11 @@ pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
 }
 
 /// Blit `src` onto `dst` at pixel position (`px_x`, `px_y`) with opacity.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // bounded pixel/coord/colour/glyph cast
 pub fn blit_pixmap(src: &AzulPixmap, dst: &mut AzulPixmap, px_x: i32, px_y: i32, opacity: f32) {
     blit_pixmap_clipped(src, dst, px_x, px_y, opacity, None);
 }
@@ -109,7 +114,8 @@ pub fn blit_pixmap_clipped(
                 dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
                 dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
                 dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 3] =
+                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }
@@ -131,14 +137,13 @@ pub fn blit_pixmap_clipped(
 /// matrix, sample src bilinearly (edge-clamped), blend with `opacity`. A
 /// non-invertible matrix (degenerate scale) draws nothing — a collapsed layer
 /// has no area.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 // bounded pixel/coord/colour casts
-pub fn blit_pixmap_affine(
-    src: &AzulPixmap,
-    dst: &mut AzulPixmap,
-    m: &TransAffine,
-    opacity: f32,
-) {
+pub fn blit_pixmap_affine(src: &AzulPixmap, dst: &mut AzulPixmap, m: &TransAffine, opacity: f32) {
     blit_pixmap_affine_clipped(src, dst, m, opacity, None);
 }
 
@@ -147,7 +152,11 @@ pub fn blit_pixmap_affine(
 /// exit inside its own box: `-azul-animation-out` may translate the retained
 /// content, and without a clip the slide paints over neighbouring components
 /// (the sliding-out scrollbar over the body margin was the reported case).
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 // bounded pixel/coord/colour casts
 pub fn blit_pixmap_affine_clipped(
     src: &AzulPixmap,
@@ -175,7 +184,12 @@ pub fn blit_pixmap_affine_clipped(
     inv.invert();
 
     // Dest-space bounding box of the four transformed src corners.
-    let corners = [(0.0, 0.0), (f64::from(sw), 0.0), (0.0, f64::from(sh)), (f64::from(sw), f64::from(sh))];
+    let corners = [
+        (0.0, 0.0),
+        (f64::from(sw), 0.0),
+        (0.0, f64::from(sh)),
+        (f64::from(sw), f64::from(sh)),
+    ];
     let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
     let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
     for (cx, cy) in corners {
@@ -282,10 +296,8 @@ pub fn blit_pixmap_affine_clipped(
             } else {
                 let inv_sa = 255 - sa;
                 dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] =
-                    ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] =
-                    ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
+                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
+                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
                 dst.data[di + 3] =
                     ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
@@ -301,8 +313,16 @@ pub fn blit_pixmap_affine_clipped(
 /// adjugate), bilinear sampling, the same blend as the affine blit. Dest
 /// pixels that map behind the eye (`w <= 0`) or outside the source draw
 /// nothing; a singular matrix draws nothing.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
-#[allow(clippy::many_single_char_names, clippy::similar_names, clippy::too_many_lines)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+#[allow(
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    clippy::too_many_lines
+)]
 pub fn blit_pixmap_projective(src: &AzulPixmap, dst: &mut AzulPixmap, h: &[f64; 9], opacity: f32) {
     blit_pixmap_projective_clipped(src, dst, h, opacity, None);
 }
@@ -310,7 +330,11 @@ pub fn blit_pixmap_projective(src: &AzulPixmap, dst: &mut AzulPixmap, h: &[f64; 
 /// [`blit_pixmap_projective`] with an optional DEST-space clip rect
 /// `(x0, y0, x1, y1)` in device pixels (half-open), intersected with the
 /// projected bounding box.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 // bounded pixel/coord/colour casts
 #[allow(clippy::many_single_char_names)] // homography coefficients: a..i is THE notation
 pub fn blit_pixmap_projective_clipped(
@@ -352,7 +376,12 @@ pub fn blit_pixmap_projective_clipped(
 
     // Dest-space bounding box of the four projected src corners. A corner
     // behind the eye has no finite image: fall back to the whole dest.
-    let corners = [(0.0, 0.0), (f64::from(sw), 0.0), (0.0, f64::from(sh)), (f64::from(sw), f64::from(sh))];
+    let corners = [
+        (0.0, 0.0),
+        (f64::from(sw), 0.0),
+        (0.0, f64::from(sh)),
+        (f64::from(sw), f64::from(sh)),
+    ];
     let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
     let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
     let mut behind = false;
@@ -369,7 +398,9 @@ pub fn blit_pixmap_projective_clipped(
         max_x = max_x.max(x);
         max_y = max_y.max(y);
     }
-    let (x0, y0, x1, y1) = if behind || !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite()) {
+    let (x0, y0, x1, y1) = if behind
+        || !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite())
+    {
         (0, 0, dw, dh)
     } else {
         (
@@ -448,7 +479,8 @@ pub fn blit_pixmap_projective_clipped(
                 dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
                 dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
                 dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 3] =
+                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }
@@ -538,7 +570,10 @@ pub enum PixBuf {
     Owned(Vec<u8>),
     /// SAFETY (creator's obligations, see [`AzulPixmap::from_external`]):
     /// `ptr` stays valid and EXCLUSIVELY ours for the pixmap's lifetime.
-    Borrowed { ptr: *mut u8, len: usize },
+    Borrowed {
+        ptr: *mut u8,
+        len: usize,
+    },
 }
 
 impl core::ops::Deref for PixBuf {
@@ -547,9 +582,7 @@ impl core::ops::Deref for PixBuf {
     fn deref(&self) -> &[u8] {
         match self {
             Self::Owned(v) => v,
-            Self::Borrowed { ptr, len } => unsafe {
-                core::slice::from_raw_parts(*ptr, *len)
-            },
+            Self::Borrowed { ptr, len } => unsafe { core::slice::from_raw_parts(*ptr, *len) },
         }
     }
 }
@@ -559,9 +592,7 @@ impl core::ops::DerefMut for PixBuf {
     fn deref_mut(&mut self) -> &mut [u8] {
         match self {
             Self::Owned(v) => v,
-            Self::Borrowed { ptr, len } => unsafe {
-                core::slice::from_raw_parts_mut(*ptr, *len)
-            },
+            Self::Borrowed { ptr, len } => unsafe { core::slice::from_raw_parts_mut(*ptr, *len) },
         }
     }
 }
@@ -638,7 +669,9 @@ impl AzulPixmap {
         if width == 0 || height == 0 || ptr.is_null() {
             return None;
         }
-        let len = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
+        let len = (width as usize)
+            .checked_mul(height as usize)?
+            .checked_mul(4)?;
         Some(Self {
             data: PixBuf::Borrowed { ptr, len },
             width,
@@ -653,7 +686,8 @@ impl AzulPixmap {
     }
 
     /// Create a new pixmap filled with opaque white.
-    #[must_use] pub fn new(width: u32, height: u32) -> Option<Self> {
+    #[must_use]
+    pub fn new(width: u32, height: u32) -> Option<Self> {
         if width == 0 || height == 0 {
             return None;
         }
@@ -710,7 +744,8 @@ impl AzulPixmap {
     }
 
     /// Raw RGBA pixel data.
-    #[must_use] pub fn data(&self) -> &[u8] {
+    #[must_use]
+    pub fn data(&self) -> &[u8] {
         &self.data
     }
 
@@ -720,17 +755,20 @@ impl AzulPixmap {
     }
 
     /// Width in pixels.
-    #[must_use] pub const fn width(&self) -> u32 {
+    #[must_use]
+    pub const fn width(&self) -> u32 {
         self.width
     }
 
     /// Height in pixels.
-    #[must_use] pub const fn height(&self) -> u32 {
+    #[must_use]
+    pub const fn height(&self) -> u32 {
         self.height
     }
 
     /// Create a clone of this pixmap (for filter application).
-    #[must_use] pub fn clone_pixmap(&self) -> Self {
+    #[must_use]
+    pub fn clone_pixmap(&self) -> Self {
         Self {
             data: self.data.clone(),
             width: self.width,
@@ -939,13 +977,15 @@ pub struct PixelDiffResult {
 
 impl PixelDiffResult {
     /// True if the images are identical within tolerance.
-    #[must_use] pub const fn is_match(&self) -> bool {
+    #[must_use]
+    pub const fn is_match(&self) -> bool {
         self.dimensions_match && self.diff_count == 0
     }
 
     /// Fraction of pixels that differ (0.0 = identical, 1.0 = all different).
     #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
-    #[must_use] pub fn diff_ratio(&self) -> f64 {
+    #[must_use]
+    pub fn diff_ratio(&self) -> f64 {
         if self.total_pixels == 0 {
             0.0
         } else {
@@ -959,7 +999,8 @@ impl PixelDiffResult {
 /// `threshold` is the maximum allowed per-channel difference (0 = exact match,
 /// 2-3 = anti-aliasing tolerance, 10+ = loose match).
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
-#[must_use] pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> PixelDiffResult {
+#[must_use]
+pub fn pixel_diff(reference: &AzulPixmap, test: &AzulPixmap, threshold: u8) -> PixelDiffResult {
     let dimensions_match = reference.width == test.width && reference.height == test.height;
     if !dimensions_match {
         return PixelDiffResult {
@@ -1046,7 +1087,8 @@ pub struct AzRect {
 /// means "no clip". An EMPTY intersection clips everything (zero-area rect) —
 /// it must NOT degrade to `None`/unclipped, or nested clips could escape
 /// their parents.
-#[must_use] pub fn intersect_clips(current: Option<AzRect>, new: Option<AzRect>) -> Option<AzRect> {
+#[must_use]
+pub fn intersect_clips(current: Option<AzRect>, new: Option<AzRect>) -> Option<AzRect> {
     match (current, new) {
         (Some(cur), Some(new)) => {
             let x0 = cur.x.max(new.x);
@@ -1068,7 +1110,12 @@ pub struct AzRect {
 impl AzRect {
     /// A zero-area rect used as an explicit "clip away everything" value — distinct from
     /// `None`, which means "no clip / unclipped".
-    pub(crate) const DENY_ALL: Self = Self { x: 0.0, y: 0.0, width: 0.0, height: 0.0 };
+    pub(crate) const DENY_ALL: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        width: 0.0,
+        height: 0.0,
+    };
 
     pub(crate) fn from_xywh(x: f32, y: f32, w: f32, h: f32) -> Option<Self> {
         if w <= 0.0
@@ -1130,8 +1177,16 @@ impl VertexSource for ClampVertexSource<'_> {
 
     fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
         let cmd = self.inner.vertex(x, y);
-        *x = if x.is_nan() { 0.0 } else { x.clamp(-self.limit, self.limit) };
-        *y = if y.is_nan() { 0.0 } else { y.clamp(-self.limit, self.limit) };
+        *x = if x.is_nan() {
+            0.0
+        } else {
+            x.clamp(-self.limit, self.limit)
+        };
+        *y = if y.is_nan() {
+            0.0
+        } else {
+            y.clamp(-self.limit, self.limit)
+        };
         cmd
     }
 }
@@ -1197,18 +1252,23 @@ pub fn agg_fill_path_clipped(
     // rasterizer's clip box bounds the work to the visible area.
     let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
         || (0.0, 0.0, f64::from(w), f64::from(h)),
-        |c| (
-            f64::from(c.x).max(0.0),
-            f64::from(c.y).max(0.0),
-            f64::from(c.x + c.width).min(f64::from(w)),
-            f64::from(c.y + c.height).min(f64::from(h)),
-        ),
+        |c| {
+            (
+                f64::from(c.x).max(0.0),
+                f64::from(c.y).max(0.0),
+                f64::from(c.x + c.width).min(f64::from(w)),
+                f64::from(c.y + c.height).min(f64::from(h)),
+            )
+        },
     );
     ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
     // Clamp coordinates before rasterizing — see ClampVertexSource. This is the actual
     // guard against the huge/infinite-coordinate hang (the rasterizer's own clip_box
     // above does not bound the work for saturated fixed-point coords).
-    let mut clamped = ClampVertexSource { inner: path, limit: coord_clamp_limit(w, h) };
+    let mut clamped = ClampVertexSource {
+        inner: path,
+        limit: coord_clamp_limit(w, h),
+    };
     ras.add_path(&mut clamped, 0);
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
@@ -1293,15 +1353,20 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     ras.filling_rule(FillingRule::NonZero);
     let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
         || (0.0, 0.0, f64::from(w), f64::from(h)),
-        |c| (
-            f64::from(c.x).max(0.0),
-            f64::from(c.y).max(0.0),
-            f64::from(c.x + c.width).min(f64::from(w)),
-            f64::from(c.y + c.height).min(f64::from(h)),
-        ),
+        |c| {
+            (
+                f64::from(c.x).max(0.0),
+                f64::from(c.y).max(0.0),
+                f64::from(c.x + c.width).min(f64::from(w)),
+                f64::from(c.y + c.height).min(f64::from(h)),
+            )
+        },
     );
     ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    let mut clamped = ClampVertexSource { inner: path, limit: coord_clamp_limit(w, h) };
+    let mut clamped = ClampVertexSource {
+        inner: path,
+        limit: coord_clamp_limit(w, h),
+    };
     ras.add_path(&mut clamped, 0);
     let mut sl = ScanlineU8::new();
 
@@ -1312,7 +1377,13 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     // few-million value overflows i32. ±8192 keeps every product in range and is far
     // beyond any real gradient extent (callers pass 0..100); pathological NaN/±inf/f64::MAX
     // just pin to the edge.
-    let clamp_d = |d: f64| if d.is_nan() { 0.0 } else { d.clamp(-8192.0, 8192.0) };
+    let clamp_d = |d: f64| {
+        if d.is_nan() {
+            0.0
+        } else {
+            d.clamp(-8192.0, 8192.0)
+        }
+    };
     let mut sg = SpanGradient::new(interp, gradient_fn, lut, clamp_d(d1), clamp_d(d2));
     let mut alloc = SpanAllocator::<Rgba8>::new();
     render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, &mut sg);
@@ -1377,11 +1448,14 @@ pub fn blit_buffer_sub(
                 let inv_sa = 255 - sa;
                 dst.data[di] =
                     ((u32::from(src[si]) + u32::from(dst.data[di]) * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 1] =
-                    ((u32::from(src[si + 1]) + u32::from(dst.data[di + 1]) * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 2] =
-                    ((u32::from(src[si + 2]) + u32::from(dst.data[di + 2]) * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 1] = ((u32::from(src[si + 1])
+                    + u32::from(dst.data[di + 1]) * inv_sa / 255)
+                    .min(255)) as u8;
+                dst.data[di + 2] = ((u32::from(src[si + 2])
+                    + u32::from(dst.data[di + 2]) * inv_sa / 255)
+                    .min(255)) as u8;
+                dst.data[di + 3] =
+                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }
@@ -1424,11 +1498,14 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
                 let inv_sa = 255 - sa;
                 dst.data[di] =
                     ((u32::from(src[si]) + u32::from(dst.data[di]) * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 1] =
-                    ((u32::from(src[si + 1]) + u32::from(dst.data[di + 1]) * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 2] =
-                    ((u32::from(src[si + 2]) + u32::from(dst.data[di + 2]) * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 3] = ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+                dst.data[di + 1] = ((u32::from(src[si + 1])
+                    + u32::from(dst.data[di + 1]) * inv_sa / 255)
+                    .min(255)) as u8;
+                dst.data[di + 2] = ((u32::from(src[si + 2])
+                    + u32::from(dst.data[di + 2]) * inv_sa / 255)
+                    .min(255)) as u8;
+                dst.data[di + 3] =
+                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
             }
         }
     }
@@ -1440,7 +1517,8 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
 
 /// Take a snapshot of a rectangular region of the pixmap.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
-#[must_use] pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
+#[must_use]
+pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
     let pw = pixmap.width as i32;
     let ph = pixmap.height as i32;
     let mut snap = vec![0u8; (w as usize) * (h as usize) * 4];
@@ -1503,7 +1581,8 @@ pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y:
     }
 }
 
-#[must_use] pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
+#[must_use]
+pub fn union_rect(a: &LogicalRect, b: &LogicalRect) -> LogicalRect {
     let x = a.origin.x.min(b.origin.x);
     let y = a.origin.y.min(b.origin.y);
     let right = (a.origin.x + a.size.width).max(b.origin.x + b.size.width);
@@ -1517,7 +1596,8 @@ pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y:
     }
 }
 
-#[must_use] pub fn logical_rect_to_az_rect(bounds: &LogicalRect, dpi_factor: f32) -> Option<AzRect> {
+#[must_use]
+pub fn logical_rect_to_az_rect(bounds: &LogicalRect, dpi_factor: f32) -> Option<AzRect> {
     let x = bounds.origin.x * dpi_factor;
     let y = bounds.origin.y * dpi_factor;
     let width = bounds.size.width * dpi_factor;
@@ -1567,7 +1647,10 @@ mod autotest_generated {
         // agg: x' = x*sx + y*shx + tx ; y' = x*shy + y*sy + ty
         let h = [m.sx, m.shx, m.tx, m.shy, m.sy, m.ty, 0.0, 0.0, 1.0];
         blit_pixmap_projective(&src, &mut b, &h, 0.9);
-        assert_eq!(a.data, b.data, "with a trivial third row the two blits are the same blit");
+        assert_eq!(
+            a.data, b.data,
+            "with a trivial third row the two blits are the same blit"
+        );
     }
 
     #[test]
@@ -1584,12 +1667,23 @@ mod autotest_generated {
         let painted_rows: Vec<u32> = (0..40).filter(|&r| opaque_run(&dst, r) > 0).collect();
         let last = *painted_rows.last().expect("something was painted");
         let bottom = opaque_run(&dst, last);
-        assert!(top > bottom, "top row {top} px wide must be wider than the last painted row {bottom} px");
+        assert!(
+            top > bottom,
+            "top row {top} px wide must be wider than the last painted row {bottom} px"
+        );
         assert!(top >= 17 && bottom <= 14, "top {top}, bottom {bottom}");
-        assert!(last < 20, "the bottom edge moved UP (y' = 30 / 2.2): last painted row {last}");
+        assert!(
+            last < 20,
+            "the bottom edge moved UP (y' = 30 / 2.2): last painted row {last}"
+        );
         // nothing outside the destination and nothing behind the eye panics
         let mut tiny = pm(2, 2);
-        blit_pixmap_projective(&src, &mut tiny, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 1.0], 1.0);
+        blit_pixmap_projective(
+            &src,
+            &mut tiny,
+            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 1.0],
+            1.0,
+        );
         blit_pixmap_projective(&src, &mut tiny, &[0.0; 9], 1.0);
     }
 
@@ -2285,7 +2379,8 @@ mod autotest_generated {
     #[test]
     fn resize_grow_only_preserves_topleft_and_fills_the_new_strips() {
         let mut p = marked(2, 2);
-        p.resize_grow_only(4, 4, 9, 8, 7, 6).expect("growing is allowed");
+        p.resize_grow_only(4, 4, 9, 8, 7, 6)
+            .expect("growing is allowed");
         assert_eq!(p.width(), 4);
         assert_eq!(p.height(), 4);
         assert_eq!(p.data().len(), 4 * 4 * 4);
@@ -2303,7 +2398,8 @@ mod autotest_generated {
     #[test]
     fn resize_grow_only_grow_one_axis_only() {
         let mut p = marked(2, 2);
-        p.resize_grow_only(2, 4, 1, 1, 1, 1).expect("height-only growth");
+        p.resize_grow_only(2, 4, 1, 1, 1, 1)
+            .expect("height-only growth");
         assert_eq!(p.width(), 2);
         assert_eq!(p.height(), 4);
         assert_eq!(get(&p, 1, 1), [3, 0, 0, 255]);
@@ -2432,7 +2528,10 @@ mod autotest_generated {
     #[test]
     fn encode_png_starts_with_the_png_signature() {
         let bytes = pm(2, 2).encode_png().expect("encode");
-        assert_eq!(&bytes[..8], &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]);
+        assert_eq!(
+            &bytes[..8],
+            &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]
+        );
     }
 
     #[test]
@@ -2472,7 +2571,15 @@ mod autotest_generated {
 
     #[test]
     fn decode_png_boundary_number_strings_are_err() {
-        for s in ["0", "-0", "9223372036854775807", "NaN", "inf", "-inf", "1e999"] {
+        for s in [
+            "0",
+            "-0",
+            "9223372036854775807",
+            "NaN",
+            "inf",
+            "-inf",
+            "1e999",
+        ] {
             assert!(
                 AzulPixmap::decode_png(s.as_bytes()).is_err(),
                 "{s:?} is not a PNG"
@@ -2645,7 +2752,11 @@ mod autotest_generated {
             "delta > threshold must be reported"
         );
         assert_eq!(pixel_diff(&a, &b, 2).diff_count, 4);
-        assert_eq!(pixel_diff(&a, &b, 3).max_delta, 3, "max_delta ignores the threshold");
+        assert_eq!(
+            pixel_diff(&a, &b, 3).max_delta,
+            3,
+            "max_delta ignores the threshold"
+        );
     }
 
     #[test]
@@ -2711,7 +2822,10 @@ mod autotest_generated {
         for t in [0u8, 1, 127, 254, 255] {
             let r = pixel_diff(&a, &b, t);
             let ratio = r.diff_ratio();
-            assert!((0.0..=1.0).contains(&ratio), "ratio {ratio} out of range at t={t}");
+            assert!(
+                (0.0..=1.0).contains(&ratio),
+                "ratio {ratio} out of range at t={t}"
+            );
             assert!(r.diff_count <= r.total_pixels);
         }
     }
@@ -3313,7 +3427,11 @@ mod autotest_generated {
         p.fill_rect(1, 1, 3, 3, 0, 0, 0, 0); // destroy the region
         assert_eq!(get(&p, 2, 2), CLEAR);
         write_region(&mut p, &snap, 3, 3, 1, 1); // restore it
-        assert_eq!(p.data(), &expected[..], "write_region must invert snapshot_region");
+        assert_eq!(
+            p.data(),
+            &expected[..],
+            "write_region must invert snapshot_region"
+        );
     }
 
     // ==================================================================
@@ -3433,7 +3551,10 @@ mod autotest_generated {
         let mut path = rect_path(0.0, 0.0, 20.0, 20.0);
         agg_fill_path_clipped(&mut p, &mut path, &red(), FillingRule::NonZero, Some(empty));
         let painted = painted_count(&p);
-        assert_eq!(painted, 0, "an empty clip leaked {painted} painted pixel(s)");
+        assert_eq!(
+            painted, 0,
+            "an empty clip leaked {painted} painted pixel(s)"
+        );
     }
 
     #[test]
@@ -3468,7 +3589,13 @@ mod autotest_generated {
         let mut pa = rect_path(2.0, 2.0, 4.0, 4.0);
         let mut pb = rect_path(2.0, 2.0, 4.0, 4.0);
         agg_fill_path(&mut a, &mut pa, &red(), FillingRule::NonZero);
-        agg_fill_transformed_path(&mut b, &mut pb, &red(), FillingRule::NonZero, &TransAffine::new());
+        agg_fill_transformed_path(
+            &mut b,
+            &mut pb,
+            &red(),
+            FillingRule::NonZero,
+            &TransAffine::new(),
+        );
         assert_eq!(a.data(), b.data(), "an identity transform must be a no-op");
     }
 
@@ -3706,7 +3833,10 @@ mod autotest_generated {
             Some(empty),
         );
         let painted = painted_count(&p);
-        assert_eq!(painted, 0, "an empty clip leaked {painted} painted pixel(s)");
+        assert_eq!(
+            painted, 0,
+            "an empty clip leaked {painted} painted pixel(s)"
+        );
     }
 
     #[test]
@@ -3714,11 +3844,18 @@ mod autotest_generated {
         let mut p = filled(1, 1, WHITE);
         let mut path = rect_path(0.0, 0.0, 1.0, 1.0);
         let lut = two_stop_lut();
-        agg_fill_gradient(&mut p, &mut path, &lut, GradientX, TransAffine::new(), 0.0, 1.0);
+        agg_fill_gradient(
+            &mut p,
+            &mut path,
+            &lut,
+            GradientX,
+            TransAffine::new(),
+            0.0,
+            1.0,
+        );
         assert_eq!(p.data().len(), 4);
     }
 }
-
 
 #[cfg(test)]
 mod pixbuf_tests {
@@ -3735,7 +3872,11 @@ mod pixbuf_tests {
             assert!(p.data.iter().all(|&b| b == 7), "reads the caller's bytes");
             p.data[0] = 42;
             // Clone SNAPSHOTS to owned — must not alias the backing.
-            let mut c = AzulPixmap { data: p.data.clone(), width: p.width, height: p.height };
+            let mut c = AzulPixmap {
+                data: p.data.clone(),
+                width: p.width,
+                height: p.height,
+            };
             assert!(!c.is_external());
             c.data[1] = 99;
             assert_ne!(backing[1], 99, "clone must not write through");

@@ -15,10 +15,10 @@
 // types (`FmtArg`/`FmtValue`, used to fill `{ $name }`-style placeholders) in
 // `azul::fmt`. The syntax checker and ZIP packaging helpers are free functions
 // in the `azul::desktop::fluent` / `azul::desktop::zip` modules.
-use azul::fluent::FluentLocalizerHandle;
-use azul::fmt::{FmtArg, FmtValue};
 use azul::desktop::fluent::{check_fluent_syntax, create_fluent_zip, FluentSyntaxCheckResult};
 use azul::desktop::zip::ZipFileEntry;
+use azul::fluent::FluentLocalizerHandle;
+use azul::fmt::{FmtArg, FmtValue};
 
 fn main() {
     println!("=== Fluent Localization Demo ===\n");
@@ -63,10 +63,19 @@ welcome = Bienvenue dans { $app }!
 "#;
 
     println!("--- Loading translations ---");
-    assert!(localizer.add_resource("en-US", en_ftl), "Failed to add en-US");
-    assert!(localizer.add_resource("de-DE", de_ftl), "Failed to add de-DE");
-    assert!(localizer.add_resource("fr-FR", fr_ftl), "Failed to add fr-FR");
-    
+    assert!(
+        localizer.add_resource("en-US", en_ftl),
+        "Failed to add en-US"
+    );
+    assert!(
+        localizer.add_resource("de-DE", de_ftl),
+        "Failed to add de-DE"
+    );
+    assert!(
+        localizer.add_resource("fr-FR", fr_ftl),
+        "Failed to add fr-FR"
+    );
+
     let loaded_locales = localizer.get_loaded_locales();
     println!("Loaded {} locales:", loaded_locales.len());
     for locale in loaded_locales.iter() {
@@ -80,7 +89,10 @@ welcome = Bienvenue dans { $app }!
     }
 
     println!("\n--- Translation with arguments ---");
-    let args = vec![FmtArg { key: "name".into(), value: FmtValue::Str("Alice".into()) }];
+    let args = vec![FmtArg {
+        key: "name".into(),
+        value: FmtValue::Str("Alice".into()),
+    }];
     for locale in &["en-US", "de-DE", "fr-FR"] {
         let greeting = localizer.translate(*locale, "greeting", args.clone());
         println!("{}: {}", locale, greeting.as_str());
@@ -88,7 +100,10 @@ welcome = Bienvenue dans { $app }!
 
     println!("\n--- Plural rules ---");
     for count in [0, 1, 2, 5, 21] {
-        let args = vec![FmtArg { key: "count".into(), value: FmtValue::Sint(count) }];
+        let args = vec![FmtArg {
+            key: "count".into(),
+            value: FmtValue::Sint(count),
+        }];
         for locale in &["en-US", "de-DE", "fr-FR"] {
             let msg = localizer.translate(*locale, "emails", args.clone());
             println!("{} (count={}): {}", locale, count, msg.as_str());
@@ -99,12 +114,12 @@ welcome = Bienvenue dans { $app }!
     println!("--- Syntax checking ---");
     let valid_ftl = "hello = Hello!";
     let invalid_ftl = "hello = ";
-    
+
     match check_fluent_syntax(valid_ftl) {
         FluentSyntaxCheckResult::Ok => println!("Valid FTL: OK ✓"),
         FluentSyntaxCheckResult::Errors(e) => println!("Valid FTL: Unexpected errors: {:?}", e),
     }
-    
+
     match check_fluent_syntax(invalid_ftl) {
         FluentSyntaxCheckResult::Ok => println!("Invalid FTL: Unexpected OK"),
         FluentSyntaxCheckResult::Errors(e) => {
@@ -125,11 +140,14 @@ welcome = Bienvenue dans { $app }!
     match create_fluent_zip(entries) {
         Ok(zip_data) => {
             println!("Created ZIP archive: {} bytes", zip_data.len());
-            
+
             // Test loading from ZIP
             let localizer2 = FluentLocalizerHandle::create("en-US");
             let result = localizer2.load_from_zip(zip_data.as_slice().into());
-            println!("Loaded from ZIP: {} files, {} failed", result.files_loaded, result.files_failed);
+            println!(
+                "Loaded from ZIP: {} files, {} failed",
+                result.files_loaded, result.files_failed
+            );
 
             if result.files_failed > 0 {
                 // Each error printed on its own line, variant and payload.
@@ -147,18 +165,21 @@ welcome = Bienvenue dans { $app }!
                     println!("    - {err:?}");
                 }
             }
-            
+
             // Debug: Check what locales were loaded
             let loaded = localizer2.get_loaded_locales();
-            println!("Locales in ZIP: {:?}", loaded.iter().map(|s| s.as_str()).collect::<Vec<_>>());
-            
+            println!(
+                "Locales in ZIP: {:?}",
+                loaded.iter().map(|s| s.as_str()).collect::<Vec<_>>()
+            );
+
             // Verify it works
             let hello = localizer2.translate("en-US", "hello", Vec::<FmtArg>::new());
             println!("Verification (en-US): '{}'", hello.as_str());
 
             let hello_de = localizer2.translate("de-DE", "hello", Vec::<FmtArg>::new());
             println!("Verification (de-DE): '{}'", hello_de.as_str());
-            
+
             // Check if message exists
             let has_hello = localizer2.has_message("en-US", "hello");
             println!("has_message('en-US', 'hello'): {}", has_hello);
@@ -169,11 +190,17 @@ welcome = Bienvenue dans { $app }!
     println!("\n--- Fallback behavior ---");
     // Try to translate a message that doesn't exist
     let missing = localizer.translate("en-US", "nonexistent", Vec::<FmtArg>::new());
-    println!("Missing message (returns message ID): '{}'", missing.as_str());
+    println!(
+        "Missing message (returns message ID): '{}'",
+        missing.as_str()
+    );
 
     // Try an unknown locale (should fall back to default)
     let unknown = localizer.translate("zh-CN", "hello", Vec::<FmtArg>::new());
-    println!("Unknown locale 'zh-CN' (falls back to 'en-US'): '{}'", unknown.as_str());
+    println!(
+        "Unknown locale 'zh-CN' (falls back to 'en-US'): '{}'",
+        unknown.as_str()
+    );
 
     println!("\n=== Demo complete! ===");
 }

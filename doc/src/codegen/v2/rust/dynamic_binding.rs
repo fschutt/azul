@@ -135,7 +135,6 @@ impl LanguageGenerator for RustDynamicGenerator {
             Self::generate_capi_trait_impls_enum(&mut builder, enum_def, config);
         }
 
-
         Ok(builder.finish())
     }
 }

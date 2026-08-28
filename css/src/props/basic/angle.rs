@@ -1,8 +1,8 @@
 //! CSS property types for angles (degrees, radians, etc.).
 
+use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::{fmt, num::ParseFloatError};
-use crate::corety::AzString;
 
 use crate::props::basic::error::ParseFloatErrorWithInput;
 
@@ -21,10 +21,9 @@ pub enum AngleMetric {
     Percent,
 }
 
-
 impl fmt::Display for AngleMetric {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::AngleMetric::{Degree, Radians, Grad, Turn, Percent};
+        use self::AngleMetric::{Degree, Grad, Percent, Radians, Turn};
         match self {
             Degree => write!(f, "deg"),
             Radians => write!(f, "rad"),
@@ -70,44 +69,51 @@ impl PrintAsCssValue for AngleValue {
 impl AngleValue {
     /// Returns an angle of zero degrees.
     #[inline]
-    #[must_use] pub const fn zero() -> Self {
+    #[must_use]
+    pub const fn zero() -> Self {
         const ZERO_DEG: AngleValue = AngleValue::const_deg(0);
         ZERO_DEG
     }
 
     /// Creates a const angle value in degrees from an integer.
     #[inline]
-    #[must_use] pub const fn const_deg(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_deg(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Degree, value)
     }
 
     /// Creates a const angle value in radians from an integer.
     #[inline]
-    #[must_use] pub const fn const_rad(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_rad(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Radians, value)
     }
 
     /// Creates a const angle value in gradians from an integer.
     #[inline]
-    #[must_use] pub const fn const_grad(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_grad(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Grad, value)
     }
 
     /// Creates a const angle value in turns from an integer.
     #[inline]
-    #[must_use] pub const fn const_turn(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_turn(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Turn, value)
     }
 
     /// Creates a const angle value in percent from an integer.
     #[inline]
-    #[must_use] pub const fn const_percent(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_percent(value: isize) -> Self {
         Self::const_from_metric(AngleMetric::Percent, value)
     }
 
     /// Creates a const angle value with the given metric from an integer.
     #[inline]
-    #[must_use] pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
+    #[must_use]
+    pub const fn const_from_metric(metric: AngleMetric, value: isize) -> Self {
         Self {
             metric,
             number: FloatValue::const_new(value),
@@ -121,7 +127,12 @@ impl AngleValue {
     /// * `pre_comma` - The integer part (e.g., 45 for 45.5deg)
     /// * `post_comma` - The fractional part as digits (e.g., 5 for 0.5deg)
     #[inline]
-    #[must_use] pub const fn const_from_metric_fractional(metric: AngleMetric, pre_comma: isize, post_comma: isize) -> Self {
+    #[must_use]
+    pub const fn const_from_metric_fractional(
+        metric: AngleMetric,
+        pre_comma: isize,
+        post_comma: isize,
+    ) -> Self {
         Self {
             metric,
             number: FloatValue::const_new_fractional(pre_comma, post_comma),
@@ -130,37 +141,43 @@ impl AngleValue {
 
     /// Creates an angle value in degrees.
     #[inline]
-    #[must_use] pub fn deg(value: f32) -> Self {
+    #[must_use]
+    pub fn deg(value: f32) -> Self {
         Self::from_metric(AngleMetric::Degree, value)
     }
 
     /// Creates an angle value in radians.
     #[inline]
-    #[must_use] pub fn rad(value: f32) -> Self {
+    #[must_use]
+    pub fn rad(value: f32) -> Self {
         Self::from_metric(AngleMetric::Radians, value)
     }
 
     /// Creates an angle value in gradians.
     #[inline]
-    #[must_use] pub fn grad(value: f32) -> Self {
+    #[must_use]
+    pub fn grad(value: f32) -> Self {
         Self::from_metric(AngleMetric::Grad, value)
     }
 
     /// Creates an angle value in turns.
     #[inline]
-    #[must_use] pub fn turn(value: f32) -> Self {
+    #[must_use]
+    pub fn turn(value: f32) -> Self {
         Self::from_metric(AngleMetric::Turn, value)
     }
 
     /// Creates an angle value in percent.
     #[inline]
-    #[must_use] pub fn percent(value: f32) -> Self {
+    #[must_use]
+    pub fn percent(value: f32) -> Self {
         Self::from_metric(AngleMetric::Percent, value)
     }
 
     /// Creates an angle value with the given metric.
     #[inline]
-    #[must_use] pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
+    #[must_use]
+    pub fn from_metric(metric: AngleMetric, value: f32) -> Self {
         Self {
             metric,
             number: FloatValue::new(value),
@@ -171,7 +188,8 @@ impl AngleValue {
     /// Note: 360.0 becomes 0.0 due to modulo operation.
     /// For conic gradients where 360.0 is meaningful, use `to_degrees_raw()`.
     #[inline]
-    #[must_use] pub fn to_degrees(&self) -> f32 {
+    #[must_use]
+    pub fn to_degrees(&self) -> f32 {
         let mut val = self.to_degrees_raw() % 360.0;
         if val < 0.0 {
             val += 360.0;
@@ -182,7 +200,8 @@ impl AngleValue {
     /// Convert to degrees without normalization (raw value).
     /// Use this for conic gradients where 360.0 is a meaningful distinct value from 0.0.
     #[inline]
-    #[must_use] pub fn to_degrees_raw(&self) -> f32 {
+    #[must_use]
+    pub fn to_degrees_raw(&self) -> f32 {
         match self.metric {
             AngleMetric::Degree => self.number.get(),
             AngleMetric::Grad => self.number.get() / 400.0 * 360.0,
@@ -231,14 +250,21 @@ pub enum CssAngleValueParseErrorOwned {
 }
 
 impl CssAngleValueParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssAngleValueParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssAngleValueParseErrorOwned {
         match self {
             CssAngleValueParseError::EmptyString => CssAngleValueParseErrorOwned::EmptyString,
             CssAngleValueParseError::NoValueGiven(s, metric) => {
-                CssAngleValueParseErrorOwned::NoValueGiven(AngleNoValueGivenError { value: (*s).to_string().into(), metric: *metric })
+                CssAngleValueParseErrorOwned::NoValueGiven(AngleNoValueGivenError {
+                    value: (*s).to_string().into(),
+                    metric: *metric,
+                })
             }
             CssAngleValueParseError::ValueParseErr(err, s) => {
-                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput { error: err.clone().into(), input: (*s).to_string().into() })
+                CssAngleValueParseErrorOwned::ValueParseErr(ParseFloatErrorWithInput {
+                    error: err.clone().into(),
+                    input: (*s).to_string().into(),
+                })
             }
             CssAngleValueParseError::InvalidAngle(s) => {
                 CssAngleValueParseErrorOwned::InvalidAngle((*s).to_string().into())
@@ -248,7 +274,8 @@ impl CssAngleValueParseError<'_> {
 }
 
 impl CssAngleValueParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssAngleValueParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssAngleValueParseError<'_> {
         match self {
             Self::EmptyString => CssAngleValueParseError::EmptyString,
             Self::NoValueGiven(e) => {
@@ -257,9 +284,7 @@ impl CssAngleValueParseErrorOwned {
             Self::ValueParseErr(e) => {
                 CssAngleValueParseError::ValueParseErr(e.error.to_std(), e.input.as_str())
             }
-            Self::InvalidAngle(s) => {
-                CssAngleValueParseError::InvalidAngle(s.as_str())
-            }
+            Self::InvalidAngle(s) => CssAngleValueParseError::InvalidAngle(s.as_str()),
         }
     }
 }
@@ -598,7 +623,7 @@ mod autotest_generated {
         assert_eq!(f(45, 5), 45_500); // 45.5
         assert_eq!(f(0, 83), 830); // 0.83
         assert_eq!(f(1, 523), 1_523); // 1.523
-        // More than 3 fractional digits: truncated (not rounded) to 3.
+                                      // More than 3 fractional digits: truncated (not rounded) to 3.
         assert_eq!(f(2, 123456), 2_123); // 2.123456 -> 2.123, per the doc comment
         assert_eq!(f(0, 999_999_999), 999); // 0.999999999 -> 0.999
         assert_eq!(
@@ -617,8 +642,8 @@ mod autotest_generated {
         assert_eq!(deg(-1, 5), -1.5); // negative pre drags the fraction negative
         assert_eq!(deg(0, -5), -0.5); // negative post encodes a negative fraction
         assert_eq!(deg(-1, -5), -1.5); // both negative must not double-negate
-        // TRAP: isize has no -0, so `-0` is `0` and the sign is lost. -0.5deg is NOT
-        // expressible as (-0, 5); it yields +0.5deg. Callers must use (0, -5).
+                                       // TRAP: isize has no -0, so `-0` is `0` and the sign is lost. -0.5deg is NOT
+                                       // expressible as (-0, 5); it yields +0.5deg. Callers must use (0, -5).
         assert_eq!(deg(-0, 5), 0.5);
         assert_ne!(deg(-0, 5), -0.5);
     }
@@ -654,7 +679,10 @@ mod autotest_generated {
         for m in ALL_METRICS {
             for v in [f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN] {
                 let a = AngleValue::from_metric(m, v);
-                assert!(a.number.get().is_finite(), "{m:?} / {v} leaked a non-finite");
+                assert!(
+                    a.number.get().is_finite(),
+                    "{m:?} / {v} leaked a non-finite"
+                );
             }
         }
     }
@@ -717,7 +745,13 @@ mod autotest_generated {
         // pushed through every unit conversion. Must never produce inf/NaN and must
         // honour the documented [0, 360) contract.
         for m in ALL_METRICS {
-            for v in [f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN, f32::NAN] {
+            for v in [
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::MAX,
+                f32::MIN,
+                f32::NAN,
+            ] {
                 let a = AngleValue::from_metric(m, v);
                 let raw = a.to_degrees_raw();
                 let norm = a.to_degrees();
@@ -873,15 +907,24 @@ mod autotest_generated {
         // i64::MAX / i64::MIN as bare degrees: overflow the fixed-point encoding and
         // must saturate rather than wrap into a bogus small angle.
         assert_eq!(
-            parse_angle_value("9223372036854775807").unwrap().number.number(),
+            parse_angle_value("9223372036854775807")
+                .unwrap()
+                .number
+                .number(),
             isize::MAX
         );
         assert_eq!(
-            parse_angle_value("-9223372036854775808").unwrap().number.number(),
+            parse_angle_value("-9223372036854775808")
+                .unwrap()
+                .number
+                .number(),
             isize::MIN
         );
         // f32 exponent overflow -> inf -> saturates; underflow -> 0.
-        assert_eq!(parse_angle_value("1e40deg").unwrap().number.number(), isize::MAX);
+        assert_eq!(
+            parse_angle_value("1e40deg").unwrap().number.number(),
+            isize::MAX
+        );
         assert_eq!(parse_angle_value("1e-40deg").unwrap().number.number(), 0);
         assert_eq!(parse_angle_value("0.0001deg").unwrap().number.number(), 0);
     }
@@ -924,14 +967,17 @@ mod autotest_generated {
             "90°",
             "\u{1F600}",
             "\u{1F600}deg",
-            "９０deg",          // fullwidth digits
-            "9\u{0301}0deg",    // combining acute accent
-            "٩٠%",              // arabic-indic digits
-            "\u{200b}90deg",    // zero-width space (not trimmed: not White_Space)
-            "90de\u{0261}",     // latin small script g
+            "９０deg",       // fullwidth digits
+            "9\u{0301}0deg", // combining acute accent
+            "٩٠%",           // arabic-indic digits
+            "\u{200b}90deg", // zero-width space (not trimmed: not White_Space)
+            "90de\u{0261}",  // latin small script g
         ] {
             let res = parse_angle_value(input);
-            assert!(res.is_err(), "unicode garbage accepted: {input:?} -> {res:?}");
+            assert!(
+                res.is_err(),
+                "unicode garbage accepted: {input:?} -> {res:?}"
+            );
             assert!(!format!("{}", res.unwrap_err()).is_empty());
         }
     }
@@ -977,7 +1023,10 @@ mod autotest_generated {
             assert_eq!(parsed.metric, m, "unit {m} did not round-trip");
             assert_eq!(parsed.number.get(), 1.0);
         }
-        assert_eq!(parse_angle_value("1grad").unwrap().metric, AngleMetric::Grad);
+        assert_eq!(
+            parse_angle_value("1grad").unwrap().metric,
+            AngleMetric::Grad
+        );
         assert_eq!(
             parse_angle_value("1rad").unwrap().metric,
             AngleMetric::Radians

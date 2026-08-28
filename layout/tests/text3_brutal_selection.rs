@@ -12,7 +12,6 @@
 //!   a@0..12 a@12..24 a@24..36 a@36..48 space@48..53 a@53..65 a@65..77 a@77..89
 //!   a@89..101 space@101..106 a@106..118 a@118..130 a@130..142 a@142..154
 
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -94,8 +93,8 @@ fn layout_content(
         .expect("bidi reorder must succeed");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None)
-        .expect("shaping must succeed");
+    let shaped =
+        shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shaping must succeed");
     let mut cursor = BreakCursor::new(&shaped);
     perform_fragment_layout(&mut cursor, &logical, constraints, &mut None, &loaded)
         .expect("fragment layout must succeed")
@@ -210,7 +209,11 @@ fn click_on_second_line_y_lands_on_second_line() {
     let c = l
         .hittest_cursor(LogicalPosition::new(6.0, 30.0))
         .expect("caret");
-    assert_eq!(line_of(&l, &c), Some(1), "y=30 must resolve to line index 1");
+    assert_eq!(
+        line_of(&l, &c),
+        Some(1),
+        "y=30 must resolve to line index 1"
+    );
 }
 
 #[test]
@@ -241,10 +244,28 @@ fn empty_line_reserves_a_line_box() {
         ..StyleProperties::default()
     });
     let content = vec![
-        InlineContent::Text(StyledRun { text: "aa".into(), style: Arc::clone(&style), logical_start_byte: 0, source_node_id: None }),
-        InlineContent::LineBreak(InlineBreak { break_type: BreakType::Hard, clear: ClearType::None, content_index: 0 }),
-        InlineContent::LineBreak(InlineBreak { break_type: BreakType::Hard, clear: ClearType::None, content_index: 1 }),
-        InlineContent::Text(StyledRun { text: "aa".into(), style: Arc::clone(&style), logical_start_byte: 4, source_node_id: None }),
+        InlineContent::Text(StyledRun {
+            text: "aa".into(),
+            style: Arc::clone(&style),
+            logical_start_byte: 0,
+            source_node_id: None,
+        }),
+        InlineContent::LineBreak(InlineBreak {
+            break_type: BreakType::Hard,
+            clear: ClearType::None,
+            content_index: 0,
+        }),
+        InlineContent::LineBreak(InlineBreak {
+            break_type: BreakType::Hard,
+            clear: ClearType::None,
+            content_index: 1,
+        }),
+        InlineContent::Text(StyledRun {
+            text: "aa".into(),
+            style: Arc::clone(&style),
+            logical_start_byte: 4,
+            source_node_id: None,
+        }),
     ];
     let l = layout_content(
         &content,
@@ -264,9 +285,7 @@ fn empty_line_reserves_a_line_box() {
         .items
         .iter()
         .filter_map(|it| match &it.item {
-            ShapedItem::Cluster(c) if c.source_cluster_id.source_run == 3 => {
-                Some(it.position.y)
-            }
+            ShapedItem::Cluster(c) if c.source_cluster_id.source_run == 3 => Some(it.position.y),
             _ => None,
         })
         .fold(f32::MAX, f32::min);
@@ -355,8 +374,8 @@ fn double_click_selects_the_word() {
     // Word selection: a cursor inside the middle word selects exactly that run of
     // word characters (bytes 5..=8), stopping at the surrounding spaces.
     let l = layout("aaaa aaaa aaaa", AvailableSpace::MaxContent);
-    let range = select_word_at_cursor(&cursor_at(6, CursorAffinity::Leading), &l)
-        .expect("word selection");
+    let range =
+        select_word_at_cursor(&cursor_at(6, CursorAffinity::Leading), &l).expect("word selection");
     assert_eq!(range.start.cluster_id.start_byte_in_run, 5);
     assert_eq!(range.end.cluster_id.start_byte_in_run, 8);
 }
@@ -373,8 +392,7 @@ fn insert_widens_layout_by_inserted_advance() {
     let content = make_content("aaaa aaaa", &font_ref);
     let before = max_content_width(&content, &font_ref);
 
-    let (edited, _new_cursor) =
-        insert_text(&content, &cursor_at(2, CursorAffinity::Leading), "bb");
+    let (edited, _new_cursor) = insert_text(&content, &cursor_at(2, CursorAffinity::Leading), "bb");
     assert_eq!(text_of(&edited), "aabbaa aaaa", "insert lands at byte 2");
     // Style span preserved: still a single text run carrying the FontRef.
     assert!(matches!(edited.first(), Some(InlineContent::Text(_))));
@@ -388,10 +406,12 @@ fn backspace_deletes_whole_grapheme_no_orphan_mark() {
     // UAX#29: Backspace over 'a'+U+0301 removes the entire grapheme cluster,
     // leaving no orphaned combining mark and never panicking.
     let content = make_content("a\u{0301}a", &fake_font_ref());
-    let (edited, _cursor) =
-        delete_backward(&content, &cursor_at(0, CursorAffinity::Trailing));
+    let (edited, _cursor) = delete_backward(&content, &cursor_at(0, CursorAffinity::Trailing));
     let remaining = text_of(&edited);
-    assert_eq!(remaining, "a", "the base+mark grapheme is deleted as a unit");
+    assert_eq!(
+        remaining, "a",
+        "the base+mark grapheme is deleted as a unit"
+    );
     assert!(
         !remaining.contains('\u{0301}'),
         "no orphaned combining mark may survive"
@@ -420,7 +440,11 @@ fn multi_cursor_insert_remaps_later_selection_indices() {
             Selection::Range(r) => r.start.cluster_id.start_byte_in_run,
         })
         .collect();
-    assert_eq!(bytes, vec![4, 12], "later selection index remapped past both inserts");
+    assert_eq!(
+        bytes,
+        vec![4, 12],
+        "later selection index remapped past both inserts"
+    );
 }
 
 #[test]

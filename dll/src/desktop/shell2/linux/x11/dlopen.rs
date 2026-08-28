@@ -9,8 +9,8 @@ use std::{
 
 use super::defines::*;
 // Re-export types from defines for convenience
+use super::super::common::compose::{xkb_compose_state, xkb_compose_table, ComposeFns};
 pub use super::defines::{Atom, Display, Drawable, Window, XSetWindowAttributes, GC};
-use super::super::common::compose::{ComposeFns, xkb_compose_state, xkb_compose_table};
 use crate::desktop::shell2::common::{
     dlopen::load_first_available, DlError, DynamicLibrary as DynamicLibraryTrait,
 };
@@ -34,21 +34,21 @@ impl DynamicLibraryTrait for Library {
         });
         #[cfg(not(miri))]
         {
-        let c_name = CString::new(name).unwrap();
-        let handle = unsafe { libc::dlopen(c_name.as_ptr(), libc::RTLD_LAZY) };
-        if handle.is_null() {
-            let error = unsafe { CStr::from_ptr(libc::dlerror()).to_string_lossy() };
-            Err(DlError::LibraryNotFound {
-                name: name.to_string(),
-                tried: vec![name.to_string()],
-                suggestion: format!("dlopen failed: {}", error),
-            })
-        } else {
-            Ok(Self {
-                handle,
-                name: name.to_string(),
-            })
-        }
+            let c_name = CString::new(name).unwrap();
+            let handle = unsafe { libc::dlopen(c_name.as_ptr(), libc::RTLD_LAZY) };
+            if handle.is_null() {
+                let error = unsafe { CStr::from_ptr(libc::dlerror()).to_string_lossy() };
+                Err(DlError::LibraryNotFound {
+                    name: name.to_string(),
+                    tried: vec![name.to_string()],
+                    suggestion: format!("dlopen failed: {}", error),
+                })
+            } else {
+                Ok(Self {
+                    handle,
+                    name: name.to_string(),
+                })
+            }
         }
     }
 
@@ -248,25 +248,30 @@ impl Xlib {
             XFree: load_symbol!(lib, _, "XFree"),
             XResizeWindow: load_symbol!(lib, _, "XResizeWindow"),
             XResourceManagerString: unsafe {
-                lib.get_symbol::<XResourceManagerString>("XResourceManagerString").ok()
+                lib.get_symbol::<XResourceManagerString>("XResourceManagerString")
+                    .ok()
             },
             XkbSetDetectableAutoRepeat: unsafe {
                 lib.get_symbol::<XkbSetDetectableAutoRepeat>("XkbSetDetectableAutoRepeat")
                     .ok()
             },
             XTranslateCoordinates: unsafe {
-                lib.get_symbol::<XTranslateCoordinates>("XTranslateCoordinates").ok()
+                lib.get_symbol::<XTranslateCoordinates>("XTranslateCoordinates")
+                    .ok()
             },
             XEventsQueued: unsafe { lib.get_symbol::<XEventsQueued>("XEventsQueued").ok() },
             XRefreshKeyboardMapping: unsafe {
-                lib.get_symbol::<XRefreshKeyboardMapping>("XRefreshKeyboardMapping").ok()
+                lib.get_symbol::<XRefreshKeyboardMapping>("XRefreshKeyboardMapping")
+                    .ok()
             },
             XQueryKeymap: unsafe { lib.get_symbol::<XQueryKeymap>("XQueryKeymap").ok() },
             XkbKeycodeToKeysym: unsafe {
-                lib.get_symbol::<XkbKeycodeToKeysym>("XkbKeycodeToKeysym").ok()
+                lib.get_symbol::<XkbKeycodeToKeysym>("XkbKeycodeToKeysym")
+                    .ok()
             },
             XGetModifierMapping: unsafe {
-                lib.get_symbol::<XGetModifierMapping>("XGetModifierMapping").ok()
+                lib.get_symbol::<XGetModifierMapping>("XGetModifierMapping")
+                    .ok()
             },
             XFreeModifiermap: unsafe {
                 lib.get_symbol::<XFreeModifiermap>("XFreeModifiermap").ok()
@@ -401,8 +406,7 @@ pub struct Xkb {
     pub xkb_compose_state_unref: Option<unsafe extern "C" fn(*mut xkb_compose_state)>,
     pub xkb_compose_state_feed: Option<unsafe extern "C" fn(*mut xkb_compose_state, u32) -> i32>,
     pub xkb_compose_state_reset: Option<unsafe extern "C" fn(*mut xkb_compose_state)>,
-    pub xkb_compose_state_get_status:
-        Option<unsafe extern "C" fn(*mut xkb_compose_state) -> i32>,
+    pub xkb_compose_state_get_status: Option<unsafe extern "C" fn(*mut xkb_compose_state) -> i32>,
     pub xkb_compose_state_get_utf8:
         Option<unsafe extern "C" fn(*mut xkb_compose_state, *mut c_char, usize) -> i32>,
 }

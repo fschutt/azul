@@ -139,9 +139,7 @@ pub fn probe_status(capability: Capability) -> PermissionState {
 /// aren't published yet or `f` short-circuits. Mirrors the file picker's
 /// `with_env` attach sequence.
 #[cfg(target_os = "android")]
-fn attach<R>(
-    f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R>,
-) -> Option<R> {
+fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R>) -> Option<R> {
     use jni::objects::JObject;
     use jni::JavaVM;
 

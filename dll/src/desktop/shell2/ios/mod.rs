@@ -391,17 +391,13 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                     let touch_type: i64 = msg_send![touch, type];
                     if touch_type == 2 {
                         let altitude: f64 = msg_send![touch, altitudeAngle];
-                        let azimuth: f64 =
-                            msg_send![touch, azimuthAngleInView: this_ptr];
-                        let tilt_rad =
-                            (core::f64::consts::FRAC_PI_2 - altitude) as f32;
+                        let azimuth: f64 = msg_send![touch, azimuthAngleInView: this_ptr];
+                        let tilt_rad = (core::f64::consts::FRAC_PI_2 - altitude) as f32;
                         let orientation = azimuth as f32;
                         let (sin_o, cos_o) = orientation.sin_cos();
                         let tan_tilt = tilt_rad.tan();
-                        let x_tilt_deg =
-                            (sin_o * tan_tilt).atan().to_degrees();
-                        let y_tilt_deg =
-                            (-cos_o * tan_tilt).atan().to_degrees();
+                        let x_tilt_deg = (sin_o * tan_tilt).atan().to_degrees();
+                        let y_tilt_deg = (-cos_o * tan_tilt).atan().to_degrees();
                         // Apple Pencil Pro barrel roll (iOS 17.5+). Guard
                         // with respondsToSelector so older iOS doesn't hit
                         // an unrecognized-selector trap.
@@ -446,9 +442,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                     let mut existing: Vec<TouchPoint> =
                         ts.touch_points.clone().into_library_owned_vec();
                     for new_point in &points {
-                        if let Some(slot) =
-                            existing.iter_mut().find(|p| p.id == new_point.id)
-                        {
+                        if let Some(slot) = existing.iter_mut().find(|p| p.id == new_point.id) {
                             *slot = *new_point;
                         } else {
                             existing.push(*new_point);
@@ -458,8 +452,7 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                 }
                 2 | 3 => {
                     // Ended / cancelled → drop the reported IDs.
-                    let drop_ids: Vec<u64> =
-                        points.iter().map(|p| p.id).collect();
+                    let drop_ids: Vec<u64> = points.iter().map(|p| p.id).collect();
                     let mut existing: Vec<TouchPoint> =
                         ts.touch_points.clone().into_library_owned_vec();
                     existing.retain(|p| !drop_ids.contains(&p.id));
@@ -494,7 +487,9 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
     }
     let r = window.process_window_events(0);
     if !matches!(r, ProcessEventResult::DoNothing) {
-        window.common.request_regeneration(RelayoutReason::RefreshDom);
+        window
+            .common
+            .request_regeneration(RelayoutReason::RefreshDom);
     }
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
@@ -518,12 +513,14 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                     0,     // device_id (Apple Pencil has no public ID at this layer)
                     0.0,   // tangential_pressure (not reported by UITouch)
                     sample.barrel_roll_rad,
-                    0,     // tool_id (not reported by UITouch)
+                    0, // tool_id (not reported by UITouch)
                 );
             } else {
                 lw.gesture_drag_manager.clear_pen_state();
             }
-            window.common.request_regeneration(RelayoutReason::RefreshDom);
+            window
+                .common
+                .request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -532,28 +529,13 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
     let _: () = unsafe { msg_send![view, setNeedsDisplay] };
 }
 
-extern "C" fn touches_began(
-    this: &Object,
-    _cmd: Sel,
-    touches: *mut Object,
-    _event: *mut Object,
-) {
+extern "C" fn touches_began(this: &Object, _cmd: Sel, touches: *mut Object, _event: *mut Object) {
     handle_touch(this, touches, 0);
 }
-extern "C" fn touches_moved(
-    this: &Object,
-    _cmd: Sel,
-    touches: *mut Object,
-    _event: *mut Object,
-) {
+extern "C" fn touches_moved(this: &Object, _cmd: Sel, touches: *mut Object, _event: *mut Object) {
     handle_touch(this, touches, 1);
 }
-extern "C" fn touches_ended(
-    this: &Object,
-    _cmd: Sel,
-    touches: *mut Object,
-    _event: *mut Object,
-) {
+extern "C" fn touches_ended(this: &Object, _cmd: Sel, touches: *mut Object, _event: *mut Object) {
     handle_touch(this, touches, 2);
 }
 extern "C" fn touches_cancelled(
@@ -577,13 +559,9 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
     // still runs. `objc_msgSendSuper` is fiddly via the objc 0.2 macro,
     // so we rely on the fact that `super.layoutSubviews` for `UIView` is
     // a no-op once we own the geometry — which we do.
-    let _: () = unsafe {
-        msg_send![this as *const Object as *mut Object, setNeedsDisplay]
-    };
+    let _: () = unsafe { msg_send![this as *const Object as *mut Object, setNeedsDisplay] };
     if let Some(window) = unsafe { azul_ios_window() } {
-        let bounds: CGRect = unsafe {
-            msg_send![this as *const Object as *mut Object, bounds]
-        };
+        let bounds: CGRect = unsafe { msg_send![this as *const Object as *mut Object, bounds] };
         let w = bounds.size.width as f32;
         let h = bounds.size.height as f32;
         if w > 0.0 && h > 0.0 {
@@ -592,12 +570,17 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
                 log_info!(
                     LogCategory::Window,
                     "[iOS] layoutSubviews: bounds {}x{} -> {}x{}",
-                    dims.width, dims.height, w, h,
+                    dims.width,
+                    dims.height,
+                    w,
+                    h,
                 );
-                window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                    ws.size.dimensions.width = w;
-                    ws.size.dimensions.height = h;
-                });
+                window
+                    .common
+                    .update_window_state(event::WindowStateSource::Os, |ws| {
+                        ws.size.dimensions.width = w;
+                        ws.size.dimensions.height = h;
+                    });
                 // `Resize` is the tag every desktop backend gives geometry
                 // changes — the variant responsive layout callbacks branch
                 // on; `RefreshDom` hid every rotation / split-view resize
@@ -623,7 +606,9 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
         if let Some(lw) = window.common.layout_window.as_mut() {
             let mk = |v: f64| {
                 if v > 0.5 {
-                    azul_css::props::basic::OptionPixelValue::Some(azul_css::props::basic::PixelValue::px(v as f32))
+                    azul_css::props::basic::OptionPixelValue::Some(
+                        azul_css::props::basic::PixelValue::px(v as f32),
+                    )
                 } else {
                     azul_css::props::basic::OptionPixelValue::None
                 }
@@ -674,7 +659,9 @@ const UI_GESTURE_RECOGNIZER_STATE_CHANGED: i64 = 2;
 fn inject(window: &mut IOSWindow, gesture: azul_layout::managers::gesture::NativeGestureEvent) {
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.inject_native_gesture(gesture);
-        window.common.request_regeneration(RelayoutReason::RefreshDom);
+        window
+            .common
+            .request_regeneration(RelayoutReason::RefreshDom);
     }
 }
 
@@ -701,7 +688,10 @@ extern "C" fn on_long_press(_this: &Object, _cmd: Sel, sender: *mut Object) {
         inject(
             w,
             NativeGestureEvent::LongPress(DetectedLongPress {
-                position: LogicalPosition { x: p.x as f32, y: p.y as f32 },
+                position: LogicalPosition {
+                    x: p.x as f32,
+                    y: p.y as f32,
+                },
                 duration_ms: 0,
                 callback_invoked: false,
                 session_id: 0,
@@ -749,7 +739,10 @@ extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
             w,
             NativeGestureEvent::Pinch(DetectedPinch {
                 scale: scale as f32,
-                center: LogicalPosition { x: p.x as f32, y: p.y as f32 },
+                center: LogicalPosition {
+                    x: p.x as f32,
+                    y: p.y as f32,
+                },
                 initial_distance: 0.0,
                 current_distance: 0.0,
                 duration_ms: 0,
@@ -772,7 +765,10 @@ extern "C" fn on_rotation(_this: &Object, _cmd: Sel, sender: *mut Object) {
             w,
             NativeGestureEvent::Rotation(DetectedRotation {
                 angle_radians: rotation as f32,
-                center: LogicalPosition { x: p.x as f32, y: p.y as f32 },
+                center: LogicalPosition {
+                    x: p.x as f32,
+                    y: p.y as f32,
+                },
                 duration_ms: 0,
             }),
         );
@@ -842,7 +838,9 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
     // comment is true.
     if let Some(window) = unsafe { azul_ios_window() } {
         if window.process_timers_and_threads() {
-            window.common.request_regeneration(RelayoutReason::RefreshDom);
+            window
+                .common
+                .request_regeneration(RelayoutReason::RefreshDom);
         }
         // Accessibility actions arrive off-loop (VoiceOver invokes
         // `accessibilityActivate` and friends whenever the user gestures) and
@@ -937,8 +935,7 @@ unsafe fn install_display_link(_view: *mut Object) {
     ];
     let main_loop: *mut Object = msg_send![class!(NSRunLoop), mainRunLoop];
     let default_mode_cstr = b"kCFRunLoopDefaultMode\0".as_ptr() as *const i8;
-    let mode: *mut Object =
-        msg_send![class!(NSString), stringWithUTF8String: default_mode_cstr];
+    let mode: *mut Object = msg_send![class!(NSString), stringWithUTF8String: default_mode_cstr];
     let _: () = msg_send![link, addToRunLoop: main_loop forMode: mode];
 
     // Keep a (retained) handle so the background/foreground lifecycle hooks
@@ -1065,16 +1062,25 @@ extern "C" fn did_finish_launching(
                 }
             };
 
-        let window =
-            match IOSWindow::new(root_window, fc_cache, config, app_data, undo_manager, font_registry) {
-                Ok(w) => w,
-                Err(e) => {
-                    log_error!(LogCategory::EventLoop, "[iOS] IOSWindow::new: {:?}", e);
-                    return false;
-                }
-            };
+        let window = match IOSWindow::new(
+            root_window,
+            fc_cache,
+            config,
+            app_data,
+            undo_manager,
+            font_registry,
+        ) {
+            Ok(w) => w,
+            Err(e) => {
+                log_error!(LogCategory::EventLoop, "[iOS] IOSWindow::new: {:?}", e);
+                return false;
+            }
+        };
         AZUL_IOS_WINDOW = Box::into_raw(Box::new(window));
-        log_info!(LogCategory::EventLoop, "[iOS] application:didFinishLaunching: ok");
+        log_info!(
+            LogCategory::EventLoop,
+            "[iOS] application:didFinishLaunching: ok"
+        );
     }
     true
 }
@@ -1097,7 +1103,9 @@ extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object
     if let Some(window) = unsafe { azul_ios_window() } {
         // Force a redraw so the layer contents are fresh after
         // returning from background.
-        window.common.request_regeneration(RelayoutReason::RefreshDom);
+        window
+            .common
+            .request_regeneration(RelayoutReason::RefreshDom);
         let _ = window.present();
     }
 }
@@ -1111,7 +1119,10 @@ extern "C" fn app_will_resign_active(_this: &Object, _cmd: Sel, _app: *mut Objec
 }
 
 extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Object) {
-    log_info!(LogCategory::EventLoop, "[iOS] applicationDidEnterBackground:");
+    log_info!(
+        LogCategory::EventLoop,
+        "[iOS] applicationDidEnterBackground:"
+    );
     // Stop the render tick. CADisplayLink is NOT auto-paused in the
     // background — the process is merely suspended a few seconds from now,
     // and until then every vsync would run layout/CPU-render/CA-commit for
@@ -1123,7 +1134,10 @@ extern "C" fn app_did_enter_background(_this: &Object, _cmd: Sel, _app: *mut Obj
 }
 
 extern "C" fn app_will_enter_foreground(_this: &Object, _cmd: Sel, _app: *mut Object) {
-    log_info!(LogCategory::EventLoop, "[iOS] applicationWillEnterForeground:");
+    log_info!(
+        LogCategory::EventLoop,
+        "[iOS] applicationWillEnterForeground:"
+    );
     unsafe { set_display_link_paused(false) };
 }
 
@@ -1150,8 +1164,7 @@ fn get_or_create_app_delegate_class() -> &'static Class {
 
         decl.add_method(
             sel!(application:didFinishLaunchingWithOptions:),
-            did_finish_launching
-                as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> bool,
+            did_finish_launching as extern "C" fn(&Object, Sel, *mut Object, *mut Object) -> bool,
         );
 
         // Lifecycle hooks — see comments on each function.
@@ -1276,7 +1289,10 @@ impl IOSWindow {
             log_info!(
                 LogCategory::Window,
                 "[iOS] screen scale={} -> dpi={} bounds={}x{}",
-                scale, dpi, bounds.size.width, bounds.size.height,
+                scale,
+                dpi,
+                bounds.size.width,
+                bounds.size.height,
             );
 
             let window_alloc: *mut Object = msg_send![class!(UIWindow), alloc];
@@ -1307,11 +1323,7 @@ impl IOSWindow {
             install_display_link(view);
 
             // `Id::from_ptr` retains the object; balanced by Drop.
-            (
-                Id::from_ptr(window),
-                Id::from_ptr(vc),
-                Id::from_ptr(view),
-            )
+            (Id::from_ptr(window), Id::from_ptr(vc), Id::from_ptr(view))
         };
 
         let mut common = CommonWindowState::new(
@@ -1430,9 +1442,12 @@ impl IOSWindow {
         let borrows = self.common.layout_borrows();
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
-        let debug_enabled =
-            crate::desktop::shell2::common::debug_server::is_debug_enabled();
-        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let mut debug_messages = if debug_enabled {
+            Some(Vec::new())
+        } else {
+            None
+        };
 
         let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
@@ -1460,7 +1475,9 @@ impl IOSWindow {
         }
 
         if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+            self.cpu_backend
+                .hit_tester
+                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
@@ -1501,7 +1518,8 @@ impl IOSWindow {
         #[cfg(feature = "a11y")]
         self.refresh_accessibility_tree();
 
-        self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+        self.common
+            .clear_regeneration_unless_reraised(regen_epoch_seen);
         Ok(result)
     }
 }
@@ -1553,8 +1571,7 @@ impl PlatformWindow for IOSWindow {
     }
     fn stop_timer(&mut self, timer_id: usize) {
         if let Some(lw) = self.common.layout_window.as_mut() {
-            lw.timers
-                .remove(&azul_core::task::TimerId { id: timer_id });
+            lw.timers.remove(&azul_core::task::TimerId { id: timer_id });
         }
     }
     fn start_thread_poll_timer(&mut self) {}
@@ -1562,10 +1579,7 @@ impl PlatformWindow for IOSWindow {
 
     fn add_threads(
         &mut self,
-        threads: std::collections::BTreeMap<
-            azul_core::task::ThreadId,
-            azul_layout::thread::Thread,
-        >,
+        threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     ) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for (id, thread) in threads {

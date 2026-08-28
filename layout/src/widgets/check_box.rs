@@ -8,15 +8,16 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{OptionString, 
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
+use azul_css::{
     props::{
         basic::{color::ColorU, *},
         layout::*,
         property::{CssProperty, *},
         style::*,
     },
-    *,
+    OptionString, *,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -206,7 +207,8 @@ impl CheckBox {
         self
     }
 
-    #[must_use] pub fn create(checked: bool) -> Self {
+    #[must_use]
+    pub fn create(checked: bool) -> Self {
         Self {
             check_box_state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
@@ -257,13 +259,11 @@ impl CheckBox {
     }
 
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Read before the widget's fields are moved into the DOM below.
         let cb_name = self.accessibility_name.clone();
-        crate::widgets::warn_widget_needs_a_name(
-            "check_box",
-            cb_name.is_some(),
-        );
+        crate::widgets::warn_widget_needs_a_name("check_box", cb_name.is_some());
 
         // Read the state BEFORE the wrapper is moved into the callback below.
         let checked_now = self.check_box_state.inner.checked;
@@ -355,13 +355,11 @@ mod input {
         // the build-time CheckedTrue/False would go stale on the first click.
         info.set_accessibility_state(
             info.get_hit_node(),
-            azul_core::a11y::AccessibilityStateVec::from_vec(vec![
-                if check_box.inner.checked {
-                    azul_core::a11y::AccessibilityState::CheckedTrue
-                } else {
-                    azul_core::a11y::AccessibilityState::CheckedFalse
-                },
-            ]),
+            azul_core::a11y::AccessibilityStateVec::from_vec(vec![if check_box.inner.checked {
+                azul_core::a11y::AccessibilityState::CheckedTrue
+            } else {
+                azul_core::a11y::AccessibilityState::CheckedFalse
+            }]),
         );
 
         if check_box.inner.checked {
@@ -567,7 +565,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => {
                     let o = properties.as_ref().iter().find_map(|p| match p {
                         CssProperty::Opacity(o) => o.get_property().map(|o| o.inner.normalized()),
@@ -588,7 +588,10 @@ mod autotest_generated {
         v.as_ref().iter().map(|p| p.property.clone()).collect()
     }
 
-    fn find<T>(v: &CssPropertyWithConditionsVec, f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+    fn find<T>(
+        v: &CssPropertyWithConditionsVec,
+        f: impl Fn(&CssProperty) -> Option<T>,
+    ) -> Option<T> {
         v.as_ref().iter().find_map(|p| f(&p.property))
     }
 
@@ -765,7 +768,11 @@ mod autotest_generated {
         // ... and the *content* styles differ in opacity and nothing else.
         let a = properties(&checked.content_style);
         let b = properties(&unchecked.content_style);
-        assert_eq!(a.len(), b.len(), "the two content styles declare a different number of properties");
+        assert_eq!(
+            a.len(),
+            b.len(),
+            "the two content styles declare a different number of properties"
+        );
         let differing: Vec<_> = a
             .iter()
             .zip(b.iter())
@@ -774,7 +781,9 @@ mod autotest_generated {
             .collect();
         assert_eq!(
             differing,
-            vec![discriminant(&CssProperty::const_opacity(StyleOpacity::const_new(0)))],
+            vec![discriminant(&CssProperty::const_opacity(
+                StyleOpacity::const_new(0)
+            ))],
             "the checked/unchecked content styles differ in something other than opacity",
         );
     }
@@ -844,11 +853,8 @@ mod autotest_generated {
         assert_eq!(bor_l, Some(BORDER));
         assert_eq!(bor_r, Some(BORDER));
 
-        let inner = CONTAINER_SIDE
-            - pad_l.unwrap()
-            - pad_r.unwrap()
-            - bor_l.unwrap()
-            - bor_r.unwrap();
+        let inner =
+            CONTAINER_SIDE - pad_l.unwrap() - pad_r.unwrap() - bor_l.unwrap() - bor_r.unwrap();
         assert_eq!(
             width_px(&c.content_style),
             Some(inner),
@@ -906,15 +912,26 @@ mod autotest_generated {
         let mut c = CheckBox::create(true);
         let old = c.swap_with_default();
 
-        assert_eq!(old, CheckBox::create(true), "the old widget was not returned intact");
-        assert_eq!(c, CheckBox::create(false), "what was left behind is not a fresh unchecked checkbox");
+        assert_eq!(
+            old,
+            CheckBox::create(true),
+            "the old widget was not returned intact"
+        );
+        assert_eq!(
+            c,
+            CheckBox::create(false),
+            "what was left behind is not a fresh unchecked checkbox"
+        );
     }
 
     #[test]
     fn swap_with_default_on_an_already_default_widget_is_a_no_op() {
         let mut c = CheckBox::create(false);
         let old = c.swap_with_default();
-        assert_eq!(old, c, "swapping a default with a default produced two different widgets");
+        assert_eq!(
+            old, c,
+            "swapping a default with a default produced two different widgets"
+        );
         assert_eq!(old, CheckBox::create(false));
     }
 
@@ -967,7 +984,10 @@ mod autotest_generated {
     #[test]
     fn set_on_toggle_stores_the_function_pointer_and_the_payload_verbatim() {
         let mut c = CheckBox::create(false);
-        c.set_on_toggle(RefAny::new(0xDEAD_BEEF_u32), toggle_do_nothing as CheckBoxOnToggleCallbackType);
+        c.set_on_toggle(
+            RefAny::new(0xDEAD_BEEF_u32),
+            toggle_do_nothing as CheckBoxOnToggleCallbackType,
+        );
 
         let t = c
             .check_box_state
@@ -982,7 +1002,9 @@ mod autotest_generated {
 
         let mut data = t.refany.clone();
         assert_eq!(
-            *data.downcast_ref::<u32>().expect("the payload changed type"),
+            *data
+                .downcast_ref::<u32>()
+                .expect("the payload changed type"),
             0xDEAD_BEEF,
             "the payload was corrupted",
         );
@@ -998,10 +1020,20 @@ mod autotest_generated {
         // *second* callback installed (and must not leak the first one's RefAny).
         let first = log_refany();
         let mut c = CheckBox::create(false);
-        c.set_on_toggle(first.clone(), toggle_do_nothing as CheckBoxOnToggleCallbackType);
-        c.set_on_toggle(RefAny::new(1u8), toggle_refresh_all as CheckBoxOnToggleCallbackType);
+        c.set_on_toggle(
+            first.clone(),
+            toggle_do_nothing as CheckBoxOnToggleCallbackType,
+        );
+        c.set_on_toggle(
+            RefAny::new(1u8),
+            toggle_refresh_all as CheckBoxOnToggleCallbackType,
+        );
 
-        let t = c.check_box_state.on_toggle.as_ref().expect("the callback vanished");
+        let t = c
+            .check_box_state
+            .on_toggle
+            .as_ref()
+            .expect("the callback vanished");
         assert_eq!(
             t.callback.cb as *const () as usize,
             toggle_refresh_all as CheckBoxOnToggleCallbackType as *const () as usize,
@@ -1016,7 +1048,10 @@ mod autotest_generated {
         for checked in [false, true] {
             let pristine = CheckBox::create(checked);
             let mut c = CheckBox::create(checked);
-            c.set_on_toggle(RefAny::new(0u8), toggle_do_nothing as CheckBoxOnToggleCallbackType);
+            c.set_on_toggle(
+                RefAny::new(0u8),
+                toggle_do_nothing as CheckBoxOnToggleCallbackType,
+            );
 
             assert_eq!(
                 c.check_box_state.inner.checked, checked,
@@ -1037,11 +1072,16 @@ mod autotest_generated {
 
     #[test]
     fn with_on_toggle_is_exactly_set_on_toggle_in_builder_form() {
-        let by_builder = CheckBox::create(true)
-            .with_on_toggle(RefAny::new(7u32), toggle_do_nothing as CheckBoxOnToggleCallbackType);
+        let by_builder = CheckBox::create(true).with_on_toggle(
+            RefAny::new(7u32),
+            toggle_do_nothing as CheckBoxOnToggleCallbackType,
+        );
 
         let mut by_setter = CheckBox::create(true);
-        by_setter.set_on_toggle(RefAny::new(7u32), toggle_do_nothing as CheckBoxOnToggleCallbackType);
+        by_setter.set_on_toggle(
+            RefAny::new(7u32),
+            toggle_do_nothing as CheckBoxOnToggleCallbackType,
+        );
 
         assert_eq!(
             by_builder.check_box_state.inner,
@@ -1056,14 +1096,27 @@ mod autotest_generated {
             properties(&by_setter.content_style),
         );
 
-        let a = by_builder.check_box_state.on_toggle.as_ref().expect("builder lost the callback");
-        let b = by_setter.check_box_state.on_toggle.as_ref().expect("setter lost the callback");
-        assert_eq!(a.callback.cb as *const () as usize, b.callback.cb as *const () as usize);
+        let a = by_builder
+            .check_box_state
+            .on_toggle
+            .as_ref()
+            .expect("builder lost the callback");
+        let b = by_setter
+            .check_box_state
+            .on_toggle
+            .as_ref()
+            .expect("setter lost the callback");
+        assert_eq!(
+            a.callback.cb as *const () as usize,
+            b.callback.cb as *const () as usize
+        );
 
         let (mut a, mut b) = (a.refany.clone(), b.refany.clone());
         assert_eq!(
-            *a.downcast_ref::<u32>().expect("builder payload changed type"),
-            *b.downcast_ref::<u32>().expect("setter payload changed type"),
+            *a.downcast_ref::<u32>()
+                .expect("builder payload changed type"),
+            *b.downcast_ref::<u32>()
+                .expect("setter payload changed type"),
         );
     }
 
@@ -1079,10 +1132,13 @@ mod autotest_generated {
         let expected = generic_shaped as *const () as usize;
 
         let c = CheckBox::create(false).with_on_toggle(RefAny::new(0u8), generic);
-        let t = c.check_box_state.on_toggle.as_ref().expect("the generic callback was dropped");
+        let t = c
+            .check_box_state
+            .on_toggle
+            .as_ref()
+            .expect("the generic callback was dropped");
         assert_eq!(
-            t.callback.cb as *const () as usize,
-            expected,
+            t.callback.cb as *const () as usize, expected,
             "the Callback -> CheckBoxOnToggleCallback transmute mangled the pointer",
         );
     }
@@ -1102,10 +1158,17 @@ mod autotest_generated {
                 Some(TabIndex::Auto),
                 "checked={checked}: the checkbox is not keyboard-focusable",
             );
-            assert_eq!(classes(&dom), vec!["__azul-native-checkbox-container".to_string()]);
+            assert_eq!(
+                classes(&dom),
+                vec!["__azul-native-checkbox-container".to_string()]
+            );
 
             let children = dom.children.as_ref();
-            assert_eq!(children.len(), 1, "checked={checked}: the checkbox must have exactly one child");
+            assert_eq!(
+                children.len(),
+                1,
+                "checked={checked}: the checkbox must have exactly one child"
+            );
             assert_eq!(
                 classes(&children[0]),
                 vec!["__azul-native-checkbox-content".to_string()],
@@ -1146,7 +1209,11 @@ mod autotest_generated {
             let dom = CheckBox::create(checked).dom();
             let callbacks = dom.root.callbacks.as_ref();
 
-            assert_eq!(callbacks.len(), 1, "checked={checked}: expected exactly one callback");
+            assert_eq!(
+                callbacks.len(),
+                1,
+                "checked={checked}: expected exactly one callback"
+            );
             assert_eq!(
                 callbacks[0].event,
                 EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -1175,7 +1242,10 @@ mod autotest_generated {
         // a silent no-op.
         for checked in [false, true] {
             let dom = CheckBox::create(checked)
-                .with_on_toggle(RefAny::new(9u32), toggle_do_nothing as CheckBoxOnToggleCallbackType)
+                .with_on_toggle(
+                    RefAny::new(9u32),
+                    toggle_do_nothing as CheckBoxOnToggleCallbackType,
+                )
                 .dom();
 
             let mut state = dom.root.callbacks.as_ref()[0].refany.clone();
@@ -1183,7 +1253,10 @@ mod autotest_generated {
                 .downcast_ref::<CheckBoxStateWrapper>()
                 .expect("the handler's RefAny is not a CheckBoxStateWrapper");
 
-            assert_eq!(wrapper.inner.checked, checked, "the checked flag was lost on the way into the DOM");
+            assert_eq!(
+                wrapper.inner.checked, checked,
+                "the checked flag was lost on the way into the DOM"
+            );
             assert!(
                 wrapper.on_toggle.as_ref().is_some(),
                 "the user's toggle callback was lost on the way into the DOM",
@@ -1199,7 +1272,9 @@ mod autotest_generated {
         assert_eq!(dom.root.callbacks.as_ref().len(), 1);
 
         let mut state = dom.root.callbacks.as_ref()[0].refany.clone();
-        let wrapper = state.downcast_ref::<CheckBoxStateWrapper>().expect("wrong RefAny type");
+        let wrapper = state
+            .downcast_ref::<CheckBoxStateWrapper>()
+            .expect("wrong RefAny type");
         assert!(wrapper.on_toggle.as_ref().is_none());
     }
 
@@ -1211,12 +1286,18 @@ mod autotest_generated {
 
             assert_eq!(classes(&via_from), classes(&via_dom));
             assert_eq!(inline_properties(&via_from), inline_properties(&via_dom));
-            assert_eq!(via_from.children.as_ref().len(), via_dom.children.as_ref().len());
+            assert_eq!(
+                via_from.children.as_ref().len(),
+                via_dom.children.as_ref().len()
+            );
             assert_eq!(
                 via_from.root.callbacks.as_ref().len(),
                 via_dom.root.callbacks.as_ref().len(),
             );
-            assert_eq!(via_from.root.flags.get_tab_index(), via_dom.root.flags.get_tab_index());
+            assert_eq!(
+                via_from.root.flags.get_tab_index(),
+                via_dom.root.flags.get_tab_index()
+            );
         }
     }
 
@@ -1279,7 +1360,10 @@ mod autotest_generated {
         let (_, first) = click(styled, &state, node(CONTAINER));
         let (_, second) = click(styled2, &state, node(CONTAINER));
 
-        assert!(!is_checked(&state), "two clicks did not return the checkbox to its original state");
+        assert!(
+            !is_checked(&state),
+            "two clicks did not return the checkbox to its original state"
+        );
         assert_eq!(pushed_opacities(&first), vec![(NodeId::new(CONTENT), 1.0)]);
         assert_eq!(pushed_opacities(&second), vec![(NodeId::new(CONTENT), 0.0)]);
     }
@@ -1294,11 +1378,16 @@ mod autotest_generated {
         let (update, changes) = click(styled, &foreign, node(CONTAINER));
 
         assert!(matches!(update, Update::DoNothing));
-        assert!(changes.is_empty(), "the handler wrote to the DOM through a foreign RefAny");
+        assert!(
+            changes.is_empty(),
+            "the handler wrote to the DOM through a foreign RefAny"
+        );
 
         let mut foreign = foreign;
         assert_eq!(
-            *foreign.downcast_ref::<u32>().expect("the foreign payload was reinterpreted"),
+            *foreign
+                .downcast_ref::<u32>()
+                .expect("the foreign payload was reinterpreted"),
             0xDEAD_BEEF,
             "the handler corrupted a RefAny it did not understand",
         );
@@ -1315,7 +1404,10 @@ mod autotest_generated {
         let (update, changes) = click(styled, &state, node(CONTENT));
 
         assert!(matches!(update, Update::DoNothing));
-        assert!(changes.is_empty(), "a change was pushed for a node the handler could not find");
+        assert!(
+            changes.is_empty(),
+            "a change was pushed for a node the handler could not find"
+        );
         assert!(
             !is_checked(&state),
             "the checked flag was flipped even though the checkmark could not be updated",
@@ -1333,9 +1425,18 @@ mod autotest_generated {
             let (styled, state) = laid_out(CheckBox::create(true));
             let (update, changes) = click(styled, &state, hit);
 
-            assert!(matches!(update, Update::DoNothing), "{hit:?}: a stale hit was acted on");
-            assert!(changes.is_empty(), "{hit:?}: a stale hit pushed a DOM change");
-            assert!(is_checked(&state), "{hit:?}: a stale hit toggled the checkbox");
+            assert!(
+                matches!(update, Update::DoNothing),
+                "{hit:?}: a stale hit was acted on"
+            );
+            assert!(
+                changes.is_empty(),
+                "{hit:?}: a stale hit pushed a DOM change"
+            );
+            assert!(
+                is_checked(&state),
+                "{hit:?}: a stale hit toggled the checkbox"
+            );
         }
     }
 
@@ -1361,7 +1462,10 @@ mod autotest_generated {
             "the user callback's Update was swallowed instead of forwarded",
         );
         // ... and the opacity sync still happens *after* the user callback returns.
-        assert_eq!(pushed_opacities(&changes), vec![(NodeId::new(CONTENT), 1.0)]);
+        assert_eq!(
+            pushed_opacities(&changes),
+            vec![(NodeId::new(CONTENT), 1.0)]
+        );
     }
 
     #[test]
@@ -1387,10 +1491,10 @@ mod autotest_generated {
     fn a_toggle_callback_that_declines_the_update_still_gets_the_checkmark_synced() {
         // A user callback returning DoNothing must not suppress the widget's own visual
         // bookkeeping — otherwise the flag says "checked" and the mark stays invisible.
-        let (styled, state) = laid_out(
-            CheckBox::create(false)
-                .with_on_toggle(RefAny::new(0u8), toggle_do_nothing as CheckBoxOnToggleCallbackType),
-        );
+        let (styled, state) = laid_out(CheckBox::create(false).with_on_toggle(
+            RefAny::new(0u8),
+            toggle_do_nothing as CheckBoxOnToggleCallbackType,
+        ));
 
         let (update, changes) = click(styled, &state, node(CONTAINER));
 
@@ -1444,9 +1548,16 @@ mod autotest_generated {
                 vec![(NodeId::new(CONTENT), expected)],
                 "click #{i}: the pushed opacity disagrees with the checked flag",
             );
-            assert_eq!(is_checked(&state), state_after, "click #{i}: the flag drifted");
+            assert_eq!(
+                is_checked(&state),
+                state_after,
+                "click #{i}: the flag drifted"
+            );
         }
 
-        assert!(is_checked(&state), "an odd number of clicks left the checkbox unchecked");
+        assert!(
+            is_checked(&state),
+            "an odd number of clicks left the checkbox unchecked"
+        );
     }
 }

@@ -34,8 +34,7 @@ use super::generator::CodeBuilder;
 use super::generator::LanguageGenerator;
 use super::ir::{
     ArgRefKind, CallbackArgInfo, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind,
-    FunctionDef, FunctionKind,
-    StructDef, TypeCategory,
+    FunctionDef, FunctionKind, StructDef, TypeCategory,
 };
 use super::lang_rust::RustGenerator;
 use crate::utils::analyze::analyze_type;
@@ -76,13 +75,12 @@ fn replace_type_paths(body: &str, replacements: &[(String, String)]) -> String {
     while i < bytes.len() {
         let mut matched = false;
         // Only attempt a match at an identifier boundary.
-        let prev_is_ident = i > 0
-            && {
-                let c = bytes[i - 1];
-                // `:` guards against re-qualifying a name already part of a
-                // fully-qualified path (e.g. `azul_core::icon::IconHandle::`).
-                c == b'_' || c == b':' || c.is_ascii_alphanumeric()
-            };
+        let prev_is_ident = i > 0 && {
+            let c = bytes[i - 1];
+            // `:` guards against re-qualifying a name already part of a
+            // fully-qualified path (e.g. `azul_core::icon::IconHandle::`).
+            c == b'_' || c == b':' || c.is_ascii_alphanumeric()
+        };
         if !prev_is_ident {
             for (pat, rep) in replacements {
                 if body[i..].starts_with(pat.as_str()) {
@@ -683,7 +681,6 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
 
         Ok(())
     }
-
 
     fn generate_callback_trampoline(
         &self,
@@ -1498,10 +1495,17 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         let class_is_clone_recv = ir
             .find_struct(&func.class_name)
             .map(|s| self.struct_supports_clone(s))
-            .or_else(|| ir.find_enum(&func.class_name).map(|e| self.enum_supports_clone(e)))
+            .or_else(|| {
+                ir.find_enum(&func.class_name)
+                    .map(|e| self.enum_supports_clone(e))
+            })
             .unwrap_or(true);
         let needs_consume_self = takes_self && self_is_by_value && !class_is_clone_recv;
-        let self_recv = if needs_consume_self { "&mut self" } else { "&self" };
+        let self_recv = if needs_consume_self {
+            "&mut self"
+        } else {
+            "&self"
+        };
 
         // Generate function signature
         if takes_self {
@@ -1587,22 +1591,18 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         let mut ctor_replacements: Vec<(String, String)> = Vec::new();
         for struct_def in &ir.structs {
             if let Some(ref ext_path) = struct_def.external_path {
-                ctor_replacements.push((
-                    format!("{}::", struct_def.name),
-                    format!("{}::", ext_path),
-                ));
+                ctor_replacements
+                    .push((format!("{}::", struct_def.name), format!("{}::", ext_path)));
             }
         }
         for enum_def in &ir.enums {
             if let Some(ref ext_path) = enum_def.external_path {
-                ctor_replacements
-                    .push((format!("{}::", enum_def.name), format!("{}::", ext_path)));
+                ctor_replacements.push((format!("{}::", enum_def.name), format!("{}::", ext_path)));
             }
         }
         // Longest pattern first so `DomIdVec::` wins over `Dom::`.
         ctor_replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
-        transformed_body =
-            replace_type_paths(&transformed_body, &ctor_replacements);
+        transformed_body = replace_type_paths(&transformed_body, &ctor_replacements);
 
         // Convert self to external type if needed.
         // Use `to_snake_case` so compound class names (e.g. `DomVec`)
@@ -1682,8 +1682,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 .replace("self.", "__cloned.")
                 .replace("object.", "__cloned.");
             for sv in &self_vars {
-                transformed_body =
-                    transformed_body.replace(&format!("{}.", sv), "__cloned.");
+                transformed_body = transformed_body.replace(&format!("{}.", sv), "__cloned.");
             }
 
             // Then replace standalone variable references (as function arguments)
@@ -1769,8 +1768,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 // field names. The function-pointer field is usually "cb" but may be
                 // named differently (e.g. "resolver"); the foreign-callable storage
                 // field is the OptionRefAny field, named "ctx" or "callable".
-                let wrapper_struct =
-                    ir.structs.iter().find(|s| s.name == cb_info.callback_wrapper_name);
+                let wrapper_struct = ir
+                    .structs
+                    .iter()
+                    .find(|s| s.name == cb_info.callback_wrapper_name);
                 let (fn_ptr_field, callable_field) = match wrapper_struct {
                     Some(sd) => {
                         let callable = sd
@@ -1799,7 +1800,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     "__dll_api_inner::dll::{}{}",
                     prefix, cb_info.callback_wrapper_name
                 );
-                builder.line(&format!("let __{}_ffi: {} = {} {{", arg.name, wrapper_ffi, wrapper_ffi));
+                builder.line(&format!(
+                    "let __{}_ffi: {} = {} {{",
+                    arg.name, wrapper_ffi, wrapper_ffi
+                ));
                 builder.line(&format!(
                     "    {}: core::mem::transmute({} as usize),",
                     fn_ptr_field, cb_info.trampoline_name
@@ -2099,19 +2103,19 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         // because they wrap references (&) or Box<> which are Send
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
             "CssPropertyCachePtr",          // wraps Box<CssPropertyCache>
-            "VirtualViewCallbackInfo",           // wraps &VirtualViewCallbackInfoInternal
+            "VirtualViewCallbackInfo",      // wraps &VirtualViewCallbackInfoInternal
             "VirtualViewReturn", // contains OptionDom which may have callbacks with raw pointers
-            "StyledDom",            // contains CssPropertyCachePtr
-            "LayoutCallbackInfo",   // wraps & to internal data
-            "CallbackInfo",         // wraps & to internal data
+            "StyledDom",         // contains CssPropertyCachePtr
+            "LayoutCallbackInfo", // wraps & to internal data
+            "CallbackInfo",      // wraps & to internal data
             "RenderImageCallbackInfo", // wraps & to internal data
-            "RefCount",             // refcounted pointer, semantically Send
-            "OptionRefAny",         // Option<RefAny>
-            "GlVoidPtrMut",         // GL pointer wrapper
-            "ParsedSvg",            // SVG data structure
+            "RefCount",          // refcounted pointer, semantically Send
+            "OptionRefAny",      // Option<RefAny>
+            "GlVoidPtrMut",      // GL pointer wrapper
+            "ParsedSvg",         // SVG data structure
             "ResultParsedSvgSvgParseError", // Result type containing ParsedSvg
-            "GridMinMax",           // CSS grid layout type
-            "GridTrackSizing",      // CSS grid layout type
+            "GridMinMax",        // CSS grid layout type
+            "GridTrackSizing",   // CSS grid layout type
             // Window/Thread types - Send but not Sync
             "RawWindowHandle",
             "OptionThread",
@@ -2513,7 +2517,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
     /// so the consuming method must be skipped.
     fn callback_arg_is_bridgeable(&self, cb_info: &CallbackArgInfo, ir: &CodegenIR) -> bool {
         // (2) wrapper struct must exist and have an OptionRefAny callable slot.
-        let wrapper = match ir.structs.iter().find(|s| s.name == cb_info.callback_wrapper_name) {
+        let wrapper = match ir
+            .structs
+            .iter()
+            .find(|s| s.name == cb_info.callback_wrapper_name)
+        {
             Some(s) => s,
             None => return false,
         };
@@ -2524,9 +2532,10 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         // (1) a trampoline must be generated for the callback typedef. The
         // typedef name is the wrapper name + "Type" by convention; verify it
         // satisfies the same gating used in `generate_callback_trampolines`.
-        let typedef = ir.callback_typedefs.iter().find(|c| {
-            c.name == format!("{}Type", cb_info.callback_wrapper_name)
-        });
+        let typedef = ir
+            .callback_typedefs
+            .iter()
+            .find(|c| c.name == format!("{}Type", cb_info.callback_wrapper_name));
         let typedef = match typedef {
             Some(t) => t,
             None => return false,

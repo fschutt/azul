@@ -11,7 +11,6 @@
 //!    made slow strokes blotchy and fast ones translucent, so coverage is
 //!    computed as a MAX over the field rather than a sum.
 
-
 use crate::model::{InkPoint, Semantic, Stroke};
 
 /// Base half-width of a pen dab at full pressure, in logical px.
@@ -183,7 +182,11 @@ pub fn point_from(x: f32, y: f32, pressure: f32, tilt_x: f32, tilt_y: f32) -> In
     InkPoint {
         x,
         y,
-        pressure: if pressure <= 0.0 { 0.55 } else { pressure.clamp(0.05, 1.0) },
+        pressure: if pressure <= 0.0 {
+            0.55
+        } else {
+            pressure.clamp(0.05, 1.0)
+        },
         tilt_x,
         tilt_y,
     }

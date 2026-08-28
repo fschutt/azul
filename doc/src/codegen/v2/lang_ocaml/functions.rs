@@ -40,9 +40,12 @@ pub fn emit_foreign_bindings(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("(* -------------------------------------------------------------------------- *)");
-    builder.line("(* Raw FFI value bindings (`foreign \"<symbol>\" (...)`).                       *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* Raw FFI value bindings (`foreign \"<symbol>\" (...)`).                       *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
     for func in &ir.functions {
@@ -105,10 +108,9 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         for a in &func.args {
             let view = match a.ref_kind {
                 ArgRefKind::Owned => map_type_to_ocaml(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => inner_pointer_form(a.type_name.trim(), ir),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    inner_pointer_form(a.type_name.trim(), ir)
+                }
             };
             // Sanitize the (otherwise unused) argument name for the
             // accompanying comment so reader can still see what's

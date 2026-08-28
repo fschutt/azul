@@ -15,16 +15,16 @@
 //! Undo/redo just move strokes between `strokes` and `undone` and bump `rev`;
 //! the texture is recreated from the strokes on the next frame.
 
-use azul::prelude::*;
 use azul::callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo};
-use azul::dom::{DatasetMergeCallback, RenderImageCallback};
-use azul::gl::{GlContextPtr, Texture};
-use azul::image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat};
-use azul::vec::{F32VecRef, StringVec, U8VecRef};
 use azul::css::PhysicalSizeU32;
 use azul::dialog::FileDialog;
+use azul::dom::{DatasetMergeCallback, RenderImageCallback};
 use azul::error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError};
+use azul::gl::{GlContextPtr, Texture};
+use azul::image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat};
 use azul::option::OptionFileTypeList;
+use azul::prelude::*;
+use azul::vec::{F32VecRef, StringVec, U8VecRef};
 
 // ───────── Model (the source of truth) ────────────────────────────────
 
@@ -90,7 +90,12 @@ fn metaball_kernel(q: f32) -> f32 {
 }
 /// Canvas background — also the eraser color.
 fn canvas_bg() -> ColorU {
-    ColorU { r: 250, g: 250, b: 246, a: 255 }
+    ColorU {
+        r: 250,
+        g: 250,
+        b: 246,
+        a: 255,
+    }
 }
 
 struct PaintState {
@@ -123,7 +128,12 @@ impl PaintState {
             strokes: Vec::new(),
             undone: Vec::new(),
             current: None,
-            color: ColorU { r: 30, g: 30, b: 40, a: 255 },
+            color: ColorU {
+                r: 30,
+                g: 30,
+                b: 40,
+                a: 255,
+            },
             metaball_mode: true,
             background: None,
             export_path: None,
@@ -155,7 +165,11 @@ impl PaintState {
             }
         }
         self.undone.clear(); // a new stroke invalidates the redo stack
-        self.current = Some(Stroke { points: vec![p], color: self.color, is_eraser });
+        self.current = Some(Stroke {
+            points: vec![p],
+            color: self.color,
+            is_eraser,
+        });
         self.rev += 1;
     }
 
@@ -231,7 +245,11 @@ fn brush_for(color: ColorU, pressure: f32) -> Brush {
 
 /// Rasterize a stroke into a target via a `paint_stroke` closure between
 /// consecutive points (shared by the GPU + CPU paths).
-fn rasterize_stroke<F: FnMut(f32, f32, f32, f32, Brush)>(stroke: &Stroke, bg: ColorU, mut paint: F) {
+fn rasterize_stroke<F: FnMut(f32, f32, f32, f32, Brush)>(
+    stroke: &Stroke,
+    bg: ColorU,
+    mut paint: F,
+) {
     let color = if stroke.is_eraser { bg } else { stroke.color };
     if stroke.points.len() == 1 {
         let p = stroke.points[0];
@@ -240,7 +258,13 @@ fn rasterize_stroke<F: FnMut(f32, f32, f32, f32, Brush)>(stroke: &Stroke, bg: Co
     }
     for seg in stroke.points.windows(2) {
         let (a, c) = (seg[0], seg[1]);
-        paint(a.x, a.y, c.x, c.y, brush_for(color, (a.pressure + c.pressure) * 0.5));
+        paint(
+            a.x,
+            a.y,
+            c.x,
+            c.y,
+            brush_for(color, (a.pressure + c.pressure) * 0.5),
+        );
     }
 }
 
@@ -256,7 +280,10 @@ fn composite_base(buf: &mut [u8], w: u32, h: u32, bg: ColorU, background: Option
     if let Some(img) = background {
         if let RawImageData::U8(ref src) = img.pixels {
             let bgr = matches!(img.data_format, RawImageFormat::BGRA8);
-            let ok = matches!(img.data_format, RawImageFormat::RGBA8 | RawImageFormat::BGRA8);
+            let ok = matches!(
+                img.data_format,
+                RawImageFormat::RGBA8 | RawImageFormat::BGRA8
+            );
             if ok && img.width > 0 && img.height > 0 {
                 let src = src.as_ref();
                 let (sw, sh) = (img.width, img.height);
@@ -292,7 +319,13 @@ fn composite_base(buf: &mut [u8], w: u32, h: u32, bg: ColorU, background: Option
 }
 
 /// CPU brush rasterization into a fresh RGBA8 image over the base layer.
-fn render_brush_cpu(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: Option<&RawImage>) -> RawImage {
+fn render_brush_cpu(
+    strokes: &[Stroke],
+    w: u32,
+    h: u32,
+    bg: ColorU,
+    background: Option<&RawImage>,
+) -> RawImage {
     let mut img = RawImage {
         pixels: RawImageData::U8(vec![0u8; (w as usize) * (h as usize) * 4].into()),
         width: w as usize,
@@ -305,7 +338,9 @@ fn render_brush_cpu(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: 
         composite_base(v.as_mut(), w, h, bg, background);
     }
     for s in strokes {
-        rasterize_stroke(s, bg, |x0, y0, x1, y1, b| img.paint_stroke(x0, y0, x1, y1, b));
+        rasterize_stroke(s, bg, |x0, y0, x1, y1, b| {
+            img.paint_stroke(x0, y0, x1, y1, b)
+        });
     }
     img
 }
@@ -371,7 +406,9 @@ fn strokes_to_svg(strokes: &[Stroke], metaball_mode: bool) -> String {
             for p in &s.points {
                 let pr = p.pressure.clamp(0.0, 1.0);
                 let r = BASE_RADIUS * (0.4 + 0.6 * pr);
-                let tilt = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt().clamp(0.0, 1.0);
+                let tilt = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y)
+                    .sqrt()
+                    .clamp(0.0, 1.0);
                 let (rx, ry) = (r * (1.0 + tilt), (r * (1.0 - 0.5 * tilt)).max(0.2));
                 let angle_deg = (p.tilt_y.atan2(p.tilt_x) + p.barrel_roll_rad).to_degrees();
                 let _ = write!(
@@ -415,7 +452,13 @@ fn strokes_to_svg(strokes: &[Stroke], metaball_mode: bool) -> String {
 /// bridges and merge organically -- the thing alpha-over dabs can't do. Color
 /// is field-weighted so overlapping blobs blend. O(Σ per-ball bbox), not
 /// O(pixels·balls).
-fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: Option<&RawImage>) -> RawImage {
+fn render_metaballs(
+    strokes: &[Stroke],
+    w: u32,
+    h: u32,
+    bg: ColorU,
+    background: Option<&RawImage>,
+) -> RawImage {
     let (wu, hu) = (w as usize, h as usize);
     let n = wu.saturating_mul(hu).max(1);
     let mut field = vec![0.0f32; n];
@@ -472,9 +515,18 @@ fn render_metaballs(strokes: &[Stroke], w: u32, h: u32, bg: ColorU, background: 
         }
         let (r, g, b) = (acc[i][0] / f, acc[i][1] / f, acc[i][2] / f);
         let o = i * 4;
-        buf[o] = (buf[o] as f32 * (1.0 - a) + r * a).round().max(0.0).min(255.0) as u8;
-        buf[o + 1] = (buf[o + 1] as f32 * (1.0 - a) + g * a).round().max(0.0).min(255.0) as u8;
-        buf[o + 2] = (buf[o + 2] as f32 * (1.0 - a) + b * a).round().max(0.0).min(255.0) as u8;
+        buf[o] = (buf[o] as f32 * (1.0 - a) + r * a)
+            .round()
+            .max(0.0)
+            .min(255.0) as u8;
+        buf[o + 1] = (buf[o + 1] as f32 * (1.0 - a) + g * a)
+            .round()
+            .max(0.0)
+            .min(255.0) as u8;
+        buf[o + 2] = (buf[o + 2] as f32 * (1.0 - a) + b * a)
+            .round()
+            .max(0.0)
+            .min(255.0) as u8;
         buf[o + 3] = 255;
     }
     RawImage {
@@ -602,7 +654,11 @@ fn render_metaballs_gpu(
     let mut balls2: Vec<f32> = Vec::new();
     for s in strokes {
         let col = if s.is_eraser { bg } else { s.color };
-        let (cr, cg, cb) = (col.r as f32 / 255.0, col.g as f32 / 255.0, col.b as f32 / 255.0);
+        let (cr, cg, cb) = (
+            col.r as f32 / 255.0,
+            col.g as f32 / 255.0,
+            col.b as f32 / 255.0,
+        );
         for p in &s.points {
             let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
             let tilt = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
@@ -625,7 +681,13 @@ fn render_metaballs_gpu(
         return;
     }
     gl.bind_framebuffer(GL_FRAMEBUFFER, fbo);
-    gl.framebuffer_texture_2d(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture_id, 0);
+    gl.framebuffer_texture_2d(
+        GL_FRAMEBUFFER,
+        GL_COLOR_ATTACHMENT0,
+        GL_TEXTURE_2D,
+        texture_id,
+        0,
+    );
     gl.viewport(0, 0, tw as i32, th as i32);
     gl.use_program(mgpu.program);
     gl.uniform_2fv(mgpu.u_res, F32VecRef::from(&[tw as f32, th as f32][..]));
@@ -636,7 +698,13 @@ fn render_metaballs_gpu(
     }
     gl.uniform_3fv(
         mgpu.u_bg,
-        F32VecRef::from(&[bg.r as f32 / 255.0, bg.g as f32 / 255.0, bg.b as f32 / 255.0][..]),
+        F32VecRef::from(
+            &[
+                bg.r as f32 / 255.0,
+                bg.g as f32 / 255.0,
+                bg.b as f32 / 255.0,
+            ][..],
+        ),
     );
     gl.draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
     gl.bind_framebuffer(GL_FRAMEBUFFER, 0u32);
@@ -670,7 +738,12 @@ extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo)
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!("[paint] render_canvas logical size = {}x{}", w, h);
     }
-    let placeholder = ImageRef::null_image(w as usize, h as usize, RawImageFormat::RGBA8, U8VecRef::from(&[][..]));
+    let placeholder = ImageRef::null_image(
+        w as usize,
+        h as usize,
+        RawImageFormat::RGBA8,
+        U8VecRef::from(&[][..]),
+    );
     render_canvas_inner(&mut data, &mut info, w, h).unwrap_or(placeholder)
 }
 
@@ -714,9 +787,8 @@ fn render_canvas_inner(
     }
     // GPU for the brush whenever usable + no imported background; for metaballs
     // only if the shader compiled (else fall through to the CPU metaball path).
-    let use_gpu = background.is_none()
-        && gl_usable
-        && (!metaball_mode || cache.metaball_gpu.is_some());
+    let use_gpu =
+        background.is_none() && gl_usable && (!metaball_mode || cache.metaball_gpu.is_some());
 
     if use_gpu {
         let gl = gl.unwrap();
@@ -725,7 +797,14 @@ fn render_canvas_inner(
             None => true,
         };
         if need_alloc {
-            let tex = Texture::allocate_rgba8(gl.clone(), PhysicalSizeU32 { width: w, height: h }, bg);
+            let tex = Texture::allocate_rgba8(
+                gl.clone(),
+                PhysicalSizeU32 {
+                    width: w,
+                    height: h,
+                },
+                bg,
+            );
             cache.texture = Some(tex);
             cache.rendered_rev = 0; // force a full re-rasterize
         }
@@ -739,7 +818,9 @@ fn render_canvas_inner(
             } else if let Some(tex) = cache.texture.as_mut() {
                 tex.clear();
                 for s in &strokes {
-                    rasterize_stroke(s, bg, |x0, y0, x1, y1, b| tex.paint_stroke(x0, y0, x1, y1, b));
+                    rasterize_stroke(s, bg, |x0, y0, x1, y1, b| {
+                        tex.paint_stroke(x0, y0, x1, y1, b)
+                    });
                 }
             }
             cache.rendered_rev = rev;
@@ -751,7 +832,10 @@ fn render_canvas_inner(
             }
             clear_export(cache);
         }
-        return cache.texture.as_ref().map(|t| ImageRef::gl_texture(t.clone()));
+        return cache
+            .texture
+            .as_ref()
+            .map(|t| ImageRef::gl_texture(t.clone()));
     }
 
     // CPU path: metaballs, or the brush with an imported background / no GL.
@@ -764,7 +848,13 @@ fn render_canvas_inner(
         let s = img.get_size();
         (s.width as u32, s.height as u32)
     });
-    if cpu_canvas_needs_raster(cache.rendered_rev, rev, cached, (w, h), export_path.is_some()) {
+    if cpu_canvas_needs_raster(
+        cache.rendered_rev,
+        rev,
+        cached,
+        (w, h),
+        export_path.is_some(),
+    ) {
         let img = if metaball_mode {
             render_metaballs(&strokes, w, h, bg, bg_ref)
         } else {
@@ -856,7 +946,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let header = Dom::create_div()
         .with_css(HEADER)
         .with_child(Dom::create_p_with_text(
-            format!("AzPaint  ·  {} strokes  ·  Effect: {}", n_strokes, mode_label).as_str(),
+            format!(
+                "AzPaint  ·  {} strokes  ·  Effect: {}",
+                n_strokes, mode_label
+            )
+            .as_str(),
         ));
 
     // The canvas: a single image driven by render_canvas. Its dataset is a
@@ -876,13 +970,39 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     ))
     .with_css(CANVAS)
     .with_dataset(OptionRefAny::Some(cache))
-    .with_merge_callback(DatasetMergeCallback::from(merge_cache as DatasetMergeCallbackType))
-    .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), data.clone(), on_pointer_down)
-    .with_callback(EventFilter::Hover(HoverEventFilter::MouseOver), data.clone(), on_pointer_move)
-    .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), on_pointer_up)
-    .with_callback(EventFilter::Hover(HoverEventFilter::TouchStart), data.clone(), on_pointer_down)
-    .with_callback(EventFilter::Hover(HoverEventFilter::TouchMove), data.clone(), on_pointer_move)
-    .with_callback(EventFilter::Hover(HoverEventFilter::TouchEnd), data.clone(), on_pointer_up);
+    .with_merge_callback(DatasetMergeCallback::from(
+        merge_cache as DatasetMergeCallbackType,
+    ))
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseDown),
+        data.clone(),
+        on_pointer_down,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseOver),
+        data.clone(),
+        on_pointer_move,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseUp),
+        data.clone(),
+        on_pointer_up,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::TouchStart),
+        data.clone(),
+        on_pointer_down,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::TouchMove),
+        data.clone(),
+        on_pointer_move,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::TouchEnd),
+        data.clone(),
+        on_pointer_up,
+    );
 
     // Window menu bar. On Windows this resolves to a native HMENU, on macOS to the
     // app menu, and on Linux to the GNOME/DBus global menu (X11) or the CPU-rendered
@@ -901,9 +1021,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     // item on the key-down — one definition, every platform.
     let action_with_accel = |label: &str, cb: CallbackType, keys: &[azul::dom::VirtualKeyCode]| {
         let mut item = StringMenuItem::create(label).with_callback(data.clone(), cb);
-        item.accelerator = azul::option::OptionVirtualKeyCodeCombo::Some(
-            azul::dom::VirtualKeyCodeCombo { keys: keys.to_vec().into() },
-        );
+        item.accelerator =
+            azul::option::OptionVirtualKeyCodeCombo::Some(azul::dom::VirtualKeyCodeCombo {
+                keys: keys.to_vec().into(),
+            });
         MenuItem::string(item)
     };
     use azul::dom::VirtualKeyCode as K;
@@ -918,9 +1039,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             action("Redo", on_redo),
             action("Clear", on_clear),
         ])),
-        MenuItem::string(StringMenuItem::create("View").with_children(vec![
-            action("Toggle effect (Brush / Metaballs)", on_toggle_mode),
-        ])),
+        MenuItem::string(StringMenuItem::create("View").with_children(vec![action(
+            "Toggle effect (Brush / Metaballs)",
+            on_toggle_mode,
+        )])),
     ]);
 
     // Right-click context menu on the canvas: switch the paint effect. This is the
@@ -1081,7 +1203,8 @@ extern "C" fn on_set_brush(mut data: RefAny, _info: CallbackInfo) -> Update {
 // Import: pick an image file, decode it (PNG/JPEG/...) and set it as the canvas
 // background that strokes/metaballs paint over.
 extern "C" fn on_import(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let picked = FileDialog::open_file("Import image", OptionString::None, OptionFileTypeList::None);
+    let picked =
+        FileDialog::open_file("Import image", OptionString::None, OptionFileTypeList::None);
     let path = match picked.into_option() {
         Some(p) => p,
         None => return Update::DoNothing,
@@ -1159,12 +1282,21 @@ mod tests {
     use super::*;
 
     fn pt(x: f32, y: f32, pressure: f32) -> StrokePoint {
-        StrokePoint { x, y, pressure, tilt_x: 0.0, tilt_y: 0.0, barrel_roll_rad: 0.0 }
+        StrokePoint {
+            x,
+            y,
+            pressure,
+            tilt_x: 0.0,
+            tilt_y: 0.0,
+            barrel_roll_rad: 0.0,
+        }
     }
 
     /// Alpha (0..=255) of every pixel in row `y` of a rendered canvas.
     fn row_coverage(img: &RawImage, y: usize, bg: ColorU) -> Vec<u8> {
-        let RawImageData::U8(ref px) = img.pixels else { panic!("U8 raster") };
+        let RawImageData::U8(ref px) = img.pixels else {
+            panic!("U8 raster")
+        };
         let px = px.as_ref();
         (0..img.width)
             .map(|x| {
@@ -1189,7 +1321,12 @@ mod tests {
     fn black_dab(x: f32, y: f32) -> Stroke {
         Stroke {
             points: vec![pt(x, y, 0.5)],
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             is_eraser: false,
         }
     }
@@ -1202,10 +1339,21 @@ mod tests {
         // on the row through the centres. A continuous field has exactly one
         // rising edge per blob on every row, and a neighbour 30 px away must
         // not change a dab's visible radius at all.
-        let bg = ColorU { r: 250, g: 250, b: 246, a: 255 };
+        let bg = ColorU {
+            r: 250,
+            g: 250,
+            b: 246,
+            a: 255,
+        };
         let (w, h) = (100u32, 60u32);
         let alone = render_metaballs(&[black_dab(30.0, 30.0)], w, h, bg, None);
-        let pair = render_metaballs(&[black_dab(30.0, 30.0), black_dab(60.0, 30.0)], w, h, bg, None);
+        let pair = render_metaballs(
+            &[black_dab(30.0, 30.0), black_dab(60.0, 30.0)],
+            w,
+            h,
+            bg,
+            None,
+        );
 
         let alone_row = row_coverage(&alone, 30, bg);
         let pair_row = row_coverage(&pair, 30, bg);
@@ -1226,22 +1374,47 @@ mod tests {
         // The dab's left rim (x < 30) is the same with and without the
         // neighbour: a neighbour's field must be ZERO there.
         let left = |row: &[u8]| (0..30).map(|x| row[x]).collect::<Vec<_>>();
-        assert_eq!(left(&alone_row), left(&pair_row), "a neighbour 30 px away changed a dab's rim");
+        assert_eq!(
+            left(&alone_row),
+            left(&pair_row),
+            "a neighbour 30 px away changed a dab's rim"
+        );
 
         // Visible radius ≈ 0.9 r = 0.9 · BASE_RADIUS · (0.6 + 0.5 · 2) = 8.6 px.
         let first_inside = alone_row.iter().position(|c| *c >= 128).expect("blob");
         let radius = 30.0 - first_inside as f32;
-        assert!((7.5..=9.5).contains(&radius), "visible radius drifted: {radius}");
+        assert!(
+            (7.5..=9.5).contains(&radius),
+            "visible radius drifted: {radius}"
+        );
     }
 
     #[test]
     fn the_cpu_canvas_re_rasterises_when_its_box_changes() {
         // REPORTED: "canvas doesn't auto-resize" — same strokes, new box.
-        assert!(cpu_canvas_needs_raster(3, 3, Some((400, 300)), (500, 300), false));
-        assert!(cpu_canvas_needs_raster(3, 3, None, (500, 300), false), "no bitmap yet");
-        assert!(cpu_canvas_needs_raster(2, 3, Some((500, 300)), (500, 300), false), "strokes changed");
-        assert!(cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), true), "export pending");
-        assert!(!cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), false), "nothing changed");
+        assert!(cpu_canvas_needs_raster(
+            3,
+            3,
+            Some((400, 300)),
+            (500, 300),
+            false
+        ));
+        assert!(
+            cpu_canvas_needs_raster(3, 3, None, (500, 300), false),
+            "no bitmap yet"
+        );
+        assert!(
+            cpu_canvas_needs_raster(2, 3, Some((500, 300)), (500, 300), false),
+            "strokes changed"
+        );
+        assert!(
+            cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), true),
+            "export pending"
+        );
+        assert!(
+            !cpu_canvas_needs_raster(3, 3, Some((500, 300)), (500, 300), false),
+            "nothing changed"
+        );
     }
 
     #[test]
@@ -1250,11 +1423,24 @@ mod tests {
         // support radius and AA band as the CPU constants, or
         // AZ_BACKEND=gpu paints a different picture.
         let support_sq = format!("1.0 - q / {:.1}", METABALL_SUPPORT * METABALL_SUPPORT);
-        assert!(METABALL_FS_BODY.contains(&support_sq), "shader support radius: {support_sq}");
-        let band = format!("(field - {:.2}) / {:.2}", METABALL_ISO - METABALL_AA, 2.0 * METABALL_AA);
+        assert!(
+            METABALL_FS_BODY.contains(&support_sq),
+            "shader support radius: {support_sq}"
+        );
+        let band = format!(
+            "(field - {:.2}) / {:.2}",
+            METABALL_ISO - METABALL_AA,
+            2.0 * METABALL_AA
+        );
         assert!(METABALL_FS_BODY.contains(&band), "shader AA band: {band}");
-        assert!(METABALL_FS_BODY.contains("t * t * t"), "shader must use the cubic Wyvill kernel");
-        assert!(!METABALL_FS_BODY.contains("1.0 / (q + 0.18)"), "the infinite-support kernel is gone");
+        assert!(
+            METABALL_FS_BODY.contains("t * t * t"),
+            "shader must use the cubic Wyvill kernel"
+        );
+        assert!(
+            !METABALL_FS_BODY.contains("1.0 / (q + 0.18)"),
+            "the infinite-support kernel is gone"
+        );
     }
 
     #[test]
@@ -1280,14 +1466,25 @@ mod tests {
     fn svg_export_brush_strokes_as_lines() {
         let strokes = vec![Stroke {
             points: vec![pt(10.0, 20.0, 0.5), pt(40.0, 60.0, 1.0)],
-            color: ColorU { r: 200, g: 30, b: 40, a: 255 },
+            color: ColorU {
+                r: 200,
+                g: 30,
+                b: 40,
+                a: 255,
+            },
             is_eraser: false,
         }];
         let svg = strokes_to_svg(&strokes, false);
         assert!(svg.starts_with("<svg"), "{svg}");
         assert!(svg.ends_with("</svg>"), "{svg}");
-        assert!(svg.contains("<line"), "brush stroke must serialize as line segments: {svg}");
-        assert!(svg.contains("rgb(200,30,40)"), "stroke colour must survive: {svg}");
+        assert!(
+            svg.contains("<line"),
+            "brush stroke must serialize as line segments: {svg}"
+        );
+        assert!(
+            svg.contains("rgb(200,30,40)"),
+            "stroke colour must survive: {svg}"
+        );
         assert!(svg.contains("stroke-linecap=\"round\""), "{svg}");
         // viewBox must cover the points (plus radius padding).
         assert!(svg.contains("viewBox=\""), "{svg}");
@@ -1297,17 +1494,28 @@ mod tests {
     fn svg_export_metaball_strokes_as_ellipses_and_eraser_uses_bg() {
         let strokes = vec![Stroke {
             points: vec![pt(5.0, 5.0, 0.8)],
-            color: ColorU { r: 1, g: 2, b: 3, a: 255 },
+            color: ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 255,
+            },
             is_eraser: true,
         }];
         let svg = strokes_to_svg(&strokes, true);
         let bg = canvas_bg();
-        assert!(svg.contains("<ellipse"), "metaball stroke must serialize as ellipses: {svg}");
+        assert!(
+            svg.contains("<ellipse"),
+            "metaball stroke must serialize as ellipses: {svg}"
+        );
         assert!(
             svg.contains(&format!("rgb({},{},{})", bg.r, bg.g, bg.b)),
             "eraser must use the canvas background colour: {svg}"
         );
-        assert!(!svg.contains("rgb(1,2,3)"), "eraser must NOT use the stroke colour: {svg}");
+        assert!(
+            !svg.contains("rgb(1,2,3)"),
+            "eraser must NOT use the stroke colour: {svg}"
+        );
     }
 
     #[test]

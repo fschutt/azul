@@ -23,7 +23,10 @@ struct CpalMic {
 fn err_cb(e: cpal::StreamError) {
     // The entire async stream-error channel used to be a no-op — a device
     // unplug mid-capture just froze the samples with no line anywhere.
-    crate::plog_warn!("[audio] cpal input stream error: {} — capture may have stopped", e);
+    crate::plog_warn!(
+        "[audio] cpal input stream error: {} — capture may have stopped",
+        e
+    );
 }
 
 /// Open the default input device (cpal uses its default config; `rate`/`channels`

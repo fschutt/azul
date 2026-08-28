@@ -130,7 +130,8 @@ pub enum Script {
 // Stop character is a character that does not give any value for script
 // or language detection.
 #[inline]
-#[must_use] pub const fn is_stop_char(ch: char) -> bool {
+#[must_use]
+pub const fn is_stop_char(ch: char) -> bool {
     matches!(ch, '\u{0000}'..='\u{0040}' | '\u{005B}'..='\u{0060}' | '\u{007B}'..='\u{007E}')
 }
 
@@ -219,7 +220,8 @@ pub fn detect_script(text: &str) -> Option<Script> {
     }
 }
 
-#[must_use] pub fn detect_char_script(ch: char) -> Option<Script> {
+#[must_use]
+pub fn detect_char_script(ch: char) -> Option<Script> {
     for &(script, check_fn) in &SCRIPT_CHECKERS {
         if check_fn(ch) {
             return Some(script);
@@ -352,8 +354,10 @@ fn detect_latin_language(text: &str) -> Language {
     Language::EnglishUS
 }
 
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-#[must_use] pub fn script_to_language(script: Script, text: &str) -> Language {
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use]
+pub fn script_to_language(script: Script, text: &str) -> Language {
     match script {
         Script::Ethiopic => Language::Ethiopic,
         Script::Georgian => Language::Georgian,
@@ -386,7 +390,8 @@ fn detect_latin_language(text: &str) -> Language {
     }
 }
 
-#[must_use] pub const fn is_cyrillic(ch: char) -> bool {
+#[must_use]
+pub const fn is_cyrillic(ch: char) -> bool {
     matches!(ch,
         '\u{0400}'..='\u{0484}'
         | '\u{0487}'..='\u{052F}'
@@ -399,7 +404,8 @@ fn detect_latin_language(text: &str) -> Language {
 }
 
 // https://en.wikipedia.org/wiki/Latin_script_in_Unicode
-#[must_use] pub const fn is_latin(ch: char) -> bool {
+#[must_use]
+pub const fn is_latin(ch: char) -> bool {
     matches!(ch,
         'a'..='z'
         | 'A'..='Z'
@@ -418,7 +424,8 @@ fn detect_latin_language(text: &str) -> Language {
 }
 
 // Based on https://en.wikipedia.org/wiki/Arabic_script_in_Unicode
-#[must_use] pub const fn is_arabic(ch: char) -> bool {
+#[must_use]
+pub const fn is_arabic(ch: char) -> bool {
     matches!(ch,
         '\u{0600}'..='\u{06FF}'
         | '\u{0750}'..='\u{07FF}'
@@ -431,25 +438,30 @@ fn detect_latin_language(text: &str) -> Language {
 }
 
 // Based on https://en.wikipedia.org/wiki/Devanagari#Unicode
-#[must_use] pub const fn is_devanagari(ch: char) -> bool {
+#[must_use]
+pub const fn is_devanagari(ch: char) -> bool {
     matches!(ch, '\u{0900}'..='\u{097F}' | '\u{A8E0}'..='\u{A8FF}' | '\u{1CD0}'..='\u{1CFF}')
 }
 
 // Based on https://www.key-shortcut.com/en/writing-systems/ethiopian-script/
-#[must_use] pub const fn is_ethiopic(ch: char) -> bool {
+#[must_use]
+pub const fn is_ethiopic(ch: char) -> bool {
     matches!(ch, '\u{1200}'..='\u{139F}' | '\u{2D80}'..='\u{2DDF}' | '\u{AB00}'..='\u{AB2F}')
 }
 
 // Based on https://en.wikipedia.org/wiki/Hebrew_(Unicode_block)
-#[must_use] pub const fn is_hebrew(ch: char) -> bool {
+#[must_use]
+pub const fn is_hebrew(ch: char) -> bool {
     matches!(ch, '\u{0590}'..='\u{05FF}')
 }
 
-#[must_use] pub const fn is_georgian(ch: char) -> bool {
+#[must_use]
+pub const fn is_georgian(ch: char) -> bool {
     matches!(ch, '\u{10A0}'..='\u{10FF}')
 }
 
-#[must_use] pub const fn is_mandarin(ch: char) -> bool {
+#[must_use]
+pub const fn is_mandarin(ch: char) -> bool {
     matches!(ch,
         '\u{2E80}'..='\u{2E99}'
         | '\u{2E9B}'..='\u{2EF3}'
@@ -465,15 +477,18 @@ fn detect_latin_language(text: &str) -> Language {
     )
 }
 
-#[must_use] pub const fn is_bengali(ch: char) -> bool {
+#[must_use]
+pub const fn is_bengali(ch: char) -> bool {
     matches!(ch, '\u{0980}'..='\u{09FF}')
 }
 
-#[must_use] pub const fn is_hiragana(ch: char) -> bool {
+#[must_use]
+pub const fn is_hiragana(ch: char) -> bool {
     matches!(ch, '\u{3040}'..='\u{309F}')
 }
 
-#[must_use] pub const fn is_katakana(ch: char) -> bool {
+#[must_use]
+pub const fn is_katakana(ch: char) -> bool {
     matches!(ch,
         '\u{30A0}'..='\u{30FF}'
         // Halfwidth Katakana (part of the Halfwidth and Fullwidth Forms block).
@@ -483,7 +498,8 @@ fn detect_latin_language(text: &str) -> Language {
 }
 
 // Hangul is Korean Alphabet. Unicode ranges are taken from: https://en.wikipedia.org/wiki/Hangul
-#[must_use] pub const fn is_hangul(ch: char) -> bool {
+#[must_use]
+pub const fn is_hangul(ch: char) -> bool {
     matches!(ch,
         '\u{AC00}'..='\u{D7AF}'
         | '\u{1100}'..='\u{11FF}'
@@ -500,62 +516,74 @@ fn detect_latin_language(text: &str) -> Language {
 }
 
 // Taken from: https://en.wikipedia.org/wiki/Greek_and_Coptic
-#[must_use] pub const fn is_greek(ch: char) -> bool {
+#[must_use]
+pub const fn is_greek(ch: char) -> bool {
     matches!(ch, '\u{0370}'..='\u{03FF}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Kannada_(Unicode_block)
-#[must_use] pub const fn is_kannada(ch: char) -> bool {
+#[must_use]
+pub const fn is_kannada(ch: char) -> bool {
     matches!(ch, '\u{0C80}'..='\u{0CFF}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Tamil_(Unicode_block)
-#[must_use] pub const fn is_tamil(ch: char) -> bool {
+#[must_use]
+pub const fn is_tamil(ch: char) -> bool {
     matches!(ch, '\u{0B80}'..='\u{0BFF}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Thai_(Unicode_block)
-#[must_use] pub const fn is_thai(ch: char) -> bool {
+#[must_use]
+pub const fn is_thai(ch: char) -> bool {
     matches!(ch, '\u{0E00}'..='\u{0E7F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Gujarati_(Unicode_block)
-#[must_use] pub const fn is_gujarati(ch: char) -> bool {
+#[must_use]
+pub const fn is_gujarati(ch: char) -> bool {
     matches!(ch, '\u{0A80}'..='\u{0AFF}')
 }
 
 // Gurmukhi is the script for Punjabi language.
 // Based on: https://en.wikipedia.org/wiki/Gurmukhi_(Unicode_block)
-#[must_use] pub const fn is_gurmukhi(ch: char) -> bool {
+#[must_use]
+pub const fn is_gurmukhi(ch: char) -> bool {
     matches!(ch, '\u{0A00}'..='\u{0A7F}')
 }
 
-#[must_use] pub const fn is_telugu(ch: char) -> bool {
+#[must_use]
+pub const fn is_telugu(ch: char) -> bool {
     matches!(ch, '\u{0C00}'..='\u{0C7F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Malayalam_(Unicode_block)
-#[must_use] pub const fn is_malayalam(ch: char) -> bool {
+#[must_use]
+pub const fn is_malayalam(ch: char) -> bool {
     matches!(ch, '\u{0D00}'..='\u{0D7F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Oriya_(Unicode_block)
-#[must_use] pub const fn is_oriya(ch: char) -> bool {
+#[must_use]
+pub const fn is_oriya(ch: char) -> bool {
     matches!(ch, '\u{0B00}'..='\u{0B7F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Myanmar_(Unicode_block)
-#[must_use] pub const fn is_myanmar(ch: char) -> bool {
+#[must_use]
+pub const fn is_myanmar(ch: char) -> bool {
     matches!(ch, '\u{1000}'..='\u{109F}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Sinhala_(Unicode_block)
-#[must_use] pub const fn is_sinhala(ch: char) -> bool {
+#[must_use]
+pub const fn is_sinhala(ch: char) -> bool {
     matches!(ch, '\u{0D80}'..='\u{0DFF}')
 }
 
 // Based on: https://en.wikipedia.org/wiki/Khmer_alphabet
-#[must_use] pub const fn is_khmer(ch: char) -> bool {
+#[must_use]
+pub const fn is_khmer(ch: char) -> bool {
     matches!(ch, '\u{1780}'..='\u{17FF}' | '\u{19E0}'..='\u{19FF}')
 }
 
@@ -570,7 +598,10 @@ mod script_class_tests {
             assert!(!is_hangul(ch), "{ch:?} wrongly matched is_hangul");
             assert!(is_katakana(ch), "{ch:?} should match is_katakana");
         }
-        assert_eq!(detect_script("\u{FF71}\u{FF72}\u{FF73}"), Some(Script::Katakana));
+        assert_eq!(
+            detect_script("\u{FF71}\u{FF72}\u{FF73}"),
+            Some(Script::Katakana)
+        );
     }
 
     #[test]
@@ -579,7 +610,10 @@ mod script_class_tests {
         for ch in ['\u{FF21}', '\u{FF22}', '\u{FF23}'] {
             assert!(!is_hangul(ch), "{ch:?} wrongly matched is_hangul");
         }
-        assert_ne!(detect_script("\u{FF21}\u{FF22}\u{FF23}"), Some(Script::Hangul));
+        assert_ne!(
+            detect_script("\u{FF21}\u{FF22}\u{FF23}"),
+            Some(Script::Hangul)
+        );
     }
 
     #[test]
@@ -694,12 +728,12 @@ mod autotest_generated {
         // '\u{0000}'..='\u{0040}'
         assert!(is_stop_char('\u{0040}'));
         assert!(!is_stop_char('\u{0041}')); // 'A' — first char past the first range
-        // '\u{005B}'..='\u{0060}'
+                                            // '\u{005B}'..='\u{0060}'
         assert!(!is_stop_char('\u{005A}')); // 'Z'
         assert!(is_stop_char('\u{005B}'));
         assert!(is_stop_char('\u{0060}'));
         assert!(!is_stop_char('\u{0061}')); // 'a'
-        // '\u{007B}'..='\u{007E}'
+                                            // '\u{007B}'..='\u{007E}'
         assert!(!is_stop_char('\u{007A}')); // 'z'
         assert!(is_stop_char('\u{007B}'));
         assert!(is_stop_char('\u{007E}'));
@@ -975,9 +1009,10 @@ mod autotest_generated {
     fn detect_char_script_astral_planes_agree_with_the_table() {
         // The two astral Arabic ranges plus the surrounding gaps, which the BMP
         // sweep above cannot reach.
-        for cp in (0x1_0E00u32..=0x1_0F00).chain(0x1_ED00..=0x1_EF00).chain([
-            0x1_F600, 0x2_0000, 0x10_FFFF,
-        ]) {
+        for cp in (0x1_0E00u32..=0x1_0F00)
+            .chain(0x1_ED00..=0x1_EF00)
+            .chain([0x1_F600, 0x2_0000, 0x10_FFFF])
+        {
             let Some(ch) = char::from_u32(cp) else {
                 continue;
             };
@@ -1038,7 +1073,11 @@ mod autotest_generated {
             seen[script_index(script)] += 1;
         }
         for (i, count) in seen.iter().enumerate() {
-            assert_eq!(*count, 1, "{:?} appears {count} times in SCRIPT_CHECKERS", ALL_SCRIPTS[i]);
+            assert_eq!(
+                *count, 1,
+                "{:?} appears {count} times in SCRIPT_CHECKERS",
+                ALL_SCRIPTS[i]
+            );
         }
     }
 
@@ -1053,7 +1092,11 @@ mod autotest_generated {
             }
         }
         for (i, ok) in reachable.iter().enumerate() {
-            assert!(*ok, "{:?} is unreachable — shadowed by an earlier checker", ALL_SCRIPTS[i]);
+            assert!(
+                *ok,
+                "{:?} is unreachable — shadowed by an earlier checker",
+                ALL_SCRIPTS[i]
+            );
         }
     }
 
@@ -1065,7 +1108,10 @@ mod autotest_generated {
         // reordering of SCRIPT_CHECKERS would silently flip these to Cyrillic.
         for ch in ['\u{1D2B}', '\u{1D78}'] {
             assert!(is_latin(ch), "{ch:?} in is_latin's U+1D00..=U+1D7F range");
-            assert!(is_cyrillic(ch), "{ch:?} is explicitly listed by is_cyrillic");
+            assert!(
+                is_cyrillic(ch),
+                "{ch:?} is explicitly listed by is_cyrillic"
+            );
             assert_eq!(detect_char_script(ch), Some(Script::Latin));
             assert_eq!(detect_script(&ch.to_string()), Some(Script::Latin));
         }
@@ -1089,7 +1135,9 @@ mod autotest_generated {
 
     fn assert_rejects(name: &str, f: fn(char) -> bool, cps: &[u32]) {
         for &cp in cps {
-            let Some(ch) = char::from_u32(cp) else { continue };
+            let Some(ch) = char::from_u32(cp) else {
+                continue;
+            };
             assert!(!f(ch), "{name} should reject U+{cp:04X}");
         }
     }
@@ -1130,7 +1178,11 @@ mod autotest_generated {
     fn is_latin_boundaries() {
         assert!(is_latin('a') && is_latin('z') && is_latin('A') && is_latin('Z'));
         // The chars bracketing the ASCII letter ranges are all stop chars.
-        assert_rejects("is_latin", is_latin, &[0x0040, 0x005B, 0x0060, 0x007B, 0x007F]);
+        assert_rejects(
+            "is_latin",
+            is_latin,
+            &[0x0040, 0x005B, 0x0060, 0x007B, 0x007F],
+        );
         assert_range("is_latin", is_latin, 0x0080, 0x024F); // Latin-1 Sup .. Latin Ext-B
         assert_range("is_latin", is_latin, 0x0250, 0x02AF); // IPA extensions
         assert_rejects("is_latin", is_latin, &[0x02B0, 0x0300, 0x0400, 0x1CFF]);
@@ -1153,8 +1205,14 @@ mod autotest_generated {
         // Pinned quirk, not an endorsement: is_latin's U+0080..=U+00FF and
         // U+2100..=U+214F ranges are whole *blocks*, so NBSP, ©, ×, ÷, ™ and ℃ all
         // report as Latin and score for Latin in detect_script.
-        for ch in ['\u{00A0}', '\u{00A9}', '\u{00D7}', '\u{00F7}', '\u{2122}', '\u{2103}'] {
-            assert!(is_latin(ch), "U+{:04X} is inside is_latin's block ranges", ch as u32);
+        for ch in [
+            '\u{00A0}', '\u{00A9}', '\u{00D7}', '\u{00F7}', '\u{2122}', '\u{2103}',
+        ] {
+            assert!(
+                is_latin(ch),
+                "U+{:04X} is inside is_latin's block ranges",
+                ch as u32
+            );
             assert_eq!(detect_script(&ch.to_string()), Some(Script::Latin));
         }
     }
@@ -1163,7 +1221,11 @@ mod autotest_generated {
     fn is_cyrillic_boundaries_including_the_titlo_gap() {
         assert_range("is_cyrillic", is_cyrillic, 0x0400, 0x0484);
         // U+0485/U+0486 (combining Cyrillic titlo) are deliberately excluded.
-        assert_rejects("is_cyrillic", is_cyrillic, &[0x03FF, 0x0485, 0x0486, 0x0530]);
+        assert_rejects(
+            "is_cyrillic",
+            is_cyrillic,
+            &[0x03FF, 0x0485, 0x0486, 0x0530],
+        );
         assert_range("is_cyrillic", is_cyrillic, 0x0487, 0x052F);
         assert_range("is_cyrillic", is_cyrillic, 0x2DE0, 0x2DFF);
         assert_rejects("is_cyrillic", is_cyrillic, &[0x2DDF, 0x2E00]);
@@ -1176,7 +1238,11 @@ mod autotest_generated {
     #[test]
     fn is_arabic_boundaries_and_the_bom() {
         assert_range("is_arabic", is_arabic, 0x0600, 0x06FF);
-        assert_rejects("is_arabic", is_arabic, &[0x05FF, 0x0700, 0x074F, 0x0800, 0x089F]);
+        assert_rejects(
+            "is_arabic",
+            is_arabic,
+            &[0x05FF, 0x0700, 0x074F, 0x0800, 0x089F],
+        );
         assert_range("is_arabic", is_arabic, 0x0750, 0x07FF);
         assert_range("is_arabic", is_arabic, 0x08A0, 0x08FF);
         assert_range("is_arabic", is_arabic, 0xFB50, 0xFDFF);
@@ -1184,7 +1250,11 @@ mod autotest_generated {
         assert_rejects("is_arabic", is_arabic, &[0xFB4F, 0xFE00, 0xFE6F, 0xFF00]);
         assert_range("is_arabic", is_arabic, 0x1_0E60, 0x1_0E7F);
         assert_range("is_arabic", is_arabic, 0x1_EE00, 0x1_EEFF);
-        assert_rejects("is_arabic", is_arabic, &[0x1_0E5F, 0x1_0E80, 0x1_EDFF, 0x1_EF00]);
+        assert_rejects(
+            "is_arabic",
+            is_arabic,
+            &[0x1_0E5F, 0x1_0E80, 0x1_EDFF, 0x1_EF00],
+        );
 
         // BUG PIN: U+FEFF is the byte-order mark / ZERO WIDTH NO-BREAK SPACE, whose
         // Unicode script is Common — but it sits at the top of the Arabic
@@ -1214,7 +1284,11 @@ mod autotest_generated {
         assert_range("is_ethiopic", is_ethiopic, 0x1200, 0x139F);
         assert_range("is_ethiopic", is_ethiopic, 0x2D80, 0x2DDF);
         assert_range("is_ethiopic", is_ethiopic, 0xAB00, 0xAB2F);
-        assert_rejects("is_ethiopic", is_ethiopic, &[0x11FF, 0x13A0, 0x2D7F, 0xAAFF]);
+        assert_rejects(
+            "is_ethiopic",
+            is_ethiopic,
+            &[0x11FF, 0x13A0, 0x2D7F, 0xAAFF],
+        );
         // U+2DE0 is where Cyrillic Extended-A starts — must NOT be Ethiopic.
         assert!(!is_ethiopic('\u{2DE0}'));
         assert!(is_cyrillic('\u{2DE0}'));
@@ -1240,7 +1314,9 @@ mod autotest_generated {
         assert_rejects(
             "is_mandarin",
             is_mandarin,
-            &[0x2E7F, 0x2EF4, 0x2FD6, 0x3004, 0x4DB6, 0x9FCD, 0xF8FF, 0xFA6E, 0xFADA],
+            &[
+                0x2E7F, 0x2EF4, 0x2FD6, 0x3004, 0x4DB6, 0x9FCD, 0xF8FF, 0xFA6E, 0xFADA,
+            ],
         );
     }
 
@@ -1248,7 +1324,11 @@ mod autotest_generated {
     fn is_katakana_and_is_hangul_do_not_overlap_in_halfwidth_forms() {
         assert_range("is_katakana", is_katakana, 0x30A0, 0x30FF);
         assert_range("is_katakana", is_katakana, 0xFF66, 0xFF9F);
-        assert_rejects("is_katakana", is_katakana, &[0x309F, 0x3100, 0xFF65, 0xFFA0]);
+        assert_rejects(
+            "is_katakana",
+            is_katakana,
+            &[0x309F, 0x3100, 0xFF65, 0xFFA0],
+        );
 
         assert_range("is_hangul", is_hangul, 0xAC00, 0xD7AF);
         assert_range("is_hangul", is_hangul, 0x1100, 0x11FF);
@@ -1259,7 +1339,9 @@ mod autotest_generated {
         assert_rejects(
             "is_hangul",
             is_hangul,
-            &[0x10FF, 0x1200, 0x312F, 0x3190, 0x3200, 0xABFF, 0xFF66, 0xFF9F, 0xFFDD, 0xFFE0],
+            &[
+                0x10FF, 0x1200, 0x312F, 0x3190, 0x3200, 0xABFF, 0xFF66, 0xFF9F, 0xFFDD, 0xFFE0,
+            ],
         );
 
         // The two halfwidth ranges must stay disjoint.
@@ -1284,7 +1366,11 @@ mod autotest_generated {
         for (script, check_fn) in SCRIPT_CHECKERS {
             for ch in ['\u{0000}', ' ', '0', '\u{007F}', '\u{10FFFF}'] {
                 let first = check_fn(ch);
-                assert_eq!(first, check_fn(ch), "{script:?} checker is not pure for {ch:?}");
+                assert_eq!(
+                    first,
+                    check_fn(ch),
+                    "{script:?} checker is not pure for {ch:?}"
+                );
                 assert!(!first, "{script:?} checker claims the non-letter {ch:?}");
             }
         }
@@ -1306,8 +1392,18 @@ mod autotest_generated {
 
     #[test]
     fn detect_bengali_language_finds_assamese_at_any_position() {
-        for text in ["\u{09F0}", "\u{09F1}", "\u{09F0}আমার", "আমার\u{09F0}", "আ\u{09F1}র"] {
-            assert_eq!(detect_bengali_language(text), Language::Assamese, "text {text:?}");
+        for text in [
+            "\u{09F0}",
+            "\u{09F1}",
+            "\u{09F0}আমার",
+            "আমার\u{09F0}",
+            "আ\u{09F1}র",
+        ] {
+            assert_eq!(
+                detect_bengali_language(text),
+                Language::Assamese,
+                "text {text:?}"
+            );
         }
         // Boundary: the code points either side of the ৰ/ৱ pair are plain Bengali.
         assert_eq!(detect_bengali_language("\u{09EF}"), Language::Bengali);
@@ -1351,11 +1447,17 @@ mod autotest_generated {
             assert_eq!(detect_cyrillic_language(text), expected, "text {text:?}");
         }
         // Old-Cyrillic block boundaries: U+0460..=U+047F inclusive, nothing outside.
-        assert_eq!(detect_cyrillic_language("\u{047F}"), Language::SlavonicChurch);
+        assert_eq!(
+            detect_cyrillic_language("\u{047F}"),
+            Language::SlavonicChurch
+        );
         assert_eq!(detect_cyrillic_language("\u{0480}"), Language::Russian);
         // U+045F sits one below the Old-Cyrillic range — and it is 'џ', so it falls
         // through to the Serbian arm rather than to the Russian default.
-        assert_eq!(detect_cyrillic_language("\u{045F}"), Language::SerbianCyrillic);
+        assert_eq!(
+            detect_cyrillic_language("\u{045F}"),
+            Language::SerbianCyrillic
+        );
     }
 
     #[test]
@@ -1364,7 +1466,10 @@ mod autotest_generated {
         // check, but every arm returns immediately, so the *first marker char in the
         // text* wins regardless of its claimed rank. Pinned; see the report.
         assert_eq!(detect_cyrillic_language("щ\u{0460}"), Language::Bulgarian);
-        assert_eq!(detect_cyrillic_language("\u{0460}щ"), Language::SlavonicChurch);
+        assert_eq!(
+            detect_cyrillic_language("\u{0460}щ"),
+            Language::SlavonicChurch
+        );
         assert_eq!(detect_cyrillic_language("ўщ"), Language::Belarusian);
         assert_eq!(detect_cyrillic_language("щў"), Language::Bulgarian);
     }
@@ -1375,7 +1480,10 @@ mod autotest_generated {
         assert_eq!(detect_cyrillic_language(&long), Language::Russian);
         let mut trailing = long;
         trailing.push('\u{0460}');
-        assert_eq!(detect_cyrillic_language(&trailing), Language::SlavonicChurch);
+        assert_eq!(
+            detect_cyrillic_language(&trailing),
+            Language::SlavonicChurch
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -1399,8 +1507,14 @@ mod autotest_generated {
         assert_eq!(detect_devanagari_language("\u{0932}"), Language::Hindi);
         assert_eq!(detect_devanagari_language("\u{0934}"), Language::Hindi);
         // Positional, not priority-ordered — whichever marker comes first wins.
-        assert_eq!(detect_devanagari_language("\u{1CD0}\u{0933}"), Language::Sanskrit);
-        assert_eq!(detect_devanagari_language("\u{0933}\u{1CD0}"), Language::Marathi);
+        assert_eq!(
+            detect_devanagari_language("\u{1CD0}\u{0933}"),
+            Language::Sanskrit
+        );
+        assert_eq!(
+            detect_devanagari_language("\u{0933}\u{1CD0}"),
+            Language::Marathi
+        );
     }
 
     #[test]
@@ -1431,7 +1545,10 @@ mod autotest_generated {
         assert_eq!(detect_greek_language("\u{1EFF}"), Language::GreekMono);
         assert_eq!(detect_greek_language("\u{2000}"), Language::GreekMono);
         // Positional, not priority-ordered.
-        assert_eq!(detect_greek_language("\u{1F00}\u{2C80}"), Language::GreekPoly);
+        assert_eq!(
+            detect_greek_language("\u{1F00}\u{2C80}"),
+            Language::GreekPoly
+        );
         assert_eq!(detect_greek_language("\u{2C80}\u{1F00}"), Language::Coptic);
     }
 
@@ -1448,8 +1565,14 @@ mod autotest_generated {
     #[test]
     fn detect_latin_language_defaults_to_english() {
         assert_eq!(detect_latin_language(""), Language::EnglishUS);
-        assert_eq!(detect_latin_language("the quick brown fox"), Language::EnglishUS);
-        assert_eq!(detect_latin_language("0123456789 !@#$%"), Language::EnglishUS);
+        assert_eq!(
+            detect_latin_language("the quick brown fox"),
+            Language::EnglishUS
+        );
+        assert_eq!(
+            detect_latin_language("0123456789 !@#$%"),
+            Language::EnglishUS
+        );
         assert_eq!(detect_latin_language("\u{1F600}"), Language::EnglishUS);
         // Non-Latin text is not validated — it still falls through to English.
         assert_eq!(detect_latin_language("你好"), Language::EnglishUS);
@@ -1477,7 +1600,11 @@ mod autotest_generated {
             ('á', Language::Spanish),
         ];
         for (ch, expected) in cases {
-            assert_eq!(detect_latin_language(&ch.to_string()), expected, "char {ch:?}");
+            assert_eq!(
+                detect_latin_language(&ch.to_string()),
+                expected,
+                "char {ch:?}"
+            );
             // Position within the text must not matter for early-return markers.
             assert_eq!(detect_latin_language(&format!("word {ch} word")), expected);
         }
@@ -1636,7 +1763,11 @@ mod autotest_generated {
         for (text, script, language) in cases {
             let detected = detect_script(text).unwrap_or_else(|| panic!("no script for {text:?}"));
             assert_eq!(detected, script, "script for {text:?}");
-            assert_eq!(script_to_language(detected, text), language, "language for {text:?}");
+            assert_eq!(
+                script_to_language(detected, text),
+                language,
+                "language for {text:?}"
+            );
         }
     }
 

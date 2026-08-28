@@ -231,7 +231,10 @@ fn emit_native_interface(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Cod
             continue;
         }
         by_module
-            .entry(super::lang_java::functions::module_for_class(&func.class_name, ir))
+            .entry(super::lang_java::functions::module_for_class(
+                &func.class_name,
+                ir,
+            ))
             .or_default()
             .push(func);
     }
@@ -275,10 +278,9 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
         .map(|a| {
             let kt = match a.ref_kind {
                 ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "Pointer?".to_string(),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    "Pointer?".to_string()
+                }
             };
             format!("{}: {}", sanitize_kt_identifier(&a.name), kt)
         })
@@ -316,7 +318,6 @@ fn emit_unit_enum(builder: &mut CodeBuilder, enum_def: &EnumDef) {
         for d in &enum_def.doc {
             builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
-        
     }
 
     builder.line(&format!("enum class {}(val value: Int) {{", name));
@@ -417,7 +418,6 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         for d in &enum_def.doc {
             builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
-        
     }
     builder.line(&format!("open class {} : Union() {{", name));
     builder.indent();
@@ -493,7 +493,8 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
                 builder.line(" */");
                 builder.line(&format!("fun unwrap(): {} {{", kt));
                 builder.indent();
-                builder.line("val p = pointer ?: throw RuntimeException(\"unwrap on null pointer\")");
+                builder
+                    .line("val p = pointer ?: throw RuntimeException(\"unwrap on null pointer\")");
                 builder.line("if (p.getByte(0).toInt() == 0) {");
                 builder.indent();
                 builder.line(&format!(
@@ -524,10 +525,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         }
     }
 
-    builder.line(&format!(
-        "class ByValue : {}(), Structure.ByValue",
-        name
-    ));
+    builder.line(&format!("class ByValue : {}(), Structure.ByValue", name));
     builder.line(&format!(
         "class ByReference : {}(), Structure.ByReference",
         name
@@ -582,10 +580,7 @@ fn emit_monomorphized_alias(
                 }
             }
             emit_kotlin_field_order_override(builder, &field_names);
-            builder.line(&format!(
-                "class ByValue : {}(), Structure.ByValue",
-                name
-            ));
+            builder.line(&format!("class ByValue : {}(), Structure.ByValue", name));
             builder.line(&format!(
                 "class ByReference : {}(), Structure.ByReference",
                 name
@@ -610,10 +605,7 @@ fn emit_monomorphized_alias(
             // Per-variant payload structs
             for v in variants {
                 let variant_struct = format!("{}Variant_{}", name, v.name);
-                builder.line(&format!(
-                    "open class {} : Structure() {{",
-                    variant_struct
-                ));
+                builder.line(&format!("open class {} : Structure() {{", variant_struct));
                 builder.indent();
                 builder.line("@JvmField var tag: Byte = 0 // repr(C, u8)");
                 let mut field_names = vec!["\"tag\"".to_string()];
@@ -647,14 +639,14 @@ fn emit_monomorphized_alias(
             for v in variants {
                 let variant_struct = format!("{}Variant_{}", name, v.name);
                 let f = sanitize_kt_identifier(&v.name);
-                builder.line(&format!("@JvmField var {}: {} = {}()", f, variant_struct, variant_struct));
+                builder.line(&format!(
+                    "@JvmField var {}: {} = {}()",
+                    f, variant_struct, variant_struct
+                ));
                 field_names.push(format!("\"{}\"", v.name));
             }
             emit_kotlin_field_order_override(builder, &field_names);
-            builder.line(&format!(
-                "class ByValue : {}(), Structure.ByValue",
-                name
-            ));
+            builder.line(&format!("class ByValue : {}(), Structure.ByValue", name));
             builder.line(&format!(
                 "class ByReference : {}(), Structure.ByReference",
                 name
@@ -735,7 +727,6 @@ fn emit_struct(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         for d in &s.doc {
             builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
-        
     }
 
     builder.line(&format!("open class {} : Structure() {{", name));
@@ -799,17 +790,11 @@ fn emit_vec_to_list_kt(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         builder.line(" */");
         builder.line(&format!("fun {}(): {} {{", method, ret));
         builder.indent();
-        builder.line(&format!(
-            "if (ptr == null || len == 0L) return {}(0)",
-            ret
-        ));
+        builder.line(&format!("if (ptr == null || len == 0L) return {}(0)", ret));
         // `ptr` is `@JvmField var` (mutable, nullable). Kotlin can't
         // smart-cast a mutable property across the null guard above,
         // so use `!!` to assert non-null at the call site.
-        builder.line(&format!(
-            "return ptr!!.{}(0, len.toInt())",
-            jna_method
-        ));
+        builder.line(&format!("return ptr!!.{}(0, len.toInt())", jna_method));
         builder.dedent();
         builder.line("}");
         return;
@@ -827,9 +812,7 @@ fn emit_vec_to_list_kt(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         elem_kt
     ));
     builder.indent();
-    builder.line(&format!(
-        "if (ptr == null || len == 0L) return emptyList()"
-    ));
+    builder.line(&format!("if (ptr == null || len == 0L) return emptyList()"));
     builder.line(&format!(
         "val __out = java.util.ArrayList<{}>(len.toInt())",
         elem_kt
@@ -914,11 +897,7 @@ fn emit_struct_field(
 // Callback typedef
 // ============================================================================
 
-fn emit_callback_interface(
-    builder: &mut CodeBuilder,
-    cb: &CallbackTypedefDef,
-    ir: &CodegenIR,
-) {
+fn emit_callback_interface(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     let name = ffi_type_name(&cb.name);
 
     if !cb.doc.is_empty() {
@@ -926,7 +905,6 @@ fn emit_callback_interface(
         for d in &cb.doc {
             builder.line(&format!("/// {}", wrappers::kdoc_escape(d)));
         }
-        
     }
 
     // Kotlin SAM interface — ergonomic lambda construction site.
@@ -948,10 +926,9 @@ fn emit_callback_interface(
         .map(|(i, arg)| {
             let kt = match arg.ref_kind {
                 ArgRefKind::Owned => map_kt_owned(&arg.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "Pointer?".to_string(),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    "Pointer?".to_string()
+                }
             };
             let raw_name = arg.name.trim();
             let name = if raw_name.is_empty() {

@@ -78,8 +78,10 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
     builder.line("//   * The `ffi` extension must be enabled. Set one of the following in");
     builder.line("//     your `php.ini`:");
     builder.line("//");
-    builder.line("//         ffi.enable=true        ; works in CLI and (when permitted) in CGI/FPM");
-    builder.line("//         ffi.enable=preload     ; OPcache preloading only — recommended for FPM");
+    builder
+        .line("//         ffi.enable=true        ; works in CLI and (when permitted) in CGI/FPM");
+    builder
+        .line("//         ffi.enable=preload     ; OPcache preloading only — recommended for FPM");
     builder.line("//");
     builder.line("//   * The native shared library (`libazul.so` / `libazul.dylib` /");
     builder.line("//     `azul.dll`) must be on the dynamic loader's search path or in the");

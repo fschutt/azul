@@ -25,7 +25,8 @@ use crate::{
 };
 
 // -- Calc AST --
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// A single item in a `calc()` expression, stored as a flat stack-machine representation.
 ///
 /// The expression `calc(33.333% - 10px)` is stored as:
@@ -114,11 +115,26 @@ fn parse_calc_expression(input: &str) -> Result<CalcAstItemVec, ()> {
         }
 
         match bytes[i] {
-            b'+' => { items.push(CalcAstItem::Add); i += 1; }
-            b'*' => { items.push(CalcAstItem::Mul); i += 1; }
-            b'/' => { items.push(CalcAstItem::Div); i += 1; }
-            b'(' => { items.push(CalcAstItem::BraceOpen); i += 1; }
-            b')' => { items.push(CalcAstItem::BraceClose); i += 1; }
+            b'+' => {
+                items.push(CalcAstItem::Add);
+                i += 1;
+            }
+            b'*' => {
+                items.push(CalcAstItem::Mul);
+                i += 1;
+            }
+            b'/' => {
+                items.push(CalcAstItem::Div);
+                i += 1;
+            }
+            b'(' => {
+                items.push(CalcAstItem::BraceOpen);
+                i += 1;
+            }
+            b')' => {
+                items.push(CalcAstItem::BraceClose);
+                i += 1;
+            }
             b'-' => {
                 // Decide: is this a subtraction operator or a negative number?
                 // It's a negative number if:
@@ -127,15 +143,22 @@ fn parse_calc_expression(input: &str) -> Result<CalcAstItemVec, ()> {
                 let is_negative_number = items.is_empty()
                     || matches!(
                         items.last(),
-                        Some(CalcAstItem::Add | CalcAstItem::Sub | CalcAstItem::Mul | CalcAstItem::Div
-| CalcAstItem::BraceOpen)
+                        Some(
+                            CalcAstItem::Add
+                                | CalcAstItem::Sub
+                                | CalcAstItem::Mul
+                                | CalcAstItem::Div
+                                | CalcAstItem::BraceOpen
+                        )
                     );
 
                 if is_negative_number {
                     // Parse as negative number value
                     let rest = &input[i..];
                     let end = find_value_end(rest);
-                    if end == 0 { return Err(()); }
+                    if end == 0 {
+                        return Err(());
+                    }
                     let val_str = &rest[..end];
                     let pv = parse_pixel_value(val_str).map_err(|_| ())?;
                     items.push(CalcAstItem::Value(pv));
@@ -149,7 +172,9 @@ fn parse_calc_expression(input: &str) -> Result<CalcAstItemVec, ()> {
                 // Must be a numeric value (e.g. 100%, 20px, 3, 1.5em)
                 let rest = &input[i..];
                 let end = find_value_end(rest);
-                if end == 0 { return Err(()); }
+                if end == 0 {
+                    return Err(());
+                }
                 let val_str = &rest[..end];
                 let pv = parse_pixel_value(val_str).map_err(|_| ())?;
                 items.push(CalcAstItem::Value(pv));
@@ -192,15 +217,18 @@ fn find_value_end(s: &str) -> usize {
 
 /// Format a `CalcAstItemVec` as a CSS `calc(...)` string.
 fn calc_ast_to_css_string(items: &CalcAstItemVec) -> String {
-    let inner: Vec<String> = items.iter().map(|i| match i {
-        CalcAstItem::Value(v) => v.to_string(),
-        CalcAstItem::Add => "+".to_string(),
-        CalcAstItem::Sub => "-".to_string(),
-        CalcAstItem::Mul => "*".to_string(),
-        CalcAstItem::Div => "/".to_string(),
-        CalcAstItem::BraceOpen => "(".to_string(),
-        CalcAstItem::BraceClose => ")".to_string(),
-    }).collect();
+    let inner: Vec<String> = items
+        .iter()
+        .map(|i| match i {
+            CalcAstItem::Value(v) => v.to_string(),
+            CalcAstItem::Add => "+".to_string(),
+            CalcAstItem::Sub => "-".to_string(),
+            CalcAstItem::Mul => "*".to_string(),
+            CalcAstItem::Div => "/".to_string(),
+            CalcAstItem::BraceOpen => "(".to_string(),
+            CalcAstItem::BraceClose => ")".to_string(),
+        })
+        .collect();
     alloc::format!("calc({})", inner.join(" "))
 }
 
@@ -273,18 +301,23 @@ macro_rules! define_sizing_enum {
         }
 
         impl $name {
-            #[must_use] pub fn px(value: f32) -> Self {
+            #[must_use]
+            pub fn px(value: f32) -> Self {
                 $name::Px(PixelValue::px(value))
             }
 
-            #[must_use] pub const fn const_px(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_px(value: isize) -> Self {
                 $name::Px(PixelValue::const_px(value))
             }
 
-            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use]
+            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 match (self, other) {
                     ($name::Px(a), $name::Px(b)) => $name::Px(a.interpolate(b, t)),
-                    ($name::FitContent(a), $name::FitContent(b)) => $name::FitContent(a.interpolate(b, t)),
+                    ($name::FitContent(a), $name::FitContent(b)) => {
+                        $name::FitContent(a.interpolate(b, t))
+                    }
                     (_, $name::Px(b)) if t >= 0.5 => $name::Px(*b),
                     ($name::Px(a), _) if t < 0.5 => $name::Px(*a),
                     ($name::Auto, $name::Auto) => $name::Auto,
@@ -332,7 +365,6 @@ pub enum LayoutBoxSizing {
     BorderBox,
 }
 
-
 impl PrintAsCssValue for LayoutBoxSizing {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -347,10 +379,11 @@ impl PrintAsCssValue for LayoutBoxSizing {
 #[cfg(feature = "parser")]
 pub mod parser {
 
-    use alloc::string::ToString;
     use crate::corety::AzString;
+    use alloc::string::ToString;
 
-    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
+    #[allow(clippy::wildcard_imports)]
+    // parser submodule reuses the parent module's value types
     use super::*;
     use crate::props::basic::pixel::parse_pixel_value;
 
@@ -375,7 +408,8 @@ pub mod parser {
             }
 
             impl $error_name<'_> {
-                #[must_use] pub fn to_contained(&self) -> $error_owned_name {
+                #[must_use]
+                pub fn to_contained(&self) -> $error_owned_name {
                     match self {
                         $error_name::PixelValue(e) => {
                             $error_owned_name::PixelValue(e.to_contained())
@@ -385,7 +419,8 @@ pub mod parser {
             }
 
             impl $error_owned_name {
-                #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
+                #[must_use]
+                pub fn to_shared(&self) -> $error_name<'_> {
                     match self {
                         $error_owned_name::PixelValue(e) => $error_name::PixelValue(e.to_shared()),
                     }
@@ -427,7 +462,8 @@ pub mod parser {
             }
 
             impl $error_name<'_> {
-                #[must_use] pub fn to_contained(&self) -> $error_owned_name {
+                #[must_use]
+                pub fn to_contained(&self) -> $error_owned_name {
                     match self {
                         $error_name::PixelValue(e) => {
                             $error_owned_name::PixelValue(e.to_contained())
@@ -440,14 +476,11 @@ pub mod parser {
             }
 
             impl $error_owned_name {
-                #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
+                #[must_use]
+                pub fn to_shared(&self) -> $error_name<'_> {
                     match self {
-                        $error_owned_name::PixelValue(e) => {
-                            $error_name::PixelValue(e.to_shared())
-                        }
-                        $error_owned_name::InvalidKeyword(k) => {
-                            $error_name::InvalidKeyword(k)
-                        }
+                        $error_owned_name::PixelValue(e) => $error_name::PixelValue(e.to_shared()),
+                        $error_owned_name::InvalidKeyword(k) => $error_name::InvalidKeyword(k),
                     }
                 }
             }
@@ -455,9 +488,7 @@ pub mod parser {
             /// # Errors
             ///
             /// Returns an error if `input` is not a valid CSS value for this property.
-            pub fn $fn_name(
-                input: &str,
-            ) -> Result<$enum_name, $error_name<'_>> {
+            pub fn $fn_name(input: &str) -> Result<$enum_name, $error_name<'_>> {
                 let trimmed = input.trim();
                 match trimmed {
                     "auto" => Ok($enum_name::Auto),
@@ -489,8 +520,20 @@ pub mod parser {
         };
     }
 
-    define_sizing_parser!(parse_layout_width, LayoutWidth, LayoutWidthParseError, LayoutWidthParseErrorOwned, "width");
-    define_sizing_parser!(parse_layout_height, LayoutHeight, LayoutHeightParseError, LayoutHeightParseErrorOwned, "height");
+    define_sizing_parser!(
+        parse_layout_width,
+        LayoutWidth,
+        LayoutWidthParseError,
+        LayoutWidthParseErrorOwned,
+        "width"
+    );
+    define_sizing_parser!(
+        parse_layout_height,
+        LayoutHeight,
+        LayoutHeightParseError,
+        LayoutHeightParseErrorOwned,
+        "height"
+    );
     define_pixel_dimension_parser!(
         parse_layout_min_width,
         LayoutMinWidth,
@@ -535,7 +578,8 @@ pub mod parser {
     }
 
     impl LayoutBoxSizingParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> LayoutBoxSizingParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> LayoutBoxSizingParseErrorOwned {
             match self {
                 LayoutBoxSizingParseError::InvalidValue(s) => {
                     LayoutBoxSizingParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -545,11 +589,10 @@ pub mod parser {
     }
 
     impl LayoutBoxSizingParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> LayoutBoxSizingParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> LayoutBoxSizingParseError<'_> {
             match self {
-                Self::InvalidValue(s) => {
-                    LayoutBoxSizingParseError::InvalidValue(s)
-                }
+                Self::InvalidValue(s) => LayoutBoxSizingParseError::InvalidValue(s),
             }
         }
     }
@@ -696,8 +739,26 @@ mod autotest_generated {
     #[test]
     fn calc_garbage_input_is_err_never_panics() {
         for garbage in [
-            "???", "@@@", "px", "em", "%", "#", "1px;", "abc", "!!!", "\0", "\u{7f}", ",", ";",
-            "1,2", "10 px 20 %%", "--", "-", "-.", "1..px", "1.2.3px",
+            "???",
+            "@@@",
+            "px",
+            "em",
+            "%",
+            "#",
+            "1px;",
+            "abc",
+            "!!!",
+            "\0",
+            "\u{7f}",
+            ",",
+            ";",
+            "1,2",
+            "10 px 20 %%",
+            "--",
+            "-",
+            "-.",
+            "1..px",
+            "1.2.3px",
         ] {
             assert!(
                 parse_calc_expression(garbage).is_err(),
@@ -791,15 +852,15 @@ mod autotest_generated {
         // Every one of these puts a multi-byte char where the tokeniser slices `&input[i..]`;
         // if `find_value_end` ever returned a non-char-boundary offset this would panic.
         for input in [
-            "\u{1F600}",              // emoji
-            "100px\u{1F600}",         // emoji after a valid token
-            "10px\u{0301}",           // combining acute accent
-            "10px\u{00A0}- 5px",      // non-breaking space is NOT ascii whitespace
-            "\u{FF11}\u{FF10}px",     // full-width digits
-            "１００%",                // full-width digits + ascii percent
+            "\u{1F600}",          // emoji
+            "100px\u{1F600}",     // emoji after a valid token
+            "10px\u{0301}",       // combining acute accent
+            "10px\u{00A0}- 5px",  // non-breaking space is NOT ascii whitespace
+            "\u{FF11}\u{FF10}px", // full-width digits
+            "１００%",            // full-width digits + ascii percent
             "π",
-            "10\u{2212}5",            // U+2212 MINUS SIGN, not ASCII '-'
-            "\u{202E}10px",           // RTL override
+            "10\u{2212}5",  // U+2212 MINUS SIGN, not ASCII '-'
+            "\u{202E}10px", // RTL override
             "e\u{0301}m",
         ] {
             assert!(
@@ -818,7 +879,10 @@ mod autotest_generated {
         let parsed = parse_calc_expression("NaN").unwrap();
         match parsed.get(0).unwrap() {
             CalcAstItem::Value(v) => {
-                assert!(!v.number.get().is_nan(), "NaN must not survive into the AST");
+                assert!(
+                    !v.number.get().is_nan(),
+                    "NaN must not survive into the AST"
+                );
                 assert_eq!(v.number.get(), 0.0);
             }
             other => panic!("expected a Value, got {other:?}"),
@@ -909,15 +973,18 @@ mod autotest_generated {
         // validation, so structurally meaningless expressions parse to Ok(..). Anything
         // that consumes a CalcAstItemVec (the solver in layout/src/solver3/calc.rs) must
         // therefore be robust against unbalanced braces and dangling operators.
-        assert_eq!(
-            shape(&parse_calc_expression("(((").unwrap()),
-            vec![5, 5, 5]
-        );
+        assert_eq!(shape(&parse_calc_expression("(((").unwrap()), vec![5, 5, 5]);
         assert_eq!(shape(&parse_calc_expression(")))").unwrap()), vec![6, 6, 6]);
-        assert_eq!(shape(&parse_calc_expression(")1px(").unwrap()), vec![6, 0, 5]);
+        assert_eq!(
+            shape(&parse_calc_expression(")1px(").unwrap()),
+            vec![6, 0, 5]
+        );
 
         // The same holds through the public parser: `width: calc(()` is accepted.
-        assert_eq!(shape_of_width(&parse_layout_width("calc(()").unwrap()), vec![5]);
+        assert_eq!(
+            shape_of_width(&parse_layout_width("calc(()").unwrap()),
+            vec![5]
+        );
         assert_eq!(
             shape_of_width(&parse_layout_width("calc()))").unwrap()),
             vec![6, 6]
@@ -929,7 +996,10 @@ mod autotest_generated {
         // Same story as the braces: operators with no operands still yield Ok(..).
         assert_eq!(shape(&parse_calc_expression("+").unwrap()), vec![1]);
         assert_eq!(shape(&parse_calc_expression("*/").unwrap()), vec![3, 4]);
-        assert_eq!(shape(&parse_calc_expression("1px 2px").unwrap()), vec![0, 0]);
+        assert_eq!(
+            shape(&parse_calc_expression("1px 2px").unwrap()),
+            vec![0, 0]
+        );
         assert_eq!(
             shape(&parse_calc_expression("1px + + 2px").unwrap()),
             vec![0, 1, 1, 0]
@@ -999,7 +1069,22 @@ mod autotest_generated {
         // Deterministic mini-fuzz over the tokeniser's decision points, including two
         // multi-byte chars to smoke out any non-char-boundary slicing.
         const ALPHABET: [&str; 16] = [
-            "(", ")", "+", "-", "*", "/", ".", "0", "9", "p", "x", "%", " ", "e", "é", "\u{1F600}",
+            "(",
+            ")",
+            "+",
+            "-",
+            "*",
+            "/",
+            ".",
+            "0",
+            "9",
+            "p",
+            "x",
+            "%",
+            " ",
+            "e",
+            "é",
+            "\u{1F600}",
         ];
 
         for a in ALPHABET {
@@ -1399,7 +1484,10 @@ mod autotest_generated {
             (LayoutWidth::MinContent, "min-content"),
             (LayoutWidth::MaxContent, "max-content"),
             (LayoutWidth::Px(PixelValue::px(150.0)), "150px"),
-            (LayoutWidth::FitContent(PixelValue::percent(50.0)), "fit-content(50%)"),
+            (
+                LayoutWidth::FitContent(PixelValue::percent(50.0)),
+                "fit-content(50%)",
+            ),
         ];
         for (value, css) in cases {
             assert_eq!(parse_layout_width(css).unwrap(), value, "parse of {css:?}");
@@ -1409,7 +1497,10 @@ mod autotest_generated {
         // calc() survives the full encode/decode cycle.
         let parsed = parse_layout_width("calc(100% - 20px)").unwrap();
         assert_eq!(parsed.print_as_css_value(), "calc(100% - 20px)");
-        assert_eq!(parse_layout_width(&parsed.print_as_css_value()).unwrap(), parsed);
+        assert_eq!(
+            parse_layout_width(&parsed.print_as_css_value()).unwrap(),
+            parsed
+        );
         assert_eq!(
             calc_items(&parsed),
             vec![
@@ -1423,7 +1514,13 @@ mod autotest_generated {
     #[test]
     fn sizing_parser_keywords_are_case_sensitive() {
         // Same spec deviation as box-sizing: CSS keywords should be case-insensitive.
-        for input in ["AUTO", "Auto", "MIN-CONTENT", "CALC(1px)", "FIT-CONTENT(1px)"] {
+        for input in [
+            "AUTO",
+            "Auto",
+            "MIN-CONTENT",
+            "CALC(1px)",
+            "FIT-CONTENT(1px)",
+        ] {
             assert!(
                 parse_layout_width(input).is_err(),
                 "expected Err for {input:?}"
@@ -1459,11 +1556,7 @@ mod autotest_generated {
     #[test]
     fn sizing_parser_deeply_nested_calc_does_not_stack_overflow() {
         const DEPTH: usize = 5_000;
-        let input = format!(
-            "calc({}1px{})",
-            "(".repeat(DEPTH),
-            ")".repeat(DEPTH)
-        );
+        let input = format!("calc({}1px{})", "(".repeat(DEPTH), ")".repeat(DEPTH));
         let parsed = parse_layout_width(&input).unwrap();
         assert_eq!(calc_items(&parsed).len(), DEPTH * 2 + 1);
         // Printing must survive it too (this is what the CSS serialiser calls).
@@ -1520,7 +1613,10 @@ mod autotest_generated {
             LayoutMaxWidth::default().inner.number.get(),
             LayoutMaxHeight::default().inner.number.get(),
         ] {
-            assert!(got.is_finite(), "default max dimension is not finite: {got}");
+            assert!(
+                got.is_finite(),
+                "default max dimension is not finite: {got}"
+            );
             assert!(got > 0.0);
             assert_ne!(got, f32::MAX);
         }

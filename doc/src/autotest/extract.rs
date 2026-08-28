@@ -131,10 +131,8 @@ fn extract_from_items(items: &[Item], out: &mut Vec<ExtractedFn>) {
                     .map(|seg| seg.ident.to_string());
 
                 let is_inherent = trait_name.is_none();
-                let is_testworthy_trait = matches!(
-                    trait_name.as_deref(),
-                    Some("Display") | Some("FromStr")
-                );
+                let is_testworthy_trait =
+                    matches!(trait_name.as_deref(), Some("Display") | Some("FromStr"));
 
                 if !is_inherent && !is_testworthy_trait {
                     continue;
@@ -153,9 +151,7 @@ fn extract_from_items(items: &[Item], out: &mut Vec<ExtractedFn>) {
                         if is_cfg_test(&method.attrs) || has_test_attr(&method.attrs) {
                             continue;
                         }
-                        if let Some(mut extracted) =
-                            extract_method(method, self_type.as_deref())
-                        {
+                        if let Some(mut extracted) = extract_method(method, self_type.as_deref()) {
                             // Inherit the impl-level cfg gate if the method has none.
                             if extracted.cfg.is_none() {
                                 extracted.cfg = impl_cfg.clone();

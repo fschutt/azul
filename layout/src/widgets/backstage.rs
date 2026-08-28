@@ -37,11 +37,16 @@ use azul_core::{
     refany::RefAny,
     window::VirtualKeyCode,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec},
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            *,
+        },
         layout::*,
         property::CssProperty as P,
         style::*,
@@ -59,11 +64,12 @@ use super::button::{Button, ButtonOnClick, OptionButtonOnClick};
 
 /// Callback signature invoked when a nav item is clicked (receives the item
 /// index).
-pub type BackstageOnNavSelectCallbackType =
-    extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
+pub type BackstageOnNavSelectCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_widget_callback!(
-    BackstageOnNavSelect, OptionBackstageOnNavSelect,
-    BackstageOnNavSelectCallback, BackstageOnNavSelectCallbackType
+    BackstageOnNavSelect,
+    OptionBackstageOnNavSelect,
+    BackstageOnNavSelectCallback,
+    BackstageOnNavSelectCallbackType
 );
 
 azul_core::impl_managed_callback! {
@@ -88,14 +94,39 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 
 // -- the Office-2013-era look palette (seeds BackstageTheme::office_2013) --
 
-const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+const WHITE: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+const TRANSPARENT: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 0,
+};
 /// Office 2013 accent blue (#2B579A): the nav column fill.
-const W13_BLUE: ColorU = ColorU { r: 43, g: 87, b: 154, a: 255 };
+const W13_BLUE: ColorU = ColorU {
+    r: 43,
+    g: 87,
+    b: 154,
+    a: 255,
+};
 /// Hover fill on nav items (#3465AC).
-const W13_NAV_HOVER: ColorU = ColorU { r: 52, g: 101, b: 172, a: 255 };
+const W13_NAV_HOVER: ColorU = ColorU {
+    r: 52,
+    g: 101,
+    b: 172,
+    a: 255,
+};
 /// Active nav item fill (#3E6DB5).
-const W13_NAV_ACTIVE: ColorU = ColorU { r: 62, g: 109, b: 181, a: 255 };
+const W13_NAV_ACTIVE: ColorU = ColorU {
+    r: 62,
+    g: 109,
+    b: 181,
+    a: 255,
+};
 
 // -- Metrics (the Office-2013-era look, logical px) --
 
@@ -178,22 +209,62 @@ const fn cond_border_box() -> Cond {
 }
 
 fn push_ring_border(v: &mut Vec<Cond>, c: ColorU, width: isize, radius: isize) {
-    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(width))));
-    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(width))));
-    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(width))));
-    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(width))));
-    v.push(Cond::simple(P::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_top_color(StyleBorderTopColor { inner: c })));
-    v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: c })));
-    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: c })));
-    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
-    v.push(Cond::simple(P::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(radius))));
-    v.push(Cond::simple(P::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(radius))));
-    v.push(Cond::simple(P::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(radius))));
-    v.push(Cond::simple(P::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(radius))));
+    v.push(Cond::simple(P::const_border_top_width(
+        LayoutBorderTopWidth::const_px(width),
+    )));
+    v.push(Cond::simple(P::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(width),
+    )));
+    v.push(Cond::simple(P::const_border_right_width(
+        LayoutBorderRightWidth::const_px(width),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(width),
+    )));
+    v.push(Cond::simple(P::const_border_top_style(
+        StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_left_style(
+        StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_top_color(
+        StyleBorderTopColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_left_color(
+        StyleBorderLeftColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_right_color(
+        StyleBorderRightColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_top_left_radius(
+        StyleBorderTopLeftRadius::const_px(radius),
+    )));
+    v.push(Cond::simple(P::const_border_top_right_radius(
+        StyleBorderTopRightRadius::const_px(radius),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_left_radius(
+        StyleBorderBottomLeftRadius::const_px(radius),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_right_radius(
+        StyleBorderBottomRightRadius::const_px(radius),
+    )));
 }
 
 fn theme_root(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
@@ -214,7 +285,9 @@ fn theme_nav(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_width(LayoutWidth::const_px(NAV_WIDTH))),
         cond_bg(t.nav_bg),
     ])
@@ -230,7 +303,9 @@ fn theme_back_button(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_width(LayoutWidth::const_px(BACK_D))),
         Cond::simple(P::const_height(LayoutHeight::const_px(BACK_D))),
         Cond::simple(P::const_margin_top(LayoutMarginTop::const_px(16))),
@@ -259,7 +334,9 @@ fn theme_nav_item(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_height(LayoutHeight::const_px(NAV_ITEM_H))),
         Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(24))),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(NAV_TEXT_PX))),
@@ -383,13 +460,17 @@ impl BackstageBehavior {
     /// All classic office-suite behaviors enabled - the default.
     #[must_use]
     pub const fn office_2013() -> Self {
-        Self { close_on_escape: true }
+        Self {
+            close_on_escape: true,
+        }
     }
 
     /// Every self-driven behavior off.
     #[must_use]
     pub const fn inert() -> Self {
-        Self { close_on_escape: false }
+        Self {
+            close_on_escape: false,
+        }
     }
 }
 
@@ -415,7 +496,10 @@ impl BackstageNavItem {
     /// Creates a nav item without a gap.
     #[must_use]
     pub const fn new(label: AzString) -> Self {
-        Self { label, gap_before: false }
+        Self {
+            label,
+            gap_before: false,
+        }
     }
 
     /// Builder method: marks this item as starting a new group.
@@ -440,7 +524,11 @@ impl_vec!(
     BackstageNavItemVecSlice,
     OptionBackstageNavItem
 );
-impl_vec_clone!(BackstageNavItem, BackstageNavItemVec, BackstageNavItemVecDestructor);
+impl_vec_clone!(
+    BackstageNavItem,
+    BackstageNavItemVec,
+    BackstageNavItemVecDestructor
+);
 impl_vec_debug!(BackstageNavItem, BackstageNavItemVec);
 impl_vec_mut!(BackstageNavItem, BackstageNavItemVec);
 
@@ -472,20 +560,25 @@ pub struct Backstage {
 
 // -- CSS classes --
 
-static CLS_BACKSTAGE: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-backstage"))];
-static CLS_NAV: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-backstage-nav"))];
-static CLS_NAV_ITEM: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-backstage-nav-item"))];
+static CLS_BACKSTAGE: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-backstage"))];
+static CLS_NAV: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-backstage-nav",
+))];
+static CLS_NAV_ITEM: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-backstage-nav-item",
+))];
 static CLS_NAV_ITEM_ACTIVE: &[IdOrClass] = &[
     Class(AzString::from_const_str("__azul-native-backstage-nav-item")),
-    Class(AzString::from_const_str("__azul-native-backstage-nav-item-active")),
+    Class(AzString::from_const_str(
+        "__azul-native-backstage-nav-item-active",
+    )),
 ];
-static CLS_RIGHT: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-backstage-right"))];
-static CLS_CONTENT: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-backstage-content"))];
+static CLS_RIGHT: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-backstage-right",
+))];
+static CLS_CONTENT: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-backstage-content",
+))];
 
 /// The default the Office-2013-era look nav labels, in order.
 pub const OFFICE_2013_NAV_LABELS: &[&str] = &[
@@ -667,19 +760,24 @@ impl Backstage {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(part_style)
-                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(item.label)]));
+                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
+                    item.label,
+                )]));
             if let Some(cb) = on_nav_select.as_ref() {
-                d = d.with_callbacks(vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    callback: CoreCallback {
-                        cb: on_backstage_nav_click as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: RefAny::new(NavClickData {
-                        item_idx: idx,
-                        on_nav_select: cb.clone(),
-                    }),
-                }].into());
+                d = d.with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        callback: CoreCallback {
+                            cb: on_backstage_nav_click as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(NavClickData {
+                            item_idx: idx,
+                            on_nav_select: cb.clone(),
+                        }),
+                    }]
+                    .into(),
+                );
             }
             nav_children.push(d);
         }
@@ -718,14 +816,17 @@ impl Backstage {
         // Escape leaves the backstage (window-level, focus-independent).
         if behavior.close_on_escape {
             if let Some(back) = on_back.into_option() {
-                root = root.with_callbacks(vec![CoreCallbackData {
-                    event: EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-                    callback: CoreCallback {
-                        cb: on_backstage_key_down as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: RefAny::new(EscCloseData { on_back: back }),
-                }].into());
+                root = root.with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+                        callback: CoreCallback {
+                            cb: on_backstage_key_down as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(EscCloseData { on_back: back }),
+                    }]
+                    .into(),
+                );
             }
         }
 
@@ -786,7 +887,9 @@ extern "C" fn on_backstage_key_down(mut data: RefAny, info: CallbackInfo) -> Upd
         return Update::DoNothing;
     };
     let is_escape = matches!(
-        info.get_current_keyboard_state().current_virtual_keycode.into_option(),
+        info.get_current_keyboard_state()
+            .current_virtual_keycode
+            .into_option(),
         Some(VirtualKeyCode::Escape)
     );
     if !is_escape {
@@ -835,7 +938,10 @@ mod tests {
 
     #[test]
     fn backstage_behavior_default_closes_on_escape() {
-        assert_eq!(BackstageBehavior::default(), BackstageBehavior::office_2013());
+        assert_eq!(
+            BackstageBehavior::default(),
+            BackstageBehavior::office_2013()
+        );
         assert!(BackstageBehavior::office_2013().close_on_escape);
         assert!(!BackstageBehavior::inert().close_on_escape);
     }
@@ -886,7 +992,10 @@ mod tests {
         assert!(dom.root.callbacks.as_ref().is_empty());
         // Behavior on + back callback: window-level key handler on the root.
         let dom = Backstage::office_2013()
-            .with_on_back(RefAny::new(()), back_cb as super::super::button::ButtonOnClickCallbackType)
+            .with_on_back(
+                RefAny::new(()),
+                back_cb as super::super::button::ButtonOnClickCallbackType,
+            )
             .dom();
         assert_eq!(dom.root.callbacks.as_ref().len(), 1);
         assert_eq!(
@@ -895,7 +1004,10 @@ mod tests {
         );
         // Behavior off: no handler even with a back callback.
         let dom = Backstage::office_2013()
-            .with_on_back(RefAny::new(()), back_cb as super::super::button::ButtonOnClickCallbackType)
+            .with_on_back(
+                RefAny::new(()),
+                back_cb as super::super::button::ButtonOnClickCallbackType,
+            )
             .with_behavior(BackstageBehavior::inert())
             .dom();
         assert!(dom.root.callbacks.as_ref().is_empty());

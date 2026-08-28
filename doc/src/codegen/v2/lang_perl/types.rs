@@ -90,11 +90,7 @@ pub fn emit_simple_enums(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Cod
 /// Emit `callback typedef` shims. FFI::Platypus represents function-pointer
 /// callbacks via `$ffi->type('(args)->ret' => 'name')`; the wrapper layer
 /// handles caller-side `$ffi->closure(sub { ... })` wrapping.
-pub fn emit_callback_typedefs(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) {
+pub fn emit_callback_typedefs(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("# --- Callback typedefs ----------------------------------------");
     for cb in &ir.callback_typedefs {
         emit_callback_typedef(builder, cb, config);
@@ -224,8 +220,7 @@ fn emit_monomorphized_alias(
                             inner_alias, field_name
                         ));
                     } else {
-                        let perl_type =
-                            type_with_ref_to_perl(&f.type_name, f.ref_kind, config, ir);
+                        let perl_type = type_with_ref_to_perl(&f.type_name, f.ref_kind, config, ir);
                         builder.line(&format!("'{}' => '{}',", perl_type, field_name));
                     }
                 }

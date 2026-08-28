@@ -19,10 +19,10 @@ use azul_core::geom::LogicalPosition;
 use azul_core::task::Instant;
 use azul_core::video::VideoFrame;
 use azul_css::{F32Vec, U8Vec};
-use azul_layout::managers::geolocation::{drain_location_fixes, push_location_fix};
 use azul_layout::managers::gamepad::{
     drain_gamepad_states, push_gamepad_state, GamepadId, GamepadManager, GamepadState,
 };
+use azul_layout::managers::geolocation::{drain_location_fixes, push_location_fix};
 use azul_layout::managers::gesture::GestureAndDragManager;
 use azul_layout::managers::sensors::{
     drain_sensor_readings, push_sensor_reading, SensorKind, SensorManager, SensorReading,

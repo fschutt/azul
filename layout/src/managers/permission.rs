@@ -118,15 +118,14 @@ pub enum PermissionState {
 
 impl PermissionState {
     /// `true` if the capability is currently usable, regardless of quality.
-    #[must_use] pub const fn is_granted(self) -> bool {
-        matches!(
-            self,
-            Self::Granted(..) | Self::EphemeralGranted(..)
-        )
+    #[must_use]
+    pub const fn is_granted(self) -> bool {
+        matches!(self, Self::Granted(..) | Self::EphemeralGranted(..))
     }
 
     /// `true` if a re-prompt could plausibly flip this to `Granted`.
-    #[must_use] pub const fn could_re_prompt(self) -> bool {
+    #[must_use]
+    pub const fn could_re_prompt(self) -> bool {
         matches!(self, Self::NotDetermined)
     }
 }
@@ -149,14 +148,10 @@ pub enum PermissionDiffEvent {
         node_id: DomNodeId,
     },
     /// Last bearing node left the layout. Refcount went 1 → 0.
-    Release {
-        capability: Capability,
-    },
+    Release { capability: Capability },
     /// Reserved for future use — currently never emitted. The diff path will
     /// fire it once `CameraPreview` etc. land with parameter fields.
-    Reconfigure {
-        capability: Capability,
-    },
+    Reconfigure { capability: Capability },
 }
 
 /// Per-capability state held across frames.
@@ -228,12 +223,14 @@ impl EventProvider for PermissionManager {
 }
 
 impl PermissionManager {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Read the most recently observed state for `capability`.
-    #[must_use] pub fn get_status(&self, capability: Capability) -> PermissionState {
+    #[must_use]
+    pub fn get_status(&self, capability: Capability) -> PermissionState {
         self.statuses
             .get(&capability)
             .map_or(PermissionState::NotDetermined, |e| e.state)
@@ -306,7 +303,8 @@ impl PermissionManager {
         entry.state = state;
         // MWA-A1b: remember the flip so the EventProvider can synthesize a
         // PermissionChanged event, targeted at the subscriber node when known.
-        self.pending_changed.push((capability, entry.last_subscriber));
+        self.pending_changed
+            .push((capability, entry.last_subscriber));
         true
     }
 
@@ -321,7 +319,8 @@ impl PermissionManager {
     /// async channel) — the capability pump keeps its timer armed so the
     /// outcome reaches callbacks even in an otherwise idle app (MWA-A1b
     /// arming signal).
-    #[must_use] pub fn has_pending_async(&self) -> bool {
+    #[must_use]
+    pub fn has_pending_async(&self) -> bool {
         self.statuses
             .values()
             .any(|e| e.state == PermissionState::Requested)
@@ -333,10 +332,9 @@ impl PermissionManager {
     }
 
     /// Refcount snapshot — primarily for diagnostics and tests.
-    #[must_use] pub fn refcount(&self, capability: Capability) -> u32 {
-        self.statuses
-            .get(&capability)
-            .map_or(0, |e| e.refcount)
+    #[must_use]
+    pub fn refcount(&self, capability: Capability) -> u32 {
+        self.statuses.get(&capability).map_or(0, |e| e.refcount)
     }
 
     /// Pre-compute the next-frame refcount map from a closure that yields
@@ -412,7 +410,9 @@ static ASYNC_RESULTS: std::sync::Mutex<Vec<(Capability, PermissionState)>> =
 /// dll) when an OS prompt resolves. Thread-safe; recovers from a poisoned
 /// lock so one panicking applier can't wedge delivery forever.
 pub fn push_async_result(capability: Capability, state: PermissionState) {
-    let mut q = ASYNC_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = ASYNC_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push((capability, state));
 }
 
@@ -420,7 +420,9 @@ pub fn push_async_result(capability: Capability, state: PermissionState) {
 /// Called once per layout pass; the caller applies each result through
 /// [`PermissionManager::set_status`] and relayouts if any changed.
 pub fn drain_async_results() -> Vec<(Capability, PermissionState)> {
-    let mut q = ASYNC_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = ASYNC_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -439,7 +441,10 @@ mod tests {
     #[test]
     fn subscribe_release_round_trip_emits_paired_events() {
         let mut mgr = PermissionManager::new();
-        assert_eq!(mgr.get_status(Capability::Geolocation), PermissionState::NotDetermined);
+        assert_eq!(
+            mgr.get_status(Capability::Geolocation),
+            PermissionState::NotDetermined
+        );
         assert_eq!(mgr.refcount(Capability::Geolocation), 0);
 
         mgr.subscribe(Capability::Geolocation, node(1));
@@ -448,7 +453,10 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0],
-            PermissionDiffEvent::Subscribe { capability: Capability::Geolocation, .. }
+            PermissionDiffEvent::Subscribe {
+                capability: Capability::Geolocation,
+                ..
+            }
         ));
 
         mgr.release(Capability::Geolocation);
@@ -457,7 +465,9 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0],
-            PermissionDiffEvent::Release { capability: Capability::Geolocation }
+            PermissionDiffEvent::Release {
+                capability: Capability::Geolocation
+            }
         ));
     }
 
@@ -490,7 +500,9 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0],
-            PermissionDiffEvent::Release { capability: Capability::Microphone }
+            PermissionDiffEvent::Release {
+                capability: Capability::Microphone
+            }
         ));
     }
 
@@ -507,7 +519,9 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0],
-            PermissionDiffEvent::Release { capability: Capability::Camera }
+            PermissionDiffEvent::Release {
+                capability: Capability::Camera
+            }
         ));
     }
 
@@ -536,7 +550,10 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0],
-            PermissionDiffEvent::Subscribe { capability: Capability::Geolocation, .. }
+            PermissionDiffEvent::Subscribe {
+                capability: Capability::Geolocation,
+                ..
+            }
         ));
 
         // Frame 2: probe removed.
@@ -546,7 +563,9 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0],
-            PermissionDiffEvent::Release { capability: Capability::Geolocation }
+            PermissionDiffEvent::Release {
+                capability: Capability::Geolocation
+            }
         ));
     }
 
@@ -567,7 +586,10 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(matches!(
             events[0],
-            PermissionDiffEvent::Subscribe { capability: Capability::Camera, .. }
+            PermissionDiffEvent::Subscribe {
+                capability: Capability::Camera,
+                ..
+            }
         ));
     }
 
@@ -599,7 +621,10 @@ mod tests {
             mgr.set_status(cap, state);
         }
         assert!(mgr.get_status(Capability::Camera).is_granted());
-        assert_eq!(mgr.get_status(Capability::Geolocation), PermissionState::Denied);
+        assert_eq!(
+            mgr.get_status(Capability::Geolocation),
+            PermissionState::Denied
+        );
 
         // A second drain is empty — the queue was taken, not copied.
         assert!(drain_async_results().is_empty());
@@ -627,14 +652,14 @@ mod pump_provider_tests {
         assert!(mgr.has_pending_async(), "Requested = OS prompt in flight");
         let events = mgr.get_pending_events(ts());
         assert_eq!(events.len(), 1);
-        assert_eq!(
-            events[0].event_type,
-            EventType::PermissionChanged
-        );
+        assert_eq!(events[0].event_type, EventType::PermissionChanged);
         assert_eq!(events[0].target, node, "targeted at the subscriber node");
 
         mgr.clear_pending_changed();
-        assert!(mgr.get_pending_events(ts()).is_empty(), "cleared after dispatch");
+        assert!(
+            mgr.get_pending_events(ts()).is_empty(),
+            "cleared after dispatch"
+        );
 
         assert!(mgr.set_status(
             Capability::Geolocation,
@@ -790,7 +815,11 @@ mod autotest_generated {
             }
         }
         let set: BTreeSet<PermissionState> = ALL_STATES.iter().copied().collect();
-        assert_eq!(set.len(), ALL_STATES.len(), "ALL_STATES contains a duplicate");
+        assert_eq!(
+            set.len(),
+            ALL_STATES.len(),
+            "ALL_STATES contains a duplicate"
+        );
     }
 
     // ── PermissionState predicates ──────────────────────────────────────
@@ -878,7 +907,10 @@ mod autotest_generated {
         }
         // Reading must not lazily create entries — an entry with refcount 0
         // would make `diff_layout` iterate capabilities nobody ever used.
-        assert!(mgr.statuses.is_empty(), "get_status/refcount created entries");
+        assert!(
+            mgr.statuses.is_empty(),
+            "get_status/refcount created entries"
+        );
     }
 
     #[test]
@@ -916,7 +948,11 @@ mod autotest_generated {
         for _ in 0..8 {
             mgr.release(Capability::Camera);
         }
-        assert_eq!(mgr.refcount(Capability::Camera), 0, "refcount wrapped around");
+        assert_eq!(
+            mgr.refcount(Capability::Camera),
+            0,
+            "refcount wrapped around"
+        );
         assert!(
             mgr.take_pending_events().is_empty(),
             "a release that never had a subscriber must not emit Release"
@@ -949,11 +985,18 @@ mod autotest_generated {
         drop(mgr.take_pending_events());
         // Reach the boundary directly — 4 billion subscribe() calls is not a
         // test. `statuses` is a pub field, so this is a supported shortcut.
-        mgr.statuses.get_mut(&Capability::Bluetooth).unwrap().refcount = u32::MAX;
+        mgr.statuses
+            .get_mut(&Capability::Bluetooth)
+            .unwrap()
+            .refcount = u32::MAX;
 
         mgr.subscribe(Capability::Bluetooth, node(2));
 
-        assert_eq!(mgr.refcount(Capability::Bluetooth), u32::MAX, "refcount wrapped to 0");
+        assert_eq!(
+            mgr.refcount(Capability::Bluetooth),
+            u32::MAX,
+            "refcount wrapped to 0"
+        );
         assert!(
             mgr.take_pending_events().is_empty(),
             "a saturating subscribe must not look like a 0 -> 1 transition"
@@ -970,7 +1013,10 @@ mod autotest_generated {
         let mut mgr = PermissionManager::new();
         mgr.subscribe(Capability::Contacts, node(1));
         drop(mgr.take_pending_events());
-        mgr.statuses.get_mut(&Capability::Contacts).unwrap().refcount = u32::MAX;
+        mgr.statuses
+            .get_mut(&Capability::Contacts)
+            .unwrap()
+            .refcount = u32::MAX;
 
         mgr.release(Capability::Contacts);
 
@@ -983,7 +1029,10 @@ mod autotest_generated {
         let mut mgr = PermissionManager::new();
         mgr.subscribe(Capability::ScreenCapture, node(1));
         drop(mgr.take_pending_events());
-        mgr.statuses.get_mut(&Capability::ScreenCapture).unwrap().refcount = u32::MAX;
+        mgr.statuses
+            .get_mut(&Capability::ScreenCapture)
+            .unwrap()
+            .refcount = u32::MAX;
 
         mgr.force_release(Capability::ScreenCapture);
         assert_eq!(mgr.refcount(Capability::ScreenCapture), 0);
@@ -1070,7 +1119,11 @@ mod autotest_generated {
             for state in ALL_STATES {
                 let mut mgr = PermissionManager::new();
                 mgr.set_status(cap, state);
-                assert_eq!(mgr.get_status(cap), state, "{cap:?} / {state:?} did not round-trip");
+                assert_eq!(
+                    mgr.get_status(cap),
+                    state,
+                    "{cap:?} / {state:?} did not round-trip"
+                );
                 // Writing one capability must not leak into any other.
                 for other in ALL_CAPS.iter().copied().filter(|c| *c != cap) {
                     assert_eq!(mgr.get_status(other), PermissionState::NotDetermined);
@@ -1099,7 +1152,11 @@ mod autotest_generated {
 
                 // One PermissionChanged event per *actual* flip, no more.
                 let expected = usize::from(changed_a) + usize::from(changed_b);
-                assert_eq!(mgr.get_pending_events(ts(0)).len(), expected, "{a:?} -> {b:?}");
+                assert_eq!(
+                    mgr.get_pending_events(ts(0)).len(),
+                    expected,
+                    "{a:?} -> {b:?}"
+                );
             }
         }
     }
@@ -1111,7 +1168,10 @@ mod autotest_generated {
         let entry = mgr.statuses[&Capability::Reminders];
         assert_eq!(entry.refcount, 0, "a status write is not a subscription");
         assert_eq!(entry.last_subscriber, None);
-        assert!(mgr.take_pending_events().is_empty(), "set_status is not a diff event");
+        assert!(
+            mgr.take_pending_events().is_empty(),
+            "set_status is not a diff event"
+        );
     }
 
     #[test]
@@ -1148,7 +1208,10 @@ mod autotest_generated {
             mgr.set_status(cap, PermissionState::Granted(PermissionQuality::Full));
         }
         assert!(!mgr.has_pending_async());
-        mgr.set_status(Capability::AppTrackingTransparency, PermissionState::Requested);
+        mgr.set_status(
+            Capability::AppTrackingTransparency,
+            PermissionState::Requested,
+        );
         assert!(mgr.has_pending_async());
         mgr.set_status(Capability::AppTrackingTransparency, PermissionState::Denied);
         assert!(!mgr.has_pending_async());
@@ -1165,7 +1228,11 @@ mod autotest_generated {
         assert_eq!(events[0].event_type, EventType::PermissionChanged);
         assert_eq!(events[0].source, CoreEventSource::User);
         assert_eq!(events[0].target, DomNodeId::ROOT);
-        assert_eq!(events[0].timestamp, ts(42), "the caller's timestamp is preserved");
+        assert_eq!(
+            events[0].timestamp,
+            ts(42),
+            "the caller's timestamp is preserved"
+        );
     }
 
     #[test]
@@ -1199,7 +1266,10 @@ mod autotest_generated {
         mgr.clear_pending_changed();
         assert!(mgr.get_pending_events(ts(0)).is_empty());
         mgr.clear_pending_changed();
-        assert!(mgr.get_pending_events(ts(0)).is_empty(), "clear is idempotent");
+        assert!(
+            mgr.get_pending_events(ts(0)).is_empty(),
+            "clear is idempotent"
+        );
     }
 
     #[test]
@@ -1398,7 +1468,11 @@ mod autotest_generated {
             let second = mgr.take_pending_events();
             (first, second)
         };
-        assert_eq!(run(), run(), "the diff-event order must not depend on run order");
+        assert_eq!(
+            run(),
+            run(),
+            "the diff-event order must not depend on run order"
+        );
     }
 
     #[test]
@@ -1475,7 +1549,11 @@ mod autotest_generated {
 
         assert_ne!(clone, mgr, "the clone shares state with the original");
         assert_eq!(mgr.refcount(Capability::Camera), 1);
-        assert_eq!(mgr.take_pending_events().len(), 1, "original's queue was drained");
+        assert_eq!(
+            mgr.take_pending_events().len(),
+            1,
+            "original's queue was drained"
+        );
         assert_eq!(mgr.get_pending_events(ts(0)).len(), 1);
     }
 
@@ -1518,7 +1596,10 @@ mod autotest_generated {
             "the queued event retargets to the window root"
         );
         // The permission state itself survives the DOM rebuild.
-        assert_eq!(mgr.get_status(Capability::Camera), PermissionState::Requested);
+        assert_eq!(
+            mgr.get_status(Capability::Camera),
+            PermissionState::Requested
+        );
     }
 
     #[test]
@@ -1555,7 +1636,10 @@ mod autotest_generated {
         for (i, state) in ALL_STATES.iter().enumerate() {
             assert_eq!(drained[i], (Capability::Camera, *state));
         }
-        assert!(drain_async_results().is_empty(), "the queue is taken, not copied");
+        assert!(
+            drain_async_results().is_empty(),
+            "the queue is taken, not copied"
+        );
     }
 
     #[test]
@@ -1570,8 +1654,14 @@ mod autotest_generated {
             let _guard = ASYNC_RESULTS.lock().unwrap();
             panic!("intentional: poisoning ASYNC_RESULTS");
         });
-        assert!(unwound.is_err(), "the panic must have unwound through the guard");
-        assert!(ASYNC_RESULTS.is_poisoned(), "the lock should now be poisoned");
+        assert!(
+            unwound.is_err(),
+            "the panic must have unwound through the guard"
+        );
+        assert!(
+            ASYNC_RESULTS.is_poisoned(),
+            "the lock should now be poisoned"
+        );
 
         // Documented contract: delivery keeps working after a poisoning.
         push_async_result(Capability::Geolocation, PermissionState::Denied);

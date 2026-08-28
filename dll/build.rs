@@ -1,4 +1,8 @@
-use std::{env, fs, path::{Path, PathBuf}, process::Command};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 /// Emit `AZUL_LIFT_BUILD_ID` for the web lift cache (see `main()`). A CI/docker
 /// build can override it explicitly; otherwise it's the short git hash, plus a
@@ -23,7 +27,11 @@ fn emit_lift_build_id() {
     let id = match git(&["rev-parse", "--short=12", "HEAD"]) {
         Some(hash) => {
             let dirty = git(&["status", "--porcelain"]).is_some_and(|s| !s.is_empty());
-            if dirty { format!("{hash}-dirty") } else { hash }
+            if dirty {
+                format!("{hash}-dirty")
+            } else {
+                hash
+            }
         }
         None => "unknown".to_string(),
     };
@@ -226,7 +234,10 @@ fn build_in_process_remill(target: &str) {
     if !is_apple && !is_linux {
         // Windows is M8.10 work — needs MSVC-built remill + LLVM, no
         // ready cxx-common bundle.
-        println!("cargo:warning=web-transpiler-static is macOS + Linux only; skipping for {}", target);
+        println!(
+            "cargo:warning=web-transpiler-static is macOS + Linux only; skipping for {}",
+            target
+        );
         return;
     }
 
@@ -423,7 +434,15 @@ fn build_remill_link_libs(remill_build: &Path, vcpkg_lib: &Path) -> Vec<PathBuf>
     // LLVM target backends (CodeGen, AsmParser, AsmPrinter, Desc,
     // Disassembler, Info, Utils, TargetMCA — not all variants exist
     // per target).
-    let llvm_targets = ["AArch64", "ARM", "NVPTX", "PowerPC", "Sparc", "WebAssembly", "X86"];
+    let llvm_targets = [
+        "AArch64",
+        "ARM",
+        "NVPTX",
+        "PowerPC",
+        "Sparc",
+        "WebAssembly",
+        "X86",
+    ];
     let llvm_kinds = [
         "CodeGen",
         "AsmParser",
@@ -518,7 +537,14 @@ fn build_remill_link_libs(remill_build: &Path, vcpkg_lib: &Path) -> Vec<PathBuf>
     }
 
     // Compression + math deps remill + LLVM rely on.
-    for name in &["libz3.a", "libz.a", "libzstd.a", "libxed.a", "libglog.a", "libgflags.a"] {
+    for name in &[
+        "libz3.a",
+        "libz.a",
+        "libzstd.a",
+        "libxed.a",
+        "libglog.a",
+        "libgflags.a",
+    ] {
         let p = vcpkg_lib.join(name);
         if p.exists() {
             libs.push(p);
@@ -543,8 +569,8 @@ fn check_generated_files() {
     };
 
     let checks: &[(&str, &str)] = &[
-        ("CARGO_FEATURE_CABI_INTERNAL",    "dll_api_internal.rs"),
-        ("CARGO_FEATURE_CABI_EXTERNAL",    "dll_api_external.rs"),
+        ("CARGO_FEATURE_CABI_INTERNAL", "dll_api_internal.rs"),
+        ("CARGO_FEATURE_CABI_EXTERNAL", "dll_api_external.rs"),
         ("CARGO_FEATURE_PYTHON_EXTENSION", "python_api.rs"),
     ];
 
@@ -594,13 +620,16 @@ fn lib_filename(target: &str) -> &'static str {
 }
 
 fn static_lib_filename(target: &str) -> &'static str {
-    if target.contains("windows") { "azul.lib" } else { "libazul.a" }
+    if target.contains("windows") {
+        "azul.lib"
+    } else {
+        "libazul.a"
+    }
 }
 
 /// Look for a shared library or .framework in `dir`.
 fn probe_dir(dir: &Path, target: &str) -> bool {
-    dir.join(lib_filename(target)).exists()
-        || dir.join("azul.framework").is_dir()
+    dir.join(lib_filename(target)).exists() || dir.join("azul.framework").is_dir()
 }
 
 /// Set up link search paths for `link-dynamic`.
@@ -652,11 +681,20 @@ fn configure_dynamic_linking(target: &str) {
     if !env_path.is_empty() {
         for entry in env_path.split(',') {
             let entry = entry.trim();
-            if entry.is_empty() { continue; }
+            if entry.is_empty() {
+                continue;
+            }
             let p = Path::new(entry);
-            let resolved = if p.is_absolute() { p.to_path_buf() } else { workspace_root.join(p) };
+            let resolved = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                workspace_root.join(p)
+            };
             let resolved = if resolved.is_file() {
-                resolved.parent().map(|d| d.to_path_buf()).unwrap_or(resolved)
+                resolved
+                    .parent()
+                    .map(|d| d.to_path_buf())
+                    .unwrap_or(resolved)
             } else {
                 resolved
             };
@@ -680,7 +718,11 @@ fn configure_dynamic_linking(target: &str) {
     // Where Cargo places the final binary (target/{debug,release}/)
     let bin_dir = Path::new(&out_dir)
         .ancestors()
-        .find(|p| p.file_name().map(|n| n == "debug" || n == "release").unwrap_or(false))
+        .find(|p| {
+            p.file_name()
+                .map(|n| n == "debug" || n == "release")
+                .unwrap_or(false)
+        })
         .map(|p| p.to_path_buf());
 
     // Force-static override: demos link the prebuilt libazul.a into a SINGLE
@@ -709,11 +751,18 @@ fn configure_dynamic_linking(target: &str) {
         } else {
             "local"
         };
-        println!("cargo:warning=Linking against {} [{}]: {}", lib_filename(target), kind, dir_str);
+        println!(
+            "cargo:warning=Linking against {} [{}]: {}",
+            lib_filename(target),
+            kind,
+            dir_str
+        );
 
         if dir_str.contains("/debug") && !dir_str.contains("/release") {
-            println!("cargo:warning=Note: linking against debug build of libazul — \
-                consider building with: cargo build --release -p azul-dll --features build-dll");
+            println!(
+                "cargo:warning=Note: linking against debug build of libazul — \
+                consider building with: cargo build --release -p azul-dll --features build-dll"
+            );
         }
 
         if *is_system {
@@ -771,7 +820,8 @@ fn configure_dynamic_linking(target: &str) {
         if dir.join(sname).exists() {
             println!(
                 "cargo:warning=Linking against {} [static fallback]: {}",
-                sname, dir.display(),
+                sname,
+                dir.display(),
             );
             println!("cargo:rustc-link-search=native={}", dir.display());
             println!("cargo:rustc-link-lib=static=azul");
@@ -782,7 +832,11 @@ fn configure_dynamic_linking(target: &str) {
 
     // Nothing found
     let searched: Vec<_> = dirs.iter().map(|(p, _)| p.display().to_string()).collect();
-    println!("cargo:warning=Could not find {} or {}", lib_filename(target), sname);
+    println!(
+        "cargo:warning=Could not find {} or {}",
+        lib_filename(target),
+        sname
+    );
     println!("cargo:warning=Set AZ_DLL_PATH to the directory containing the library");
     println!("cargo:warning=Searched: {}", searched.join(", "));
 }
@@ -839,8 +893,8 @@ fn emit_static_system_deps(target: &str) {
         // the next feature (audio timers, sockets, COM automation) does not
         // repeat this cycle.
         for lib in [
-            "user32", "gdi32", "shell32", "ole32", "oleaut32", "opengl32", "dwmapi",
-            "advapi32", "shcore", "bcrypt", "winmm", "ws2_32", "userenv", "ntdll",
+            "user32", "gdi32", "shell32", "ole32", "oleaut32", "opengl32", "dwmapi", "advapi32",
+            "shcore", "bcrypt", "winmm", "ws2_32", "userenv", "ntdll",
         ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
@@ -885,7 +939,11 @@ fn configure_ios() {
         .contains("ios-runner.sh")
     {
         fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        fs::write(&config_path, "[target.aarch64-apple-ios]\nrunner = \"scripts/ios-runner.sh\"\n").unwrap();
+        fs::write(
+            &config_path,
+            "[target.aarch64-apple-ios]\nrunner = \"scripts/ios-runner.sh\"\n",
+        )
+        .unwrap();
     }
 
     // Create the runner script (only if missing)
@@ -931,11 +989,12 @@ ios-deploy --bundle "${APP_BUNDLE_PATH}" --justlaunch
 /// in debug_server.rs, then served with Content-Encoding: br.
 fn compress_debugger_assets() {
     let out_dir = env::var("OUT_DIR").unwrap_or_default();
-    if out_dir.is_empty() { return; }
+    if out_dir.is_empty() {
+        return;
+    }
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let debugger_dir = Path::new(&manifest_dir)
-        .join("src/desktop/shell2/common/debugger");
+    let debugger_dir = Path::new(&manifest_dir).join("src/desktop/shell2/common/debugger");
 
     let assets = &[
         ("debugger.css", "debugger.css.br"),
@@ -945,12 +1004,13 @@ fn compress_debugger_assets() {
 
     for &(src_name, br_name) in assets {
         let src_path = debugger_dir.join(src_name);
-        if !src_path.exists() { continue; }
+        if !src_path.exists() {
+            continue;
+        }
 
         println!("cargo:rerun-if-changed={}", src_path.display());
         brotli_compress_file(&src_path, &Path::new(&out_dir).join(br_name));
     }
-
 }
 
 fn brotli_compress_file(src: &Path, dst: &Path) {

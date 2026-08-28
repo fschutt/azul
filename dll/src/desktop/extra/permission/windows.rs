@@ -58,7 +58,9 @@ pub fn probe_status(capability: Capability) -> PermissionState {
         }
     }
     match read_consent_value(HKEY_CURRENT_USER, subkey).as_deref() {
-        Some(v) if v.eq_ignore_ascii_case("Allow") => PermissionState::Granted(PermissionQuality::Full),
+        Some(v) if v.eq_ignore_ascii_case("Allow") => {
+            PermissionState::Granted(PermissionQuality::Full)
+        }
         Some(v) if v.eq_ignore_ascii_case("Deny") => PermissionState::Denied,
         _ => PermissionState::NotDetermined,
     }

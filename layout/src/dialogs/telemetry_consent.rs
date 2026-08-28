@@ -15,22 +15,22 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use azul_core::callbacks::Update;
 use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 use azul_core::dom::Dom;
 use azul_core::refany::RefAny;
-use azul_core::callbacks::Update;
 
 use crate::callbacks::CallbackInfo;
 
 use super::{cpu_dialog_window, style};
-use azul_css::AzString;
-use crate::widgets::button::{Button, ButtonOnClickCallbackType};
-use crate::widgets::check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState};
 use crate::telemetry::{
     config::{self, TelemetryTier},
     metrics,
     sharedconfig::{self, SharedConfig, SignalSet},
 };
+use crate::widgets::button::{Button, ButtonOnClickCallbackType};
+use crate::widgets::check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState};
+use azul_css::AzString;
 
 /// One inventory row's dialog state.
 #[derive(Debug, Clone)]
@@ -192,7 +192,10 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
     drop(ctx);
-    let state = info.get_ctx().into_option().unwrap_or_else(|| RefAny::new(()));
+    let state = info
+        .get_ctx()
+        .into_option()
+        .unwrap_or_else(|| RefAny::new(()));
 
     use azul_css::props::{
         basic::pixel::PixelValue,
@@ -219,10 +222,30 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
          without your consent; the rows below are the COMPLETE list.",
     ));
 
-    children.push(check_row(snapshot.crashes, "Crash reports (what went wrong, never your documents)", on_toggle_crashes, state.clone()));
-    children.push(check_row(snapshot.logs, "Diagnostic logs", on_toggle_logs, state.clone()));
-    children.push(check_row(snapshot.metrics, "Anonymous usage metrics (the checkmarks below)", on_toggle_metrics, state.clone()));
-    children.push(check_row(snapshot.appdata, "App state on crash (helps reproduce, may include document data)", on_toggle_appdata, state.clone()));
+    children.push(check_row(
+        snapshot.crashes,
+        "Crash reports (what went wrong, never your documents)",
+        on_toggle_crashes,
+        state.clone(),
+    ));
+    children.push(check_row(
+        snapshot.logs,
+        "Diagnostic logs",
+        on_toggle_logs,
+        state.clone(),
+    ));
+    children.push(check_row(
+        snapshot.metrics,
+        "Anonymous usage metrics (the checkmarks below)",
+        on_toggle_metrics,
+        state.clone(),
+    ));
+    children.push(check_row(
+        snapshot.appdata,
+        "App state on crash (helps reproduce, may include document data)",
+        on_toggle_appdata,
+        state.clone(),
+    ));
 
     children.push(Dom::create_p_with_text(
         "Collected metrics - uncheck any you do not want recorded:",
@@ -256,12 +279,7 @@ extern "C" fn dialog_layout(_data: RefAny, info: LayoutCallbackInfo) -> Dom {
 }
 
 /// Checkbox + label on one line (same shape as the report dialog's rows).
-fn check_row(
-    checked: bool,
-    label: &str,
-    cb: CheckBoxOnToggleCallbackType,
-    state: RefAny,
-) -> Dom {
+fn check_row(checked: bool, label: &str, cb: CheckBoxOnToggleCallbackType, state: RefAny) -> Dom {
     Dom::create_div().with_children(
         vec![
             CheckBox::create(checked).with_on_toggle(state, cb).dom(),

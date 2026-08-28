@@ -207,12 +207,7 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
 // Wrapper method emission
 // ============================================================================
 
-fn emit_wrapper_method(
-    builder: &mut CodeBuilder,
-    class: &str,
-    func: &FunctionDef,
-    ir: &CodegenIR,
-) {
+fn emit_wrapper_method(builder: &mut CodeBuilder, class: &str, func: &FunctionDef, ir: &CodegenIR) {
     let return_type = func
         .return_type
         .as_ref()
@@ -247,7 +242,14 @@ fn emit_wrapper_method(
             builder.line(&format!("\"{}\"", d.replace('"', "''")));
         }
     }
-    method_category_line(builder, if is_static { "instance creation" } else { "api" });
+    method_category_line(
+        builder,
+        if is_static {
+            "instance creation"
+        } else {
+            "api"
+        },
+    );
 
     let receiver = if is_static {
         format!("{} class", class)
@@ -450,4 +452,3 @@ fn to_pascal_local(s: &str) -> String {
     }
     out
 }
-

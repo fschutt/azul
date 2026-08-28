@@ -52,11 +52,10 @@ fn layout_one_paragraph(paragraph_css: &str) -> LayoutWindow {
          .p {{ display: block; {paragraph_css} }}"
     );
     let class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("p".into())].into();
-    let mut dom = Dom::create_body().with_child(
-        Dom::create_div()
-            .with_ids_and_classes(class)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(TEXT)),
-    );
+    let mut dom =
+        Dom::create_body().with_child(Dom::create_div().with_ids_and_classes(class).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(TEXT),
+        ));
     let (css, _) = azul_css::parser2::new_from_str(&css_src);
     let styled_dom = StyledDom::create(&mut dom, css);
     let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();

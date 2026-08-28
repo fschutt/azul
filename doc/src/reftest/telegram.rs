@@ -51,22 +51,20 @@ impl TelegramConfig {
         if !path.exists() {
             return Ok(None);
         }
-        let raw = fs::read_to_string(&path)
-            .map_err(|e| format!("read {}: {}", path.display(), e))?;
-        let cfg: Self = toml::from_str(&raw)
-            .map_err(|e| format!("parse {}: {}", path.display(), e))?;
+        let raw =
+            fs::read_to_string(&path).map_err(|e| format!("read {}: {}", path.display(), e))?;
+        let cfg: Self =
+            toml::from_str(&raw).map_err(|e| format!("parse {}: {}", path.display(), e))?;
         Ok(Some(cfg))
     }
 
     pub fn save_to_file(&self) -> Result<PathBuf, String> {
         let path = config_path();
         let dir = path.parent().ok_or("no parent dir for config_path")?;
-        fs::create_dir_all(dir)
-            .map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
-        let toml_str = toml::to_string_pretty(self)
-            .map_err(|e| format!("toml serialize: {}", e))?;
-        fs::write(&path, toml_str)
-            .map_err(|e| format!("write {}: {}", path.display(), e))?;
+        fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
+        let toml_str =
+            toml::to_string_pretty(self).map_err(|e| format!("toml serialize: {}", e))?;
+        fs::write(&path, toml_str).map_err(|e| format!("write {}: {}", path.display(), e))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -74,8 +72,7 @@ impl TelegramConfig {
                 .map_err(|e| format!("metadata: {}", e))?
                 .permissions();
             perms.set_mode(0o600);
-            fs::set_permissions(&path, perms)
-                .map_err(|e| format!("chmod 600: {}", e))?;
+            fs::set_permissions(&path, perms).map_err(|e| format!("chmod 600: {}", e))?;
         }
         Ok(path)
     }
@@ -129,11 +126,7 @@ impl TelegramBridge {
     /// is set to `false` explicitly on every send so the phone rings — the
     /// only reason a user might not hear the bot is per-chat mute on the
     /// Telegram client side.
-    pub fn send_message(
-        &self,
-        text: &str,
-        keyboard: Option<&[&[&str]]>,
-    ) -> Result<(), String> {
+    pub fn send_message(&self, text: &str, keyboard: Option<&[&[&str]]>) -> Result<(), String> {
         let url = format!("https://api.telegram.org/bot{}/sendMessage", self.token);
 
         let chunks = chunk_chars(text, 4000);
@@ -217,7 +210,9 @@ impl TelegramBridge {
         // file part
         buf.extend_from_slice(b"--");
         buf.extend_from_slice(boundary.as_bytes());
-        buf.extend_from_slice(b"\r\nContent-Disposition: form-data; name=\"document\"; filename=\"");
+        buf.extend_from_slice(
+            b"\r\nContent-Disposition: form-data; name=\"document\"; filename=\"",
+        );
         buf.extend_from_slice(filename.as_bytes());
         buf.extend_from_slice(b"\"\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n");
         buf.extend_from_slice(body_bytes);
@@ -238,11 +233,7 @@ impl TelegramBridge {
     /// Long-poll `getUpdates`. Returns `(reply, new_offset)`. `reply` is the
     /// most recent message text from the configured chat_id, or `None` if
     /// the timeout elapsed without a relevant message.
-    fn poll_once(
-        &self,
-        offset: i64,
-        timeout_secs: u32,
-    ) -> Result<(Option<String>, i64), String> {
+    fn poll_once(&self, offset: i64, timeout_secs: u32) -> Result<(Option<String>, i64), String> {
         let url = format!(
             "https://api.telegram.org/bot{}/getUpdates?offset={}&timeout={}&allowed_updates=%5B%22message%22%5D",
             self.token, offset, timeout_secs,
@@ -454,7 +445,10 @@ pub fn setup_interactive() -> Result<(), String> {
         .pointer("/result/username")
         .and_then(|v| v.as_str())
         .unwrap_or("?");
-    let bot_id = me.pointer("/result/id").and_then(|v| v.as_i64()).unwrap_or(0);
+    let bot_id = me
+        .pointer("/result/id")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     println!("  Token works: bot @{} (id {})", username, bot_id);
     println!();
 

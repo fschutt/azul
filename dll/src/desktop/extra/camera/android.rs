@@ -14,15 +14,14 @@ use ndk_sys::{
     ACameraCaptureSession, ACameraCaptureSession_close, ACameraCaptureSession_setRepeatingRequest,
     ACameraCaptureSession_stateCallbacks, ACameraDevice, ACameraDevice_StateCallbacks,
     ACameraDevice_close, ACameraDevice_createCaptureRequest, ACameraDevice_createCaptureSession,
-    ACameraDevice_request_template, ACameraIdList, ACameraManager,
-    ACameraManager_create, ACameraManager_delete, ACameraManager_deleteCameraIdList,
-    ACameraManager_getCameraIdList, ACameraManager_openCamera, ACameraOutputTarget,
-    ACameraOutputTarget_create, ACaptureRequest, ACaptureRequest_addTarget,
-    ACaptureSessionOutput, ACaptureSessionOutput_create, ACaptureSessionOutputContainer,
-    ACaptureSessionOutputContainer_add, ACaptureSessionOutputContainer_create, AImage,
-    AImage_delete, AImage_getPlaneData, AImage_getPlanePixelStride, AImage_getPlaneRowStride,
-    AImageReader, AImageReader_acquireLatestImage, AImageReader_delete, AImageReader_getWindow,
-    AImageReader_new,
+    ACameraDevice_request_template, ACameraIdList, ACameraManager, ACameraManager_create,
+    ACameraManager_delete, ACameraManager_deleteCameraIdList, ACameraManager_getCameraIdList,
+    ACameraManager_openCamera, ACameraOutputTarget, ACameraOutputTarget_create, ACaptureRequest,
+    ACaptureRequest_addTarget, ACaptureSessionOutput, ACaptureSessionOutputContainer,
+    ACaptureSessionOutputContainer_add, ACaptureSessionOutputContainer_create,
+    ACaptureSessionOutput_create, AImage, AImageReader, AImageReader_acquireLatestImage,
+    AImageReader_delete, AImageReader_getWindow, AImageReader_new, AImage_delete,
+    AImage_getPlaneData, AImage_getPlanePixelStride, AImage_getPlaneRowStride,
 };
 
 const AIMAGE_FORMAT_YUV_420_888: i32 = 0x23;
@@ -45,8 +44,16 @@ struct AndroidCam {
 /// YUV_420_888. Returns a boxed handle, or `0` on failure (test-pattern fallback).
 pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u64 {
     let index = request.index;
-    let width = if request.width == 0 { 640 } else { request.width };
-    let height = if request.height == 0 { 480 } else { request.height };
+    let width = if request.width == 0 {
+        640
+    } else {
+        request.width
+    };
+    let height = if request.height == 0 {
+        480
+    } else {
+        request.height
+    };
     unsafe {
         let manager = ACameraManager_create();
         if manager.is_null() {
@@ -126,7 +133,13 @@ pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u
             ACameraManager_delete(manager);
             return 0;
         }
-        ACameraCaptureSession_setRepeatingRequest(session, ptr::null_mut(), 1, &mut request, ptr::null_mut());
+        ACameraCaptureSession_setRepeatingRequest(
+            session,
+            ptr::null_mut(),
+            1,
+            &mut request,
+            ptr::null_mut(),
+        );
 
         Box::into_raw(Box::new(AndroidCam {
             manager,

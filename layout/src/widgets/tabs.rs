@@ -9,7 +9,9 @@ use azul_core::{
     dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+use azul_css::css::BoxOrStatic;
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -20,7 +22,6 @@ use azul_css::{
     },
     *,
 };
-use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -1205,7 +1206,8 @@ azul_core::impl_managed_callback! {
 }
 
 impl TabHeader {
-    #[must_use] pub fn create(tabs: StringVec) -> Self {
+    #[must_use]
+    pub fn create(tabs: StringVec) -> Self {
         Self {
             tabs,
             active_tab: 0,
@@ -1224,7 +1226,8 @@ impl TabHeader {
         self.active_tab = active_tab;
     }
 
-    #[must_use] pub const fn with_active_tab(mut self, active_tab: usize) -> Self {
+    #[must_use]
+    pub const fn with_active_tab(mut self, active_tab: usize) -> Self {
         self.set_active_tab(active_tab);
         self
     }
@@ -1248,7 +1251,8 @@ impl TabHeader {
     }
 
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::callbacks::CoreCallbackDataVec;
 
         // classes for previous tab
@@ -1277,9 +1281,9 @@ impl TabHeader {
         ];
 
         // classes for default inactive tab
-        const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[Class(
-            AzString::from_const_str("__azul-native-tabs-tab-not-active"),
-        )];
+        const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[Class(AzString::from_const_str(
+            "__azul-native-tabs-tab-not-active",
+        ))];
 
         let on_click_is_some = self.on_click.is_some();
 
@@ -1398,7 +1402,8 @@ impl Default for TabContent {
 }
 
 impl TabContent {
-    #[must_use] pub const fn new(content: Dom) -> Self {
+    #[must_use]
+    pub const fn new(content: Dom) -> Self {
         Self {
             content,
             has_padding: true,
@@ -1412,7 +1417,8 @@ impl TabContent {
         default
     }
 
-    #[must_use] pub const fn with_padding(mut self, padding: bool) -> Self {
+    #[must_use]
+    pub const fn with_padding(mut self, padding: bool) -> Self {
         self.set_padding(padding);
         self
     }
@@ -1421,7 +1427,8 @@ impl TabContent {
         self.has_padding = padding;
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[Class(
             AzString::from_const_str("__azul-native-tabs-content"),
         )];
@@ -1963,7 +1970,9 @@ mod autotest_generated {
         // border — a visible seam against the after-tabs spacer. Deliberately
         // pinned: if the widget starts range-checking `active_tab`, this flips.
         let n = 3usize;
-        let dom = TabHeader::create(numbered_labels(n)).with_active_tab(n).dom();
+        let dom = TabHeader::create(numbered_labels(n))
+            .with_active_tab(n)
+            .dom();
         let children = dom.children.as_ref();
 
         assert_eq!(
@@ -1989,9 +1998,15 @@ mod autotest_generated {
 
         assert_eq!(taken.tabs.as_ref(), strings(&["a", "b", "c"]).as_ref());
         assert_eq!(taken.active_tab, 2);
-        assert!(taken.on_click.is_some(), "the callback moves out with the state");
+        assert!(
+            taken.on_click.is_some(),
+            "the callback moves out with the state"
+        );
 
-        assert!(header.tabs.as_ref().is_empty(), "the husk must have no tabs");
+        assert!(
+            header.tabs.as_ref().is_empty(),
+            "the husk must have no tabs"
+        );
         assert_eq!(header.active_tab, 0);
         assert!(
             header.on_click.is_none(),
@@ -2057,10 +2072,12 @@ mod autotest_generated {
         header.set_on_click(RefAny::new(ClickLog::default()), cb(record_click));
         header.set_on_click(RefAny::new(42u32), cb(click_do_nothing));
 
-        let installed = header.on_click.as_mut().expect("still Some after overwrite");
+        let installed = header
+            .on_click
+            .as_mut()
+            .expect("still Some after overwrite");
         assert_eq!(
-            installed.callback.cb as usize,
-            click_do_nothing as usize,
+            installed.callback.cb as usize, click_do_nothing as usize,
             "the last set_on_click must win"
         );
         assert_eq!(
@@ -2116,7 +2133,10 @@ mod autotest_generated {
             let dom = TabHeader::create(numbered_labels(n)).dom();
 
             assert_eq!(class_strs(&dom), vec![CLASS_HEADER]);
-            assert_eq!(inline_declared(&dom), declared(&CSS_MATCH_9988039989460234263));
+            assert_eq!(
+                inline_declared(&dom),
+                declared(&CSS_MATCH_9988039989460234263)
+            );
             assert!(
                 matches!(dom.root.get_node_type(), NodeType::Div),
                 "the header itself is a plain div"
@@ -2191,7 +2211,9 @@ mod autotest_generated {
     #[test]
     fn dom_gives_the_neighbours_of_the_active_tab_their_seam_classes() {
         // active = 2 of 5: tab 1 loses its right border, tab 3 its left one.
-        let dom = TabHeader::create(numbered_labels(5)).with_active_tab(2).dom();
+        let dom = TabHeader::create(numbered_labels(5))
+            .with_active_tab(2)
+            .dom();
         let children = dom.children.as_ref();
 
         assert_eq!(class_strs(&children[1]), vec![CLASS_NOT_ACTIVE], "tab 0");
@@ -2217,7 +2239,9 @@ mod autotest_generated {
         // border straight against the active tab's right edge. Every other
         // selection (see the test above) does emit the class. Pinned as-is so the
         // fix flips this test loudly.
-        let dom = TabHeader::create(numbered_labels(4)).with_active_tab(0).dom();
+        let dom = TabHeader::create(numbered_labels(4))
+            .with_active_tab(0)
+            .dom();
         let children = dom.children.as_ref();
 
         assert_eq!(class_strs(&children[1]), vec![CLASS_ACTIVE], "tab 0");
@@ -2230,7 +2254,9 @@ mod autotest_generated {
 
         // The symmetric neighbour (active = 1) *does* get the class, which is what
         // makes the case above an inconsistency rather than a design choice.
-        let dom = TabHeader::create(numbered_labels(4)).with_active_tab(1).dom();
+        let dom = TabHeader::create(numbered_labels(4))
+            .with_active_tab(1)
+            .dom();
         assert_eq!(
             class_strs(&dom.children.as_ref()[3]),
             vec![CLASS_NO_LEFT, CLASS_NOT_ACTIVE],
@@ -2388,7 +2414,10 @@ mod autotest_generated {
             matches!(p, CssProperty::BorderLeftWidth(_))
         });
         assert_eq!(left.len(), 2, "the -noleftborder style declares it twice");
-        assert_eq!(left[0], CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::None));
+        assert_eq!(
+            left[0],
+            CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::None)
+        );
         assert_eq!(
             left[1],
             CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::Exact(
@@ -2430,7 +2459,10 @@ mod autotest_generated {
             CSS_MATCH_4738503469417034630_NO_PADDING,
         ] {
             assert!(
-                style.as_ref().iter().all(|p| p.apply_if.as_ref().is_empty()),
+                style
+                    .as_ref()
+                    .iter()
+                    .all(|p| p.apply_if.as_ref().is_empty()),
                 "this style must apply unconditionally"
             );
         }
@@ -2484,8 +2516,7 @@ mod autotest_generated {
                 "tabs must react on mouse-up, not mouse-down"
             );
             assert_eq!(
-                data.callback.cb,
-                on_tab_click as usize,
+                data.callback.cb, on_tab_click as usize,
                 "the dispatcher must be the widget's own trampoline"
             );
         }
@@ -2559,7 +2590,11 @@ mod autotest_generated {
                 .collect();
             shape
         };
-        assert_eq!(build(), build(), "dom() must be a pure function of its state");
+        assert_eq!(
+            build(),
+            build(),
+            "dom() must be a pure function of its state"
+        );
     }
 
     // ==================================================================
@@ -2868,8 +2903,8 @@ mod autotest_generated {
         // The widget is stateless: the handler reports the click and nothing
         // else. Re-rendering the *same* header must therefore keep tab 0 active.
         let user = RefAny::new(ClickLog::default());
-        let header = TabHeader::create(numbered_labels(3))
-            .with_on_click(user.clone(), cb(record_click));
+        let header =
+            TabHeader::create(numbered_labels(3)).with_on_click(user.clone(), cb(record_click));
         let dom = header.clone().dom();
 
         let data = dom.children.as_ref()[3]

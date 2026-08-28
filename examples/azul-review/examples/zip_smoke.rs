@@ -24,9 +24,16 @@ fn main() {
 
     let back = azul::zip::Zip::from_file(path.to_string_lossy().as_ref());
     assert_eq!(back.file_count(), 2, "round trip lost entries");
-    assert_eq!(back.get_file("session.json").as_ref(), br#"{"format":"azreview/1"}"#);
+    assert_eq!(
+        back.get_file("session.json").as_ref(),
+        br#"{"format":"azreview/1"}"#
+    );
     assert_eq!(back.get_file("clip-0.wav").as_ref().len(), 1024);
-    println!("OK  {} bytes on disk, {} entries back", disk.len(), back.file_count());
+    println!(
+        "OK  {} bytes on disk, {} entries back",
+        disk.len(),
+        back.file_count()
+    );
 }
 
 fn u8vec(v: &[u8]) -> azul::vec::U8Vec {

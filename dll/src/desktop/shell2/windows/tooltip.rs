@@ -121,7 +121,12 @@ impl TooltipWindow {
 
         // Set max width for multi-line tooltips (300 pixels)
         unsafe {
-            (win32.user32.SendMessageW)(hwnd_tooltip, TTM_SETMAXTIPWIDTH, 0, MAX_TOOLTIP_WIDTH_PX as LPARAM);
+            (win32.user32.SendMessageW)(
+                hwnd_tooltip,
+                TTM_SETMAXTIPWIDTH,
+                0,
+                MAX_TOOLTIP_WIDTH_PX as LPARAM,
+            );
         }
 
         Ok(Self {

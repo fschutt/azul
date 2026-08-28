@@ -12,12 +12,7 @@
 //! Soft-keyboard / IME support (Phase 5) needs a ~50-line Java JNI bridge that
 //! is compiled with plain `javac` + `d8` — still no Gradle.
 
-use std::{
-    cell::RefCell,
-    ffi::c_void,
-    sync::Arc,
-    time::Duration,
-};
+use std::{cell::RefCell, ffi::c_void, sync::Arc, time::Duration};
 
 use azul_core::{
     callbacks::RelayoutReason,
@@ -35,8 +30,8 @@ use azul_layout::{
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
 use crate::desktop::shell2::common::{
-    event::{self, CommonWindowState, HitTestNode, PlatformWindow},
     debug_server::LogCategory,
+    event::{self, CommonWindowState, HitTestNode, PlatformWindow},
     WindowError,
 };
 use crate::desktop::shell2::headless::CpuBackend;
@@ -154,7 +149,9 @@ impl AndroidWindow {
         })
     }
 
-    pub fn is_open(&self) -> bool { self.is_open }
+    pub fn is_open(&self) -> bool {
+        self.is_open
+    }
 
     /// Drain the accessibility actions TalkBack queued and apply them.
     ///
@@ -231,9 +228,12 @@ impl AndroidWindow {
         let borrows = self.common.layout_borrows();
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
-        let debug_enabled =
-            crate::desktop::shell2::common::debug_server::is_debug_enabled();
-        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let mut debug_messages = if debug_enabled {
+            Some(Vec::new())
+        } else {
+            None
+        };
 
         let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
@@ -262,7 +262,9 @@ impl AndroidWindow {
 
         // Rebuild CPU hit-tester from new layout results
         if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+            self.cpu_backend
+                .hit_tester
+                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
@@ -310,7 +312,8 @@ impl AndroidWindow {
         #[cfg(feature = "a11y")]
         self.refresh_accessibility_tree();
 
-        self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+        self.common
+            .clear_regeneration_unless_reraised(regen_epoch_seen);
         Ok(result)
     }
 }
@@ -328,13 +331,17 @@ impl PlatformWindow for AndroidWindow {
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         #[cfg(feature = "ndk")]
-        let ptr = self.native_window.as_ref()
+        let ptr = self
+            .native_window
+            .as_ref()
             .map(|nw| nw.ptr().as_ptr() as *mut c_void)
             .unwrap_or(std::ptr::null_mut());
         #[cfg(not(feature = "ndk"))]
         let ptr = std::ptr::null_mut();
 
-        RawWindowHandle::Android(AndroidHandle { a_native_window: ptr })
+        RawWindowHandle::Android(AndroidHandle {
+            a_native_window: ptr,
+        })
     }
 
     fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows<'_> {
@@ -357,7 +364,8 @@ impl PlatformWindow for AndroidWindow {
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         if let Some(lw) = self.common.layout_window.as_mut() {
-            lw.timers.insert(azul_core::task::TimerId { id: timer_id }, timer);
+            lw.timers
+                .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
     }
     fn stop_timer(&mut self, timer_id: usize) {
@@ -370,10 +378,7 @@ impl PlatformWindow for AndroidWindow {
 
     fn add_threads(
         &mut self,
-        threads: std::collections::BTreeMap<
-            azul_core::task::ThreadId,
-            azul_layout::thread::Thread,
-        >,
+        threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     ) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for (id, thread) in threads {
@@ -401,13 +406,15 @@ impl PlatformWindow for AndroidWindow {
         &mut self,
         _menu: &azul_core::menu::Menu,
         _position: azul_core::geom::LogicalPosition,
-    ) {}
+    ) {
+    }
 
     fn show_tooltip_from_callback(
         &mut self,
         _text: &str,
         _position: azul_core::geom::LogicalPosition,
-    ) {}
+    ) {
+    }
 
     fn hide_tooltip_from_callback(&mut self) {}
 
@@ -446,18 +453,24 @@ pub fn android_main(app: AndroidApp) {
         }
     };
 
-    let mut window =
-        match AndroidWindow::new(root_window, fc_cache, config, app_data, undo_manager, font_registry) {
-            Ok(w) => w,
-            Err(e) => {
-                log_error!(
-                    LogCategory::EventLoop,
-                    "[Android] AndroidWindow::new failed: {:?}",
-                    e
-                );
-                return;
-            }
-        };
+    let mut window = match AndroidWindow::new(
+        root_window,
+        fc_cache,
+        config,
+        app_data,
+        undo_manager,
+        font_registry,
+    ) {
+        Ok(w) => w,
+        Err(e) => {
+            log_error!(
+                LogCategory::EventLoop,
+                "[Android] AndroidWindow::new failed: {:?}",
+                e
+            );
+            return;
+        }
+    };
 
     // Publish the window address so AzulActivity.onWindowFocusChanged can
     // hand it to NativeGestureBridge. `&mut window` is stable for the
@@ -465,8 +478,10 @@ pub fn android_main(app: AndroidApp) {
     // AzulActivity has constructed the bridge, the Java side never
     // dereferences the pointer except from JNI callbacks that this same
     // thread eventually processes via MainEvent::InputAvailable.
-    ANDROID_WINDOW_PTR
-        .store(&mut window as *mut AndroidWindow as i64, core::sync::atomic::Ordering::SeqCst);
+    ANDROID_WINDOW_PTR.store(
+        &mut window as *mut AndroidWindow as i64,
+        core::sync::atomic::Ordering::SeqCst,
+    );
 
     // Publish the JavaVM + Activity pointers so dll::extra::file_picker
     // (and future native-call paths — permission, soft keyboard) can
@@ -479,9 +494,17 @@ pub fn android_main(app: AndroidApp) {
         // at frame rate when we do (foreground rendering).
         let timeout = {
             #[cfg(feature = "ndk")]
-            { if window.native_window.is_some() { Some(Duration::from_millis(16)) } else { None } }
+            {
+                if window.native_window.is_some() {
+                    Some(Duration::from_millis(16))
+                } else {
+                    None
+                }
+            }
             #[cfg(not(feature = "ndk"))]
-            { Some(Duration::from_millis(16)) }
+            {
+                Some(Duration::from_millis(16))
+            }
         };
 
         app.poll_events(timeout, |event| {
@@ -494,7 +517,9 @@ pub fn android_main(app: AndroidApp) {
         // animation advanced. The 16 ms poll above was already the right place
         // to drive it; it simply was never wired.
         if window.process_timers_and_threads() {
-            window.common.request_regeneration(RelayoutReason::RefreshDom);
+            window
+                .common
+                .request_regeneration(RelayoutReason::RefreshDom);
         }
 
         // Accessibility actions arrive off-loop: TalkBack calls
@@ -538,7 +563,10 @@ pub fn android_main(app: AndroidApp) {
         }
     }
 
-    log_info!(LogCategory::EventLoop, "[Android] android_main exiting cleanly");
+    log_info!(
+        LogCategory::EventLoop,
+        "[Android] android_main exiting cleanly"
+    );
 }
 
 /// The reason tag for a geometry/density-driven regeneration.
@@ -569,7 +597,9 @@ fn drain_pending_theme(window: &mut AndroidWindow) {
     }
     window.snapshot_window_state_baseline("android.drain_pending_theme");
     window.common.update_unsynced_state(|ws| ws.theme = theme);
-    window.common.request_regeneration(RelayoutReason::ThemeChange);
+    window
+        .common
+        .request_regeneration(RelayoutReason::ThemeChange);
     let _ = window.process_window_events(0);
 }
 
@@ -605,9 +635,11 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // Android-native scale factor, not the framework's).
                 let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
                 let dpi = ((density as f32) * 96.0 / 160.0).round() as u32;
-                window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                    ws.size.dpi = dpi.max(1);
-                });
+                window
+                    .common
+                    .update_window_state(event::WindowStateSource::Os, |ws| {
+                        ws.size.dpi = dpi.max(1);
+                    });
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = app.native_window() {
@@ -621,10 +653,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                             "[Android] InitWindow physical={}x{} density={} (azul dpi={}) logical={}x{}",
                             nw.width(), nw.height(), density, dpi, logical_w, logical_h,
                         );
-                        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                            ws.size.dimensions.width = logical_w;
-                            ws.size.dimensions.height = logical_h;
-                        });
+                        window
+                            .common
+                            .update_window_state(event::WindowStateSource::Os, |ws| {
+                                ws.size.dimensions.width = logical_w;
+                                ws.size.dimensions.height = logical_h;
+                            });
                         window.native_window = Some(nw);
                         // On the launch InitWindow this preserves the queued
                         // `Initial`; on a re-attach (rotation recreates the
@@ -639,7 +673,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             MainEvent::TerminateWindow { .. } => {
                 log_debug!(LogCategory::Window, "[Android] TerminateWindow");
                 #[cfg(feature = "ndk")]
-                { window.native_window = None; }
+                {
+                    window.native_window = None;
+                }
             }
             MainEvent::WindowResized { .. } => {
                 // Contract shape (snapshot → mutate → pass) — see InitWindow.
@@ -649,10 +685,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                     if let Some(nw) = window.native_window.as_ref() {
                         let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
                         let android_scale = (density as f32) / 160.0;
-                        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                            ws.size.dimensions.width = (nw.width() as f32) / android_scale;
-                            ws.size.dimensions.height = (nw.height() as f32) / android_scale;
-                        });
+                        window
+                            .common
+                            .update_window_state(event::WindowStateSource::Os, |ws| {
+                                ws.size.dimensions.width = (nw.width() as f32) / android_scale;
+                                ws.size.dimensions.height = (nw.height() as f32) / android_scale;
+                            });
                     }
                 }
                 let reason = resize_reason(window);
@@ -673,16 +711,20 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                     // diff is what dispatches WindowDpiChanged.
                     window.snapshot_window_state_baseline("android.main_event.config_changed");
                     let reason = resize_reason(window);
-                    window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                        ws.size.dpi = dpi;
-                    });
+                    window
+                        .common
+                        .update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.size.dpi = dpi;
+                        });
                     #[cfg(feature = "ndk")]
                     if let Some(nw) = window.native_window.as_ref() {
                         let android_scale = (density as f32) / 160.0;
-                        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                            ws.size.dimensions.width = (nw.width() as f32) / android_scale;
-                            ws.size.dimensions.height = (nw.height() as f32) / android_scale;
-                        });
+                        window
+                            .common
+                            .update_window_state(event::WindowStateSource::Os, |ws| {
+                                ws.size.dimensions.width = (nw.width() as f32) / android_scale;
+                                ws.size.dimensions.height = (nw.height() as f32) / android_scale;
+                            });
                     }
                     window.common.request_regeneration(reason);
                     let _ = window.process_window_events(0);
@@ -696,7 +738,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // compositor state loss). Presents are gated on regeneration,
                 // so raise the request — the regenerate takes the incremental
                 // "nothing changed" path and the blit re-posts the pixmap.
-                window.common.request_regeneration(RelayoutReason::RefreshDom);
+                window
+                    .common
+                    .request_regeneration(RelayoutReason::RefreshDom);
             }
             MainEvent::Destroy => {
                 window.close();
@@ -749,8 +793,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     }
     let mut motion_updates: Vec<MotionUpdate> = Vec::new();
     // (KeyAction, Option<VirtualKeyCode>) — None for unmapped keycodes.
-    let mut key_updates: Vec<(KeyAction, Option<azul_core::window::VirtualKeyCode>)> =
-        Vec::new();
+    let mut key_updates: Vec<(KeyAction, Option<azul_core::window::VirtualKeyCode>)> = Vec::new();
     // Pen / stylus samples — populated when any pointer in a MotionEvent
     // reports `ToolType::Stylus` or `ToolType::Eraser`. tilt is decomposed
     // into (x_tilt_deg, y_tilt_deg) so it matches the W3C
@@ -890,8 +933,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             match update.action {
                 MotionAction::Up | MotionAction::Cancel => {
                     // Last finger lifted — clear.
-                    ts.touch_points =
-                        azul_core::window::TouchPointVec::from_const_slice(&[]);
+                    ts.touch_points = azul_core::window::TouchPointVec::from_const_slice(&[]);
                 }
                 _ => {
                     ts.touch_points =
@@ -905,7 +947,9 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         window.update_hit_test_at(update.mouse_pos);
         let r = window.process_window_events(0);
         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-            window.common.request_regeneration(RelayoutReason::RefreshDom);
+            window
+                .common
+                .request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -929,7 +973,9 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             } else {
                 lw.gesture_drag_manager.clear_pen_state();
             }
-            window.common.request_regeneration(RelayoutReason::RefreshDom);
+            window
+                .common
+                .request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -961,7 +1007,9 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         }
         let r = window.process_window_events(0);
         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-            window.common.request_regeneration(RelayoutReason::RefreshDom);
+            window
+                .common
+                .request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -1004,7 +1052,12 @@ fn map_keycode(k: Keycode) -> Option<azul_core::window::VirtualKeyCode> {
     })
 }
 
-#[cfg(all(target_os = "android", feature = "android-activity", feature = "ndk", feature = "cpurender"))]
+#[cfg(all(
+    target_os = "android",
+    feature = "android-activity",
+    feature = "ndk",
+    feature = "cpurender"
+))]
 fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // Sprint G: pixmap → ANativeWindow_lock → memcpy → unlockAndPost.
     //
@@ -1023,7 +1076,9 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
 
     let pw = pixmap.width() as i32;
     let ph = pixmap.height() as i32;
-    if pw <= 0 || ph <= 0 { return Ok(()); }
+    if pw <= 0 || ph <= 0 {
+        return Ok(());
+    }
 
     // Tell the surface we want RGBA8 of this exact size. If Android can't
     // satisfy (surface gone, surfaceflinger rejected the format) SKIP the
@@ -1031,13 +1086,16 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // match the bytes we are about to write, and the old `let _ =` swallow
     // then blitted RGBA rows into it regardless.
     if let Err(e) = nw.set_buffers_geometry(
-        pw, ph,
+        pw,
+        ph,
         Some(ndk::hardware_buffer_format::HardwareBufferFormat::R8G8B8A8_UNORM),
     ) {
         log_debug!(
             LogCategory::Rendering,
             "[Android] setBuffersGeometry({}x{} RGBA8) failed: {}; skipping frame",
-            pw, ph, e,
+            pw,
+            ph,
+            e,
         );
         return Ok(());
     }
@@ -1045,7 +1103,11 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     let mut guard = match nw.lock(None) {
         Ok(g) => g,
         Err(e) => {
-            log_debug!(LogCategory::Rendering, "[Android] ANativeWindow_lock failed: {}", e);
+            log_debug!(
+                LogCategory::Rendering,
+                "[Android] ANativeWindow_lock failed: {}",
+                e
+            );
             return Ok(());
         }
     };
@@ -1116,7 +1178,12 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
 }
 
 /// Fallback stub for non-android-activity / non-ndk / non-cpurender builds.
-#[cfg(not(all(target_os = "android", feature = "android-activity", feature = "ndk", feature = "cpurender")))]
+#[cfg(not(all(
+    target_os = "android",
+    feature = "android-activity",
+    feature = "ndk",
+    feature = "cpurender"
+)))]
 fn render_frame(_window: &mut AndroidWindow) -> Result<(), WindowError> {
     Ok(())
 }
@@ -1136,8 +1203,7 @@ pub fn android_main_stub() {}
 // ---------------------------------------------------------------------------
 
 #[cfg(all(target_os = "android", feature = "android-activity"))]
-static ANDROID_WINDOW_PTR: core::sync::atomic::AtomicI64 =
-    core::sync::atomic::AtomicI64::new(0);
+static ANDROID_WINDOW_PTR: core::sync::atomic::AtomicI64 = core::sync::atomic::AtomicI64::new(0);
 
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 #[no_mangle]
@@ -1217,11 +1283,10 @@ fn publish_jni_context(app: &AndroidApp) {
 
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 mod jni_bridge {
-    use azul_layout::managers::gesture::{
-        DetectedLongPress, DetectedPinch, DetectedRotation, GestureDirection,
-        NativeGestureEvent,
-    };
     use azul_core::geom::LogicalPosition;
+    use azul_layout::managers::gesture::{
+        DetectedLongPress, DetectedPinch, DetectedRotation, GestureDirection, NativeGestureEvent,
+    };
     // A nested `mod` does NOT inherit the file's `use` items, and this one
     // was missing the reason type entirely — `inject()` below has always
     // referred to a `RelayoutReason` that is not in scope here. It surfaced
@@ -1247,7 +1312,9 @@ mod jni_bridge {
     fn inject(window: &mut super::AndroidWindow, gesture: NativeGestureEvent) {
         if let Some(lw) = window.common.layout_window.as_mut() {
             lw.gesture_drag_manager.inject_native_gesture(gesture);
-            window.common.request_regeneration(RelayoutReason::RefreshDom);
+            window
+                .common
+                .request_regeneration(RelayoutReason::RefreshDom);
         }
     }
 
@@ -1308,12 +1375,15 @@ mod jni_bridge {
         duration_ms: i64,
     ) {
         with_window(native_ptr, |w| {
-            inject(w, NativeGestureEvent::LongPress(DetectedLongPress {
-                position: LogicalPosition { x, y },
-                duration_ms: duration_ms as u64,
-                callback_invoked: false,
-                session_id: 0,
-            }));
+            inject(
+                w,
+                NativeGestureEvent::LongPress(DetectedLongPress {
+                    position: LogicalPosition { x, y },
+                    duration_ms: duration_ms as u64,
+                    callback_invoked: false,
+                    session_id: 0,
+                }),
+            );
         });
     }
 
@@ -1348,13 +1418,19 @@ mod jni_bridge {
         duration_ms: i64,
     ) {
         with_window(native_ptr, |w| {
-            inject(w, NativeGestureEvent::Pinch(DetectedPinch {
-                scale,
-                center: LogicalPosition { x: center_x, y: center_y },
-                initial_distance,
-                current_distance,
-                duration_ms: duration_ms as u64,
-            }));
+            inject(
+                w,
+                NativeGestureEvent::Pinch(DetectedPinch {
+                    scale,
+                    center: LogicalPosition {
+                        x: center_x,
+                        y: center_y,
+                    },
+                    initial_distance,
+                    current_distance,
+                    duration_ms: duration_ms as u64,
+                }),
+            );
         });
     }
 
@@ -1369,11 +1445,17 @@ mod jni_bridge {
         duration_ms: i64,
     ) {
         with_window(native_ptr, |w| {
-            inject(w, NativeGestureEvent::Rotation(DetectedRotation {
-                angle_radians,
-                center: LogicalPosition { x: center_x, y: center_y },
-                duration_ms: duration_ms as u64,
-            }));
+            inject(
+                w,
+                NativeGestureEvent::Rotation(DetectedRotation {
+                    angle_radians,
+                    center: LogicalPosition {
+                        x: center_x,
+                        y: center_y,
+                    },
+                    duration_ms: duration_ms as u64,
+                }),
+            );
         });
     }
 }

@@ -104,7 +104,9 @@ fn test_body_margin_15vh_auto() {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
@@ -112,19 +114,19 @@ fn test_body_margin_15vh_auto() {
     // Get body position from layout cache
     // Body should be at node index 1 (html is 0, body is 1)
     let body_position = layout_cache.calculated_positions.get(1);
-    
+
     println!("Layout cache positions:");
     for (id, pos) in layout_cache.calculated_positions.iter().enumerate() {
         println!("  Node {id}: {pos:?}");
     }
-    
+
     // Expected: 15% of 768px = 115.2px
     let expected_body_y = 768.0 * 0.15;
     println!("Expected body Y: {expected_body_y:.2}");
-    
+
     if let Some(pos) = body_position {
         println!("Actual body Y: {:.2}", pos.y);
-        
+
         // Allow small floating-point tolerance
         let tolerance = 1.0;
         assert!(

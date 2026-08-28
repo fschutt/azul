@@ -98,7 +98,7 @@ fn test_add_multiple_floats() {
     let wm = LayoutWritingMode::HorizontalTb;
     let (start, end) = ctx.available_line_box_space(0.0, 50.0, 800.0, wm);
     assert_eq!(start, 100.0); // left float at x=0..100
-    assert_eq!(end, 200.0);   // right float at x=200..300
+    assert_eq!(end, 200.0); // right float at x=200..300
 }
 
 // ============================================================================

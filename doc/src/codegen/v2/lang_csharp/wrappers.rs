@@ -186,9 +186,10 @@ fn format_option_delete_block_cs(option_type_name: &str, ir: &CodegenIR) -> Opti
 
 fn format_clone_call_cs(payload_type_name: &str, ir: &CodegenIR) -> Option<String> {
     use super::super::ir::FunctionKind;
-    let has_clone = ir.functions.iter().any(|f| {
-        f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy)
-    });
+    let has_clone = ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy));
     if !has_clone {
         return None;
     }
@@ -260,9 +261,7 @@ fn emit_cs_option_body(
                     "System.Runtime.InteropServices.Marshal.StructureToPtr(__nv.Value, __nv_ptr, false);"
                 ));
                 builder.line(&format!("var __cloned = {}(__nv_ptr);", clone));
-                builder.line(
-                    "System.Runtime.InteropServices.Marshal.FreeHGlobal(__nv_ptr);",
-                );
+                builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__nv_ptr);");
                 emit_delete(builder);
                 builder.line(&format!("return new {}(__cloned);", unprefixed));
             } else {
@@ -321,9 +320,7 @@ fn emit_cs_result_body(
                     "System.Runtime.InteropServices.Marshal.StructureToPtr(__u, __u_ptr, false);",
                 );
                 builder.line(&format!("var __cloned = {}(__u_ptr);", clone));
-                builder.line(
-                    "System.Runtime.InteropServices.Marshal.FreeHGlobal(__u_ptr);",
-                );
+                builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__u_ptr);");
                 emit_delete(builder);
                 builder.line(&format!("return new {}(__cloned);", unprefixed));
             } else {
@@ -463,15 +460,10 @@ fn detect_vec_elem_type_cs(s: &StructDef) -> Option<String> {
     if s.fields.len() != 4 {
         return None;
     }
-    if s.fields[0].name != "ptr"
-        || s.fields[1].name != "len"
-        || s.fields[2].name != "cap"
-    {
+    if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {
         return None;
     }
-    if s.fields[1].type_name.trim() != "usize"
-        || s.fields[2].type_name.trim() != "usize"
-    {
+    if s.fields[1].type_name.trim() != "usize" || s.fields[2].type_name.trim() != "usize" {
         return None;
     }
     let raw = s.fields[0].type_name.trim();
@@ -502,18 +494,25 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     let vec_elem_type = detect_vec_elem_type_cs(s);
     let vec_elem_has_wrapper = |elem: &str| -> bool {
         ir.find_struct(elem).is_some()
-            && ir.functions.iter().any(|f| {
-                f.class_name == elem && f.kind == FunctionKind::Delete
-            })
+            && ir
+                .functions
+                .iter()
+                .any(|f| f.class_name == elem && f.kind == FunctionKind::Delete)
     };
     let extra_iface = match &vec_elem_type {
         Some(elem) if vec_elem_has_wrapper(elem) => {
-            format!(", System.Collections.Generic.IEnumerable<{}>", sanitize_class_name(elem))
+            format!(
+                ", System.Collections.Generic.IEnumerable<{}>",
+                sanitize_class_name(elem)
+            )
         }
         _ => String::new(),
     };
 
-    builder.line(&format!("public sealed class {} : IDisposable{}", class_name, extra_iface));
+    builder.line(&format!(
+        "public sealed class {} : IDisposable{}",
+        class_name, extra_iface
+    ));
     builder.line("{");
     builder.indent();
 
@@ -597,10 +596,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         builder.line("{");
         builder.indent();
         builder.line("var __data = HostInvoker.RefanyCreate(data);");
-        builder.line(&format!(
-            "var __cb = HostInvoker.{}(fn);",
-            register_method
-        ));
+        builder.line(&format!("var __cb = HostInvoker.{}(fn);", register_method));
         builder.line(&format!(
             "return {}(new RefAny(__data), new {}(__cb));",
             with_pascal, wrapper_kind
@@ -611,7 +607,8 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     }
 
     if matches!(s.category, TypeCategory::String) {
-        builder.line("/// <summary>Decode the wrapped UTF-8 bytes into a managed string.</summary>");
+        builder
+            .line("/// <summary>Decode the wrapped UTF-8 bytes into a managed string.</summary>");
         builder.line("public override string ToString()");
         builder.line("{");
         builder.indent();
@@ -663,7 +660,12 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
         // the leaf, then re-assign back up. Path length 1 collapses
         // to a single assignment.
         let depth = info.field_path.len();
-        for (i, seg) in info.field_path.iter().enumerate().take(depth.saturating_sub(1)) {
+        for (i, seg) in info
+            .field_path
+            .iter()
+            .enumerate()
+            .take(depth.saturating_sub(1))
+        {
             let parent_var = if i == 0 {
                 "__wco".to_string()
             } else {
@@ -754,11 +756,9 @@ fn emit_cs_equals_hashcode_if_supported(
     ir: &CodegenIR,
 ) {
     let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq
-        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
     let hash_sym = format!("Az{}_hash", s.name);
-    let has_hash = s.traits.is_hash
-        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+    let has_hash = s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == hash_sym);
 
     if has_eq {
         builder.line(&format!(
@@ -787,11 +787,9 @@ fn emit_cs_equals_hashcode_if_supported(
         builder.line("{");
         builder.indent();
         builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, aPtr, false);");
-        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(o._inner, bPtr, false);");
-        builder.line(&format!(
-            "return NativeMethods.{}(aPtr, bPtr);",
-            eq_sym
-        ));
+        builder
+            .line("System.Runtime.InteropServices.Marshal.StructureToPtr(o._inner, bPtr, false);");
+        builder.line(&format!("return NativeMethods.{}(aPtr, bPtr);", eq_sym));
         builder.dedent();
         builder.line("}");
         builder.line("finally");
@@ -840,27 +838,23 @@ fn emit_cs_equals_hashcode_if_supported(
 }
 
 /// Phase I.3 (C#): override ToString() through Az<X>_toDbgString.
-fn emit_cs_toString_if_supported(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_cs_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug
-        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
     if !has_dbg {
         return;
     }
     // Skip when the user-facing surface already defines `ToString()`
     // (e.g. `AzUrl_toString` / `AzJson_toString` map to `Url.ToString` /
     // `Json.ToString`). Avoid CS0111 duplicate-member errors.
-    if ir.functions.iter().any(|f| {
-        f.class_name == s.name
-            && idiomatic_method_name(&f.method_name) == "ToString"
-    }) {
+    if ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == "ToString")
+    {
         return;
     }
     builder.line(&format!(
@@ -918,11 +912,7 @@ fn emit_cs_toString_if_supported(
 /// Primitive-element Vec sibling: bulk-copy via `Marshal.Copy` into
 /// a C# native typed array (`byte[]`/`int[]`/`long[]`/...). One
 /// memcpy — fully independent of the Vec's lifetime.
-fn emit_cs_vec_primitive_array(
-    builder: &mut CodeBuilder,
-    _s: &StructDef,
-    elem_rust: &str,
-) {
+fn emit_cs_vec_primitive_array(builder: &mut CodeBuilder, _s: &StructDef, elem_rust: &str) {
     let (cs_ty, copy_arr_ty, method_name) = match elem_rust.trim() {
         "u8" | "i8" | "bool" => ("byte", "byte", "ToByteArray"),
         "u16" | "i16" => ("short", "short", "ToShortArray"),
@@ -973,7 +963,9 @@ fn emit_cs_vec_enumerator(
         elem_wrapper
     ));
     if clone_call.is_some() {
-        builder.line("/// <remarks>Each element is deep-cloned via _clone; safe past Vec dispose.</remarks>");
+        builder.line(
+            "/// <remarks>Each element is deep-cloned via _clone; safe past Vec dispose.</remarks>",
+        );
     } else {
         builder.line("/// <remarks>Buffer-borrowed iteration (no _clone available); don't keep yielded wrappers past the Vec's lifetime.</remarks>");
     }
@@ -1002,10 +994,7 @@ fn emit_cs_vec_enumerator(
             "var __ev = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
             elem_ffi
         ));
-        builder.line(&format!(
-            "var __borrowed = new {}(__ev);",
-            elem_wrapper
-        ));
+        builder.line(&format!("var __borrowed = new {}(__ev);", elem_wrapper));
         builder.line("__borrowed.__Consume();");
         builder.line("yield return __borrowed;");
     }
@@ -1063,10 +1052,7 @@ fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_na
     builder.line(&format!(
         "System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __p, false);",
     ));
-    builder.line(&format!(
-        "NativeMethods.Az{}_delete(__p);",
-        raw_type_name
-    ));
+    builder.line(&format!("NativeMethods.Az{}_delete(__p);", raw_type_name));
     builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__p);");
     builder.line("_disposed = true;");
     builder.dedent();
@@ -1190,10 +1176,9 @@ fn emit_wrapper_method(
             } else {
                 match a.ref_kind {
                     ArgRefKind::Owned => map_type_to_csharp(&a.type_name, ir),
-                    ArgRefKind::Ref
-                    | ArgRefKind::RefMut
-                    | ArgRefKind::Ptr
-                    | ArgRefKind::PtrMut => "IntPtr".to_string(),
+                    ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                        "IntPtr".to_string()
+                    }
                 }
             };
             format!("{} {}", cs_type, sanitize_identifier(&a.name))
@@ -1204,10 +1189,11 @@ fn emit_wrapper_method(
     // - `Owned` (by-value) → pass `_inner` directly, no Marshal alloc.
     // - `Ref/RefMut/Ptr/PtrMut` → IntPtr to a heap-copy via `__self`.
     let self_by_value = takes_self
-        && func.args.first().map(|a| matches!(
-            a.ref_kind,
-            ArgRefKind::Owned
-        )).unwrap_or(false);
+        && func
+            .args
+            .first()
+            .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
+            .unwrap_or(false);
     let mut call_args: Vec<String> = Vec::new();
     // Names to mark consumed (no-op their finalizer's Az<X>_delete)
     // after the C-ABI call: any wrapper passed by-value, plus the
@@ -1234,11 +1220,15 @@ fn emit_wrapper_method(
         func.kind,
         FunctionKind::Constructor | FunctionKind::StaticMethod
     ) && user_args.len() == 1
-        && user_args[0].callback_info.as_ref().map(|c| {
-            let w = c.callback_wrapper_name.as_str();
-            super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&w)
-                && w == func.class_name
-        }).unwrap_or(false);
+        && user_args[0]
+            .callback_info
+            .as_ref()
+            .map(|c| {
+                let w = c.callback_wrapper_name.as_str();
+                super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&w)
+                    && w == func.class_name
+            })
+            .unwrap_or(false);
 
     // Callback args: no auto-substitution at the wrapper-method
     // boundary. The wrapper's parameter type matches the C ABI
@@ -1437,7 +1427,12 @@ fn emit_wrapper_method(
     // Special-case shortcut (see `static_callback_ctor` definition above).
     if static_callback_ctor {
         let user_arg = sanitize_identifier(&user_args[0].name);
-        let wrapper = user_args[0].callback_info.as_ref().unwrap().callback_wrapper_name.as_str();
+        let wrapper = user_args[0]
+            .callback_info
+            .as_ref()
+            .unwrap()
+            .callback_wrapper_name
+            .as_str();
         builder.line(&format!(
             "var __raw = HostInvoker.Register{}({});",
             wrapper, user_arg
@@ -1522,11 +1517,17 @@ fn emit_wrapper_method(
             emit_cs_consume(builder, &consume_after_call);
             match &idiom {
                 ReturnIdiom::Plain => builder.line("return __ret;"),
-                ReturnIdiom::Option { payload_ty, ref_kind } => {
+                ReturnIdiom::Option {
+                    payload_ty,
+                    ref_kind,
+                } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     emit_cs_option_body(builder, &raw, &option_or_result_ty, ir);
                 }
-                ReturnIdiom::Result { payload_ty, ref_kind } => {
+                ReturnIdiom::Result {
+                    payload_ty,
+                    ref_kind,
+                } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     emit_cs_result_body(builder, &raw, &option_or_result_ty, ir);
                 }
@@ -1572,13 +1573,19 @@ fn emit_wrapper_method(
                         builder.line("return __ret;");
                     }
                 }
-                ReturnIdiom::Option { payload_ty, ref_kind } => {
+                ReturnIdiom::Option {
+                    payload_ty,
+                    ref_kind,
+                } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
                     emit_cs_consume(builder, &consume_after_call);
                     emit_cs_option_body(builder, &raw, &option_or_result_ty, ir);
                 }
-                ReturnIdiom::Result { payload_ty, ref_kind } => {
+                ReturnIdiom::Result {
+                    payload_ty,
+                    ref_kind,
+                } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
                     emit_cs_consume(builder, &consume_after_call);
@@ -1614,13 +1621,19 @@ fn emit_wrapper_method(
                         builder.line("return __ret;");
                     }
                 }
-                ReturnIdiom::Option { payload_ty, ref_kind } => {
+                ReturnIdiom::Option {
+                    payload_ty,
+                    ref_kind,
+                } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
                     emit_cs_consume(builder, &consume_after_call);
                     emit_cs_option_body(builder, &raw, &option_or_result_ty, ir);
                 }
-                ReturnIdiom::Result { payload_ty, ref_kind } => {
+                ReturnIdiom::Result {
+                    payload_ty,
+                    ref_kind,
+                } => {
                     let raw = ref_kind_field_type(payload_ty, ref_kind, ir);
                     builder.line(&format!("var __ret = {};", call));
                     emit_cs_consume(builder, &consume_after_call);

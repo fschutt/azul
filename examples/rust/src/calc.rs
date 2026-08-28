@@ -21,21 +21,46 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let buttons = Dom::create_div()
         .with_css(BUTTONS_STYLE)
         .with_child(calc_button(&data, "C", CalcEvent::Clear, BUTTON_STYLE))
-        .with_child(calc_button(&data, "+/-", CalcEvent::InvertSign, BUTTON_STYLE))
+        .with_child(calc_button(
+            &data,
+            "+/-",
+            CalcEvent::InvertSign,
+            BUTTON_STYLE,
+        ))
         .with_child(calc_button(&data, "%", CalcEvent::Percent, BUTTON_STYLE))
-        .with_child(calc_button(&data, "÷", CalcEvent::Operation(Operation::Divide), OPERATOR_STYLE))
+        .with_child(calc_button(
+            &data,
+            "÷",
+            CalcEvent::Operation(Operation::Divide),
+            OPERATOR_STYLE,
+        ))
         .with_child(calc_button(&data, "7", CalcEvent::Digit('7'), BUTTON_STYLE))
         .with_child(calc_button(&data, "8", CalcEvent::Digit('8'), BUTTON_STYLE))
         .with_child(calc_button(&data, "9", CalcEvent::Digit('9'), BUTTON_STYLE))
-        .with_child(calc_button(&data, "×", CalcEvent::Operation(Operation::Multiply), OPERATOR_STYLE))
+        .with_child(calc_button(
+            &data,
+            "×",
+            CalcEvent::Operation(Operation::Multiply),
+            OPERATOR_STYLE,
+        ))
         .with_child(calc_button(&data, "4", CalcEvent::Digit('4'), BUTTON_STYLE))
         .with_child(calc_button(&data, "5", CalcEvent::Digit('5'), BUTTON_STYLE))
         .with_child(calc_button(&data, "6", CalcEvent::Digit('6'), BUTTON_STYLE))
-        .with_child(calc_button(&data, "-", CalcEvent::Operation(Operation::Subtract), OPERATOR_STYLE))
+        .with_child(calc_button(
+            &data,
+            "-",
+            CalcEvent::Operation(Operation::Subtract),
+            OPERATOR_STYLE,
+        ))
         .with_child(calc_button(&data, "1", CalcEvent::Digit('1'), BUTTON_STYLE))
         .with_child(calc_button(&data, "2", CalcEvent::Digit('2'), BUTTON_STYLE))
         .with_child(calc_button(&data, "3", CalcEvent::Digit('3'), BUTTON_STYLE))
-        .with_child(calc_button(&data, "+", CalcEvent::Operation(Operation::Add), OPERATOR_STYLE))
+        .with_child(calc_button(
+            &data,
+            "+",
+            CalcEvent::Operation(Operation::Add),
+            OPERATOR_STYLE,
+        ))
         .with_child(calc_button(&data, "0", CalcEvent::Digit('0'), ZERO_STYLE))
         .with_child(calc_button(&data, ".", CalcEvent::Digit('.'), BUTTON_STYLE))
         .with_child(calc_button(&data, "=", CalcEvent::Equals, OPERATOR_STYLE));

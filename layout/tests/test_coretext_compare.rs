@@ -8,12 +8,12 @@
 
 #![cfg(all(target_os = "macos", feature = "coretext_tests"))]
 
-use std::fs;
 use core_graphics::color_space::CGColorSpace;
 use core_graphics::context::CGContext;
 use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 use core_text::font as ct_font;
-use tiny_skia::{Pixmap, Paint, FillRule, Transform, Color};
+use std::fs;
+use tiny_skia::{Color, FillRule, Paint, Pixmap, Transform};
 
 use azul_layout::font::parsed::ParsedFont;
 use azul_layout::glyph_cache::GlyphCache;
@@ -41,7 +41,11 @@ impl GrayBitmap {
                 }
             }
         }
-        if x1 >= x0 && y1 >= y0 { Some((x0, y0, x1, y1)) } else { None }
+        if x1 >= x0 && y1 >= y0 {
+            Some((x0, y0, x1, y1))
+        } else {
+            None
+        }
     }
 
     /// Crop to ink bounding box with padding.
@@ -65,8 +69,13 @@ impl GrayBitmap {
     /// Binarize: pixel < threshold → 0 (black), else → 255 (white).
     fn binarize(&self, threshold: u8) -> GrayBitmap {
         GrayBitmap {
-            data: self.data.iter().map(|&v| if v < threshold { 0 } else { 255 }).collect(),
-            w: self.w, h: self.h,
+            data: self
+                .data
+                .iter()
+                .map(|&v| if v < threshold { 0 } else { 255 })
+                .collect(),
+            w: self.w,
+            h: self.h,
         }
     }
 
@@ -89,7 +98,7 @@ impl GrayBitmap {
                     let px = tiny_skia::PremultipliedColorU8::from_rgba(v, v, v, 255).unwrap();
                     for dy in 0..scale {
                         for dx in 0..scale {
-                            pm.pixels_mut()[((y*scale+dy) * sw + x*scale+dx) as usize] = px;
+                            pm.pixels_mut()[((y * scale + dy) * sw + x * scale + dx) as usize] = px;
                         }
                     }
                 }
@@ -104,7 +113,7 @@ impl GrayBitmap {
         let h = a.h.max(b.h);
         let total_w = w * 3 + 4; // a | b | diff with 2px gaps
         let mut data = vec![200u8; (total_w * h) as usize]; // gray background
-        // Copy a
+                                                            // Copy a
         for y in 0..a.h.min(h) {
             for x in 0..a.w.min(w) {
                 data[(y * total_w + x) as usize] = a.data[(y * a.w + x) as usize];
@@ -125,7 +134,11 @@ impl GrayBitmap {
                 data[(y * total_w + w * 2 + 4 + x) as usize] = 255 - d;
             }
         }
-        GrayBitmap { data, w: total_w, h }
+        GrayBitmap {
+            data,
+            w: total_w,
+            h,
+        }
     }
 }
 
@@ -152,30 +165,49 @@ fn compare_bitmaps(a: &GrayBitmap, b: &GrayBitmap, threshold: u8) -> CompareResu
         total_diff += d as u64;
         if d > threshold {
             diff_count += 1;
-            if d > max_diff { max_diff = d; }
+            if d > max_diff {
+                max_diff = d;
+            }
         }
     }
-    CompareResult { diff_count, max_diff, total_diff }
+    CompareResult {
+        diff_count,
+        max_diff,
+        total_diff,
+    }
 }
 
 // ── CoreText rendering ─────────────────────────────────────────────
 
 /// Render a glyph with CoreText (macOS native) into a grayscale bitmap.
 /// Uses `-webkit-font-smoothing: antialiased` equivalent (grayscale AA, no LCD).
-fn render_coretext(ch: char, font_name: &str, font_size: f32, w: u32, h: u32, baseline_y: f32) -> Option<GrayBitmap> {
+fn render_coretext(
+    ch: char,
+    font_name: &str,
+    font_size: f32,
+    w: u32,
+    h: u32,
+    baseline_y: f32,
+) -> Option<GrayBitmap> {
     let ct = ct_font::new_from_name(font_name, font_size as f64).ok()?;
 
     let chars = [ch as u16];
     let mut glyphs = [0u16; 1];
-    unsafe { ct.get_glyphs_for_characters(chars.as_ptr(), glyphs.as_mut_ptr(), 1); }
-    if glyphs[0] == 0 { return None; }
+    unsafe {
+        ct.get_glyphs_for_characters(chars.as_ptr(), glyphs.as_mut_ptr(), 1);
+    }
+    if glyphs[0] == 0 {
+        return None;
+    }
 
     let cs = CGColorSpace::create_device_gray();
-    let mut ctx = CGContext::create_bitmap_context(
-        None, w as usize, h as usize, 8, w as usize, &cs, 0,
-    );
+    let mut ctx =
+        CGContext::create_bitmap_context(None, w as usize, h as usize, 8, w as usize, &cs, 0);
     ctx.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
-    ctx.fill_rect(CGRect::new(&CGPoint::new(0.0, 0.0), &CGSize::new(w as f64, h as f64)));
+    ctx.fill_rect(CGRect::new(
+        &CGPoint::new(0.0, 0.0),
+        &CGSize::new(w as f64, h as f64),
+    ));
 
     ctx.set_rgb_fill_color(0.0, 0.0, 0.0, 1.0);
     ctx.set_allows_font_smoothing(false);
@@ -196,7 +228,14 @@ fn render_coretext(ch: char, font_name: &str, font_size: f32, w: u32, h: u32, ba
 // ── Azul rendering ─────────────────────────────────────────────────
 
 /// Render a glyph with our hinted pipeline into a grayscale bitmap.
-fn render_azul(font: &ParsedFont, ch: char, font_size: f32, w: u32, h: u32, baseline_y: f32) -> Option<GrayBitmap> {
+fn render_azul(
+    font: &ParsedFont,
+    ch: char,
+    font_size: f32,
+    w: u32,
+    h: u32,
+    baseline_y: f32,
+) -> Option<GrayBitmap> {
     let glyph_id = font.lookup_glyph_index(ch as u32)?;
     let owned = font.get_or_decode_glyph(glyph_id)?;
     let ppem = font_size.round() as u16;
@@ -237,7 +276,10 @@ fn render_azul(font: &ParsedFont, ch: char, font_size: f32, w: u32, h: u32, base
 
 /// Render both CoreText and Azul, auto-align by ink bbox, return cropped pair.
 fn render_aligned_pair(
-    font: &ParsedFont, ch: char, font_name: &str, font_size: f32,
+    font: &ParsedFont,
+    ch: char,
+    font_name: &str,
+    font_size: f32,
 ) -> Option<(GrayBitmap, GrayBitmap)> {
     let w = (font_size * 3.0) as u32;
     let h = (font_size * 2.5) as u32;
@@ -292,7 +334,10 @@ fn render_aligned_pair(
 
 /// Run comparison for a single glyph, return (binary_result, grayscale_result).
 fn compare_glyph(
-    font: &ParsedFont, ch: char, font_name: &str, font_size: f32,
+    font: &ParsedFont,
+    ch: char,
+    font_name: &str,
+    font_size: f32,
 ) -> Option<(CompareResult, CompareResult)> {
     let (ct, az) = render_aligned_pair(font, ch, font_name, font_size)?;
 
@@ -339,8 +384,16 @@ fn load_times() -> Option<ParsedFont> {
 /// Pass 1: Binary comparison — are we inking the right pixels?
 #[test]
 fn test_binary_pixel_coverage() {
-    let font = match load_times() { Some(f) => f, None => { eprintln!("Skip"); return; } };
-    let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".chars().collect();
+    let font = match load_times() {
+        Some(f) => f,
+        None => {
+            eprintln!("Skip");
+            return;
+        }
+    };
+    let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        .chars()
+        .collect();
     let sizes = [6.0f32, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0, 24.0, 32.0, 48.0];
 
     eprintln!("\n=== BINARY (ink coverage) comparison ===");
@@ -352,7 +405,10 @@ fn test_binary_pixel_coverage() {
         for &ch in &chars {
             if let Some((bin, _)) = compare_glyph(&font, ch, "Times New Roman", size) {
                 if bin.diff_count > 0 {
-                    eprintln!("{:>4} {:>5.0} {:>8} {:>6}", ch, size, bin.diff_count, bin.max_diff);
+                    eprintln!(
+                        "{:>4} {:>5.0} {:>8} {:>6}",
+                        ch, size, bin.diff_count, bin.max_diff
+                    );
                     worst.push((ch, size, bin.diff_count));
                 }
             }
@@ -382,19 +438,30 @@ fn test_binary_pixel_coverage() {
 /// Pass 2: Grayscale comparison — how does anti-aliasing coverage differ?
 #[test]
 fn test_grayscale_aa_coverage() {
-    let font = match load_times() { Some(f) => f, None => { eprintln!("Skip"); return; } };
+    let font = match load_times() {
+        Some(f) => f,
+        None => {
+            eprintln!("Skip");
+            return;
+        }
+    };
     let chars: Vec<char> = "Loremipsumdolorsitamet".chars().collect();
     let sizes = [6.0f32, 8.0, 10.0, 14.0, 16.0, 20.0, 32.0];
 
     eprintln!("\n=== GRAYSCALE (AA coverage) comparison ===");
-    eprintln!("{:>4} {:>5} {:>8} {:>6} {:>10}", "char", "size", "gray_d", "max", "total_d");
+    eprintln!(
+        "{:>4} {:>5} {:>8} {:>6} {:>10}",
+        "char", "size", "gray_d", "max", "total_d"
+    );
 
     for &size in &sizes {
         for &ch in &chars {
             if let Some((_, gray)) = compare_glyph(&font, ch, "Times New Roman", size) {
                 if gray.diff_count > 0 {
-                    eprintln!("{:>4} {:>5.0} {:>8} {:>6} {:>10}",
-                        ch, size, gray.diff_count, gray.max_diff, gray.total_diff);
+                    eprintln!(
+                        "{:>4} {:>5.0} {:>8} {:>6} {:>10}",
+                        ch, size, gray.diff_count, gray.max_diff, gray.total_diff
+                    );
                 }
             }
         }
@@ -417,8 +484,16 @@ fn test_grayscale_aa_coverage() {
 /// Comprehensive: all chars at all sizes, sorted by total grayscale diff.
 #[test]
 fn test_comprehensive_ranking() {
-    let font = match load_times() { Some(f) => f, None => { eprintln!("Skip"); return; } };
-    let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".chars().collect();
+    let font = match load_times() {
+        Some(f) => f,
+        None => {
+            eprintln!("Skip");
+            return;
+        }
+    };
+    let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        .chars()
+        .collect();
     let sizes = [6.0f32, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0, 24.0, 32.0, 48.0];
 
     let mut results: Vec<(char, f32, usize, usize, u64)> = Vec::new();
@@ -435,9 +510,15 @@ fn test_comprehensive_ranking() {
     results.sort_by(|a, b| b.4.cmp(&a.4));
 
     eprintln!("\n=== COMPREHENSIVE RANKING (by total grayscale diff) ===");
-    eprintln!("{:>4} {:>5} {:>8} {:>8} {:>10}", "char", "size", "bin_diff", "gray_d", "total_d");
+    eprintln!(
+        "{:>4} {:>5} {:>8} {:>8} {:>10}",
+        "char", "size", "bin_diff", "gray_d", "total_d"
+    );
     for &(ch, size, bin, gray, total) in results.iter().take(20) {
-        eprintln!("{:>4} {:>5.0} {:>8} {:>8} {:>10}", ch, size, bin, gray, total);
+        eprintln!(
+            "{:>4} {:>5.0} {:>8} {:>8} {:>10}",
+            ch, size, bin, gray, total
+        );
     }
     eprintln!("\nTotal glyphs compared: {}", results.len());
     let perfect = results.iter().filter(|r| r.2 == 0 && r.3 == 0).count();

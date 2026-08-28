@@ -40,7 +40,11 @@ pub fn module_for_class(class_name: &str, ir: &CodegenIR) -> String {
 pub fn module_native_class(module: &str) -> String {
     let mut chars = module.chars();
     match chars.next() {
-        Some(c) => format!("AzulNative{}{}", c.to_uppercase().collect::<String>(), chars.as_str()),
+        Some(c) => format!(
+            "AzulNative{}{}",
+            c.to_uppercase().collect::<String>(),
+            chars.as_str()
+        ),
         None => "AzulNativeMisc".to_string(),
     }
 }
@@ -103,7 +107,8 @@ pub fn generate_native_module_files(
                 builder.line(" * <p>");
                 builder.line(" * One {@code public static native} method per exported C symbol");
                 builder.line(" * in this module. Bound via {@code Native.register(\"azul\")}");
-                builder.line(" * direct mapping — no JNA Proxy class, no 64KB &lt;clinit&gt; limit.");
+                builder
+                    .line(" * direct mapping — no JNA Proxy class, no 64KB &lt;clinit&gt; limit.");
                 builder.line(" * <p>");
                 builder.line(" * Callers: write {@code AzulNative<Module>.foo(...)} directly,");
                 builder.line(" * or {@code AzulNative<Module>.INSTANCE.foo(...)} for the legacy");
@@ -185,10 +190,9 @@ fn emit_native_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Codege
             let jt = match a.ref_kind {
                 ArgRefKind::Owned => map_jvm_type_for_owned_arg(&a.type_name, ir),
                 // Pass-by-pointer at the C level → JNA Pointer.
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "Pointer".to_string(),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    "Pointer".to_string()
+                }
             };
             format!("{} {}", jt, sanitize_identifier(&a.name))
         })
@@ -242,4 +246,3 @@ fn javadoc_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('&', "&amp;")
 }
-

@@ -16,19 +16,19 @@
 // fn-item -> fn-pointer casts: required for the Into<Callback> generics;
 // the annotated-temporary alternative buries the callback wiring.
 #![allow(trivial_casts)]
+#[cfg(feature = "telemetry")]
+pub mod crash_reporter;
 pub mod gpu_check;
+pub mod markdown;
 /// Shared report machinery: screenshot REDACTION + the report bundle both
 /// the problem-report dialog and the crash reporter build.
 #[cfg(feature = "cpurender")]
 pub mod report;
-pub mod markdown;
 pub mod report_problem;
-#[cfg(feature = "updater")]
-pub mod update_version;
-#[cfg(feature = "telemetry")]
-pub mod crash_reporter;
 #[cfg(feature = "telemetry")]
 pub mod telemetry_consent;
+#[cfg(feature = "updater")]
+pub mod update_version;
 
 use azul_core::{
     geom::LogicalSize,
@@ -40,8 +40,8 @@ use azul_css::dynamic_selector::{
 };
 use azul_css::props::property::CssProperty;
 
-use azul_core::callbacks::LayoutCallbackType;
 use crate::window_state::WindowCreateOptions;
+use azul_core::callbacks::LayoutCallbackType;
 
 /// A dialog window shell: titled, sized, state in `layout_callback.ctx`,
 /// and — the invariant of this module — CPU-rendered, whatever the app or
@@ -85,10 +85,7 @@ mod tests {
     use super::*;
     use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackType};
 
-    extern "C" fn dummy_layout(
-        _: RefAny,
-        _: LayoutCallbackInfo,
-    ) -> azul_core::dom::Dom {
+    extern "C" fn dummy_layout(_: RefAny, _: LayoutCallbackInfo) -> azul_core::dom::Dom {
         azul_core::dom::Dom::create_body()
     }
 
@@ -102,7 +99,10 @@ mod tests {
             dummy_layout as LayoutCallbackType,
             RefAny::new(0u8),
         );
-        assert_eq!(w.window_state.renderer_options.hw_accel, HwAcceleration::Disabled);
+        assert_eq!(
+            w.window_state.renderer_options.hw_accel,
+            HwAcceleration::Disabled
+        );
         assert_eq!(w.window_state.title.as_str(), "t");
         assert!(w.window_state.layout_callback.ctx.is_some());
     }

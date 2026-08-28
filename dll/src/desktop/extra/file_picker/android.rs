@@ -56,7 +56,10 @@ fn register_handle(handle: FilePickerHandle) -> u64 {
 
 #[cfg(target_os = "android")]
 fn pop_handle(request_id: u64) -> Option<FilePickerHandle> {
-    PENDING_PICKERS.lock().ok().and_then(|mut g| g.remove(&request_id))
+    PENDING_PICKERS
+        .lock()
+        .ok()
+        .and_then(|mut g| g.remove(&request_id))
 }
 
 /// Map a `*.png` / `image/png` / `pdf` descriptor onto its MIME type.
@@ -122,9 +125,9 @@ fn build_mime_array<'a>(
 /// with the resulting `JNIEnv`. Returns `Err` if the VM hasn't been
 /// published yet (e.g. dispatch happened before `android_main`).
 #[cfg(target_os = "android")]
-fn with_env<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Result<R, jni::errors::Error>)
-    -> Result<R, String>
-{
+fn with_env<R>(
+    f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Result<R, jni::errors::Error>,
+) -> Result<R, String> {
     use jni::JavaVM;
 
     let vm_ptr = crate::desktop::shell2::android::java_vm_ptr();
@@ -137,7 +140,8 @@ fn with_env<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Result
     }
     let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
         .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
-    let mut env = vm.attach_current_thread()
+    let mut env = vm
+        .attach_current_thread()
         .map_err(|e| format!("attach_current_thread: {e:?}"))?;
     let activity = unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
     f(&mut env, activity).map_err(|e| format!("jni call: {e:?}"))
@@ -188,11 +192,7 @@ pub fn dispatch_open_file(
 }
 
 #[cfg(target_os = "android")]
-pub fn dispatch_save_file(
-    handle: FilePickerHandle,
-    title: AzString,
-    _default_path: OptionString,
-) {
+pub fn dispatch_save_file(handle: FilePickerHandle, title: AzString, _default_path: OptionString) {
     let request_id = register_handle(handle.clone());
 
     let result = with_env(|env, activity| {

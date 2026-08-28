@@ -53,8 +53,11 @@ pub struct zxdg_toplevel_decoration_v1 {
 /// 2 = server_side).
 #[repr(C)]
 pub struct zxdg_toplevel_decoration_v1_listener {
-    pub configure:
-        extern "C" fn(data: *mut core::ffi::c_void, deco: *mut zxdg_toplevel_decoration_v1, mode: u32),
+    pub configure: extern "C" fn(
+        data: *mut core::ffi::c_void,
+        deco: *mut zxdg_toplevel_decoration_v1,
+        mode: u32,
+    ),
 }
 
 // wp-fractional-scale-v1 (fractional HiDPI: preferred_scale delivers scale×120)
@@ -128,7 +131,8 @@ pub struct wl_data_offer {
 /// source advertises; `source_actions`/`action` are v3+ DnD-action negotiation.
 #[repr(C)]
 pub struct wl_data_offer_listener {
-    pub offer: extern "C" fn(data: *mut c_void, offer: *mut wl_data_offer, mime_type: *const c_char),
+    pub offer:
+        extern "C" fn(data: *mut c_void, offer: *mut wl_data_offer, mime_type: *const c_char),
     pub source_actions:
         extern "C" fn(data: *mut c_void, offer: *mut wl_data_offer, source_actions: u32),
     pub action: extern "C" fn(data: *mut c_void, offer: *mut wl_data_offer, dnd_action: u32),
@@ -139,7 +143,8 @@ pub struct wl_data_offer_listener {
 /// `motion` are `wl_fixed` (24.8 fixed point — divide by 256 for pixels).
 #[repr(C)]
 pub struct wl_data_device_listener {
-    pub data_offer: extern "C" fn(data: *mut c_void, dev: *mut wl_data_device, id: *mut wl_data_offer),
+    pub data_offer:
+        extern "C" fn(data: *mut c_void, dev: *mut wl_data_device, id: *mut wl_data_offer),
     pub enter: extern "C" fn(
         data: *mut c_void,
         dev: *mut wl_data_device,
@@ -632,22 +637,15 @@ pub struct zwp_text_input_v3_listener {
         cursor_begin: i32,
         cursor_end: i32,
     ),
-    pub commit_string: extern "C" fn(
-        data: *mut c_void,
-        text_input: *mut zwp_text_input_v3,
-        text: *const c_char,
-    ),
+    pub commit_string:
+        extern "C" fn(data: *mut c_void, text_input: *mut zwp_text_input_v3, text: *const c_char),
     pub delete_surrounding_text: extern "C" fn(
         data: *mut c_void,
         text_input: *mut zwp_text_input_v3,
         before_length: u32,
         after_length: u32,
     ),
-    pub done: extern "C" fn(
-        data: *mut c_void,
-        text_input: *mut zwp_text_input_v3,
-        serial: u32,
-    ),
+    pub done: extern "C" fn(data: *mut c_void, text_input: *mut zwp_text_input_v3, serial: u32),
 }
 
 // zwp_text_input_v3 content type hint flags
@@ -721,20 +719,38 @@ pub const ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT: u32 = 1;
 pub fn get_kde_blur_manager_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"create\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"unset\0".as_ptr() as _,  signature: b"o\0".as_ptr() as _,  types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"org_kde_kwin_blur_manager\0".as_ptr() as _, version: 1,
-            method_count: 2, methods: requests.as_ptr(),
-            event_count: 0, events: std::ptr::null(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"create\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"unset\0".as_ptr() as _,
+                        signature: b"o\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"org_kde_kwin_blur_manager\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 2,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Minimal `org_kde_kwin_blur` interface (the per-surface blur object returned by
@@ -744,21 +760,43 @@ pub fn get_kde_blur_manager_interface() -> &'static wl_interface {
 pub fn get_kde_blur_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"commit\0".as_ptr() as _,     signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"set_region\0".as_ptr() as _, signature: b"?o\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"release\0".as_ptr() as _,    signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"org_kde_kwin_blur\0".as_ptr() as _, version: 1,
-            method_count: 3, methods: requests.as_ptr(),
-            event_count: 0, events: std::ptr::null(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"commit\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_region\0".as_ptr() as _,
+                        signature: b"?o\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"release\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"org_kde_kwin_blur\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 3,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Minimal `zxdg_decoration_manager_v1` interface (xdg-decoration-unstable-v1).
@@ -769,20 +807,38 @@ pub fn get_kde_blur_interface() -> &'static wl_interface {
 pub fn get_zxdg_decoration_manager_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,                 signature: b"\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"get_toplevel_decoration\0".as_ptr() as _,  signature: b"no\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"zxdg_decoration_manager_v1\0".as_ptr() as _, version: 1,
-            method_count: 2, methods: requests.as_ptr(),
-            event_count: 0, events: std::ptr::null(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"get_toplevel_decoration\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"zxdg_decoration_manager_v1\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 2,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Minimal `zxdg_toplevel_decoration_v1` interface (the per-toplevel decoration
@@ -792,24 +848,48 @@ pub fn get_zxdg_decoration_manager_v1_interface() -> &'static wl_interface {
 pub fn get_zxdg_toplevel_decoration_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,    signature: b"\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"set_mode\0".as_ptr() as _,   signature: b"u\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"unset_mode\0".as_ptr() as _, signature: b"\0".as_ptr() as _,  types: nt.as_ptr() },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"configure\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"zxdg_toplevel_decoration_v1\0".as_ptr() as _, version: 1,
-            method_count: 3, methods: requests.as_ptr(),
-            event_count: 1, events: events.as_ptr(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_mode\0".as_ptr() as _,
+                        signature: b"u\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"unset_mode\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                let events: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                    name: b"configure\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: nt.as_ptr(),
+                }]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"zxdg_toplevel_decoration_v1\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 3,
+                    methods: requests.as_ptr(),
+                    event_count: 1,
+                    events: events.as_ptr(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Minimal `wp_fractional_scale_manager_v1` interface (fractional-scale-v1).
@@ -820,20 +900,38 @@ pub fn get_zxdg_toplevel_decoration_v1_interface() -> &'static wl_interface {
 pub fn get_wp_fractional_scale_manager_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,              signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"get_fractional_scale\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"wp_fractional_scale_manager_v1\0".as_ptr() as _, version: 1,
-            method_count: 2, methods: requests.as_ptr(),
-            event_count: 0, events: std::ptr::null(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"get_fractional_scale\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"wp_fractional_scale_manager_v1\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 2,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
 }
 
 // --- wl_data_source (MWA-B3: native Wayland clipboard, copy side) ---
@@ -869,29 +967,75 @@ pub struct wl_data_source_listener {
 pub fn get_wl_data_source_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"offer\0".as_ptr() as _,       signature: b"s\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"destroy\0".as_ptr() as _,     signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"set_actions\0".as_ptr() as _, signature: b"3u\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"target\0".as_ptr() as _,             signature: b"?s\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"send\0".as_ptr() as _,               signature: b"sh\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"cancelled\0".as_ptr() as _,          signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"dnd_drop_performed\0".as_ptr() as _, signature: b"3\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"dnd_finished\0".as_ptr() as _,       signature: b"3\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"action\0".as_ptr() as _,             signature: b"3u\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"wl_data_source\0".as_ptr() as _, version: 3,
-            method_count: 3, methods: requests.as_ptr(),
-            event_count: 6, events: events.as_ptr(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"offer\0".as_ptr() as _,
+                        signature: b"s\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_actions\0".as_ptr() as _,
+                        signature: b"3u\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                let events: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"target\0".as_ptr() as _,
+                        signature: b"?s\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"send\0".as_ptr() as _,
+                        signature: b"sh\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"cancelled\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"dnd_drop_performed\0".as_ptr() as _,
+                        signature: b"3\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"dnd_finished\0".as_ptr() as _,
+                        signature: b"3\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"action\0".as_ptr() as _,
+                        signature: b"3u\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"wl_data_source\0".as_ptr() as _,
+                    version: 3,
+                    method_count: 3,
+                    methods: requests.as_ptr(),
+                    event_count: 6,
+                    events: events.as_ptr(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Minimal `wp_fractional_scale_v1` interface (the per-surface object returned
@@ -901,22 +1045,36 @@ pub fn get_wl_data_source_interface() -> &'static wl_interface {
 pub fn get_wp_fractional_scale_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"preferred_scale\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"wp_fractional_scale_v1\0".as_ptr() as _, version: 1,
-            method_count: 1, methods: requests.as_ptr(),
-            event_count: 1, events: events.as_ptr(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: nt.as_ptr(),
+                }]));
+                let events: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                    name: b"preferred_scale\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: nt.as_ptr(),
+                }]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"wp_fractional_scale_v1\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 1,
+                    methods: requests.as_ptr(),
+                    event_count: 1,
+                    events: events.as_ptr(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Minimal `wp_viewporter` interface (viewporter, stable). v1 requests, in
@@ -925,20 +1083,38 @@ pub fn get_wp_fractional_scale_v1_interface() -> &'static wl_interface {
 pub fn get_wp_viewporter_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,      signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"get_viewport\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"wp_viewporter\0".as_ptr() as _, version: 1,
-            method_count: 2, methods: requests.as_ptr(),
-            event_count: 0, events: std::ptr::null(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"get_viewport\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"wp_viewporter\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 2,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Minimal `wp_viewport` interface (the per-surface crop/scale object returned
@@ -948,153 +1124,377 @@ pub fn get_wp_viewporter_interface() -> &'static wl_interface {
 pub fn get_wp_viewport_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,         signature: b"\0".as_ptr() as _,     types: nt.as_ptr() },
-            wl_message { name: b"set_source\0".as_ptr() as _,      signature: b"ffff\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"set_destination\0".as_ptr() as _, signature: b"ii\0".as_ptr() as _,   types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"wp_viewport\0".as_ptr() as _, version: 1,
-            method_count: 3, methods: requests.as_ptr(),
-            event_count: 0, events: std::ptr::null(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_source\0".as_ptr() as _,
+                        signature: b"ffff\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_destination\0".as_ptr() as _,
+                        signature: b"ii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"wp_viewport\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 3,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
 }
 
 pub fn get_xdg_wm_base_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"ping\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,           signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"create_positioner\0".as_ptr() as _, signature: b"n\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"get_xdg_surface\0".as_ptr() as _,   signature: b"no\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"pong\0".as_ptr() as _,              signature: b"u\0".as_ptr() as _,  types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"xdg_wm_base\0".as_ptr() as _, version: 1,
-            method_count: 4, methods: requests.as_ptr(),
-            event_count: 1, events: events.as_ptr(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let events: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                    name: b"ping\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: nt.as_ptr(),
+                }]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"create_positioner\0".as_ptr() as _,
+                        signature: b"n\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"get_xdg_surface\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"pong\0".as_ptr() as _,
+                        signature: b"u\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"xdg_wm_base\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 4,
+                    methods: requests.as_ptr(),
+                    event_count: 1,
+                    events: events.as_ptr(),
+                }))
+            })
+        })
+        .0
 }
 
 pub fn get_xdg_positioner_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,                   signature: b"\0".as_ptr() as _,    types: nt.as_ptr() },
-            wl_message { name: b"set_size\0".as_ptr() as _,                  signature: b"ii\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"set_anchor_rect\0".as_ptr() as _,           signature: b"iiii\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"set_anchor\0".as_ptr() as _,                signature: b"u\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"set_gravity\0".as_ptr() as _,               signature: b"u\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"set_constraint_adjustment\0".as_ptr() as _, signature: b"u\0".as_ptr() as _,   types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"xdg_positioner\0".as_ptr() as _, version: 1,
-            method_count: 6, methods: requests.as_ptr(),
-            event_count: 0, events: std::ptr::null(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_size\0".as_ptr() as _,
+                        signature: b"ii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_anchor_rect\0".as_ptr() as _,
+                        signature: b"iiii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_anchor\0".as_ptr() as _,
+                        signature: b"u\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_gravity\0".as_ptr() as _,
+                        signature: b"u\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_constraint_adjustment\0".as_ptr() as _,
+                        signature: b"u\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"xdg_positioner\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 6,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
 }
 
 pub fn get_xdg_surface_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"configure\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,             signature: b"\0".as_ptr() as _,    types: nt.as_ptr() },
-            wl_message { name: b"get_toplevel\0".as_ptr() as _,        signature: b"n\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"get_popup\0".as_ptr() as _,           signature: b"n?oo\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"set_window_geometry\0".as_ptr() as _, signature: b"iiii\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"ack_configure\0".as_ptr() as _,       signature: b"u\0".as_ptr() as _,   types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"xdg_surface\0".as_ptr() as _, version: 1,
-            method_count: 5, methods: requests.as_ptr(),
-            event_count: 1, events: events.as_ptr(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let events: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                    name: b"configure\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: nt.as_ptr(),
+                }]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"get_toplevel\0".as_ptr() as _,
+                        signature: b"n\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"get_popup\0".as_ptr() as _,
+                        signature: b"n?oo\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_window_geometry\0".as_ptr() as _,
+                        signature: b"iiii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"ack_configure\0".as_ptr() as _,
+                        signature: b"u\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"xdg_surface\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 5,
+                    methods: requests.as_ptr(),
+                    event_count: 1,
+                    events: events.as_ptr(),
+                }))
+            })
+        })
+        .0
 }
 
 pub fn get_xdg_toplevel_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"configure\0".as_ptr() as _,        signature: b"iia\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"close\0".as_ptr() as _,            signature: b"\0".as_ptr() as _,    types: nt.as_ptr() },
-            wl_message { name: b"configure_bounds\0".as_ptr() as _, signature: b"ii\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"wm_capabilities\0".as_ptr() as _,  signature: b"a\0".as_ptr() as _,   types: nt.as_ptr() },
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _,          signature: b"\0".as_ptr() as _,    types: nt.as_ptr() },
-            wl_message { name: b"set_parent\0".as_ptr() as _,       signature: b"?o\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"set_title\0".as_ptr() as _,        signature: b"s\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"set_app_id\0".as_ptr() as _,       signature: b"s\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"show_window_menu\0".as_ptr() as _, signature: b"ouii\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"move\0".as_ptr() as _,             signature: b"ou\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"resize\0".as_ptr() as _,           signature: b"ouu\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"set_max_size\0".as_ptr() as _,     signature: b"ii\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"set_min_size\0".as_ptr() as _,     signature: b"ii\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"set_maximized\0".as_ptr() as _,    signature: b"\0".as_ptr() as _,    types: nt.as_ptr() },
-            wl_message { name: b"unset_maximized\0".as_ptr() as _,  signature: b"\0".as_ptr() as _,    types: nt.as_ptr() },
-            wl_message { name: b"set_fullscreen\0".as_ptr() as _,   signature: b"?o\0".as_ptr() as _,  types: nt.as_ptr() },
-            wl_message { name: b"unset_fullscreen\0".as_ptr() as _, signature: b"\0".as_ptr() as _,    types: nt.as_ptr() },
-            wl_message { name: b"set_minimized\0".as_ptr() as _,    signature: b"\0".as_ptr() as _,    types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"xdg_toplevel\0".as_ptr() as _, version: 1,
-            method_count: 14, methods: requests.as_ptr(),
-            event_count: 4, events: events.as_ptr(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let events: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"configure\0".as_ptr() as _,
+                        signature: b"iia\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"close\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"configure_bounds\0".as_ptr() as _,
+                        signature: b"ii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"wm_capabilities\0".as_ptr() as _,
+                        signature: b"a\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_parent\0".as_ptr() as _,
+                        signature: b"?o\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_title\0".as_ptr() as _,
+                        signature: b"s\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_app_id\0".as_ptr() as _,
+                        signature: b"s\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"show_window_menu\0".as_ptr() as _,
+                        signature: b"ouii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"move\0".as_ptr() as _,
+                        signature: b"ou\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"resize\0".as_ptr() as _,
+                        signature: b"ouu\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_max_size\0".as_ptr() as _,
+                        signature: b"ii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_min_size\0".as_ptr() as _,
+                        signature: b"ii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_maximized\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"unset_maximized\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_fullscreen\0".as_ptr() as _,
+                        signature: b"?o\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"unset_fullscreen\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_minimized\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"xdg_toplevel\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 14,
+                    methods: requests.as_ptr(),
+                    event_count: 4,
+                    events: events.as_ptr(),
+                }))
+            })
+        })
+        .0
 }
 
 pub fn get_xdg_popup_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
-    INTERFACE.get_or_init(|| SyncInterface({
-        let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"configure\0".as_ptr() as _,  signature: b"iiii\0".as_ptr() as _, types: nt.as_ptr() },
-            wl_message { name: b"popup_done\0".as_ptr() as _, signature: b"\0".as_ptr() as _,     types: nt.as_ptr() },
-        ]));
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _,   types: nt.as_ptr() },
-            wl_message { name: b"grab\0".as_ptr() as _,    signature: b"ou\0".as_ptr() as _, types: nt.as_ptr() },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"xdg_popup\0".as_ptr() as _, version: 1,
-            method_count: 2, methods: requests.as_ptr(),
-            event_count: 2, events: events.as_ptr(),
-        }))
-    })).0
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let nt: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
+                let events: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"configure\0".as_ptr() as _,
+                        signature: b"iiii\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"popup_done\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"grab\0".as_ptr() as _,
+                        signature: b"ou\0".as_ptr() as _,
+                        types: nt.as_ptr(),
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"xdg_popup\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 2,
+                    methods: requests.as_ptr(),
+                    event_count: 2,
+                    events: events.as_ptr(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Create the wl_interface for zwp_text_input_v3 at runtime.
@@ -1106,99 +1506,103 @@ pub fn get_text_input_v3_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
 
-    INTERFACE.get_or_init(|| SyncInterface({
-        let null_types: &'static [*const wl_interface; 4] = Box::leak(Box::new([
-            std::ptr::null(),
-            std::ptr::null(),
-            std::ptr::null(),
-            std::ptr::null(),
-        ]));
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let null_types: &'static [*const wl_interface; 4] = Box::leak(Box::new([
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                ]));
 
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message {
-                name: b"enter\0".as_ptr() as _,
-                signature: b"o\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"leave\0".as_ptr() as _,
-                signature: b"o\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"preedit_string\0".as_ptr() as _,
-                signature: b"?sii\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"commit_string\0".as_ptr() as _,
-                signature: b"?s\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"delete_surrounding_text\0".as_ptr() as _,
-                signature: b"uu\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"done\0".as_ptr() as _,
-                signature: b"u\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-        ]));
+                let events: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"enter\0".as_ptr() as _,
+                        signature: b"o\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"leave\0".as_ptr() as _,
+                        signature: b"o\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"preedit_string\0".as_ptr() as _,
+                        signature: b"?sii\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"commit_string\0".as_ptr() as _,
+                        signature: b"?s\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"delete_surrounding_text\0".as_ptr() as _,
+                        signature: b"uu\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"done\0".as_ptr() as _,
+                        signature: b"u\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                ]));
 
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message {
-                name: b"destroy\0".as_ptr() as _,
-                signature: b"\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"enable\0".as_ptr() as _,
-                signature: b"\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"disable\0".as_ptr() as _,
-                signature: b"\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"set_surrounding_text\0".as_ptr() as _,
-                signature: b"sii\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"set_text_change_cause\0".as_ptr() as _,
-                signature: b"u\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"set_content_type\0".as_ptr() as _,
-                signature: b"uu\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"set_cursor_rectangle\0".as_ptr() as _,
-                signature: b"iiii\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"commit\0".as_ptr() as _,
-                signature: b"\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-        ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"enable\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"disable\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_surrounding_text\0".as_ptr() as _,
+                        signature: b"sii\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_text_change_cause\0".as_ptr() as _,
+                        signature: b"u\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_content_type\0".as_ptr() as _,
+                        signature: b"uu\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"set_cursor_rectangle\0".as_ptr() as _,
+                        signature: b"iiii\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"commit\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                ]));
 
-        Box::leak(Box::new(wl_interface {
-            name: b"zwp_text_input_v3\0".as_ptr() as _,
-            version: 1,
-            method_count: 8,
-            methods: requests.as_ptr(),
-            event_count: 6,
-            events: events.as_ptr(),
-        }))
-    })).0
+                Box::leak(Box::new(wl_interface {
+                    name: b"zwp_text_input_v3\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 8,
+                    methods: requests.as_ptr(),
+                    event_count: 6,
+                    events: events.as_ptr(),
+                }))
+            })
+        })
+        .0
 }
 
 /// Create the wl_interface for zwp_text_input_manager_v3 at runtime.
@@ -1206,34 +1610,36 @@ pub fn get_text_input_manager_v3_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static INTERFACE: OnceLock<SyncInterface> = OnceLock::new();
 
-    INTERFACE.get_or_init(|| SyncInterface({
-        let null_types: &'static [*const wl_interface; 2] = Box::leak(Box::new([
-            std::ptr::null(),
-            std::ptr::null(),
-        ]));
+    INTERFACE
+        .get_or_init(|| {
+            SyncInterface({
+                let null_types: &'static [*const wl_interface; 2] =
+                    Box::leak(Box::new([std::ptr::null(), std::ptr::null()]));
 
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message {
-                name: b"destroy\0".as_ptr() as _,
-                signature: b"\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-            wl_message {
-                name: b"get_text_input\0".as_ptr() as _,
-                signature: b"no\0".as_ptr() as _,
-                types: null_types.as_ptr(),
-            },
-        ]));
+                let requests: &'static [wl_message] = Box::leak(Box::new([
+                    wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                    wl_message {
+                        name: b"get_text_input\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: null_types.as_ptr(),
+                    },
+                ]));
 
-        Box::leak(Box::new(wl_interface {
-            name: b"zwp_text_input_manager_v3\0".as_ptr() as _,
-            version: 1,
-            method_count: 2,
-            methods: requests.as_ptr(),
-            event_count: 0,
-            events: std::ptr::null(),
-        }))
-    })).0
+                Box::leak(Box::new(wl_interface {
+                    name: b"zwp_text_input_manager_v3\0".as_ptr() as _,
+                    version: 1,
+                    method_count: 2,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
 }
 
 // ===== Tablet protocol (zwp_tablet_v2) — opaque objects + hand-rolled wl_interface =====
@@ -1409,7 +1815,8 @@ pub struct zwp_tablet_tool_v2_listener {
         extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, hi: u32, lo: u32),
     pub hardware_id_wacom:
         extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, hi: u32, lo: u32),
-    pub capability: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, capability: u32),
+    pub capability:
+        extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2, capability: u32),
     pub done: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2),
     pub removed: extern "C" fn(data: *mut c_void, tool: *mut zwp_tablet_tool_v2),
     pub proximity_in: extern "C" fn(
@@ -1453,176 +1860,532 @@ fn leak_one_type(i: &'static wl_interface) -> *const *const wl_interface {
 pub fn get_tablet_pad_ring_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"set_feedback\0".as_ptr() as _, signature: b"su\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"source\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"angle\0".as_ptr() as _, signature: b"f\0".as_ptr() as _, types: n },
-            wl_message { name: b"stop\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"frame\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_ring_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 4, events: events.as_ptr() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"set_feedback\0".as_ptr() as _,
+                    signature: b"su\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"source\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"angle\0".as_ptr() as _,
+                    signature: b"f\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"stop\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"frame\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_pad_ring_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 4,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 pub fn get_tablet_pad_strip_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"set_feedback\0".as_ptr() as _, signature: b"su\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"source\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"position\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"stop\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"frame\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_strip_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 4, events: events.as_ptr() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"set_feedback\0".as_ptr() as _,
+                    signature: b"su\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"source\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"position\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"stop\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"frame\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_pad_strip_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 4,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 pub fn get_tablet_pad_dial_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"set_feedback\0".as_ptr() as _, signature: b"su\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"delta\0".as_ptr() as _, signature: b"i\0".as_ptr() as _, types: n },
-            wl_message { name: b"frame\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_dial_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 2, events: events.as_ptr() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"set_feedback\0".as_ptr() as _,
+                    signature: b"su\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"delta\0".as_ptr() as _,
+                    signature: b"i\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"frame\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_pad_dial_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 2,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 pub fn get_tablet_pad_group_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"buttons\0".as_ptr() as _, signature: b"a\0".as_ptr() as _, types: n },
-            wl_message { name: b"ring\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_ring_v2_interface()) },
-            wl_message { name: b"strip\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_strip_v2_interface()) },
-            wl_message { name: b"modes\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"done\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"mode_switch\0".as_ptr() as _, signature: b"uuu\0".as_ptr() as _, types: n },
-            wl_message { name: b"dial\0".as_ptr() as _, signature: b"2n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_dial_v2_interface()) },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_group_v2\0".as_ptr() as _, version: 2, method_count: 1, methods: requests.as_ptr(), event_count: 7, events: events.as_ptr() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                name: b"destroy\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: n,
+            }]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"buttons\0".as_ptr() as _,
+                    signature: b"a\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"ring\0".as_ptr() as _,
+                    signature: b"n\0".as_ptr() as _,
+                    types: leak_one_type(get_tablet_pad_ring_v2_interface()),
+                },
+                wl_message {
+                    name: b"strip\0".as_ptr() as _,
+                    signature: b"n\0".as_ptr() as _,
+                    types: leak_one_type(get_tablet_pad_strip_v2_interface()),
+                },
+                wl_message {
+                    name: b"modes\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"done\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"mode_switch\0".as_ptr() as _,
+                    signature: b"uuu\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"dial\0".as_ptr() as _,
+                    signature: b"2n\0".as_ptr() as _,
+                    types: leak_one_type(get_tablet_pad_dial_v2_interface()),
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_pad_group_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 1,
+                methods: requests.as_ptr(),
+                event_count: 7,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 pub fn get_tablet_pad_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"set_feedback\0".as_ptr() as _, signature: b"usu\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"group\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_group_v2_interface()) },
-            wl_message { name: b"path\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
-            wl_message { name: b"buttons\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"done\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"button\0".as_ptr() as _, signature: b"uuu\0".as_ptr() as _, types: n },
-            wl_message { name: b"enter\0".as_ptr() as _, signature: b"uoo\0".as_ptr() as _, types: n },
-            wl_message { name: b"leave\0".as_ptr() as _, signature: b"uo\0".as_ptr() as _, types: n },
-            wl_message { name: b"removed\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_pad_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 8, events: events.as_ptr() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"set_feedback\0".as_ptr() as _,
+                    signature: b"usu\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"group\0".as_ptr() as _,
+                    signature: b"n\0".as_ptr() as _,
+                    types: leak_one_type(get_tablet_pad_group_v2_interface()),
+                },
+                wl_message {
+                    name: b"path\0".as_ptr() as _,
+                    signature: b"s\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"buttons\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"done\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"button\0".as_ptr() as _,
+                    signature: b"uuu\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"enter\0".as_ptr() as _,
+                    signature: b"uoo\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"leave\0".as_ptr() as _,
+                    signature: b"uo\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"removed\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_pad_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 8,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 pub fn get_tablet_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"name\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
-            wl_message { name: b"id\0".as_ptr() as _, signature: b"uu\0".as_ptr() as _, types: n },
-            wl_message { name: b"path\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
-            wl_message { name: b"done\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"removed\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"bustype\0".as_ptr() as _, signature: b"2u\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_v2\0".as_ptr() as _, version: 2, method_count: 1, methods: requests.as_ptr(), event_count: 6, events: events.as_ptr() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                name: b"destroy\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: n,
+            }]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"name\0".as_ptr() as _,
+                    signature: b"s\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"id\0".as_ptr() as _,
+                    signature: b"uu\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"path\0".as_ptr() as _,
+                    signature: b"s\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"done\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"removed\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"bustype\0".as_ptr() as _,
+                    signature: b"2u\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 1,
+                methods: requests.as_ptr(),
+                event_count: 6,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 pub fn get_tablet_tool_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"set_cursor\0".as_ptr() as _, signature: b"u?oii\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"type\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"hardware_serial\0".as_ptr() as _, signature: b"uu\0".as_ptr() as _, types: n },
-            wl_message { name: b"hardware_id_wacom\0".as_ptr() as _, signature: b"uu\0".as_ptr() as _, types: n },
-            wl_message { name: b"capability\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"done\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"removed\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"proximity_in\0".as_ptr() as _, signature: b"uoo\0".as_ptr() as _, types: n },
-            wl_message { name: b"proximity_out\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"down\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"up\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-            wl_message { name: b"motion\0".as_ptr() as _, signature: b"ff\0".as_ptr() as _, types: n },
-            wl_message { name: b"pressure\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"distance\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-            wl_message { name: b"tilt\0".as_ptr() as _, signature: b"ff\0".as_ptr() as _, types: n },
-            wl_message { name: b"rotation\0".as_ptr() as _, signature: b"f\0".as_ptr() as _, types: n },
-            wl_message { name: b"slider\0".as_ptr() as _, signature: b"i\0".as_ptr() as _, types: n },
-            wl_message { name: b"wheel\0".as_ptr() as _, signature: b"fi\0".as_ptr() as _, types: n },
-            wl_message { name: b"button\0".as_ptr() as _, signature: b"uuu\0".as_ptr() as _, types: n },
-            wl_message { name: b"frame\0".as_ptr() as _, signature: b"u\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_tool_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 19, events: events.as_ptr() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"set_cursor\0".as_ptr() as _,
+                    signature: b"u?oii\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"type\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"hardware_serial\0".as_ptr() as _,
+                    signature: b"uu\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"hardware_id_wacom\0".as_ptr() as _,
+                    signature: b"uu\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"capability\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"done\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"removed\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"proximity_in\0".as_ptr() as _,
+                    signature: b"uoo\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"proximity_out\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"down\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"up\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"motion\0".as_ptr() as _,
+                    signature: b"ff\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"pressure\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"distance\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"tilt\0".as_ptr() as _,
+                    signature: b"ff\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"rotation\0".as_ptr() as _,
+                    signature: b"f\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"slider\0".as_ptr() as _,
+                    signature: b"i\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"wheel\0".as_ptr() as _,
+                    signature: b"fi\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"button\0".as_ptr() as _,
+                    signature: b"uuu\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"frame\0".as_ptr() as _,
+                    signature: b"u\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_tool_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 19,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 pub fn get_tablet_seat_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"tablet_added\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_v2_interface()) },
-            wl_message { name: b"tool_added\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_tool_v2_interface()) },
-            wl_message { name: b"pad_added\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_tablet_pad_v2_interface()) },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_seat_v2\0".as_ptr() as _, version: 2, method_count: 1, methods: requests.as_ptr(), event_count: 3, events: events.as_ptr() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                name: b"destroy\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: n,
+            }]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"tablet_added\0".as_ptr() as _,
+                    signature: b"n\0".as_ptr() as _,
+                    types: leak_one_type(get_tablet_v2_interface()),
+                },
+                wl_message {
+                    name: b"tool_added\0".as_ptr() as _,
+                    signature: b"n\0".as_ptr() as _,
+                    types: leak_one_type(get_tablet_tool_v2_interface()),
+                },
+                wl_message {
+                    name: b"pad_added\0".as_ptr() as _,
+                    signature: b"n\0".as_ptr() as _,
+                    types: leak_one_type(get_tablet_pad_v2_interface()),
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_seat_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 1,
+                methods: requests.as_ptr(),
+                event_count: 3,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 pub fn get_tablet_manager_v2_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"get_tablet_seat\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface { name: b"zwp_tablet_manager_v2\0".as_ptr() as _, version: 2, method_count: 2, methods: requests.as_ptr(), event_count: 0, events: std::ptr::null() }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"get_tablet_seat\0".as_ptr() as _,
+                    signature: b"no\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_tablet_manager_v2\0".as_ptr() as _,
+                version: 2,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 0,
+                events: std::ptr::null(),
+            }))
+        })
+    })
+    .0
 }
 
 // XKB Constants
@@ -1703,88 +2466,165 @@ pub struct zwp_primary_selection_source_v1_listener {
         mime_type: *const c_char,
         fd: i32,
     ),
-    pub cancelled:
-        extern "C" fn(data: *mut c_void, source: *mut zwp_primary_selection_source_v1),
+    pub cancelled: extern "C" fn(data: *mut c_void, source: *mut zwp_primary_selection_source_v1),
 }
 
 pub fn get_primary_selection_offer_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"receive\0".as_ptr() as _, signature: b"sh\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"offer\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"zwp_primary_selection_offer_v1\0".as_ptr() as _, version: 1,
-            method_count: 2, methods: requests.as_ptr(),
-            event_count: 1, events: events.as_ptr(),
-        }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"receive\0".as_ptr() as _,
+                    signature: b"sh\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                name: b"offer\0".as_ptr() as _,
+                signature: b"s\0".as_ptr() as _,
+                types: n,
+            }]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_primary_selection_offer_v1\0".as_ptr() as _,
+                version: 1,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 1,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 
 pub fn get_primary_selection_source_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"offer\0".as_ptr() as _, signature: b"s\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"send\0".as_ptr() as _, signature: b"sh\0".as_ptr() as _, types: n },
-            wl_message { name: b"cancelled\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"zwp_primary_selection_source_v1\0".as_ptr() as _, version: 1,
-            method_count: 2, methods: requests.as_ptr(),
-            event_count: 2, events: events.as_ptr(),
-        }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"offer\0".as_ptr() as _,
+                    signature: b"s\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"send\0".as_ptr() as _,
+                    signature: b"sh\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"cancelled\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_primary_selection_source_v1\0".as_ptr() as _,
+                version: 1,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 2,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 
 pub fn get_primary_selection_device_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"set_selection\0".as_ptr() as _, signature: b"?ou\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        let events: &'static [wl_message] = Box::leak(Box::new([
-            // The ONLY new_id here: libwayland allocates the proxy itself and
-            // needs the interface to do it.
-            wl_message { name: b"data_offer\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: leak_one_type(get_primary_selection_offer_v1_interface()) },
-            wl_message { name: b"selection\0".as_ptr() as _, signature: b"?o\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"zwp_primary_selection_device_v1\0".as_ptr() as _, version: 1,
-            method_count: 2, methods: requests.as_ptr(),
-            event_count: 2, events: events.as_ptr(),
-        }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"set_selection\0".as_ptr() as _,
+                    signature: b"?ou\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                // The ONLY new_id here: libwayland allocates the proxy itself and
+                // needs the interface to do it.
+                wl_message {
+                    name: b"data_offer\0".as_ptr() as _,
+                    signature: b"n\0".as_ptr() as _,
+                    types: leak_one_type(get_primary_selection_offer_v1_interface()),
+                },
+                wl_message {
+                    name: b"selection\0".as_ptr() as _,
+                    signature: b"?o\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_primary_selection_device_v1\0".as_ptr() as _,
+                version: 1,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 2,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
 }
 
 pub fn get_primary_selection_device_manager_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;
     static I: OnceLock<SyncInterface> = OnceLock::new();
-    I.get_or_init(|| SyncInterface({
-        let n = leak_null_types();
-        let requests: &'static [wl_message] = Box::leak(Box::new([
-            wl_message { name: b"create_source\0".as_ptr() as _, signature: b"n\0".as_ptr() as _, types: n },
-            wl_message { name: b"get_device\0".as_ptr() as _, signature: b"no\0".as_ptr() as _, types: n },
-            wl_message { name: b"destroy\0".as_ptr() as _, signature: b"\0".as_ptr() as _, types: n },
-        ]));
-        Box::leak(Box::new(wl_interface {
-            name: b"zwp_primary_selection_device_manager_v1\0".as_ptr() as _, version: 1,
-            method_count: 3, methods: requests.as_ptr(),
-            event_count: 0, events: std::ptr::null(),
-        }))
-    })).0
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"create_source\0".as_ptr() as _,
+                    signature: b"n\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"get_device\0".as_ptr() as _,
+                    signature: b"no\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_primary_selection_device_manager_v1\0".as_ptr() as _,
+                version: 1,
+                method_count: 3,
+                methods: requests.as_ptr(),
+                event_count: 0,
+                events: std::ptr::null(),
+            }))
+        })
+    })
+    .0
 }

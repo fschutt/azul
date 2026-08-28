@@ -1,8 +1,8 @@
 //! CSS properties for border style, width, and color.
 
+use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
-use crate::corety::AzString;
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{color::parse_css_color, pixel::parse_pixel_value};
@@ -38,7 +38,6 @@ pub enum BorderStyle {
     Inset,
     Outset,
 }
-
 
 impl fmt::Display for BorderStyle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -109,17 +108,17 @@ macro_rules! define_border_side_property {
             }
         }
         impl $struct_name {
-            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use]
+            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 Self {
                     inner: self.inner.interpolate(&other.inner, t),
                 }
             }
         }
-    };
-    // NOTE: no separate `PixelValue` specialization arm — the generic
-    // `($struct_name, $inner_type:ty, $default)` arm above already matches
-    // `define_border_side_property!(.., PixelValue, ..)` (PixelValue is a `:ty`),
-    // so a 3-arg PixelValue arm here would be unreachable (unused_macro_rules).
+    }; // NOTE: no separate `PixelValue` specialization arm — the generic
+       // `($struct_name, $inner_type:ty, $default)` arm above already matches
+       // `define_border_side_property!(.., PixelValue, ..)` (PixelValue is a `:ty`),
+       // so a 3-arg PixelValue arm here would be unreachable (unused_macro_rules).
 }
 
 // --- Individual Property Structs ---
@@ -249,7 +248,8 @@ pub enum CssBorderStyleParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl CssBorderStyleParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssBorderStyleParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssBorderStyleParseErrorOwned {
         match self {
             CssBorderStyleParseError::InvalidStyle(s) => {
                 CssBorderStyleParseErrorOwned::InvalidStyle((*s).to_string().into())
@@ -260,11 +260,10 @@ impl CssBorderStyleParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl CssBorderStyleParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssBorderStyleParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssBorderStyleParseError<'_> {
         match self {
-            Self::InvalidStyle(s) => {
-                CssBorderStyleParseError::InvalidStyle(s.as_str())
-            }
+            Self::InvalidStyle(s) => CssBorderStyleParseError::InvalidStyle(s.as_str()),
         }
     }
 }
@@ -329,7 +328,8 @@ pub enum CssBorderSideParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl CssBorderSideParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssBorderSideParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssBorderSideParseErrorOwned {
         match self {
             CssBorderSideParseError::InvalidDeclaration(s) => {
                 CssBorderSideParseErrorOwned::InvalidDeclaration((*s).to_string().into())
@@ -349,11 +349,10 @@ impl CssBorderSideParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl CssBorderSideParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssBorderSideParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssBorderSideParseError<'_> {
         match self {
-            Self::InvalidDeclaration(s) => {
-                CssBorderSideParseError::InvalidDeclaration(s.as_str())
-            }
+            Self::InvalidDeclaration(s) => CssBorderSideParseError::InvalidDeclaration(s.as_str()),
             Self::Width(e) => CssBorderSideParseError::Width(e.to_shared()),
             Self::Style(e) => CssBorderSideParseError::Style(e.to_shared()),
             Self::Color(e) => CssBorderSideParseError::Color(e.to_shared()),
@@ -383,9 +382,7 @@ impl From<CssBorderSideParseErrorOwned> for CssBorderParseErrorOwned {
 /// Parses a border shorthand property such as "1px solid red".
 /// Handles any order of components and applies defaults for missing values.
 #[cfg(feature = "parser")]
-fn parse_border_side(
-    input: &str,
-) -> Result<StyleBorderSide, CssBorderSideParseError<'_>> {
+fn parse_border_side(input: &str) -> Result<StyleBorderSide, CssBorderSideParseError<'_>> {
     let mut width = None;
     let mut style = None;
     let mut color = None;
@@ -433,9 +430,7 @@ fn parse_border_side(
 // --- Individual Property Parsers ---
 
 #[cfg(feature = "parser")]
-fn parse_border_width_value(
-    input: &str,
-) -> Result<PixelValue, CssPixelValueParseError<'_>> {
+fn parse_border_width_value(input: &str) -> Result<PixelValue, CssPixelValueParseError<'_>> {
     match input.trim() {
         "thin" => Ok(THIN_BORDER_THICKNESS),
         "medium" => Ok(MEDIUM_BORDER_THICKNESS),
@@ -525,9 +520,7 @@ pub fn parse_border_left_style(
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `border-top-color` value.
-pub fn parse_border_top_color(
-    input: &str,
-) -> Result<StyleBorderTopColor, CssColorParseError<'_>> {
+pub fn parse_border_top_color(input: &str) -> Result<StyleBorderTopColor, CssColorParseError<'_>> {
     parse_css_color(input).map(|inner| StyleBorderTopColor { inner })
 }
 #[cfg(feature = "parser")]
@@ -579,9 +572,7 @@ pub struct StyleBorderColors {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `border-color` value.
-pub fn parse_style_border_color(
-    input: &str,
-) -> Result<StyleBorderColors, CssColorParseError<'_>> {
+pub fn parse_style_border_color(input: &str) -> Result<StyleBorderColors, CssColorParseError<'_>> {
     let input = input.trim();
     let parts: Vec<&str> = input.split_whitespace().collect();
 
@@ -974,20 +965,17 @@ mod autotest_generated {
             ),
             "groove"
         );
-        assert_eq!(
-            format!("{:?}", StyleBorderTopColor::default()),
-            "#000000ff"
-        );
+        assert_eq!(format!("{:?}", StyleBorderTopColor::default()), "#000000ff");
         assert_eq!(format!("{:?}", LayoutBorderTopWidth::default()), "3px");
     }
 
     #[test]
     fn layout_border_width_const_px_matches_the_runtime_constructor() {
+        assert_eq!(LayoutBorderTopWidth::const_px(5).inner, PixelValue::px(5.0));
         assert_eq!(
-            LayoutBorderTopWidth::const_px(5).inner,
-            PixelValue::px(5.0)
+            LayoutBorderRightWidth::const_px(0).inner,
+            PixelValue::zero()
         );
-        assert_eq!(LayoutBorderRightWidth::const_px(0).inner, PixelValue::zero());
         assert_eq!(
             LayoutBorderBottomWidth::const_px(-2).inner,
             PixelValue::px(-2.0)
@@ -1244,7 +1232,15 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn border_style_longhands_reject_everything_parse_border_style_rejects() {
-        for input in ["", "   ", "SOLID", "solidd", "\u{1F600}", "1px", "solid red"] {
+        for input in [
+            "",
+            "   ",
+            "SOLID",
+            "solidd",
+            "\u{1F600}",
+            "1px",
+            "solid red",
+        ] {
             assert!(parse_border_top_style(input).is_err(), "top: {input:?}");
             assert!(parse_border_right_style(input).is_err(), "right: {input:?}");
             assert!(
@@ -1309,7 +1305,10 @@ mod autotest_generated {
     #[test]
     fn parse_border_width_value_bare_number_is_interpreted_as_px() {
         assert_eq!(parse_border_width_value("0").unwrap(), PixelValue::px(0.0));
-        assert_eq!(parse_border_width_value("42").unwrap(), PixelValue::px(42.0));
+        assert_eq!(
+            parse_border_width_value("42").unwrap(),
+            PixelValue::px(42.0)
+        );
         assert_eq!(
             parse_border_width_value("1.5").unwrap(),
             PixelValue::px(1.5)
@@ -1385,7 +1384,10 @@ mod autotest_generated {
 
         // ...but note the suffix strip trims what's left of the number, so a
         // space between value and unit is silently accepted:
-        assert_eq!(parse_border_width_value("1 px").unwrap(), PixelValue::px(1.0));
+        assert_eq!(
+            parse_border_width_value("1 px").unwrap(),
+            PixelValue::px(1.0)
+        );
     }
 
     #[cfg(feature = "parser")]
@@ -1422,7 +1424,9 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn border_width_longhands_agree_with_each_other() {
-        for input in ["thin", "medium", "thick", "0", "1.5em", "3px", "50%", "-2pt"] {
+        for input in [
+            "thin", "medium", "thick", "0", "1.5em", "3px", "50%", "-2pt",
+        ] {
             let expected = parse_border_width_value(input).unwrap();
             assert_eq!(parse_border_top_width(input).unwrap().inner, expected);
             assert_eq!(parse_border_right_width(input).unwrap().inner, expected);
@@ -1863,7 +1867,11 @@ mod autotest_generated {
             "red\tblue\ngreen",
             "red   blue \r\n green",
         ] {
-            assert_eq!(parse_style_border_color(input).unwrap(), expected, "{input:?}");
+            assert_eq!(
+                parse_style_border_color(input).unwrap(),
+                expected,
+                "{input:?}"
+            );
         }
     }
 

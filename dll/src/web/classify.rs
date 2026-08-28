@@ -38,11 +38,17 @@ impl ApiClassification {
     }
 
     pub fn framework_count(&self) -> usize {
-        self.functions.iter().filter(|(_, c)| *c == FnClass::Framework).count()
+        self.functions
+            .iter()
+            .filter(|(_, c)| *c == FnClass::Framework)
+            .count()
     }
 
     pub fn excluded_count(&self) -> usize {
-        self.functions.iter().filter(|(_, c)| *c != FnClass::Framework).count()
+        self.functions
+            .iter()
+            .filter(|(_, c)| *c != FnClass::Framework)
+            .count()
     }
 }
 
@@ -78,16 +84,14 @@ impl ApiClassification {
 pub fn classify_api_functions() -> ApiClassification {
     // Decompress brotli
     let mut json_bytes = Vec::new();
-    brotli_decompressor::BrotliDecompress(
-        &mut &API_JSON_BR[..],
-        &mut json_bytes,
-    ).expect("Failed to decompress embedded api.json");
+    brotli_decompressor::BrotliDecompress(&mut &API_JSON_BR[..], &mut json_bytes)
+        .expect("Failed to decompress embedded api.json");
 
-    let json_str = core::str::from_utf8(&json_bytes)
-        .expect("Decompressed api.json is not valid UTF-8");
+    let json_str =
+        core::str::from_utf8(&json_bytes).expect("Decompressed api.json is not valid UTF-8");
 
-    let parsed: serde_json::Value = serde_json::from_str(json_str)
-        .expect("Failed to parse decompressed api.json");
+    let parsed: serde_json::Value =
+        serde_json::from_str(json_str).expect("Failed to parse decompressed api.json");
 
     let mut functions = Vec::new();
 

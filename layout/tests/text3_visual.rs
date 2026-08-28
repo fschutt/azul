@@ -25,10 +25,15 @@
 //!     --test text3_visual -- --test-threads=2 --nocapture 2>&1' | tail -40
 //! ```
 
-#![cfg(all(feature = "cpurender", feature = "text_layout", feature = "font_loading"))]
+#![cfg(all(
+    feature = "cpurender",
+    feature = "text_layout",
+    feature = "font_loading"
+))]
 
 use std::path::PathBuf;
 
+use azul_core::dom::Dom;
 use azul_css::props::basic::FontRef;
 use azul_layout::{
     cpurender::{render_component_preview, ComponentPreviewOptions},
@@ -36,7 +41,6 @@ use azul_layout::{
     font_traits::FontManager,
     xml::DomXmlExt,
 };
-use azul_core::dom::Dom;
 use rust_fontconfig::UnicodeRange;
 
 #[path = "common/rect_font.rs"]
@@ -67,14 +71,28 @@ fn out_dir() -> PathBuf {
 fn font_manager_with_stress_fonts() -> FontManager<FontRef> {
     let mut fm = FontManager::<FontRef>::new(build_font_cache()).expect("font manager");
 
-    let load = |name: &str| std::fs::read(font_path(name)).unwrap_or_else(|e| {
-        panic!("read stress font {name}: {e}");
-    });
+    let load = |name: &str| {
+        std::fs::read(font_path(name)).unwrap_or_else(|e| {
+            panic!("read stress font {name}: {e}");
+        })
+    };
 
     // ASCII-covered fonts.
-    fm.register_named_font("Azul Mock Liga", &load("azul-mock-liga.ttf"), vec![range(0x20, 0x7E)]);
-    fm.register_named_font("Azul Mock Kern", &load("azul-mock-kern.ttf"), vec![range(0x20, 0x7E)]);
-    fm.register_named_font("Azul Mock Prop", &load("azul-mock-prop.ttf"), vec![range(0x20, 0x7E)]);
+    fm.register_named_font(
+        "Azul Mock Liga",
+        &load("azul-mock-liga.ttf"),
+        vec![range(0x20, 0x7E)],
+    );
+    fm.register_named_font(
+        "Azul Mock Kern",
+        &load("azul-mock-kern.ttf"),
+        vec![range(0x20, 0x7E)],
+    );
+    fm.register_named_font(
+        "Azul Mock Prop",
+        &load("azul-mock-prop.ttf"),
+        vec![range(0x20, 0x7E)],
+    );
     // Arabic block + space.
     fm.register_named_font(
         "Azul Mock Arabic",
@@ -307,7 +325,11 @@ fn cjk_inmemory() {
         /* descent (positive magnitude) */ 200,
         &codepoints,
     );
-    assert!(bytes.len() > 100_000, "generated CJK font suspiciously small: {} bytes", bytes.len());
+    assert!(
+        bytes.len() > 100_000,
+        "generated CJK font suspiciously small: {} bytes",
+        bytes.len()
+    );
     fm.register_named_font("Azul Rect CJK", &bytes, vec![range(0x4E00, 0x9FFF)]);
 
     // A few ideographs spread across the block, in two colours.

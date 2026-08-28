@@ -16,8 +16,8 @@
 //! We then inspect the cache directly.
 
 use std::cell::RefCell;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo, Update};
 use azul_core::dom::{Dom, DomId, NodeData};
@@ -67,13 +67,10 @@ extern "C" fn on_mount_override(mut data: RefAny, mut info: CallbackInfo) -> Upd
     // below) with a value that is not the cascaded default. A real-world
     // usage would be an animation callback updating `opacity` or
     // `transform` every frame.
-    let width_override =
-        CssProperty::const_width(LayoutWidth::Px(azul_css::props::basic::PixelValue::px(123.0)));
-    info.override_node_css_properties(
-        DomId::ROOT_ID,
-        NodeId::new(1),
-        vec![width_override].into(),
-    );
+    let width_override = CssProperty::const_width(LayoutWidth::Px(
+        azul_css::props::basic::PixelValue::px(123.0),
+    ));
+    info.override_node_css_properties(DomId::ROOT_ID, NodeId::new(1), vec![width_override].into());
 
     Update::DoNothing
 }
@@ -171,13 +168,10 @@ fn override_node_css_properties_lands_in_user_overridden_cache() {
         .expect("root DOM layout result exists");
 
     let cache = layout_result.styled_dom.get_css_property_cache();
-    let vec_for_node = cache
-        .user_overridden_properties
-        .get(1)
-        .expect(
-            "user_overridden_properties vec must cover node 1 after the \
+    let vec_for_node = cache.user_overridden_properties.get(1).expect(
+        "user_overridden_properties vec must cover node 1 after the \
              writer grew it to node_count",
-        );
+    );
 
     let width_entry = vec_for_node
         .iter()

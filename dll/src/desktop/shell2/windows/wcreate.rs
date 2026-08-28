@@ -122,21 +122,31 @@ pub fn create_hwnd(
         };
 
         // Window style - based on decorations option
-        use azul_core::window::WindowDecorations;
         use super::dlopen::constants::{
             WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
             WS_THICKFRAME,
         };
+        use azul_core::window::WindowDecorations;
 
         let style = match options.window_state.flags.decorations {
             WindowDecorations::Normal => {
                 // Full decorations: WS_OVERLAPPEDWINDOW
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
+                WS_OVERLAPPED
+                    | WS_CAPTION
+                    | WS_SYSMENU
+                    | WS_THICKFRAME
+                    | WS_MINIMIZEBOX
+                    | WS_MAXIMIZEBOX
             }
             WindowDecorations::NoTitle | WindowDecorations::NoTitleAutoInject => {
                 // Extended frame: controls visible but no title text
                 // On Windows, we still use full decorations but will hide title via DWM later
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
+                WS_OVERLAPPED
+                    | WS_CAPTION
+                    | WS_SYSMENU
+                    | WS_THICKFRAME
+                    | WS_MINIMIZEBOX
+                    | WS_MAXIMIZEBOX
             }
             WindowDecorations::NoControls => {
                 // Title bar but no minimize/maximize buttons
@@ -207,7 +217,10 @@ pub fn create_hwnd(
         // like a real window. One-pixel top margin rather than -1: the "sheet
         // of glass" form composites the entire client area as frame and shows
         // through wherever the app draws with alpha.
-        if matches!(options.window_state.flags.decorations, WindowDecorations::None) {
+        if matches!(
+            options.window_state.flags.decorations,
+            WindowDecorations::None
+        ) {
             if let Some(ref dwm) = win32.dwmapi_funcs {
                 let margins = crate::desktop::shell2::windows::dlopen::MARGINS {
                     cxLeftWidth: 0,

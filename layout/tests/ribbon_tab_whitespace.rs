@@ -79,21 +79,33 @@ fn node_id(n: usize) -> DomNodeId {
 fn azwriter_like_ribbon() -> Dom {
     let col = |labels: [&str; 3]| {
         RibbonItem::Column(labels.into_iter().fold(RibbonColumn::new(), |c, l| {
-            c.with_item(RibbonItem::SmallButton(RibbonButton::new("content_cut".into(), l.into())))
+            c.with_item(RibbonItem::SmallButton(RibbonButton::new(
+                "content_cut".into(),
+                l.into(),
+            )))
         }))
     };
     let cells: Vec<RibbonGalleryCell> = (0..4)
-        .map(|i| RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), format!("Style {i}").into()))
+        .map(|i| {
+            RibbonGalleryCell::new(
+                Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"),
+                format!("Style {i}").into(),
+            )
+        })
         .collect();
 
     let tab = RibbonTab::new("HOME".into())
-        .with_group(
-            RibbonGroup::new("Clipboard".into()).with_item(col(["Cut", "Copy", "Format Painter"])),
-        )
+        .with_group(RibbonGroup::new("Clipboard".into()).with_item(col([
+            "Cut",
+            "Copy",
+            "Format Painter",
+        ])))
         .with_group(RibbonGroup::new("Font".into()).with_item(col(["Grow", "Shrink", "Clear"])))
-        .with_group(
-            RibbonGroup::new("Paragraph".into()).with_item(col(["Bullets", "Numbering", "Sort"])),
-        )
+        .with_group(RibbonGroup::new("Paragraph".into()).with_item(col([
+            "Bullets",
+            "Numbering",
+            "Sort",
+        ])))
         .with_group(
             RibbonGroup::new("Styles".into())
                 .with_item(RibbonItem::Gallery(RibbonGallery::new(cells.into())))
@@ -101,7 +113,15 @@ fn azwriter_like_ribbon() -> Dom {
         );
 
     let mut tabs = vec![tab];
-    for label in ["INSERT", "DESIGN", "PAGE LAYOUT", "REFERENCES", "MAILINGS", "REVIEW", "VIEW"] {
+    for label in [
+        "INSERT",
+        "DESIGN",
+        "PAGE LAYOUT",
+        "REFERENCES",
+        "MAILINGS",
+        "REVIEW",
+        "VIEW",
+    ] {
         tabs.push(RibbonTab::new(label.into()).with_group(
             RibbonGroup::new("Preview".into()).with_item(RibbonItem::LargeButton(
                 RibbonButton::new("layers".into(), label.into()),
@@ -119,9 +139,11 @@ fn azwriter_like_ribbon() -> Dom {
             },
         };
         let mut v = ribbon.style.container_style.as_ref().to_vec();
-        v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
-            StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("Liberation Sans".into())]),
-        )));
+        v.push(CssPropertyWithConditions::simple(
+            CssProperty::const_font_family(StyleFontFamilyVec::from_vec(vec![
+                StyleFontFamily::System("Liberation Sans".into()),
+            ])),
+        ));
         ribbon.style.container_style =
             azul_css::dynamic_selector::CssPropertyWithConditionsVec::from_vec(v);
     }
@@ -163,7 +185,11 @@ struct Rect {
 
 fn rect_of(lw: &LayoutWindow, i: usize) -> Option<Rect> {
     let r = lw.get_node_layout_rect(node_id(i))?;
-    Some(Rect { x: r.origin.x, w: r.size.width, h: r.size.height })
+    Some(Rect {
+        x: r.origin.x,
+        w: r.size.width,
+        h: r.size.height,
+    })
 }
 
 /// The `<p>` label box of a text node. Static screen text retains no
@@ -185,8 +211,16 @@ fn caption_center_error(lw: &LayoutWindow, text_i: usize) -> Option<f32> {
     Some((pr.x + pr.w / 2.0) - (fr.x + fr.w / 2.0))
 }
 
-const TAB_LABELS: &[&str] =
-    &["HOME", "INSERT", "DESIGN", "PAGE LAYOUT", "REFERENCES", "MAILINGS", "REVIEW", "VIEW"];
+const TAB_LABELS: &[&str] = &[
+    "HOME",
+    "INSERT",
+    "DESIGN",
+    "PAGE LAYOUT",
+    "REFERENCES",
+    "MAILINGS",
+    "REVIEW",
+    "VIEW",
+];
 const GROUP_LABELS: &[&str] = &["Clipboard", "Font", "Paragraph", "Styles"];
 
 /// PROBE (ignored by default): sweeps window widths and prints every width
@@ -325,11 +359,15 @@ fn nc_squeezed_label_is_detected_as_wrapped() {
         .sq  { width: 40px; }
     ";
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(class("row")).with_child(
-            Dom::create_p()
-                .with_ids_and_classes(class("sq"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("PAGE LAYOUT")),
-        ),
+        Dom::create_div()
+            .with_ids_and_classes(class("row"))
+            .with_child(
+                Dom::create_p()
+                    .with_ids_and_classes(class("sq"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "PAGE LAYOUT",
+                    )),
+            ),
     );
     let lw = layout_dom_css(dom, NC_CSS, 800.0, 200.0);
     let i = find_text(&lw, "PAGE LAYOUT").expect("squeezed label present");
@@ -360,7 +398,9 @@ fn nc_non_growing_caption_is_detected_off_center() {
             .with_child(
                 Dom::create_p()
                     .with_ids_and_classes(class("cap"))
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Clipboard")),
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "Clipboard",
+                    )),
             )
             .with_child(Dom::create_div().with_ids_and_classes(class("fill"))),
     );
@@ -369,7 +409,11 @@ fn nc_non_growing_caption_is_detected_off_center() {
     {
         let pi = parent_of(&lw, i).unwrap();
         let fi = parent_of(&lw, pi).unwrap();
-        println!("caption <p>: {:?} footer: {:?}", rect_of(&lw, pi), rect_of(&lw, fi));
+        println!(
+            "caption <p>: {:?} footer: {:?}",
+            rect_of(&lw, pi),
+            rect_of(&lw, fi)
+        );
     }
     let err = caption_center_error(&lw, i).expect("caption metrics");
     assert!(

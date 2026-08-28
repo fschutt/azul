@@ -109,9 +109,8 @@ static RE_DOT: LazyLock<Regex> = LazyLock::new(|| {
 //
 // The member must start lowercase: `Update::RefreshDom` is an enum variant,
 // not a call, and every azul method is snake_case.
-static RE_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(T?[A-Z][A-Za-z0-9]*)::([a-z_][A-Za-z0-9_]*)\s*\(").unwrap()
-});
+static RE_PATH: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(T?[A-Z][A-Za-z0-9]*)::([a-z_][A-Za-z0-9_]*)\s*\(").unwrap());
 // `.method(` — a call on a value whose type the lint cannot see. Guide only,
 // and only names that are ours: everything a guide sample calls on a `Vec`,
 // an `Option` or a tokio handle is listed in NOT_OURS below. api.json is the
@@ -125,9 +124,9 @@ static RE_METHOD: LazyLock<Regex> =
 /// `` `main.rs` `` in prose does, and the regex cannot tell. Extensions are a
 /// closed set, so listing them is exact.
 const FILE_EXTS: &[&str] = &[
-    "rs", "gz", "zip", "ipa", "apk", "app", "exe", "dll", "dylib", "wasm",
-    "json", "toml", "yaml", "yml", "html", "css", "png", "svg", "txt", "log",
-    "sqlite", "db", "so", "md", "sh", "bat", "pas", "hpp", "cpp",
+    "rs", "gz", "zip", "ipa", "apk", "app", "exe", "dll", "dylib", "wasm", "json", "toml", "yaml",
+    "yml", "html", "css", "png", "svg", "txt", "log", "sqlite", "db", "so", "md", "sh", "bat",
+    "pas", "hpp", "cpp",
 ];
 
 /// Helpers a guide sample calls on the READER's own type, in a narrative that
@@ -135,7 +134,9 @@ const FILE_EXTS: &[&str] = &[
 /// They are not azul functions and never will be; the alternative to naming
 /// them here is padding every snippet with stub impls.
 const APP_SIDE: &[&str] = &[
-    "already_rendered_area_covers", "render_more_rows", "fetch_rows",
+    "already_rendered_area_covers",
+    "render_more_rows",
+    "fetch_rows",
 ];
 
 /// Methods a guide sample calls on something that is NOT an azul type: std,
@@ -143,36 +144,131 @@ const APP_SIDE: &[&str] = &[
 /// than FFI functions. Everything else must exist in the bindings.
 const NOT_OURS: &[&str] = &[
     // Option / Result
-    "and_then", "expect", "map", "map_err", "ok", "ok_or", "ok_or_else",
-    "unwrap", "unwrap_or", "unwrap_or_default", "unwrap_or_else", "take",
-    "is_some", "is_none", "is_ok", "is_err", "as_deref", "cloned", "copied",
+    "and_then",
+    "expect",
+    "map",
+    "map_err",
+    "ok",
+    "ok_or",
+    "ok_or_else",
+    "unwrap",
+    "unwrap_or",
+    "unwrap_or_default",
+    "unwrap_or_else",
+    "take",
+    "is_some",
+    "is_none",
+    "is_ok",
+    "is_err",
+    "as_deref",
+    "cloned",
+    "copied",
     // Iterator
-    "iter", "iter_mut", "into_iter", "collect", "filter", "filter_map", "find",
-    "find_map", "enumerate", "zip", "rev", "chain", "flat_map", "flatten",
-    "for_each", "fold", "any", "all", "count", "position", "skip", "sum",
-    "min_by_key", "max_by_key", "sort_by_key", "last", "next", "peekable",
+    "iter",
+    "iter_mut",
+    "into_iter",
+    "collect",
+    "filter",
+    "filter_map",
+    "find",
+    "find_map",
+    "enumerate",
+    "zip",
+    "rev",
+    "chain",
+    "flat_map",
+    "flatten",
+    "for_each",
+    "fold",
+    "any",
+    "all",
+    "count",
+    "position",
+    "skip",
+    "sum",
+    "min_by_key",
+    "max_by_key",
+    "sort_by_key",
+    "last",
+    "next",
+    "peekable",
     // Vec / String / slice / numbers
-    "push", "pop", "insert", "remove", "extend", "join", "split", "splitn",
-    "trim", "starts_with", "ends_with", "contains", "replace", "to_string",
-    "to_owned", "to_vec", "to_lowercase", "to_uppercase", "parse", "chars",
-    "lines", "bytes", "as_bytes", "as_slice", "as_mut_slice", "push_str",
-    "get_or_insert_with", "entry", "keys", "values", "retain", "drain",
-    "ceil", "floor", "round", "abs", "sqrt", "powi", "powf", "clamp",
-    "saturating_sub", "checked_add", "is_alphanumeric", "is_whitespace",
-    "is_empty", "is_finite", "is_nan",
+    "push",
+    "pop",
+    "insert",
+    "remove",
+    "extend",
+    "join",
+    "split",
+    "splitn",
+    "trim",
+    "starts_with",
+    "ends_with",
+    "contains",
+    "replace",
+    "to_string",
+    "to_owned",
+    "to_vec",
+    "to_lowercase",
+    "to_uppercase",
+    "parse",
+    "chars",
+    "lines",
+    "bytes",
+    "as_bytes",
+    "as_slice",
+    "as_mut_slice",
+    "push_str",
+    "get_or_insert_with",
+    "entry",
+    "keys",
+    "values",
+    "retain",
+    "drain",
+    "ceil",
+    "floor",
+    "round",
+    "abs",
+    "sqrt",
+    "powi",
+    "powf",
+    "clamp",
+    "saturating_sub",
+    "checked_add",
+    "is_alphanumeric",
+    "is_whitespace",
+    "is_empty",
+    "is_finite",
+    "is_nan",
     // std::* handles, threads, time, tokio - guide samples use these directly
-    "lock", "borrow", "borrow_mut", "read", "write", "send", "recv",
-    "poll_recv", "block_on", "enable_all", "spawn", "join_all", "await",
-    "elapsed", "duration_since", "as_secs", "as_millis", "as_secs_f32",
-    "checked_duration_since", "now",
+    "lock",
+    "borrow",
+    "borrow_mut",
+    "read",
+    "write",
+    "send",
+    "recv",
+    "poll_recv",
+    "block_on",
+    "enable_all",
+    "spawn",
+    "join_all",
+    "await",
+    "elapsed",
+    "duration_since",
+    "as_secs",
+    "as_millis",
+    "as_secs_f32",
+    "checked_duration_since",
+    "now",
     // RefAny's downcasts are Rust generics; there is no `AzRefAny_downcastRef`
-    "downcast_ref", "downcast_mut",
+    "downcast_ref",
+    "downcast_mut",
 ];
 
 // `fn foo(`, `func foo(`, `def foo(` — a definition in the page's own sample.
-static RE_DEFINITION: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(?:fn|func|def|function)\s+([a-z_][A-Za-z0-9_]*)").unwrap()
-});
+static RE_DEFINITION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:fn|func|def|function)\s+([a-z_][A-Za-z0-9_]*)").unwrap());
 // Go: NewDomCreateText — no separator, so the class prefix is matched greedily.
 static RE_GO: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bNew([A-Z][A-Za-z0-9]*)\b").unwrap());
@@ -180,8 +276,9 @@ static RE_GO: LazyLock<Regex> =
 /// Stand-in names the guides use when explaining the naming convention
 /// itself (`AzXxx_yyy`, `AzMyWidgetOnFooCallback_...`). They are illustrations,
 /// not calls.
-const PLACEHOLDER_CLASSES: &[&str] =
-    &["Xxx", "Yyy", "Foo", "Bar", "Baz", "MyType", "MyWidget", "MyStruct", "Example"];
+const PLACEHOLDER_CLASSES: &[&str] = &[
+    "Xxx", "Yyy", "Foo", "Bar", "Baz", "MyType", "MyWidget", "MyStruct", "Example",
+];
 
 /// The wasm entry points live in dll/src/web and are exported by the web
 /// build, not by `codegen all`, so the generated tree never mentions them.
@@ -193,7 +290,9 @@ fn wasm_surface(symbol: &str) -> bool {
 }
 
 fn placeholder(symbol: &str) -> bool {
-    let Some(rest) = symbol.strip_prefix("Az") else { return false };
+    let Some(rest) = symbol.strip_prefix("Az") else {
+        return false;
+    };
     let class = rest.split('_').next().unwrap_or("");
     PLACEHOLDER_CLASSES.iter().any(|p| class.starts_with(p))
 }
@@ -220,7 +319,10 @@ impl Surface {
             return None; // nothing to check against; stay silent
         }
         let mut exact = HashSet::new();
-        for entry in walkdir::WalkDir::new(&codegen).into_iter().filter_map(Result::ok) {
+        for entry in walkdir::WalkDir::new(&codegen)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
             let path = entry.path();
             if !path.is_file() {
                 continue;
@@ -250,7 +352,11 @@ impl Surface {
             }
         }
 
-        Some(Self { exact, loose, classes })
+        Some(Self {
+            exact,
+            loose,
+            classes,
+        })
     }
 
     fn exports(&self, symbol: &str) -> bool {
@@ -265,8 +371,7 @@ impl Surface {
     /// `AzStyleFontSize_px`, so the bare member name is never found on its
     /// own. Check the qualified spelling too before calling it missing.
     fn exports_on(&self, class: &str, member: &str) -> bool {
-        self.exports_member(member)
-            || self.loose.contains(&norm(&format!("Az{class}_{member}")))
+        self.exports_member(member) || self.loose.contains(&norm(&format!("Az{class}_{member}")))
     }
 
     /// A rename usually extends or trims a name, so an exported spelling that
@@ -338,7 +443,10 @@ fn check_line(
     // C / C++ / Crystal: the whole symbol must be exported verbatim.
     for re in [&*RE_C, &*RE_CRYSTAL] {
         for m in re.find_iter(line) {
-            if covered.iter().any(|(a, b)| m.start() >= *a && m.start() < *b) {
+            if covered
+                .iter()
+                .any(|(a, b)| m.start() >= *a && m.start() < *b)
+            {
                 continue;
             }
             // Prose sometimes writes the Haskell wrapper without its `c_`.
@@ -390,7 +498,11 @@ fn check_line(
             if defined_in_page.contains(member) {
                 continue;
             }
-            flag(member, c.get(0).unwrap().as_str().trim_end_matches('('), out);
+            flag(
+                member,
+                c.get(0).unwrap().as_str().trim_end_matches('('),
+                out,
+            );
         }
 
         for c in RE_PATH.captures_iter(line) {
@@ -399,8 +511,7 @@ fn check_line(
             if HOST_COLLISIONS.contains(&class) {
                 continue;
             }
-            if (s.classes.contains(raw) || s.classes.contains(class))
-                && !s.exports_on(class, &c[2])
+            if (s.classes.contains(raw) || s.classes.contains(class)) && !s.exports_on(class, &c[2])
             {
                 flag(&c[2], c.get(0).unwrap().as_str().trim_end_matches('('), out);
             }
@@ -462,9 +573,10 @@ fn tracked_files(project_root: &Path) -> Option<HashSet<String>> {
 /// and deliberate placeholder names (`AzMyType_do_thing`), neither of which is
 /// an exported binding symbol.
 pub fn run(project_root: &Path, api: &ApiData) -> Vec<Finding> {
-    let (Some(surface), Some(tracked)) =
-        (Surface::build(project_root, api), tracked_files(project_root))
-    else {
+    let (Some(surface), Some(tracked)) = (
+        Surface::build(project_root, api),
+        tracked_files(project_root),
+    ) else {
         return Vec::new();
     };
 
@@ -474,7 +586,10 @@ pub fn run(project_root: &Path, api: &ApiData) -> Vec<Finding> {
         if !dir.is_dir() {
             continue;
         }
-        for entry in walkdir::WalkDir::new(&dir).into_iter().filter_map(Result::ok) {
+        for entry in walkdir::WalkDir::new(&dir)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
             let path = entry.path();
             if !path.is_file() || !scannable(path) {
                 continue;
@@ -503,7 +618,15 @@ pub fn run(project_root: &Path, api: &ApiData) -> Vec<Finding> {
                 HashSet::new()
             };
             for (i, line) in text.lines().enumerate() {
-                check_line(line, &surface, &rel, i + 1, guide, &defined_in_page, &mut findings);
+                check_line(
+                    line,
+                    &surface,
+                    &rel,
+                    i + 1,
+                    guide,
+                    &defined_in_page,
+                    &mut findings,
+                );
             }
         }
     }

@@ -7,8 +7,8 @@ use alloc::{
 };
 
 use crate::{
-    corety::AzString,
     codegen::format::FormatAsRustCode,
+    corety::AzString,
     impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq, impl_vec_hash, impl_vec_mut,
     impl_vec_ord, impl_vec_partialeq, impl_vec_partialord,
     props::{basic::pixel::PixelValue, formatter::PrintAsCssValue},
@@ -71,7 +71,6 @@ impl core::fmt::Debug for GridTrackSizing {
     }
 }
 
-
 impl PrintAsCssValue for GridTrackSizing {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -95,7 +94,14 @@ impl PrintAsCssValue for GridTrackSizing {
 }
 
 // C-compatible Vec for GridTrackSizing
-impl_vec!(GridTrackSizing, GridTrackSizingVec, GridTrackSizingVecDestructor, GridTrackSizingVecDestructorType, GridTrackSizingVecSlice, OptionGridTrackSizing);
+impl_vec!(
+    GridTrackSizing,
+    GridTrackSizingVec,
+    GridTrackSizingVecDestructor,
+    GridTrackSizingVecDestructorType,
+    GridTrackSizingVecSlice,
+    OptionGridTrackSizing
+);
 impl_vec_clone!(
     GridTrackSizing,
     GridTrackSizingVec,
@@ -204,14 +210,16 @@ pub struct NamedGridLine {
 }
 
 impl NamedGridLine {
-    #[must_use] pub fn create(name: AzString, span: Option<i32>) -> Self {
+    #[must_use]
+    pub fn create(name: AzString, span: Option<i32>) -> Self {
         Self {
             grid_line_name: name,
             span_count: span.unwrap_or(0),
         }
     }
 
-    #[must_use] pub const fn span(&self) -> Option<i32> {
+    #[must_use]
+    pub const fn span(&self) -> Option<i32> {
         if self.span_count == 0 {
             None
         } else {
@@ -219,7 +227,8 @@ impl NamedGridLine {
         }
     }
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents a grid line position (start or end)
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -241,7 +250,6 @@ impl core::fmt::Debug for GridLine {
         write!(f, "{}", self.print_as_css_value())
     }
 }
-
 
 impl PrintAsCssValue for GridLine {
     fn print_as_css_value(&self) -> String {
@@ -319,16 +327,20 @@ pub enum GridParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl GridParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> GridParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> GridParseErrorOwned {
         match self {
-            GridParseError::InvalidValue(s) => GridParseErrorOwned::InvalidValue((*s).to_string().into()),
+            GridParseError::InvalidValue(s) => {
+                GridParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl GridParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> GridParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> GridParseError<'_> {
         match self {
             Self::InvalidValue(s) => GridParseError::InvalidValue(s.as_str()),
         }
@@ -343,8 +355,17 @@ fn split_respecting_parens(input: &str) -> Result<Vec<String>, ()> {
 
     for ch in input.chars() {
         match ch {
-            '(' => { paren_depth += 1; current.push(ch); }
-            ')' => { paren_depth -= 1; if paren_depth < 0 { return Err(()); } current.push(ch); }
+            '(' => {
+                paren_depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                paren_depth -= 1;
+                if paren_depth < 0 {
+                    return Err(());
+                }
+                current.push(ch);
+            }
             ' ' if paren_depth == 0 => {
                 if !current.trim().is_empty() {
                     parts.push(current.trim().to_string());
@@ -373,8 +394,7 @@ pub fn parse_grid_template(input: &str) -> Result<GridTemplate, GridParseError<'
         return Ok(GridTemplate::default());
     }
 
-    let parts = split_respecting_parens(input)
-        .map_err(|()| GridParseError::InvalidValue(input))?;
+    let parts = split_respecting_parens(input).map_err(|()| GridParseError::InvalidValue(input))?;
 
     let mut tracks = Vec::new();
     for part in &parts {
@@ -451,7 +471,10 @@ fn parse_grid_track_owned(input: &str) -> Result<GridTrackSizing, ()> {
         let num_str = num_str.trim();
         if let Ok(num) = num_str.parse::<f32>() {
             let scaled = num * FR_SCALING_FACTOR;
-            if scaled.is_nan() || scaled < crate::cast::i32_to_f32(i32::MIN) || scaled > crate::cast::i32_to_f32(i32::MAX) {
+            if scaled.is_nan()
+                || scaled < crate::cast::i32_to_f32(i32::MIN)
+                || scaled > crate::cast::i32_to_f32(i32::MAX)
+            {
                 return Err(());
             }
             return Ok(GridTrackSizing::Fr(crate::cast::f32_to_i32(scaled)));
@@ -531,7 +554,6 @@ pub enum LayoutGridAutoFlow {
     ColumnDense,
 }
 
-
 impl PrintAsCssValue for LayoutGridAutoFlow {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -565,7 +587,8 @@ pub enum GridAutoFlowParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl GridAutoFlowParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> GridAutoFlowParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> GridAutoFlowParseErrorOwned {
         match self {
             GridAutoFlowParseError::InvalidValue(s) => {
                 GridAutoFlowParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -576,11 +599,10 @@ impl GridAutoFlowParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl GridAutoFlowParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> GridAutoFlowParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> GridAutoFlowParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                GridAutoFlowParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => GridAutoFlowParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -616,7 +638,6 @@ pub enum LayoutJustifySelf {
     Stretch,
 }
 
-
 impl PrintAsCssValue for LayoutJustifySelf {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -644,7 +665,8 @@ pub enum JustifySelfParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl JustifySelfParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> JustifySelfParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> JustifySelfParseErrorOwned {
         match self {
             JustifySelfParseError::InvalidValue(s) => {
                 JustifySelfParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -655,11 +677,10 @@ impl JustifySelfParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl JustifySelfParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> JustifySelfParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> JustifySelfParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                JustifySelfParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => JustifySelfParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -700,7 +721,6 @@ pub enum LayoutJustifyItems {
     Stretch,
 }
 
-
 impl PrintAsCssValue for LayoutJustifyItems {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -727,7 +747,8 @@ pub enum JustifyItemsParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl JustifyItemsParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> JustifyItemsParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> JustifyItemsParseErrorOwned {
         match self {
             JustifyItemsParseError::InvalidValue(s) => {
                 JustifyItemsParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -738,11 +759,10 @@ impl JustifyItemsParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl JustifyItemsParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> JustifyItemsParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> JustifyItemsParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                JustifyItemsParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => JustifyItemsParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -887,7 +907,10 @@ impl FormatAsRustCode for GridAutoTracks {
 
 impl FormatAsRustCode for GridTemplateAreas {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("GridTemplateAreas {{ areas: GridAreaDefinitionVec::from_vec(vec!{:?}) }}", self.areas.as_ref())
+        format!(
+            "GridTemplateAreas {{ areas: GridAreaDefinitionVec::from_vec(vec!{:?}) }}",
+            self.areas.as_ref()
+        )
     }
 }
 
@@ -1135,17 +1158,32 @@ mod tests {
     fn test_parse_grid_template_repeat_fr() {
         let result = parse_grid_template("repeat(3, 1fr)").unwrap();
         assert_eq!(result.tracks.len(), 3);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fr(100)));
-        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(100)));
-        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::Fr(100)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::Fr(100)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[1],
+            GridTrackSizing::Fr(100)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[2],
+            GridTrackSizing::Fr(100)
+        ));
     }
 
     #[test]
     fn test_parse_grid_template_repeat_px() {
         let result = parse_grid_template("repeat(2, 100px)").unwrap();
         assert_eq!(result.tracks.len(), 2);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fixed(_)));
-        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fixed(_)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::Fixed(_)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[1],
+            GridTrackSizing::Fixed(_)
+        ));
     }
 
     #[test]
@@ -1153,10 +1191,22 @@ mod tests {
         // repeat(2, 100px 1fr) should expand to [100px, 1fr, 100px, 1fr]
         let result = parse_grid_template("repeat(2, 100px 1fr)").unwrap();
         assert_eq!(result.tracks.len(), 4);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fixed(_)));
-        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(100)));
-        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::Fixed(_)));
-        assert!(matches!(result.tracks.as_ref()[3], GridTrackSizing::Fr(100)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::Fixed(_)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[1],
+            GridTrackSizing::Fr(100)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[2],
+            GridTrackSizing::Fixed(_)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[3],
+            GridTrackSizing::Fr(100)
+        ));
     }
 
     #[test]
@@ -1164,9 +1214,18 @@ mod tests {
         // "100px repeat(2, 1fr) auto" should produce [100px, 1fr, 1fr, auto]
         let result = parse_grid_template("100px repeat(2, 1fr) auto").unwrap();
         assert_eq!(result.tracks.len(), 4);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fixed(_)));
-        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(100)));
-        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::Fr(100)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::Fixed(_)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[1],
+            GridTrackSizing::Fr(100)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[2],
+            GridTrackSizing::Fr(100)
+        ));
         assert!(matches!(result.tracks.as_ref()[3], GridTrackSizing::Auto));
     }
 
@@ -1174,9 +1233,18 @@ mod tests {
     fn test_parse_grid_template_repeat_minmax() {
         let result = parse_grid_template("repeat(3, minmax(100px, 1fr))").unwrap();
         assert_eq!(result.tracks.len(), 3);
-        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::MinMax(_)));
-        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::MinMax(_)));
-        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::MinMax(_)));
+        assert!(matches!(
+            result.tracks.as_ref()[0],
+            GridTrackSizing::MinMax(_)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[1],
+            GridTrackSizing::MinMax(_)
+        ));
+        assert!(matches!(
+            result.tracks.as_ref()[2],
+            GridTrackSizing::MinMax(_)
+        ));
     }
 }
 
@@ -1201,7 +1269,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(GridAreaDefinition, GridAreaDefinitionVec, GridAreaDefinitionVecDestructor, GridAreaDefinitionVecDestructorType, GridAreaDefinitionVecSlice, OptionGridAreaDefinition);
+impl_vec!(
+    GridAreaDefinition,
+    GridAreaDefinitionVec,
+    GridAreaDefinitionVecDestructor,
+    GridAreaDefinitionVecDestructorType,
+    GridAreaDefinitionVecSlice,
+    OptionGridAreaDefinition
+);
 impl_vec_clone!(
     GridAreaDefinition,
     GridAreaDefinitionVec,
@@ -1232,7 +1307,9 @@ pub struct GridTemplateAreas {
 
 impl Default for GridTemplateAreas {
     fn default() -> Self {
-        Self { areas: GridAreaDefinitionVec::from_vec(Vec::new()) }
+        Self {
+            areas: GridAreaDefinitionVec::from_vec(Vec::new()),
+        }
     }
 }
 
@@ -1300,7 +1377,10 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
                 return Err(());
             }
             let row_str = &input[start..i];
-            let cells: Vec<String> = row_str.split_whitespace().map(std::string::ToString::to_string).collect();
+            let cells: Vec<String> = row_str
+                .split_whitespace()
+                .map(std::string::ToString::to_string)
+                .collect();
             if cells.is_empty() {
                 return Err(());
             }
@@ -1330,7 +1410,9 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
             if cell == "." {
                 continue; // skip null cell tokens
             }
-            let entry = area_map.entry(cell.clone()).or_insert((row_idx, row_idx, col_idx, col_idx));
+            let entry = area_map
+                .entry(cell.clone())
+                .or_insert((row_idx, row_idx, col_idx, col_idx));
             entry.0 = entry.0.min(row_idx);
             entry.1 = entry.1.max(row_idx);
             entry.2 = entry.2.min(col_idx);
@@ -1350,7 +1432,9 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
         });
     }
 
-    Ok(GridTemplateAreas { areas: GridAreaDefinitionVec::from_vec(areas) })
+    Ok(GridTemplateAreas {
+        areas: GridAreaDefinitionVec::from_vec(areas),
+    })
 }
 
 #[cfg(all(test, feature = "parser"))]
@@ -1387,7 +1471,10 @@ mod autotest_generated {
 
         assert_eq!(explicit_zero.span(), None);
         assert_eq!(absent.span(), None);
-        assert_eq!(explicit_zero, absent, "Some(0) and None collapse to the same value");
+        assert_eq!(
+            explicit_zero, absent,
+            "Some(0) and None collapse to the same value"
+        );
     }
 
     #[test]
@@ -1527,8 +1614,14 @@ mod autotest_generated {
     #[test]
     fn parse_grid_track_owned_valid_minimal_keywords() {
         assert_eq!(parse_grid_track_owned("auto"), Ok(GridTrackSizing::Auto));
-        assert_eq!(parse_grid_track_owned("min-content"), Ok(GridTrackSizing::MinContent));
-        assert_eq!(parse_grid_track_owned("max-content"), Ok(GridTrackSizing::MaxContent));
+        assert_eq!(
+            parse_grid_track_owned("min-content"),
+            Ok(GridTrackSizing::MinContent)
+        );
+        assert_eq!(
+            parse_grid_track_owned("max-content"),
+            Ok(GridTrackSizing::MaxContent)
+        );
         assert_eq!(
             parse_grid_track_owned("  auto  "),
             Ok(GridTrackSizing::Auto),
@@ -1549,11 +1642,20 @@ mod autotest_generated {
 
         // Truncation, not rounding: anything below 0.01fr collapses to 0fr, which
         // taffy reads as "take no free space at all".
-        assert_eq!(parse_grid_track_owned("0.005fr"), Ok(GridTrackSizing::Fr(0)));
-        assert_eq!(parse_grid_track_owned("1.999fr"), Ok(GridTrackSizing::Fr(199)));
+        assert_eq!(
+            parse_grid_track_owned("0.005fr"),
+            Ok(GridTrackSizing::Fr(0))
+        );
+        assert_eq!(
+            parse_grid_track_owned("1.999fr"),
+            Ok(GridTrackSizing::Fr(199))
+        );
 
         // DEVIATION: CSS forbids negative <flex> values; this accepts them.
-        assert_eq!(parse_grid_track_owned("-1fr"), Ok(GridTrackSizing::Fr(-100)));
+        assert_eq!(
+            parse_grid_track_owned("-1fr"),
+            Ok(GridTrackSizing::Fr(-100))
+        );
     }
 
     #[test]
@@ -1561,15 +1663,33 @@ mod autotest_generated {
         // The guard in parse_grid_track_owned checks is_nan() and the i32 bounds
         // *before* casting, so none of these can produce a garbage saturated Fr.
         for bad in [
-            "NaNfr", "nanfr", "inffr", "-inffr", "infinityfr", "1e8fr", "-1e8fr",
-            "1e30fr", "-1e30fr", "340282350000000000000000000000000000000fr",
+            "NaNfr",
+            "nanfr",
+            "inffr",
+            "-inffr",
+            "infinityfr",
+            "1e8fr",
+            "-1e8fr",
+            "1e30fr",
+            "-1e30fr",
+            "340282350000000000000000000000000000000fr",
         ] {
-            assert_eq!(parse_grid_track_owned(bad), Err(()), "{bad:?} must be rejected");
+            assert_eq!(
+                parse_grid_track_owned(bad),
+                Err(()),
+                "{bad:?} must be rejected"
+            );
         }
 
         // Largest values that still fit: 1e7fr * 100 == 1e9, exactly representable in f32.
-        assert_eq!(parse_grid_track_owned("1e7fr"), Ok(GridTrackSizing::Fr(1_000_000_000)));
-        assert_eq!(parse_grid_track_owned("-1e7fr"), Ok(GridTrackSizing::Fr(-1_000_000_000)));
+        assert_eq!(
+            parse_grid_track_owned("1e7fr"),
+            Ok(GridTrackSizing::Fr(1_000_000_000))
+        );
+        assert_eq!(
+            parse_grid_track_owned("-1e7fr"),
+            Ok(GridTrackSizing::Fr(-1_000_000_000))
+        );
     }
 
     #[test]
@@ -1597,7 +1717,10 @@ mod autotest_generated {
         // DEVIATION: `minmax(minmax(1px,2px), 3px)` is legal-ish CSS shape-wise and is
         // rejected here purely because the comma split ignores parens. It fails closed
         // (Err, not a mis-parse), and it is also what bounds recursion depth to 2.
-        assert_eq!(parse_grid_track_owned("minmax(minmax(1px,2px), 3px)"), Err(()));
+        assert_eq!(
+            parse_grid_track_owned("minmax(minmax(1px,2px), 3px)"),
+            Err(())
+        );
         assert_eq!(parse_grid_track_owned("minmax(1px,2px,3px)"), Err(()));
         assert_eq!(parse_grid_track_owned("minmax(1px)"), Err(()));
         assert_eq!(parse_grid_track_owned("minmax()"), Err(()));
@@ -1621,8 +1744,17 @@ mod autotest_generated {
         // the prefix and the ')' suffix match, which makes len >= 8 / >= 13. These inputs
         // probe every shape near that boundary for an out-of-bounds slice panic.
         for bad in [
-            "minmax(", "minmax", "minmax)", "fit-content(", "fit-content",
-            "fit-content)", "repeat(", ")", "(", "()", "fit-content()",
+            "minmax(",
+            "minmax",
+            "minmax)",
+            "fit-content(",
+            "fit-content",
+            "fit-content)",
+            "repeat(",
+            ")",
+            "(",
+            "()",
+            "fit-content()",
         ] {
             assert_eq!(parse_grid_track_owned(bad), Err(()), "{bad:?}");
         }
@@ -1674,8 +1806,16 @@ mod autotest_generated {
     #[test]
     fn parse_grid_track_owned_garbage_and_long_input_never_panic() {
         for bad in [
-            "!!!", ";;;", "\u{1F600}", "e\u{0301}\u{0301}", "\0", "100px;garbage",
-            "auto;", "1fr 1fr", "--var(x)", "calc(1px + 1px)",
+            "!!!",
+            ";;;",
+            "\u{1F600}",
+            "e\u{0301}\u{0301}",
+            "\0",
+            "100px;garbage",
+            "auto;",
+            "1fr 1fr",
+            "--var(x)",
+            "calc(1px + 1px)",
         ] {
             assert_eq!(parse_grid_track_owned(bad), Err(()), "{bad:?}");
         }
@@ -1690,8 +1830,14 @@ mod autotest_generated {
     #[test]
     fn parse_grid_track_or_repeat_valid_minimal() {
         let mut tracks = Vec::new();
-        assert_eq!(parse_grid_track_or_repeat("repeat(2, 1fr)", &mut tracks), Ok(()));
-        assert_eq!(tracks, vec![GridTrackSizing::Fr(100), GridTrackSizing::Fr(100)]);
+        assert_eq!(
+            parse_grid_track_or_repeat("repeat(2, 1fr)", &mut tracks),
+            Ok(())
+        );
+        assert_eq!(
+            tracks,
+            vec![GridTrackSizing::Fr(100), GridTrackSizing::Fr(100)]
+        );
 
         // Plain (non-repeat) tracks are appended to whatever is already there.
         assert_eq!(parse_grid_track_or_repeat("auto", &mut tracks), Ok(()));
@@ -1702,7 +1848,10 @@ mod autotest_generated {
     #[test]
     fn parse_grid_track_or_repeat_count_is_bounded_at_10_000() {
         let mut tracks = Vec::new();
-        assert_eq!(parse_grid_track_or_repeat("repeat(10000, 1fr)", &mut tracks), Ok(()));
+        assert_eq!(
+            parse_grid_track_or_repeat("repeat(10000, 1fr)", &mut tracks),
+            Ok(())
+        );
         assert_eq!(tracks.len(), 10_000, "the documented maximum is accepted");
 
         // One past the cap, zero, negative, and a count that overflows usize.
@@ -1740,7 +1889,10 @@ mod autotest_generated {
         // DEVIATION: `repeat(2, )` has nothing to repeat. It is accepted and contributes
         // zero tracks instead of being rejected.
         let mut tracks = Vec::new();
-        assert_eq!(parse_grid_track_or_repeat("repeat(2, )", &mut tracks), Ok(()));
+        assert_eq!(
+            parse_grid_track_or_repeat("repeat(2, )", &mut tracks),
+            Ok(())
+        );
         assert!(tracks.is_empty());
         assert_eq!(parse_grid_template("repeat(2, )").unwrap().tracks.len(), 0);
     }
@@ -1770,13 +1922,17 @@ mod autotest_generated {
         // so a half-expanded repeat can never leak into the caller's tracks.
         let mut tracks = vec![GridTrackSizing::Auto];
         for bad in [
-            "repeat(2, 1fr garbage)", // fails on the 2nd track of the list
+            "repeat(2, 1fr garbage)",  // fails on the 2nd track of the list
             "repeat(3, 1fr) trailing", // not a single token: rejected as a plain track
             "repeat(0, 1fr)",
             "repeat(2, 1fr", // unterminated
             "garbage",
         ] {
-            assert_eq!(parse_grid_track_or_repeat(bad, &mut tracks), Err(()), "{bad:?}");
+            assert_eq!(
+                parse_grid_track_or_repeat(bad, &mut tracks),
+                Err(()),
+                "{bad:?}"
+            );
             assert_eq!(
                 tracks,
                 vec![GridTrackSizing::Auto],
@@ -1803,8 +1959,14 @@ mod autotest_generated {
 
     #[test]
     fn parse_grid_template_none_is_case_sensitive() {
-        assert_eq!(parse_grid_template("none").unwrap(), GridTemplate::default());
-        assert_eq!(parse_grid_template("  none  ").unwrap(), GridTemplate::default());
+        assert_eq!(
+            parse_grid_template("none").unwrap(),
+            GridTemplate::default()
+        );
+        assert_eq!(
+            parse_grid_template("  none  ").unwrap(),
+            GridTemplate::default()
+        );
         // DEVIATION: CSS keywords are ASCII case-insensitive.
         assert!(parse_grid_template("NONE").is_err());
         assert!(parse_grid_template("None").is_err());
@@ -1821,10 +1983,20 @@ mod autotest_generated {
         assert_eq!(format!("{err}"), "Invalid grid value: \"!!! garbage\"");
 
         for bad in [
-            ")", "a)b", "100px;200px", "1 fr", "100px, 200px", "\u{1F600}",
-            "100px \u{1F600}", "\0", "calc(100px)",
+            ")",
+            "a)b",
+            "100px;200px",
+            "1 fr",
+            "100px, 200px",
+            "\u{1F600}",
+            "100px \u{1F600}",
+            "\0",
+            "calc(100px)",
         ] {
-            assert!(parse_grid_template(bad).is_err(), "{bad:?} must be rejected");
+            assert!(
+                parse_grid_template(bad).is_err(),
+                "{bad:?} must be rejected"
+            );
         }
     }
 
@@ -1883,8 +2055,14 @@ mod autotest_generated {
 
     #[test]
     fn parse_grid_line_owned_i32_boundaries_saturate_into_a_named_line() {
-        assert_eq!(parse_grid_line_owned("2147483647"), Ok(GridLine::Line(i32::MAX)));
-        assert_eq!(parse_grid_line_owned("-2147483648"), Ok(GridLine::Line(i32::MIN)));
+        assert_eq!(
+            parse_grid_line_owned("2147483647"),
+            Ok(GridLine::Line(i32::MAX))
+        );
+        assert_eq!(
+            parse_grid_line_owned("-2147483648"),
+            Ok(GridLine::Line(i32::MIN))
+        );
 
         // BUG (silent reinterpretation): one past the i32 range, the integer parse fails
         // and the input falls through to the "named line" catch-all — so `grid-row:
@@ -1892,11 +2070,17 @@ mod autotest_generated {
         // A typo'd or overflowing line number is silently accepted as a name.
         assert_eq!(
             parse_grid_line_owned("2147483648"),
-            Ok(GridLine::Named(NamedGridLine::create("2147483648".to_string().into(), None)))
+            Ok(GridLine::Named(NamedGridLine::create(
+                "2147483648".to_string().into(),
+                None
+            )))
         );
         assert_eq!(
             parse_grid_line_owned("-2147483649"),
-            Ok(GridLine::Named(NamedGridLine::create("-2147483649".to_string().into(), None)))
+            Ok(GridLine::Named(NamedGridLine::create(
+                "-2147483649".to_string().into(),
+                None
+            )))
         );
 
         // The `span` path has no such fallback: it fails closed.
@@ -1909,7 +2093,10 @@ mod autotest_generated {
         // (invalid CSS) becomes a grid line *named* "span" instead of an error.
         assert_eq!(
             parse_grid_line_owned("span "),
-            Ok(GridLine::Named(NamedGridLine::create("span".to_string().into(), None)))
+            Ok(GridLine::Named(NamedGridLine::create(
+                "span".to_string().into(),
+                None
+            )))
         );
     }
 
@@ -1919,7 +2106,10 @@ mod autotest_generated {
         // and both are accepted here; taffy gets a nonsensical span.
         assert_eq!(parse_grid_line_owned("span 0"), Ok(GridLine::Span(0)));
         assert_eq!(parse_grid_line_owned("span -5"), Ok(GridLine::Span(-5)));
-        assert_eq!(parse_grid_line_owned("span -2147483648"), Ok(GridLine::Span(i32::MIN)));
+        assert_eq!(
+            parse_grid_line_owned("span -2147483648"),
+            Ok(GridLine::Span(i32::MIN))
+        );
     }
 
     #[test]
@@ -1928,7 +2118,17 @@ mod autotest_generated {
         // `span` becomes a named grid line. Empty string, punctuation, emoji, an entire
         // stylesheet — all `Ok`. This is why parse_grid_placement effectively cannot
         // reject anything (see below).
-        for garbage in ["", "   ", "!!!", ";;;", "\u{1F600}", "\0", "span", "100px", "1 2"] {
+        for garbage in [
+            "",
+            "   ",
+            "!!!",
+            ";;;",
+            "\u{1F600}",
+            "\0",
+            "span",
+            "100px",
+            "1 2",
+        ] {
             let parsed = parse_grid_line_owned(garbage)
                 .unwrap_or_else(|()| panic!("{garbage:?} unexpectedly errored"));
             assert!(
@@ -1938,7 +2138,10 @@ mod autotest_generated {
         }
         assert_eq!(
             parse_grid_line_owned("   "),
-            Ok(GridLine::Named(NamedGridLine::create(String::new().into(), None))),
+            Ok(GridLine::Named(NamedGridLine::create(
+                String::new().into(),
+                None
+            ))),
             "whitespace-only trims to an EMPTY named line"
         );
         // No panic on a huge name.
@@ -1951,19 +2154,31 @@ mod autotest_generated {
 
     #[test]
     fn parse_grid_placement_valid_minimal() {
-        assert_eq!(parse_grid_placement("auto").unwrap(), GridPlacement::default());
+        assert_eq!(
+            parse_grid_placement("auto").unwrap(),
+            GridPlacement::default()
+        );
         assert_eq!(
             parse_grid_placement("1 / 3").unwrap(),
-            GridPlacement { grid_start: GridLine::Line(1), grid_end: GridLine::Line(3) }
+            GridPlacement {
+                grid_start: GridLine::Line(1),
+                grid_end: GridLine::Line(3)
+            }
         );
         assert_eq!(
             parse_grid_placement("1/3").unwrap(),
-            GridPlacement { grid_start: GridLine::Line(1), grid_end: GridLine::Line(3) },
+            GridPlacement {
+                grid_start: GridLine::Line(1),
+                grid_end: GridLine::Line(3)
+            },
             "the slash does not need surrounding spaces"
         );
         assert_eq!(
             parse_grid_placement("  1  /  span 2  ").unwrap(),
-            GridPlacement { grid_start: GridLine::Line(1), grid_end: GridLine::Span(2) }
+            GridPlacement {
+                grid_start: GridLine::Line(1),
+                grid_end: GridLine::Span(2)
+            }
         );
     }
 
@@ -1973,11 +2188,17 @@ mod autotest_generated {
         // everything after the second slash is discarded without an error.
         assert_eq!(
             parse_grid_placement("1 / 2 / 3").unwrap(),
-            GridPlacement { grid_start: GridLine::Line(1), grid_end: GridLine::Line(2) }
+            GridPlacement {
+                grid_start: GridLine::Line(1),
+                grid_end: GridLine::Line(2)
+            }
         );
         assert_eq!(
             parse_grid_placement("1 / 2 / 3 / 4 / garbage").unwrap(),
-            GridPlacement { grid_start: GridLine::Line(1), grid_end: GridLine::Line(2) }
+            GridPlacement {
+                grid_start: GridLine::Line(1),
+                grid_end: GridLine::Line(2)
+            }
         );
     }
 
@@ -2024,15 +2245,30 @@ mod autotest_generated {
 
     #[test]
     fn parse_layout_grid_auto_flow_accepts_exactly_five_spellings() {
-        assert_eq!(parse_layout_grid_auto_flow("row"), Ok(LayoutGridAutoFlow::Row));
-        assert_eq!(parse_layout_grid_auto_flow("column"), Ok(LayoutGridAutoFlow::Column));
-        assert_eq!(parse_layout_grid_auto_flow("row dense"), Ok(LayoutGridAutoFlow::RowDense));
-        assert_eq!(parse_layout_grid_auto_flow("dense"), Ok(LayoutGridAutoFlow::RowDense));
+        assert_eq!(
+            parse_layout_grid_auto_flow("row"),
+            Ok(LayoutGridAutoFlow::Row)
+        );
+        assert_eq!(
+            parse_layout_grid_auto_flow("column"),
+            Ok(LayoutGridAutoFlow::Column)
+        );
+        assert_eq!(
+            parse_layout_grid_auto_flow("row dense"),
+            Ok(LayoutGridAutoFlow::RowDense)
+        );
+        assert_eq!(
+            parse_layout_grid_auto_flow("dense"),
+            Ok(LayoutGridAutoFlow::RowDense)
+        );
         assert_eq!(
             parse_layout_grid_auto_flow("column dense"),
             Ok(LayoutGridAutoFlow::ColumnDense)
         );
-        assert_eq!(parse_layout_grid_auto_flow("  row  "), Ok(LayoutGridAutoFlow::Row));
+        assert_eq!(
+            parse_layout_grid_auto_flow("  row  "),
+            Ok(LayoutGridAutoFlow::Row)
+        );
     }
 
     #[test]
@@ -2041,18 +2277,21 @@ mod autotest_generated {
             "",
             "   ",
             "\t\n",
-            "ROW",           // DEVIATION: CSS keywords are case-insensitive
+            "ROW", // DEVIATION: CSS keywords are case-insensitive
             "Row",
-            "dense row",     // DEVIATION: CSS allows either order
+            "dense row", // DEVIATION: CSS allows either order
             "dense column",
-            "row  dense",    // DEVIATION: internal whitespace is not collapsed
+            "row  dense", // DEVIATION: internal whitespace is not collapsed
             "row\tdense",
             "row dense extra",
             "row;",
             "\u{1F600}",
             "\0",
         ] {
-            assert!(parse_layout_grid_auto_flow(bad).is_err(), "{bad:?} must be rejected");
+            assert!(
+                parse_layout_grid_auto_flow(bad).is_err(),
+                "{bad:?} must be rejected"
+            );
         }
         // Extremely long input: a straight match, no hang.
         assert!(parse_layout_grid_auto_flow(&"row ".repeat(250_000)).is_err());
@@ -2065,7 +2304,10 @@ mod autotest_generated {
         // these errors ends up in user-facing CSS diagnostics.
         let err = parse_layout_grid_auto_flow("  bogus  ").unwrap_err();
         assert_eq!(err, GridAutoFlowParseError::InvalidValue("  bogus  "));
-        assert_eq!(format!("{err}"), "Invalid grid-auto-flow value: \"  bogus  \"");
+        assert_eq!(
+            format!("{err}"),
+            "Invalid grid-auto-flow value: \"  bogus  \""
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -2074,36 +2316,82 @@ mod autotest_generated {
 
     #[test]
     fn parse_layout_justify_self_accepts_the_flex_aliases() {
-        assert_eq!(parse_layout_justify_self("auto"), Ok(LayoutJustifySelf::Auto));
-        assert_eq!(parse_layout_justify_self("start"), Ok(LayoutJustifySelf::Start));
-        assert_eq!(parse_layout_justify_self("flex-start"), Ok(LayoutJustifySelf::Start));
+        assert_eq!(
+            parse_layout_justify_self("auto"),
+            Ok(LayoutJustifySelf::Auto)
+        );
+        assert_eq!(
+            parse_layout_justify_self("start"),
+            Ok(LayoutJustifySelf::Start)
+        );
+        assert_eq!(
+            parse_layout_justify_self("flex-start"),
+            Ok(LayoutJustifySelf::Start)
+        );
         assert_eq!(parse_layout_justify_self("end"), Ok(LayoutJustifySelf::End));
-        assert_eq!(parse_layout_justify_self("flex-end"), Ok(LayoutJustifySelf::End));
-        assert_eq!(parse_layout_justify_self("center"), Ok(LayoutJustifySelf::Center));
-        assert_eq!(parse_layout_justify_self("stretch"), Ok(LayoutJustifySelf::Stretch));
-        assert_eq!(parse_layout_justify_self("  center  "), Ok(LayoutJustifySelf::Center));
+        assert_eq!(
+            parse_layout_justify_self("flex-end"),
+            Ok(LayoutJustifySelf::End)
+        );
+        assert_eq!(
+            parse_layout_justify_self("center"),
+            Ok(LayoutJustifySelf::Center)
+        );
+        assert_eq!(
+            parse_layout_justify_self("stretch"),
+            Ok(LayoutJustifySelf::Stretch)
+        );
+        assert_eq!(
+            parse_layout_justify_self("  center  "),
+            Ok(LayoutJustifySelf::Center)
+        );
     }
 
     #[test]
     fn parse_layout_justify_self_rejects_everything_else() {
         for bad in [
-            "", "   ", "Start", "START", "space-between", "normal", "left", "right",
-            "\u{1F600}", "\0", "start end", "flex-start;",
+            "",
+            "   ",
+            "Start",
+            "START",
+            "space-between",
+            "normal",
+            "left",
+            "right",
+            "\u{1F600}",
+            "\0",
+            "start end",
+            "flex-start;",
         ] {
             assert!(parse_layout_justify_self(bad).is_err(), "{bad:?}");
         }
         let err = parse_layout_justify_self("  bogus  ").unwrap_err();
         assert_eq!(err, JustifySelfParseError::InvalidValue("  bogus  "));
-        assert_eq!(format!("{err}"), "Invalid justify-self value: \"  bogus  \"");
+        assert_eq!(
+            format!("{err}"),
+            "Invalid justify-self value: \"  bogus  \""
+        );
         assert!(parse_layout_justify_self(&"x".repeat(1_000_000)).is_err());
     }
 
     #[test]
     fn parse_layout_justify_items_has_no_auto_and_no_flex_aliases() {
-        assert_eq!(parse_layout_justify_items("start"), Ok(LayoutJustifyItems::Start));
-        assert_eq!(parse_layout_justify_items("end"), Ok(LayoutJustifyItems::End));
-        assert_eq!(parse_layout_justify_items("center"), Ok(LayoutJustifyItems::Center));
-        assert_eq!(parse_layout_justify_items("stretch"), Ok(LayoutJustifyItems::Stretch));
+        assert_eq!(
+            parse_layout_justify_items("start"),
+            Ok(LayoutJustifyItems::Start)
+        );
+        assert_eq!(
+            parse_layout_justify_items("end"),
+            Ok(LayoutJustifyItems::End)
+        );
+        assert_eq!(
+            parse_layout_justify_items("center"),
+            Ok(LayoutJustifyItems::Center)
+        );
+        assert_eq!(
+            parse_layout_justify_items("stretch"),
+            Ok(LayoutJustifyItems::Stretch)
+        );
 
         // Asymmetry with justify-self, pinned deliberately: `auto` and the `flex-*`
         // aliases are accepted by justify-self but rejected by justify-items. `auto` is
@@ -2119,7 +2407,10 @@ mod autotest_generated {
         }
         let err = parse_layout_justify_items("  bogus  ").unwrap_err();
         assert_eq!(err, JustifyItemsParseError::InvalidValue("  bogus  "));
-        assert_eq!(format!("{err}"), "Invalid justify-items value: \"  bogus  \"");
+        assert_eq!(
+            format!("{err}"),
+            "Invalid justify-items value: \"  bogus  \""
+        );
         assert!(parse_layout_justify_items(&"x".repeat(1_000_000)).is_err());
     }
 
@@ -2129,10 +2420,22 @@ mod autotest_generated {
 
     #[test]
     fn parse_layout_gap_valid_minimal_and_units() {
-        assert_eq!(parse_layout_gap("10px").unwrap().inner, PixelValue::px(10.0));
-        assert_eq!(parse_layout_gap("  10px  ").unwrap().inner, PixelValue::px(10.0));
-        assert_eq!(parse_layout_gap("1.5em").unwrap().inner, PixelValue::em(1.5));
-        assert_eq!(parse_layout_gap("50%").unwrap().inner, PixelValue::percent(50.0));
+        assert_eq!(
+            parse_layout_gap("10px").unwrap().inner,
+            PixelValue::px(10.0)
+        );
+        assert_eq!(
+            parse_layout_gap("  10px  ").unwrap().inner,
+            PixelValue::px(10.0)
+        );
+        assert_eq!(
+            parse_layout_gap("1.5em").unwrap().inner,
+            PixelValue::em(1.5)
+        );
+        assert_eq!(
+            parse_layout_gap("50%").unwrap().inner,
+            PixelValue::percent(50.0)
+        );
         assert_eq!(parse_layout_gap("0").unwrap().inner, PixelValue::px(0.0));
         assert_eq!(parse_layout_gap("-0").unwrap().inner, PixelValue::px(0.0));
     }
@@ -2156,18 +2459,30 @@ mod autotest_generated {
     fn parse_layout_gap_accepts_negative_unitless_and_split_units_is_lax() {
         // DEVIATION: `gap` is a <length-percentage [0,∞]> — negatives are invalid CSS,
         // and a nonzero unitless number is invalid too. Both are accepted here.
-        assert_eq!(parse_layout_gap("-20px").unwrap().inner, PixelValue::px(-20.0));
+        assert_eq!(
+            parse_layout_gap("-20px").unwrap().inner,
+            PixelValue::px(-20.0)
+        );
         assert_eq!(parse_layout_gap("10").unwrap().inner, PixelValue::px(10.0));
 
         // DEVIATION (inherited from parse_pixel_value_inner): the unit suffix is stripped
         // *before* the remainder is trimmed, so whitespace between the number and its
         // unit is silently tolerated. `gap: 10 px` is not valid CSS but parses as 10px.
-        assert_eq!(parse_layout_gap("10 px").unwrap().inner, PixelValue::px(10.0));
-        assert_eq!(parse_layout_gap("10\tpx").unwrap().inner, PixelValue::px(10.0));
+        assert_eq!(
+            parse_layout_gap("10 px").unwrap().inner,
+            PixelValue::px(10.0)
+        );
+        assert_eq!(
+            parse_layout_gap("10\tpx").unwrap().inner,
+            PixelValue::px(10.0)
+        );
         // Same hole in the track parser's fr path, though the tokenizer usually hides it
         // by splitting "1 fr" into two tokens first.
         assert_eq!(parse_grid_track_owned("1 fr"), Ok(GridTrackSizing::Fr(100)));
-        assert!(parse_grid_template("1 fr").is_err(), "...but not via the tokenizer");
+        assert!(
+            parse_grid_template("1 fr").is_err(),
+            "...but not via the tokenizer"
+        );
     }
 
     #[test]
@@ -2245,12 +2560,21 @@ mod autotest_generated {
         assert_eq!(parsed.areas.len(), 4);
 
         // BTreeMap iteration => areas come out alphabetically, NOT in source order.
-        let names: Vec<&str> = parsed.areas.as_ref().iter().map(|a| a.name.as_str()).collect();
+        let names: Vec<&str> = parsed
+            .areas
+            .as_ref()
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect();
         assert_eq!(names, vec!["footer", "header", "main", "sidebar"]);
 
         let header = area_named(&parsed, "header");
         assert_eq!((header.row_start, header.row_end), (1, 2));
-        assert_eq!((header.column_start, header.column_end), (1, 3), "spans both columns");
+        assert_eq!(
+            (header.column_start, header.column_end),
+            (1, 3),
+            "spans both columns"
+        );
 
         let sidebar = area_named(&parsed, "sidebar");
         assert_eq!((sidebar.row_start, sidebar.row_end), (2, 3));
@@ -2277,20 +2601,24 @@ mod autotest_generated {
     #[test]
     fn parse_grid_template_areas_rejects_empty_unterminated_and_ragged() {
         for bad in [
-            "",              // no rows
+            "", // no rows
             "   ",
             "\t\n",
-            "\"\"",          // empty quoted row -> zero cells
-            "\"  \"",        // whitespace-only row -> zero cells
-            "\"abc",         // unterminated quote
+            "\"\"",   // empty quoted row -> zero cells
+            "\"  \"", // whitespace-only row -> zero cells
+            "\"abc",  // unterminated quote
             "'abc",
             "\"a\" \"b",     // second row unterminated
             "\"a b\" \"c\"", // ragged: 2 columns then 1
             "\"a\" \"b c\"",
-            "abc",           // no quotes at all
+            "abc", // no quotes at all
             "\u{1F600}",
         ] {
-            assert_eq!(parse_grid_template_areas(bad), Err(()), "{bad:?} must be rejected");
+            assert_eq!(
+                parse_grid_template_areas(bad),
+                Err(()),
+                "{bad:?} must be rejected"
+            );
         }
     }
 
@@ -2330,7 +2658,11 @@ mod autotest_generated {
         let parsed = parse_grid_template_areas("\"b a b\"").unwrap();
         let b = area_named(&parsed, "b");
         let a = area_named(&parsed, "a");
-        assert_eq!((b.column_start, b.column_end), (1, 4), "bounding box, not a rectangle");
+        assert_eq!(
+            (b.column_start, b.column_end),
+            (1, 4),
+            "bounding box, not a rectangle"
+        );
         assert_eq!((a.column_start, a.column_end), (2, 3));
         assert!(
             a.column_start >= b.column_start && a.column_end <= b.column_end,
@@ -2365,7 +2697,10 @@ mod autotest_generated {
         let b = area_named(&parsed, "b");
         assert_eq!(b.row_start, u16::MAX);
         assert_eq!(b.row_end, u16::MAX);
-        assert_eq!(b.row_start, b.row_end, "zero-height area from double saturation");
+        assert_eq!(
+            b.row_start, b.row_end,
+            "zero-height area from double saturation"
+        );
     }
 
     #[test]
@@ -2381,7 +2716,11 @@ mod autotest_generated {
         assert_eq!(parsed.areas.len(), 1);
         let a = area_named(&parsed, "a");
         assert_eq!(a.column_start, 1);
-        assert_eq!(a.column_end, u16::MAX, "true end line is 70_001; clamped, not wrapped");
+        assert_eq!(
+            a.column_end,
+            u16::MAX,
+            "true end line is 70_001; clamped, not wrapped"
+        );
         assert_eq!((a.row_start, a.row_end), (1, 2));
     }
 
@@ -2400,7 +2739,10 @@ mod autotest_generated {
             let parsed = parse_grid_template_areas(input).unwrap();
             for area in parsed.areas.as_ref() {
                 assert!(area.row_start >= 1, "{input:?}: row_start must be 1-based");
-                assert!(area.column_start >= 1, "{input:?}: column_start must be 1-based");
+                assert!(
+                    area.column_start >= 1,
+                    "{input:?}: column_start must be 1-based"
+                );
                 assert!(area.row_end > area.row_start, "{input:?}: {area:?}");
                 assert!(area.column_end > area.column_start, "{input:?}: {area:?}");
             }
@@ -2453,12 +2795,25 @@ mod autotest_generated {
 
     #[test]
     fn roundtrip_gap_and_fixed_tracks_are_stable() {
-        for input in ["0px", "10px", "-20px", "1.5em", "2rem", "50%", "10mm", "1in"] {
+        for input in [
+            "0px", "10px", "-20px", "1.5em", "2rem", "50%", "10mm", "1in",
+        ] {
             let gap = parse_layout_gap(input).unwrap();
             let printed = gap.print_as_css_value();
-            assert_eq!(parse_layout_gap(&printed).unwrap(), gap, "gap {input:?} -> {printed:?}");
+            assert_eq!(
+                parse_layout_gap(&printed).unwrap(),
+                gap,
+                "gap {input:?} -> {printed:?}"
+            );
         }
-        for input in ["auto", "min-content", "max-content", "100px", "25%", "fit-content(2px)"] {
+        for input in [
+            "auto",
+            "min-content",
+            "max-content",
+            "100px",
+            "25%",
+            "fit-content(2px)",
+        ] {
             let track = parse_grid_track_owned(input).unwrap();
             let printed = track.print_as_css_value();
             assert_eq!(
@@ -2482,7 +2837,11 @@ mod autotest_generated {
         assert_eq!(once.print_as_css_value(), "100fr", "should be \"1fr\"");
 
         let twice = parse_grid_track_owned(&once.print_as_css_value()).unwrap();
-        assert_eq!(twice, GridTrackSizing::Fr(10_000), "100x inflation per cycle");
+        assert_eq!(
+            twice,
+            GridTrackSizing::Fr(10_000),
+            "100x inflation per cycle"
+        );
 
         let thrice = parse_grid_track_owned(&twice.print_as_css_value()).unwrap();
         assert_eq!(thrice, GridTrackSizing::Fr(1_000_000));
@@ -2498,7 +2857,9 @@ mod autotest_generated {
 
         // Same bug through the minmax and template printers.
         assert_eq!(
-            parse_grid_track_owned("minmax(100px, 1fr)").unwrap().print_as_css_value(),
+            parse_grid_track_owned("minmax(100px, 1fr)")
+                .unwrap()
+                .print_as_css_value(),
             "minmax(100px, 100fr)"
         );
         assert_eq!(
@@ -2518,7 +2879,10 @@ mod autotest_generated {
         // repeat() is expanded at parse time and never re-emitted as repeat().
         let expanded = parse_grid_template("repeat(3, 100px)").unwrap();
         assert_eq!(expanded.print_as_css_value(), "100px 100px 100px");
-        assert_eq!(parse_grid_template(&expanded.print_as_css_value()).unwrap(), expanded);
+        assert_eq!(
+            parse_grid_template(&expanded.print_as_css_value()).unwrap(),
+            expanded
+        );
     }
 
     #[test]
@@ -2543,7 +2907,15 @@ mod autotest_generated {
     fn roundtrip_grid_placement_hides_a_trailing_auto_end() {
         // `GridPlacement { start, end: Auto }` prints only the start (no " / auto"), which
         // is what CSS does too. Both directions round-trip.
-        for input in ["auto", "1", "-1", "span 2", "1 / 3", "1 / span 2", "auto / 3"] {
+        for input in [
+            "auto",
+            "1",
+            "-1",
+            "span 2",
+            "1 / 3",
+            "1 / span 2",
+            "auto / 3",
+        ] {
             let placement = parse_grid_placement(input).unwrap();
             let printed = placement.print_as_css_value();
             assert_eq!(
@@ -2553,13 +2925,19 @@ mod autotest_generated {
             );
         }
         assert_eq!(
-            GridPlacement { grid_start: GridLine::Line(1), grid_end: GridLine::Auto }
-                .print_as_css_value(),
+            GridPlacement {
+                grid_start: GridLine::Line(1),
+                grid_end: GridLine::Auto
+            }
+            .print_as_css_value(),
             "1"
         );
         assert_eq!(
-            GridPlacement { grid_start: GridLine::Auto, grid_end: GridLine::Line(3) }
-                .print_as_css_value(),
+            GridPlacement {
+                grid_start: GridLine::Auto,
+                grid_end: GridLine::Line(3)
+            }
+            .print_as_css_value(),
             "auto / 3"
         );
     }
@@ -2585,7 +2963,10 @@ mod autotest_generated {
         // Without a span it round-trips cleanly.
         let plain = GridLine::Named(NamedGridLine::create("header".to_string().into(), None));
         assert_eq!(plain.print_as_css_value(), "header");
-        assert_eq!(parse_grid_line_owned(&plain.print_as_css_value()), Ok(plain));
+        assert_eq!(
+            parse_grid_line_owned(&plain.print_as_css_value()),
+            Ok(plain)
+        );
     }
 
     #[test]
@@ -2620,7 +3001,11 @@ mod autotest_generated {
         // the `a` area vanishes on serialization.
         let parsed = parse_grid_template_areas("\"b a b\"").unwrap();
         assert_eq!(parsed.areas.len(), 2);
-        assert_eq!(parsed.print_as_css_value(), "\"b b b\"", "the `a` area is erased");
+        assert_eq!(
+            parsed.print_as_css_value(),
+            "\"b b b\"",
+            "the `a` area is erased"
+        );
 
         let reparsed = parse_grid_template_areas(&parsed.print_as_css_value()).unwrap();
         assert_eq!(reparsed.areas.len(), 1);
@@ -2636,13 +3021,23 @@ mod autotest_generated {
         for payload in ["", "   ", "bogus", "\u{1F600}\u{0301}", "\0", "a\nb\tc"] {
             let shared = GridParseError::InvalidValue(payload);
             let owned = shared.to_contained();
-            assert_eq!(owned, GridParseErrorOwned::InvalidValue(payload.to_string().into()));
-            assert_eq!(owned.to_shared(), shared, "{payload:?} must survive the round-trip");
+            assert_eq!(
+                owned,
+                GridParseErrorOwned::InvalidValue(payload.to_string().into())
+            );
+            assert_eq!(
+                owned.to_shared(),
+                shared,
+                "{payload:?} must survive the round-trip"
+            );
         }
         // A 100k-char payload: no truncation, no panic.
         let huge = "x".repeat(100_000);
         let owned = GridParseError::InvalidValue(&huge).to_contained();
-        assert_eq!(owned.to_shared(), GridParseError::InvalidValue(huge.as_str()));
+        assert_eq!(
+            owned.to_shared(),
+            GridParseError::InvalidValue(huge.as_str())
+        );
     }
 
     #[test]
@@ -2658,7 +3053,10 @@ mod autotest_generated {
         }
         let huge = "x".repeat(100_000);
         let owned = GridAutoFlowParseError::InvalidValue(&huge).to_contained();
-        assert_eq!(owned.to_shared(), GridAutoFlowParseError::InvalidValue(huge.as_str()));
+        assert_eq!(
+            owned.to_shared(),
+            GridAutoFlowParseError::InvalidValue(huge.as_str())
+        );
     }
 
     #[test]
@@ -2674,7 +3072,10 @@ mod autotest_generated {
         }
         let huge = "x".repeat(100_000);
         let owned = JustifySelfParseError::InvalidValue(&huge).to_contained();
-        assert_eq!(owned.to_shared(), JustifySelfParseError::InvalidValue(huge.as_str()));
+        assert_eq!(
+            owned.to_shared(),
+            JustifySelfParseError::InvalidValue(huge.as_str())
+        );
     }
 
     #[test]
@@ -2690,7 +3091,10 @@ mod autotest_generated {
         }
         let huge = "x".repeat(100_000);
         let owned = JustifyItemsParseError::InvalidValue(&huge).to_contained();
-        assert_eq!(owned.to_shared(), JustifyItemsParseError::InvalidValue(huge.as_str()));
+        assert_eq!(
+            owned.to_shared(),
+            JustifyItemsParseError::InvalidValue(huge.as_str())
+        );
     }
 
     #[test]
@@ -2702,7 +3106,9 @@ mod autotest_generated {
         assert_eq!(owned.to_shared(), GridParseError::InvalidValue("span x"));
 
         let flow = String::from("bogus-flow");
-        let owned_flow = parse_layout_grid_auto_flow(&flow).unwrap_err().to_contained();
+        let owned_flow = parse_layout_grid_auto_flow(&flow)
+            .unwrap_err()
+            .to_contained();
         drop(flow);
         assert_eq!(
             owned_flow.to_shared(),

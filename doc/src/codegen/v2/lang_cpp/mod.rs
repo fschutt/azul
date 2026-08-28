@@ -24,8 +24,8 @@ mod cpp14;
 mod cpp17;
 mod cpp20;
 
-pub use common::*;
 pub use common::generate_module_partition;
+pub use common::*;
 pub use cpp03::Cpp03Generator;
 pub use cpp11::Cpp11Generator;
 pub use cpp14::Cpp14Generator;

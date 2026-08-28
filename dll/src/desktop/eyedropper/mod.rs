@@ -24,12 +24,12 @@
 
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "linux")]
+pub mod wayland;
 #[cfg(target_os = "windows")]
 pub mod windows;
 #[cfg(target_os = "linux")]
 pub mod x11;
-#[cfg(target_os = "linux")]
-pub mod wayland;
 
 use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo, Update},
@@ -38,7 +38,9 @@ use azul_core::{
     geom::{LogicalPosition, LogicalSize, PhysicalPosition},
     refany::{OptionRefAny, RefAny},
     resources::{ImageRef, RawImage, RawImageData, RawImageFormat},
-    window::{CursorPosition, VirtualKeyCode, WindowDecorations, WindowFrame, WindowPosition, WindowType},
+    window::{
+        CursorPosition, VirtualKeyCode, WindowDecorations, WindowFrame, WindowPosition, WindowType,
+    },
 };
 use azul_css::props::basic::color::ColorU;
 use azul_layout::{
@@ -72,14 +74,22 @@ impl Screenshot {
         #[allow(clippy::cast_sign_loss)] // checked non-negative above
         let i = (y as usize * self.width as usize + x as usize) * 4;
         let p = self.rgba.get(i..i + 4)?;
-        Some(ColorU { r: p[0], g: p[1], b: p[2], a: 255 })
+        Some(ColorU {
+            r: p[0],
+            g: p[1],
+            b: p[2],
+            a: 255,
+        })
     }
 
     /// The logical size of the captured area.
     #[must_use]
     pub fn logical_size(&self) -> LogicalSize {
         #[allow(clippy::cast_precision_loss)] // pixel counts
-        LogicalSize::new(self.width as f32 / self.scale, self.height as f32 / self.scale)
+        LogicalSize::new(
+            self.width as f32 / self.scale,
+            self.height as f32 / self.scale,
+        )
     }
 }
 
@@ -160,7 +170,8 @@ pub fn loupe_window(shot: Screenshot, request_id: u64, dpi: u32) -> Option<Windo
 
 fn data_origin(data: &RefAny) -> LogicalPosition {
     let mut d = data.clone();
-    d.downcast_ref::<LoupeData>().map_or(LogicalPosition::zero(), |d| d.shot.origin)
+    d.downcast_ref::<LoupeData>()
+        .map_or(LogicalPosition::zero(), |d| d.shot.origin)
 }
 
 /// Answer a pick (or a cancellation) for `request_id`.
@@ -174,27 +185,40 @@ pub fn finish(request_id: u64, color: Option<ColorU>) {
 fn magnifier_image(shot: &Screenshot, cursor: LogicalPosition) -> Option<ImageRef> {
     let half = i64::from(LOUPE_CELLS / 2);
     #[allow(clippy::cast_possible_truncation)] // pixel coordinates
-    let (cx, cy) = ((cursor.x * shot.scale).floor() as i64, (cursor.y * shot.scale).floor() as i64);
+    let (cx, cy) = (
+        (cursor.x * shot.scale).floor() as i64,
+        (cursor.y * shot.scale).floor() as i64,
+    );
     let side = LOUPE_PX as usize;
     let mut px = vec![0u8; side * side * 4];
     for cell_y in 0..LOUPE_CELLS {
         for cell_x in 0..LOUPE_CELLS {
             let sx = cx - half + i64::from(cell_x);
             let sy = cy - half + i64::from(cell_y);
-            let c = shot.pixel(sx, sy).unwrap_or(ColorU { r: 32, g: 32, b: 32, a: 255 });
+            let c = shot.pixel(sx, sy).unwrap_or(ColorU {
+                r: 32,
+                g: 32,
+                b: 32,
+                a: 255,
+            });
             let is_centre = cell_x == LOUPE_CELLS / 2 && cell_y == LOUPE_CELLS / 2;
             for dy in 0..MAGNIFY {
                 for dx in 0..MAGNIFY {
                     let x = (cell_x * MAGNIFY + dx) as usize;
                     let y = (cell_y * MAGNIFY + dy) as usize;
                     let on_grid = dx == 0 || dy == 0;
-                    let on_ring = is_centre && (dx == 0 || dy == 0 || dx == MAGNIFY - 1 || dy == MAGNIFY - 1);
+                    let on_ring =
+                        is_centre && (dx == 0 || dy == 0 || dx == MAGNIFY - 1 || dy == MAGNIFY - 1);
                     let (r, g, b) = if on_ring {
                         // White ring with a dark inner edge reads on any colour.
                         (255, 255, 255)
                     } else if on_grid {
                         // A faint grid: the cell's colour darkened a little.
-                        (c.r.saturating_sub(c.r / 6), c.g.saturating_sub(c.g / 6), c.b.saturating_sub(c.b / 6))
+                        (
+                            c.r.saturating_sub(c.r / 6),
+                            c.g.saturating_sub(c.g / 6),
+                            c.b.saturating_sub(c.b / 6),
+                        )
                     } else {
                         (c.r, c.g, c.b)
                     };
@@ -255,7 +279,9 @@ extern "C" fn loupe_layout(_app: RefAny, info: LayoutCallbackInfo) -> Dom {
 
     // The frozen frame, filling the window. Every pointer move over it
     // re-lays the magnifier out (a tiny DOM; RefreshDom is cheap here).
-    let mut frame = NodeData::create_node(NodeType::Image(azul_css::css::BoxOrStatic::heap(d.frame.clone())));
+    let mut frame = NodeData::create_node(NodeType::Image(azul_css::css::BoxOrStatic::heap(
+        d.frame.clone(),
+    )));
     frame.set_css("position: absolute; left: 0px; top: 0px; width: 100%; height: 100%;");
     let frame = Dom::create_from_data(frame);
 
@@ -265,11 +291,26 @@ extern "C" fn loupe_layout(_app: RefAny, info: LayoutCallbackInfo) -> Dom {
         size.width, size.height
     ));
     for (event, data, cb) in [
-        mk(EventFilter::Hover(HoverEventFilter::MouseOver), on_loupe_move),
-        mk(EventFilter::Hover(HoverEventFilter::LeftMouseUp), on_loupe_pick),
-        mk(EventFilter::Hover(HoverEventFilter::RightMouseUp), on_loupe_cancel),
-        mk(EventFilter::Window(WindowEventFilter::VirtualKeyDown), on_loupe_key),
-        mk(EventFilter::Window(WindowEventFilter::WindowFocusLost), on_loupe_cancel),
+        mk(
+            EventFilter::Hover(HoverEventFilter::MouseOver),
+            on_loupe_move,
+        ),
+        mk(
+            EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+            on_loupe_pick,
+        ),
+        mk(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            on_loupe_cancel,
+        ),
+        mk(
+            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+            on_loupe_key,
+        ),
+        mk(
+            EventFilter::Window(WindowEventFilter::WindowFocusLost),
+            on_loupe_cancel,
+        ),
     ] {
         body.root.add_callback(event, data, cb);
     }
@@ -279,10 +320,16 @@ extern "C" fn loupe_layout(_app: RefAny, info: LayoutCallbackInfo) -> Dom {
         if let Some(zoomed) = magnifier_image(&d.shot, cursor) {
             let at = magnifier_origin(cursor, size);
             #[allow(clippy::cast_possible_truncation)]
-            let (px, py) = ((cursor.x * d.shot.scale).floor() as i64, (cursor.y * d.shot.scale).floor() as i64);
+            let (px, py) = (
+                (cursor.x * d.shot.scale).floor() as i64,
+                (cursor.y * d.shot.scale).floor() as i64,
+            );
             let colour = d.shot.pixel(px, py).unwrap_or(ColorU::BLACK);
-            let mut img = NodeData::create_node(NodeType::Image(azul_css::css::BoxOrStatic::heap(zoomed)));
-            img.set_css(&format!("width: {LOUPE_PX}px; height: {LOUPE_PX}px; display: block;"));
+            let mut img =
+                NodeData::create_node(NodeType::Image(azul_css::css::BoxOrStatic::heap(zoomed)));
+            img.set_css(&format!(
+                "width: {LOUPE_PX}px; height: {LOUPE_PX}px; display: block;"
+            ));
             let label = Dom::create_div()
                 .with_css(&format!(
                     "display: flex; flex-direction: row; align-items: center; gap: 6px; height: 24px; \
@@ -316,7 +363,8 @@ fn with_loupe(data: &mut RefAny, f: impl FnOnce(&mut LoupeData)) {
 }
 
 extern "C" fn on_loupe_move(mut data: RefAny, info: CallbackInfo) -> Update {
-    let CursorPosition::InWindow(pos) = info.get_current_window_state().mouse_state.cursor_position else {
+    let CursorPosition::InWindow(pos) = info.get_current_window_state().mouse_state.cursor_position
+    else {
         return Update::DoNothing;
     };
     let mut changed = false;
@@ -340,7 +388,8 @@ fn close_loupe(info: &mut CallbackInfo) {
 }
 
 extern "C" fn on_loupe_pick(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let CursorPosition::InWindow(pos) = info.get_current_window_state().mouse_state.cursor_position else {
+    let CursorPosition::InWindow(pos) = info.get_current_window_state().mouse_state.cursor_position
+    else {
         return Update::DoNothing;
     };
     let mut answered = false;
@@ -350,7 +399,10 @@ extern "C" fn on_loupe_pick(mut data: RefAny, mut info: CallbackInfo) -> Update 
         }
         d.done = true;
         #[allow(clippy::cast_possible_truncation)]
-        let (px, py) = ((pos.x * d.shot.scale).floor() as i64, (pos.y * d.shot.scale).floor() as i64);
+        let (px, py) = (
+            (pos.x * d.shot.scale).floor() as i64,
+            (pos.y * d.shot.scale).floor() as i64,
+        );
         finish(d.request_id, d.shot.pixel(px, py));
         answered = true;
     });
@@ -456,14 +508,36 @@ mod tests {
         let mut rgba = vec![0u8; 4 * 3 * 4];
         let i = (2 * 4 + 3) * 4;
         rgba[i..i + 4].copy_from_slice(&[255, 0, 0, 255]);
-        Screenshot { width: 4, height: 3, rgba, origin: LogicalPosition::new(10.0, 20.0), scale: 2.0 }
+        Screenshot {
+            width: 4,
+            height: 3,
+            rgba,
+            origin: LogicalPosition::new(10.0, 20.0),
+            scale: 2.0,
+        }
     }
 
     #[test]
     fn pixel_reads_are_bounds_checked_and_opaque() {
         let s = shot();
-        assert_eq!(s.pixel(3, 2), Some(ColorU { r: 255, g: 0, b: 0, a: 255 }));
-        assert_eq!(s.pixel(0, 0), Some(ColorU { r: 0, g: 0, b: 0, a: 255 }));
+        assert_eq!(
+            s.pixel(3, 2),
+            Some(ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255
+            })
+        );
+        assert_eq!(
+            s.pixel(0, 0),
+            Some(ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255
+            })
+        );
         assert_eq!(s.pixel(-1, 0), None);
         assert_eq!(s.pixel(4, 0), None);
         assert_eq!(s.pixel(0, 3), None);
@@ -476,8 +550,13 @@ mod tests {
         // Logical (1.5, 1.0) -> physical (3, 2): the red pixel is the centre cell.
         let img = magnifier_image(&s, LogicalPosition::new(1.5, 1.0)).expect("image");
         let raw = img.get_rawimage().expect("raw");
-        assert_eq!((raw.width, raw.height), (LOUPE_PX as usize, LOUPE_PX as usize));
-        let RawImageData::U8(px) = &raw.pixels else { panic!("u8") };
+        assert_eq!(
+            (raw.width, raw.height),
+            (LOUPE_PX as usize, LOUPE_PX as usize)
+        );
+        let RawImageData::U8(px) = &raw.pixels else {
+            panic!("u8")
+        };
         // Centre cell interior (off its ring and grid lines): the source red.
         // `ImageRef::new_rawimage` ENCODES to BGRA8 (its documented storage
         // format — that is what the GPU wants), so the RGBA red source
@@ -497,15 +576,24 @@ mod tests {
     fn the_magnifier_flips_away_from_the_edges() {
         let size = LogicalSize::new(800.0, 600.0);
         let near_origin = magnifier_origin(LogicalPosition::new(10.0, 10.0), size);
-        assert!(near_origin.x > 10.0 && near_origin.y > 10.0, "below-right by default");
+        assert!(
+            near_origin.x > 10.0 && near_origin.y > 10.0,
+            "below-right by default"
+        );
         let near_corner = magnifier_origin(LogicalPosition::new(790.0, 590.0), size);
-        assert!(near_corner.x < 790.0 && near_corner.y < 590.0, "flipped above-left");
+        assert!(
+            near_corner.x < 790.0 && near_corner.y < 590.0,
+            "flipped above-left"
+        );
         assert!(near_corner.x >= 0.0 && near_corner.y >= 0.0);
     }
 
     #[test]
     fn bgra_becomes_opaque_rgba() {
-        assert_eq!(bgra_to_rgba(&[1, 2, 3, 0, 4, 5, 6, 7]), vec![3, 2, 1, 255, 6, 5, 4, 255]);
+        assert_eq!(
+            bgra_to_rgba(&[1, 2, 3, 0, 4, 5, 6, 7]),
+            vec![3, 2, 1, 255, 6, 5, 4, 255]
+        );
     }
 
     #[test]
@@ -513,7 +601,10 @@ mod tests {
         let opts = loupe_window(shot(), 7, 96).expect("window");
         assert_eq!(opts.window_state.flags.frame, WindowFrame::Fullscreen);
         assert_eq!(opts.window_state.flags.decorations, WindowDecorations::None);
-        assert_eq!(opts.window_state.size.dimensions, LogicalSize::new(2.0, 1.5));
+        assert_eq!(
+            opts.window_state.size.dimensions,
+            LogicalSize::new(2.0, 1.5)
+        );
         assert_eq!(
             opts.window_state.position,
             WindowPosition::Initialized(PhysicalPosition::new(10, 20))

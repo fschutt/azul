@@ -125,21 +125,29 @@ pub extern "C" fn az_purge_allocator() {
         extern "C" {
             fn mi_collect(force: bool);
         }
-        unsafe { mi_collect(true); }
+        unsafe {
+            mi_collect(true);
+        }
     }
     #[cfg(feature = "allocator_jemalloc")]
     {
         // jemalloc: purge via the raw mallctl interface
         extern "C" {
             fn mallctl(
-                name: *const u8, oldp: *mut core::ffi::c_void, oldlenp: *mut usize,
-                newp: *mut core::ffi::c_void, newlen: usize,
+                name: *const u8,
+                oldp: *mut core::ffi::c_void,
+                oldlenp: *mut usize,
+                newp: *mut core::ffi::c_void,
+                newlen: usize,
             ) -> core::ffi::c_int;
         }
         unsafe {
             mallctl(
-                b"arena.0.purge\0".as_ptr(), core::ptr::null_mut(),
-                core::ptr::null_mut(), core::ptr::null_mut(), 0,
+                b"arena.0.purge\0".as_ptr(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                0,
             );
         }
     }
@@ -150,7 +158,9 @@ pub extern "C" fn az_purge_allocator() {
             extern "C" {
                 fn malloc_zone_pressure_relief(zone: *mut core::ffi::c_void, goal: usize) -> usize;
             }
-            unsafe { malloc_zone_pressure_relief(core::ptr::null_mut(), 0); }
+            unsafe {
+                malloc_zone_pressure_relief(core::ptr::null_mut(), 0);
+            }
         }
     }
 }

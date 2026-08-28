@@ -71,7 +71,8 @@ const MENUBAR_ITEM_CSS: &str = "display: flex; \
 /// The bar is a flex row of one item per top-level `MenuItem::String`
 /// (separators / break-lines are not rendered in the bar). Inject the returned
 /// `Dom` at the Dom level so its `with_css` rules are scoped in the main flatten.
-#[must_use] pub fn build_menubar_dom(menu: &Menu) -> Dom {
+#[must_use]
+pub fn build_menubar_dom(menu: &Menu) -> Dom {
     let mut bar = Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_vec(vec![
             Class(MENUBAR_CLASS.into()),
@@ -100,7 +101,9 @@ fn build_menubar_item(item: &StringMenuItem) -> Dom {
     };
 
     Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(MENUBAR_ITEM_CLASS.into())]))
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
+            MENUBAR_ITEM_CLASS.into(),
+        )]))
         .with_css(MENUBAR_ITEM_CSS)
         .with_child(crate::widgets::widget_p_with_text(item.label.clone()))
         .with_callbacks(
@@ -124,7 +127,10 @@ pub(crate) mod callbacks {
     /// Top-level bar item clicked → open its submenu under the item. The submenu
     /// `Menu` is the callback's `data` (a backreference set at build time); its
     /// items carry the user's own callbacks, fired by the menu system on click.
-    pub(super) extern "C" fn menubar_item_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    pub(super) extern "C" fn menubar_item_click(
+        mut data: RefAny,
+        mut info: CallbackInfo,
+    ) -> Update {
         if let Some(menu) = data.downcast_ref::<Menu>() {
             info.open_menu_for_hit_node(menu.clone());
         }
@@ -261,7 +267,11 @@ mod autotest_generated {
     /// widget label is a `<p>` now, so this walks one level deeper.
     fn rendered_label(item_dom: &Dom) -> &str {
         let children = item_dom.children.as_ref();
-        assert_eq!(children.len(), 1, "a bar item renders exactly one label block");
+        assert_eq!(
+            children.len(),
+            1,
+            "a bar item renders exactly one label block"
+        );
         let label = &children[0];
         assert!(
             matches!(label.root.get_node_type(), NodeType::P),
@@ -315,9 +325,10 @@ mod autotest_generated {
             .iter()
             .enumerate()
             .filter(|(_, nd)| {
-                nd.get_ids_and_classes().as_ref().iter().any(
-                    |c| matches!(c, Class(s) if s.as_str() == MENUBAR_ITEM_CLASS),
-                )
+                nd.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, Class(s) if s.as_str() == MENUBAR_ITEM_CLASS))
             })
             .map(|(i, _)| NodeId::new(i))
             .collect()
@@ -519,7 +530,11 @@ mod autotest_generated {
         let bar = build_menubar_dom(&menu_of(vec![string_item("File")]));
 
         let css = bar.css.as_ref();
-        assert_eq!(css.len(), 1, "with_css must push exactly one component stylesheet");
+        assert_eq!(
+            css.len(),
+            1,
+            "with_css must push exactly one component stylesheet"
+        );
         assert!(
             !css[0].rules.as_ref().is_empty(),
             "MENUBAR_CSS must not silently parse to nothing"
@@ -548,7 +563,11 @@ mod autotest_generated {
         let bar = build_menubar_dom(&m);
 
         let labels: Vec<&str> = bar.children.as_ref().iter().map(rendered_label).collect();
-        assert_eq!(labels, vec!["File", "Edit"], "order must survive the skipped items");
+        assert_eq!(
+            labels,
+            vec!["File", "Edit"],
+            "order must survive the skipped items"
+        );
 
         for child in bar.children.as_ref() {
             assert_eq!(classes_of(child), vec![MENUBAR_ITEM_CLASS.to_string()]);
@@ -560,7 +579,11 @@ mod autotest_generated {
         for items in [
             vec![MenuItem::Separator],
             vec![MenuItem::BreakLine],
-            vec![MenuItem::Separator, MenuItem::BreakLine, MenuItem::Separator],
+            vec![
+                MenuItem::Separator,
+                MenuItem::BreakLine,
+                MenuItem::Separator,
+            ],
         ] {
             let bar = build_menubar_dom(&menu_of(items));
             assert!(
@@ -578,22 +601,25 @@ mod autotest_generated {
             "",
             " ",
             "\t\n\r",
-            "a\u{0}b",                 // interior NUL
-            "\u{0}",                   // lone NUL
-            "👨‍👩‍👧‍👦",                      // ZWJ sequence
-            "مرحبا",                   // RTL
-            "e\u{301}\u{301}\u{301}",  // stacked combining marks
-            "\u{200b}\u{feff}",        // zero-width / BOM
-            "\u{1f600}\u{fe0f}",       // astral + variation selector
-            "&<>\"'",                  // markup metacharacters
-            "{ color: red }",          // CSS-looking label
+            "a\u{0}b",                // interior NUL
+            "\u{0}",                  // lone NUL
+            "👨‍👩‍👧‍👦",                     // ZWJ sequence
+            "مرحبا",                  // RTL
+            "e\u{301}\u{301}\u{301}", // stacked combining marks
+            "\u{200b}\u{feff}",       // zero-width / BOM
+            "\u{1f600}\u{fe0f}",      // astral + variation selector
+            "&<>\"'",                 // markup metacharacters
+            "{ color: red }",         // CSS-looking label
             huge.as_str(),
         ];
         let m = menu_of(cases.iter().map(|c| string_item(c)).collect::<Vec<_>>());
         let bar = build_menubar_dom(&m);
 
         let labels: Vec<&str> = bar.children.as_ref().iter().map(rendered_label).collect();
-        assert_eq!(labels, cases, "labels must round-trip into the DOM verbatim");
+        assert_eq!(
+            labels, cases,
+            "labels must round-trip into the DOM verbatim"
+        );
         assert_eq!(
             labels[cases.len() - 1].len(),
             100_000,
@@ -626,7 +652,11 @@ mod autotest_generated {
 
         assert_eq!(bar.children.as_ref().len(), N);
         for (i, child) in bar.children.as_ref().iter().enumerate() {
-            assert_eq!(rendered_label(child), format!("item{i}"), "item {i} is misplaced");
+            assert_eq!(
+                rendered_label(child),
+                format!("item{i}"),
+                "item {i} is misplaced"
+            );
         }
         assert_children_count_is_in_sync(&bar);
     }
@@ -657,7 +687,10 @@ mod autotest_generated {
         let children = bar.children.as_ref();
         assert_eq!(children.len(), 4);
 
-        assert_eq!(labels_of(&submenu_of(&children[0])), vec!["New", "<sep>", "Open"]);
+        assert_eq!(
+            labels_of(&submenu_of(&children[0])),
+            vec!["New", "<sep>", "Open"]
+        );
         assert_eq!(labels_of(&submenu_of(&children[1])), vec!["a"]);
         assert_eq!(labels_of(&submenu_of(&children[2])), vec!["b"]);
         // A top-level leaf opens a one-item menu of *itself* so its own callback
@@ -680,7 +713,11 @@ mod autotest_generated {
             "two bar items must not share one RefAny — dropping one would then \
              invalidate the other's submenu"
         );
-        assert_eq!(a.get_type_id(), b.get_type_id(), "…while still both being Menus");
+        assert_eq!(
+            a.get_type_id(),
+            b.get_type_id(),
+            "…while still both being Menus"
+        );
     }
 
     #[test]
@@ -688,7 +725,11 @@ mod autotest_generated {
         let deep = nested(64);
         let bar = build_menubar_dom(&menu_of(vec![MenuItem::String(deep.clone())]));
 
-        assert_eq!(bar.children.as_ref().len(), 1, "nesting depth is not bar width");
+        assert_eq!(
+            bar.children.as_ref().len(),
+            1,
+            "nesting depth is not bar width"
+        );
         assert_children_count_is_in_sync(&bar);
 
         // Only the *direct* children are carried into the popup.
@@ -699,7 +740,11 @@ mod autotest_generated {
 
     #[test]
     fn build_menubar_dom_flattens_into_a_styled_dom_with_hit_testable_items() {
-        let m = menu_of(vec![string_item("File"), MenuItem::Separator, string_item("Edit")]);
+        let m = menu_of(vec![
+            string_item("File"),
+            MenuItem::Separator,
+            string_item("Edit"),
+        ]);
         let styled = StyledDom::create_from_dom(build_menubar_dom(&m));
 
         let items = item_node_ids(&styled);
@@ -768,8 +813,7 @@ mod autotest_generated {
         assert_eq!(cbs.len(), 1);
         assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
         assert_eq!(
-            cbs[0].callback.cb,
-            menubar_item_click as usize,
+            cbs[0].callback.cb, menubar_item_click as usize,
             "the item must be wired to the menubar click handler",
         );
         assert!(
@@ -785,7 +829,11 @@ mod autotest_generated {
             let dom = build_menubar_item(&leaf(label));
 
             assert_eq!(classes_of(&dom), vec![MENUBAR_ITEM_CLASS.to_string()]);
-            assert_eq!(rendered_label(&dom), label, "the label must survive verbatim");
+            assert_eq!(
+                rendered_label(&dom),
+                label,
+                "the label must survive verbatim"
+            );
             // The item, its label <p>, and the text leaf inside it. This was 1
             // when the item held a BARE text node; every widget label is a <p>
             // now, because a text leaf owns no box and misbehaves as a
@@ -835,7 +883,10 @@ mod autotest_generated {
         let data = refany_of(&build_menubar_item(&leaf("File")));
 
         with_env(|env| {
-            assert_eq!(menubar_item_click(data.clone(), env.info()), Update::DoNothing);
+            assert_eq!(
+                menubar_item_click(data.clone(), env.info()),
+                Update::DoNothing
+            );
             assert!(
                 env.take_changes().is_empty(),
                 "no anchor ⇒ no half-opened menu",
@@ -854,7 +905,10 @@ mod autotest_generated {
         // Flattened DOM, but no hit-test area for the item: the geometry lookup
         // must fail closed.
         with_anchored_env(styled, &[], item, |env| {
-            assert_eq!(menubar_item_click(data.clone(), env.info()), Update::DoNothing);
+            assert_eq!(
+                menubar_item_click(data.clone(), env.info()),
+                Update::DoNothing
+            );
             assert!(env.take_changes().is_empty());
         });
     }
@@ -883,27 +937,36 @@ mod autotest_generated {
 
     #[test]
     fn menubar_item_click_opens_the_submenu_at_the_bottom_left_of_the_item() {
-        let m = menu_of(vec![
-            MenuItem::String(leaf("File").with_children(MenuItemVec::from_vec(vec![
+        let m = menu_of(vec![MenuItem::String(leaf("File").with_children(
+            MenuItemVec::from_vec(vec![
                 string_item("New"),
                 MenuItem::Separator,
                 string_item("Open"),
-            ]))),
-        ]);
+            ]),
+        ))]);
         let bar = build_menubar_dom(&m);
         let data = refany_of(&bar.children.as_ref()[0]);
         let expected = submenu_of(&bar.children.as_ref()[0]);
         let styled = StyledDom::create_from_dom(bar);
         let item = item_node_ids(&styled)[0];
 
-        let rect = LogicalRect::new(LogicalPosition::new(10.0, 20.0), LogicalSize::new(100.0, 26.0));
+        let rect = LogicalRect::new(
+            LogicalPosition::new(10.0, 20.0),
+            LogicalSize::new(100.0, 26.0),
+        );
         with_anchored_env(styled, &[(item, rect)], item, |env| {
-            assert_eq!(menubar_item_click(data.clone(), env.info()), Update::DoNothing);
+            assert_eq!(
+                menubar_item_click(data.clone(), env.info()),
+                Update::DoNothing
+            );
 
             let CallbackChange::OpenMenu { menu, position } = env.take_one() else {
                 panic!("expected exactly one OpenMenu change");
             };
-            assert_eq!(menu, expected, "the queued menu must be the item's backreference");
+            assert_eq!(
+                menu, expected,
+                "the queued menu must be the item's backreference"
+            );
 
             let p = position.expect("the popup must be pinned under the bar item");
             assert_eq!((p.x, p.y), (10.0, 46.0), "bottom-left of the item rect");
@@ -937,7 +1000,11 @@ mod autotest_generated {
                 let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                     panic!("item {i}: expected an OpenMenu change");
                 };
-                assert_eq!(labels_of(&menu), expected[i], "item {i} opened the wrong menu");
+                assert_eq!(
+                    labels_of(&menu),
+                    expected[i],
+                    "item {i} opened the wrong menu"
+                );
             }
         });
     }
@@ -952,7 +1019,10 @@ mod autotest_generated {
         let rect = LogicalRect::new(LogicalPosition::new(1.0, 2.0), LogicalSize::new(3.0, 4.0));
         with_anchored_env(styled, &[(item, rect)], item, |env| {
             for round in 0..5 {
-                assert_eq!(menubar_item_click(data.clone(), env.info()), Update::DoNothing);
+                assert_eq!(
+                    menubar_item_click(data.clone(), env.info()),
+                    Update::DoNothing
+                );
                 let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                     panic!("round {round}: expected an OpenMenu change");
                 };
@@ -988,7 +1058,10 @@ mod autotest_generated {
             let rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), size);
 
             with_anchored_env(styled, &[(item, rect)], item, |env| {
-                assert_eq!(menubar_item_click(data.clone(), env.info()), Update::DoNothing);
+                assert_eq!(
+                    menubar_item_click(data.clone(), env.info()),
+                    Update::DoNothing
+                );
                 assert!(
                     env.take_changes().is_empty(),
                     "a {size:?} anchor must not queue a menu",
@@ -1002,9 +1075,18 @@ mod autotest_generated {
         // Origin/height arithmetic (`origin.y + size.height`) is unchecked — it
         // must saturate to an infinity or NaN rather than panic.
         let cases = [
-            (LogicalPosition::new(f32::MAX, f32::MAX), LogicalSize::new(1.0, f32::MAX)),
-            (LogicalPosition::new(f32::MIN, f32::MIN), LogicalSize::new(1.0, 1.0)),
-            (LogicalPosition::new(f32::NAN, f32::NAN), LogicalSize::new(1.0, 1.0)),
+            (
+                LogicalPosition::new(f32::MAX, f32::MAX),
+                LogicalSize::new(1.0, f32::MAX),
+            ),
+            (
+                LogicalPosition::new(f32::MIN, f32::MIN),
+                LogicalSize::new(1.0, 1.0),
+            ),
+            (
+                LogicalPosition::new(f32::NAN, f32::NAN),
+                LogicalSize::new(1.0, 1.0),
+            ),
             (
                 LogicalPosition::new(f32::INFINITY, f32::NEG_INFINITY),
                 LogicalSize::new(1.0, f32::INFINITY),
@@ -1019,7 +1101,10 @@ mod autotest_generated {
             let rect = LogicalRect::new(origin, size);
 
             with_anchored_env(styled, &[(item, rect)], item, |env| {
-                assert_eq!(menubar_item_click(data.clone(), env.info()), Update::DoNothing);
+                assert_eq!(
+                    menubar_item_click(data.clone(), env.info()),
+                    Update::DoNothing
+                );
 
                 let CallbackChange::OpenMenu { position, .. } = env.take_one() else {
                     panic!("expected an OpenMenu change for {origin:?}/{size:?}");
@@ -1054,11 +1139,17 @@ mod autotest_generated {
 
         let rect = LogicalRect::new(LogicalPosition::new(5.0, 5.0), LogicalSize::new(5.0, 5.0));
         with_anchored_env(styled, &[(item, rect)], item, |env| {
-            assert_eq!(menubar_item_click(data.clone(), env.info()), Update::DoNothing);
+            assert_eq!(
+                menubar_item_click(data.clone(), env.info()),
+                Update::DoNothing
+            );
             let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                 panic!("expected an OpenMenu change");
             };
-            assert!(menu.items.as_slice().is_empty(), "an empty menu is not a panic");
+            assert!(
+                menu.items.as_slice().is_empty(),
+                "an empty menu is not a panic"
+            );
         });
     }
 
@@ -1076,7 +1167,10 @@ mod autotest_generated {
 
         let rect = LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(1.0, 1.0));
         with_anchored_env(styled, &[(item, rect)], item, |env| {
-            assert_eq!(menubar_item_click(data.clone(), env.info()), Update::DoNothing);
+            assert_eq!(
+                menubar_item_click(data.clone(), env.info()),
+                Update::DoNothing
+            );
             let CallbackChange::OpenMenu { menu, .. } = env.take_one() else {
                 panic!("expected an OpenMenu change");
             };

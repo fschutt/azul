@@ -133,7 +133,10 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     let issued = lw.eyedropper_manager.issued().to_vec();
     if !issued.is_empty() {
         for result in azul_layout::managers::eyedropper::drain_results_for(&issued) {
-            if lw.eyedropper_manager.fold_result(result.request_id, result.color) {
+            if lw
+                .eyedropper_manager
+                .fold_result(result.request_id, result.color)
+            {
                 changed = true;
             }
         }

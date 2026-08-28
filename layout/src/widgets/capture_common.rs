@@ -15,13 +15,13 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use azul_core::resources::UpdateImageType;
 use azul_core::callbacks::Update;
+use azul_core::geom::PhysicalSizeU32;
 use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
 use azul_core::gl::{GlContextPtr, OptionU8VecRef, U8VecRef};
-use azul_core::geom::PhysicalSizeU32;
 use azul_core::refany::RefAny;
 use azul_core::resources::ImageRef;
+use azul_core::resources::UpdateImageType;
 use azul_core::task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg};
 use azul_core::video::{ConsumerFrame, FrameConsumer, VideoFrame};
 use azul_css::impl_option_inner; // brought into scope for impl_widget_callback!'s impl_option!
@@ -113,9 +113,7 @@ pub fn invoke_on_frame(
     frame: &VideoFrame,
 ) -> Update {
     match hook {
-        OptionOnVideoFrame::Some(h) => {
-            (h.callback.cb)(h.refany.clone(), *info, frame.clone())
-        }
+        OptionOnVideoFrame::Some(h) => (h.callback.cb)(h.refany.clone(), *info, frame.clone()),
         OptionOnVideoFrame::None => Update::DoNothing,
     }
 }
@@ -142,7 +140,14 @@ pub fn present_frame(
     current_id: Option<u32>,
     frame: &VideoFrame,
 ) -> Option<u32> {
-    present_frame_pixels(info, dataset, current_id, frame.bytes.clone(), frame.width, frame.height)
+    present_frame_pixels(
+        info,
+        dataset,
+        current_id,
+        frame.bytes.clone(),
+        frame.width,
+        frame.height,
+    )
 }
 
 /// [`present_frame`] taking the pixels BY VALUE: the writebacks `mem::take`
@@ -634,7 +639,9 @@ pub const REOPEN_COOLDOWN_MS: u64 = 1000;
 /// Milliseconds since `since` on the engine clock (`azul_core::task::Instant`
 /// — never `std::time::Instant`, which panics on wasm).
 fn millis_since(since: &azul_core::task::Instant) -> u64 {
-    azul_core::task::Instant::now().duration_since(since).as_millis_u64()
+    azul_core::task::Instant::now()
+        .duration_since(since)
+        .as_millis_u64()
 }
 
 /// THE capture worker: one loop for the camera and the screen widgets.
@@ -902,7 +909,7 @@ mod autotest_generated {
     use azul_core::{
         dom::{Dom, DomId, DomNodeId, NodeId, NodeType},
         geom::{LogicalRect, OptionLogicalPosition},
-        gl::{GenericGlContext, OptionGlContextPtr, GLvoid},
+        gl::{GLvoid, GenericGlContext, OptionGlContextPtr},
         hit_test::ScrollPosition,
         refany::OptionRefAny,
         resources::{DecodedImage, RendererResources},
@@ -1225,8 +1232,12 @@ mod autotest_generated {
         let mut reply = Update::DoNothing;
         if let Some(mut log) = data.downcast_mut::<HookLog>() {
             let bytes = frame.bytes.as_ref();
-            log.seen
-                .push((frame.width, frame.height, bytes.len(), bytes.first().copied()));
+            log.seen.push((
+                frame.width,
+                frame.height,
+                bytes.len(),
+                bytes.first().copied(),
+            ));
             reply = log.reply;
         }
         reply
@@ -1308,11 +1319,7 @@ mod autotest_generated {
 
         assert_eq!(
             hook_seen(&mut data),
-            vec![
-                (1, 1, 4, Some(0)),
-                (2, 3, 24, Some(0)),
-                (4, 4, 64, Some(0)),
-            ],
+            vec![(1, 1, 4, Some(0)), (2, 3, 24, Some(0)), (4, 4, 64, Some(0)),],
             "every frame must reach the hook, in order, with its bytes intact"
         );
     }
@@ -1439,7 +1446,8 @@ mod autotest_generated {
         for (w, h, want_w, want_h) in cases {
             // Empty byte buffer: the huge dimensions must never be multiplied out
             // (that would be a several-exabyte allocation), only cast.
-            let ((), log) = with_recorded_gl(|gl| upload_rgba(&gl, 1, &frame_raw(w, h, Vec::new())));
+            let ((), log) =
+                with_recorded_gl(|gl| upload_rgba(&gl, 1, &frame_raw(w, h, Vec::new())));
             let tex = log
                 .iter()
                 .find_map(|c| match c {
@@ -1562,10 +1570,10 @@ mod autotest_generated {
         // A backend that lies about the frame size (or a short read) must not be
         // able to install a bogus image — RawImage validates len == w*h*4.
         for (w, h, bytes) in [
-            (4_u32, 4_u32, vec![0_u8; 3]),        // far too short
-            (4, 4, vec![0_u8; 63]),               // one byte short
-            (4, 4, vec![0_u8; 65]),               // one byte long
-            (2, 2, Vec::new()),                   // no pixels at all
+            (4_u32, 4_u32, vec![0_u8; 3]), // far too short
+            (4, 4, vec![0_u8; 63]),        // one byte short
+            (4, 4, vec![0_u8; 65]),        // one byte long
+            (2, 2, Vec::new()),            // no pixels at all
         ] {
             let ds = RefAny::new(CamState::default());
             let styled = dom_with_datasets(Some(ds.clone()), None);
@@ -1620,16 +1628,17 @@ mod autotest_generated {
         let ds = RefAny::new(CamState::default());
         let styled = dom_with_datasets(Some(ds.clone()), None);
 
-        let (result, _changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-            catch_unwind(AssertUnwindSafe(|| {
-                present_frame(
-                    info,
-                    ds.clone(),
-                    Some(11),
-                    &frame_raw(1_u32 << 31, 1_u32 << 31, Vec::new()),
-                )
-            }))
-        });
+        let (result, _changes) =
+            with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
+                catch_unwind(AssertUnwindSafe(|| {
+                    present_frame(
+                        info,
+                        ds.clone(),
+                        Some(11),
+                        &frame_raw(1_u32 << 31, 1_u32 << 31, Vec::new()),
+                    )
+                }))
+            });
 
         match result {
             Ok(id) => assert_eq!(
@@ -1715,7 +1724,10 @@ mod autotest_generated {
             })
         });
 
-        assert_eq!(id, None, "current_id passes through unchanged (no texture pool)");
+        assert_eq!(
+            id, None,
+            "current_id passes through unchanged (no texture pool)"
+        );
         assert!(
             log.is_empty(),
             "the widget must not branch on the GL context — no GL call is ever made: {log:?}"
@@ -1761,7 +1773,10 @@ mod autotest_generated {
             Some(RECORDED_TEXTURE_ID),
             "a stored id must survive the writeback unchanged"
         );
-        assert!(log.is_empty(), "steady state makes no GL calls either: {log:?}");
+        assert!(
+            log.is_empty(),
+            "steady state makes no GL calls either: {log:?}"
+        );
         assert_eq!(image_installs(&changes).len(), 1);
         assert_eq!(recomposites(&changes), 0);
     }
@@ -1812,10 +1827,17 @@ mod autotest_generated {
     // One capture, many consumers: the policy functions
     // ==================================================================
 
-    fn targets(preview: Option<(u32, u32)>, consumers: &[(u32, u32, u32)], wants_source: bool) -> CaptureTargets {
+    fn targets(
+        preview: Option<(u32, u32)>,
+        consumers: &[(u32, u32, u32)],
+        wants_source: bool,
+    ) -> CaptureTargets {
         CaptureTargets {
             preview,
-            consumers: consumers.iter().map(|&(id, w, h)| FrameConsumer::new(id, w, h)).collect(),
+            consumers: consumers
+                .iter()
+                .map(|&(id, w, h)| FrameConsumer::new(id, w, h))
+                .collect(),
             wants_source,
         }
     }
@@ -1826,12 +1848,18 @@ mod autotest_generated {
         let t = targets(Some((100, 200)), &[(7, 500, 200)], false);
         assert_eq!(required_capture_size(None, &t, (640, 480)), (500, 200));
         // an explicit config size is a floor the capture never drops below
-        assert_eq!(required_capture_size(Some((640, 480)), &t, (1, 1)), (640, 480));
+        assert_eq!(
+            required_capture_size(Some((640, 480)), &t, (1, 1)),
+            (640, 480)
+        );
         // only a small preview -> capture SMALL (not the 1080p default)
         let t = targets(Some((300, 200)), &[], false);
         assert_eq!(required_capture_size(None, &t, (1920, 1080)), (300, 200));
         // nothing known yet -> the fallback
-        assert_eq!(required_capture_size(None, &CaptureTargets::default(), (640, 480)), (640, 480));
+        assert_eq!(
+            required_capture_size(None, &CaptureTargets::default(), (640, 480)),
+            (640, 480)
+        );
     }
 
     #[test]
@@ -1848,17 +1876,30 @@ mod autotest_generated {
         assert!(needs_reopen((1280, 720), (1280, 720), (300, 200)));
         // A modest shrink is hysteresis, not a reopen.
         assert!(!needs_reopen((640, 480), (640, 480), (400, 300)));
-        assert!(!needs_reopen((640, 480), (640, 480), (320, 300)), "one axis halved is not enough");
+        assert!(
+            !needs_reopen((640, 480), (640, 480), (320, 300)),
+            "one axis halved is not enough"
+        );
     }
 
     #[test]
     fn the_preview_is_cut_only_when_its_size_differs_from_the_captured_frame() {
         let same = targets(Some((640, 480)), &[], false);
-        assert_eq!(preview_cut_size(&same, (640, 480)), None, "same size = show the source, no copy");
+        assert_eq!(
+            preview_cut_size(&same, (640, 480)),
+            None,
+            "same size = show the source, no copy"
+        );
         let smaller = targets(Some((320, 240)), &[], false);
         assert_eq!(preview_cut_size(&smaller, (640, 480)), Some((320, 240)));
-        assert_eq!(preview_cut_size(&targets(Some((0, 240)), &[], false), (640, 480)), None);
-        assert_eq!(preview_cut_size(&targets(None, &[], false), (640, 480)), None);
+        assert_eq!(
+            preview_cut_size(&targets(Some((0, 240)), &[], false), (640, 480)),
+            None
+        );
+        assert_eq!(
+            preview_cut_size(&targets(None, &[], false), (640, 480)),
+            None
+        );
     }
 
     // ==================================================================
@@ -1918,7 +1959,10 @@ mod autotest_generated {
         let _ = handle;
         out.clear();
         out.extend((0..w * h).flat_map(|_| [10u8, 20, 200, 255]));
-        CaptureRead::Frame { width: w, height: h }
+        CaptureRead::Frame {
+            width: w,
+            height: h,
+        }
     }
     fn fake_close(_handle: u64) {
         let mut g = FAKE.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1979,12 +2023,16 @@ mod autotest_generated {
         let mut sender = ThreadSender::new(ThreadSenderInner {
             ptr: Box::new(wb_tx),
             send_fn: ThreadSendCallback { cb: chan_send },
-            destructor: ThreadSenderDestructorCallback { cb: sender_noop_drop },
+            destructor: ThreadSenderDestructorCallback {
+                cb: sender_noop_drop,
+            },
         });
         let mut receiver = ThreadReceiver::new(ThreadReceiverInner {
             ptr: Box::new(ctl_rx),
             recv_fn: ThreadRecvCallback { cb: chan_recv },
-            destructor: ThreadReceiverDestructorCallback { cb: receiver_noop_drop },
+            destructor: ThreadReceiverDestructorCallback {
+                cb: receiver_noop_drop,
+            },
         });
         let session = CaptureSession {
             backend: Some(FAKE_VTABLE),
@@ -2005,7 +2053,11 @@ mod autotest_generated {
             };
             let preview = c.preview.as_ref().map(|f| (f.width, f.height));
             let source = c.source.as_ref().map(|f| (f.width, f.height));
-            let cuts = c.consumers.iter().map(|x| (x.consumer.id, x.frame.width, x.frame.height)).collect();
+            let cuts = c
+                .consumers
+                .iter()
+                .map(|x| (x.consumer.id, x.frame.width, x.frame.height))
+                .collect();
             // Release the latch the way the real writeback does — the NEXT
             // test's loop must not see a stale `true`.
             c.in_flight.store(false, Ordering::Release);
@@ -2028,13 +2080,24 @@ mod autotest_generated {
         // source (no on_frame hook).
         let initial = targets(Some((4, 3)), &[(7, 2, 3)], false);
         let (queued, opens, closes) = run_fake_loop(initial, 1, None, None);
-        assert_eq!(opens, vec![(4, 3)], "opened ONCE at the covering size of every consumer");
+        assert_eq!(
+            opens,
+            vec![(4, 3)],
+            "opened ONCE at the covering size of every consumer"
+        );
         assert_eq!(closes, 1, "closed exactly once on Ended");
         assert_eq!(queued.len(), 1);
         let (preview, source, cuts) = &queued[0];
-        assert_eq!(*preview, None, "a same-size preview is the source frame itself");
+        assert_eq!(
+            *preview, None,
+            "a same-size preview is the source frame itself"
+        );
         assert_eq!(*source, Some((4, 3)), "…so the source travels to be shown");
-        assert_eq!(cuts, &vec![(7, 2, 3)], "Bob gets his 2x3 from the same frame");
+        assert_eq!(
+            cuts,
+            &vec![(7, 2, 3)],
+            "Bob gets his 2x3 from the same frame"
+        );
     }
 
     #[test]
@@ -2046,8 +2109,16 @@ mod autotest_generated {
         let (queued, opens, _) = run_fake_loop(initial, 1, None, Some((1280, 720)));
         assert_eq!(opens, vec![(1280, 720)]);
         let (preview, source, cuts) = &queued[0];
-        assert_eq!(*preview, Some((160, 90)), "the tile gets a frame at ITS device size");
-        assert_eq!(*source, Some((1280, 720)), "the hook gets the frame as captured");
+        assert_eq!(
+            *preview,
+            Some((160, 90)),
+            "the tile gets a frame at ITS device size"
+        );
+        assert_eq!(
+            *source,
+            Some((1280, 720)),
+            "the hook gets the frame as captured"
+        );
         assert!(cuts.is_empty());
 
         // Without the hook the source stays on the worker side.
@@ -2055,7 +2126,10 @@ mod autotest_generated {
         let (queued, _, _) = run_fake_loop(initial, 1, None, Some((1280, 720)));
         let (preview, source, _) = &queued[0];
         assert_eq!(*preview, Some((160, 90)));
-        assert_eq!(*source, None, "no hook, a preview cut -> the 3.7 MB source never crosses threads");
+        assert_eq!(
+            *source, None,
+            "no hook, a preview cut -> the 3.7 MB source never crosses threads"
+        );
     }
 
     #[test]
@@ -2065,7 +2139,11 @@ mod autotest_generated {
         // queued, the rest are dropped instead of piling up in the channel.
         let initial = targets(Some((4, 3)), &[], false);
         let (queued, _, closes) = run_fake_loop(initial, 5, None, None);
-        assert_eq!(queued.len(), 1, "frames read while one is in flight are dropped, not queued");
+        assert_eq!(
+            queued.len(),
+            1,
+            "frames read while one is in flight are dropped, not queued"
+        );
         assert_eq!(closes, 1);
     }
 
@@ -2077,24 +2155,50 @@ mod autotest_generated {
         let initial = targets(Some((4, 3)), &[], false);
         let bigger = targets(Some((4, 3)), &[(7, 16, 12)], false);
         let (_, opens, closes) = run_fake_loop(initial, 3, Some((2, bigger)), None);
-        assert_eq!(opens, vec![(4, 3), (16, 12)], "reopened once, at the new covering size");
-        assert_eq!(closes, 2, "the first source was closed before the reopen, the second on Ended");
+        assert_eq!(
+            opens,
+            vec![(4, 3), (16, 12)],
+            "reopened once, at the new covering size"
+        );
+        assert_eq!(
+            closes, 2,
+            "the first source was closed before the reopen, the second on Ended"
+        );
     }
 
     #[test]
     fn a_test_pattern_refuses_a_zero_size_and_cycles_its_colour() {
         let vt = test_pattern_vtable(TestPattern::ColourCycle);
-        assert_eq!((vt.open)(&CaptureRequest::new(0, 0, 0)), 0, "a zero-sized pattern is not a frame");
+        assert_eq!(
+            (vt.open)(&CaptureRequest::new(0, 0, 0)),
+            0,
+            "a zero-sized pattern is not a frame"
+        );
         let h = (vt.open)(&CaptureRequest::new(0, 2, 3));
         assert_ne!(h, 0);
         let mut out = Vec::new();
-        assert_eq!((vt.read)(h, &mut out), CaptureRead::Frame { width: 2, height: 3 });
+        assert_eq!(
+            (vt.read)(h, &mut out),
+            CaptureRead::Frame {
+                width: 2,
+                height: 3
+            }
+        );
         assert_eq!(out.len(), 2 * 3 * 4);
-        assert!(out.chunks_exact(4).all(|px| px == [0, 0, 0, 255]), "tick 0 is opaque black");
+        assert!(
+            out.chunks_exact(4).all(|px| px == [0, 0, 0, 255]),
+            "tick 0 is opaque black"
+        );
         (vt.close)(h);
         let vt = test_pattern_vtable(TestPattern::MovingBand);
         let h = (vt.open)(&CaptureRequest::new(0, 3, 20));
-        assert_eq!((vt.read)(h, &mut out), CaptureRead::Frame { width: 3, height: 20 });
+        assert_eq!(
+            (vt.read)(h, &mut out),
+            CaptureRead::Frame {
+                width: 3,
+                height: 20
+            }
+        );
         assert_eq!(out.len(), 3 * 20 * 4);
         (vt.close)(h);
     }

@@ -13,13 +13,25 @@ use azul_core::{
 use azul_css::css::BoxOrStatic;
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    impl_option_inner,
     props::{
-        basic::{ColorU, PixelValueNoPercent, PixelValue, FloatValue},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutFlexGrow},
-        property::{CssProperty, StyleBoxShadowValue, LayoutFlexGrowValue},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBoxShadow, BoxShadowClipMode, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius},
+        basic::{ColorU, FloatValue, PixelValue, PixelValueNoPercent},
+        layout::{
+            LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutPaddingBottom,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+        },
+        property::{CssProperty, LayoutFlexGrowValue, StyleBoxShadowValue},
+        style::{
+            BorderStyle, BoxShadowClipMode, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+            LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBackgroundContent,
+            StyleBackgroundContentVec, StyleBorderBottomColor, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderBottomStyle, StyleBorderLeftColor,
+            StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle,
+            StyleBorderTopColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleBorderTopStyle, StyleBoxShadow,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::CallbackInfo;
@@ -81,9 +93,9 @@ const CARD_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(12),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        12,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(12),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(12),
     )),
@@ -197,7 +209,8 @@ azul_core::impl_managed_callback! {
 
 impl Card {
     /// Creates a new `Card` wrapping the given content DOM.
-    #[must_use] pub const fn create(content: Dom) -> Self {
+    #[must_use]
+    pub const fn create(content: Dom) -> Self {
         Self {
             content,
             flex_grow: 0.0,
@@ -206,7 +219,8 @@ impl Card {
     }
 
     /// Replaces `self` with an empty default card and returns the original.
-    #[must_use] pub const fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub const fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::create_div());
         core::mem::swap(&mut s, self);
         s
@@ -218,7 +232,8 @@ impl Card {
     }
 
     /// Builder-style setter for the body content.
-    #[must_use] pub fn with_content(mut self, content: Dom) -> Self {
+    #[must_use]
+    pub fn with_content(mut self, content: Dom) -> Self {
         self.set_content(content);
         self
     }
@@ -229,7 +244,8 @@ impl Card {
     }
 
     /// Builder-style setter for the flex-grow factor.
-    #[must_use] pub const fn with_flex_grow(mut self, flex_grow: f32) -> Self {
+    #[must_use]
+    pub const fn with_flex_grow(mut self, flex_grow: f32) -> Self {
         self.set_flex_grow(flex_grow);
         self
     }
@@ -244,7 +260,8 @@ impl Card {
     }
 
     /// Builder-style setter for the click callback.
-    #[must_use] pub fn with_on_click<C: Into<CardOnClickCallback>>(
+    #[must_use]
+    pub fn with_on_click<C: Into<CardOnClickCallback>>(
         mut self,
         data: RefAny,
         on_click: C,
@@ -253,14 +270,14 @@ impl Card {
         self
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{EventFilter, HoverEventFilter},
         };
 
-        static CARD_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-card"))];
+        static CARD_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-card"))];
 
         // Optional click callback on the card's root container (same wiring
         // as button's on_click).
@@ -452,7 +469,11 @@ mod autotest_generated {
         // isize on some paths and is not what "no growth" means.
         assert_eq!(c.flex_grow.to_bits(), 0_u32, "flex_grow must start at +0.0");
         assert!(c.on_click.is_none(), "a fresh card must have no callback");
-        assert_eq!(c.content, Dom::create_div(), "the content was not stored verbatim");
+        assert_eq!(
+            c.content,
+            Dom::create_div(),
+            "the content was not stored verbatim"
+        );
     }
 
     #[test]
@@ -477,7 +498,11 @@ mod autotest_generated {
             // ... and it survives the trip into the rendered DOM.
             let dom = c.dom();
             let child = &dom.children.as_ref()[0];
-            assert_eq!(text_of(child), Some(t), "the text was corrupted on the way into the DOM");
+            assert_eq!(
+                text_of(child),
+                Some(t),
+                "the text was corrupted on the way into the DOM"
+            );
         }
     }
 
@@ -491,7 +516,12 @@ mod autotest_generated {
         );
 
         let wide = Card::create(
-            Dom::create_div().with_children((0..2000).map(|_| Dom::create_div()).collect::<Vec<_>>().into()),
+            Dom::create_div().with_children(
+                (0..2000)
+                    .map(|_| Dom::create_div())
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
         )
         .dom();
         assert_eq!(
@@ -499,7 +529,10 @@ mod autotest_generated {
             count_descendants(&wide),
             "the cached child count desynced for very wide content",
         );
-        assert_eq!(wide.estimated_total_children, 2001, "card div + 2000 grandchildren expected");
+        assert_eq!(
+            wide.estimated_total_children, 2001,
+            "card div + 2000 grandchildren expected"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -508,29 +541,56 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_moves_every_field_out_and_leaves_a_default() {
-        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("payload")).with_flex_grow(2.5);
+        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "payload",
+        ))
+        .with_flex_grow(2.5);
         c.set_on_click(RefAny::new(7u32), click_a as CardOnClickCallbackType);
 
         let taken = c.swap_with_default();
 
-        assert_eq!(text_of(&taken.content), Some("payload"), "the content did not travel out");
+        assert_eq!(
+            text_of(&taken.content),
+            Some("payload"),
+            "the content did not travel out"
+        );
         assert_eq!(taken.flex_grow, 2.5, "flex_grow did not travel out");
         assert!(taken.on_click.is_some(), "the callback did not travel out");
 
-        assert_eq!(c, Card::default(), "what was left behind is not a default card");
-        assert!(c.on_click.is_none(), "the swapped-in default still carries a callback");
-        assert_eq!(c.flex_grow.to_bits(), 0_u32, "the swapped-in default has a non-zero flex_grow");
+        assert_eq!(
+            c,
+            Card::default(),
+            "what was left behind is not a default card"
+        );
+        assert!(
+            c.on_click.is_none(),
+            "the swapped-in default still carries a callback"
+        );
+        assert_eq!(
+            c.flex_grow.to_bits(),
+            0_u32,
+            "the swapped-in default has a non-zero flex_grow"
+        );
     }
 
     #[test]
     fn repeated_swap_with_default_never_accumulates_state() {
-        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("x")).with_flex_grow(1.0);
+        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("x"))
+            .with_flex_grow(1.0);
         let _first = c.swap_with_default();
 
         for i in 0..8 {
             let taken = c.swap_with_default();
-            assert_eq!(taken, Card::default(), "swap #{i} handed back something other than a default");
-            assert_eq!(c, Card::default(), "swap #{i} left something other than a default behind");
+            assert_eq!(
+                taken,
+                Card::default(),
+                "swap #{i} handed back something other than a default"
+            );
+            assert_eq!(
+                c,
+                Card::default(),
+                "swap #{i} left something other than a default behind"
+            );
         }
 
         // The DOM of the drained card is still a well-formed one-child card.
@@ -545,11 +605,21 @@ mod autotest_generated {
 
     #[test]
     fn set_content_replaces_rather_than_appends() {
-        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("first"));
-        c.set_content(Dom::create_text_do_not_use_without_block_level_wrapper("second"));
-        c.set_content(Dom::create_text_do_not_use_without_block_level_wrapper("third"));
+        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "first",
+        ));
+        c.set_content(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "second",
+        ));
+        c.set_content(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "third",
+        ));
 
-        assert_eq!(text_of(&c.content), Some("third"), "the last content did not win");
+        assert_eq!(
+            text_of(&c.content),
+            Some("third"),
+            "the last content did not win"
+        );
 
         let dom = c.dom();
         assert_eq!(
@@ -562,8 +632,13 @@ mod autotest_generated {
 
     #[test]
     fn with_content_touches_only_the_content_field() {
-        let base = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("old")).with_flex_grow(3.0);
-        let c = base.with_content(Dom::create_text_do_not_use_without_block_level_wrapper("new"));
+        let base = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "old",
+        ))
+        .with_flex_grow(3.0);
+        let c = base.with_content(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "new",
+        ));
 
         assert_eq!(text_of(&c.content), Some("new"));
         assert_eq!(c.flex_grow, 3.0, "with_content clobbered flex_grow");
@@ -574,11 +649,17 @@ mod autotest_generated {
     fn with_content_preserves_an_already_installed_callback() {
         let c = Card::default()
             .with_on_click(RefAny::new(1u8), click_a as CardOnClickCallbackType)
-            .with_content(Dom::create_text_do_not_use_without_block_level_wrapper("late content"));
+            .with_content(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "late content",
+            ));
 
         assert!(c.on_click.is_some(), "with_content dropped the callback");
         let dom = c.dom();
-        assert_eq!(dom.root.callbacks.as_ref().len(), 1, "the callback was lost on the way into the DOM");
+        assert_eq!(
+            dom.root.callbacks.as_ref().len(),
+            1,
+            "the callback was lost on the way into the DOM"
+        );
         assert_eq!(text_of(&dom.children.as_ref()[0]), Some("late content"));
     }
 
@@ -594,9 +675,16 @@ mod autotest_generated {
             let mut c = Card::default();
             c.set_flex_grow(v);
             if v.is_nan() {
-                assert!(c.flex_grow.is_nan(), "a NaN flex_grow was silently rewritten");
+                assert!(
+                    c.flex_grow.is_nan(),
+                    "a NaN flex_grow was silently rewritten"
+                );
             } else {
-                assert_eq!(c.flex_grow.to_bits(), v.to_bits(), "flex_grow {v} was not stored verbatim");
+                assert_eq!(
+                    c.flex_grow.to_bits(),
+                    v.to_bits(),
+                    "flex_grow {v} was not stored verbatim"
+                );
             }
         }
     }
@@ -618,11 +706,17 @@ mod autotest_generated {
 
     #[test]
     fn with_flex_grow_touches_only_the_numeric_field() {
-        let c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("body"))
-            .with_on_click(RefAny::new(1u8), click_a as CardOnClickCallbackType)
-            .with_flex_grow(f32::NAN);
+        let c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "body",
+        ))
+        .with_on_click(RefAny::new(1u8), click_a as CardOnClickCallbackType)
+        .with_flex_grow(f32::NAN);
 
-        assert_eq!(text_of(&c.content), Some("body"), "with_flex_grow clobbered the content");
+        assert_eq!(
+            text_of(&c.content),
+            Some("body"),
+            "with_flex_grow clobbered the content"
+        );
         assert!(c.on_click.is_some(), "with_flex_grow dropped the callback");
     }
 
@@ -637,7 +731,11 @@ mod autotest_generated {
         // Every non-NaN factor keeps equality reflexive.
         for v in ADVERSARIAL_FLOATS.iter().copied().filter(|v| !v.is_nan()) {
             let c = Card::default().with_flex_grow(v);
-            assert_eq!(c, c.clone(), "a card with flex_grow {v} is not equal to its own clone");
+            assert_eq!(
+                c,
+                c.clone(),
+                "a card with flex_grow {v} is not equal to its own clone"
+            );
         }
     }
 
@@ -646,7 +744,11 @@ mod autotest_generated {
         for v in [0.0_f32, -0.0_f32] {
             let dom = Card::default().with_flex_grow(v).dom();
             let got = dom_flex_grow(&dom).expect("flex-grow must always be declared");
-            assert_eq!(got.to_bits(), 0_u32, "flex_grow {v} did not encode to +0.0 (got {got})");
+            assert_eq!(
+                got.to_bits(),
+                0_u32,
+                "flex_grow {v} did not encode to +0.0 (got {got})"
+            );
         }
     }
 
@@ -668,15 +770,30 @@ mod autotest_generated {
     fn flex_grow_below_the_encoding_precision_truncates_to_zero() {
         // Everything under one milli-unit is quantised away — including the sign, because
         // the truncating cast of -0.0001 * 1000 = -0.1 lands on integer 0.
-        for v in [f32::EPSILON, f32::MIN_POSITIVE, -f32::MIN_POSITIVE, 1e-4, -1e-4, 0.0005, -0.0009] {
+        for v in [
+            f32::EPSILON,
+            f32::MIN_POSITIVE,
+            -f32::MIN_POSITIVE,
+            1e-4,
+            -1e-4,
+            0.0005,
+            -0.0009,
+        ] {
             let got = dom_flex_grow(&Card::default().with_flex_grow(v).dom())
                 .expect("flex-grow must always be declared");
-            assert_eq!(got.to_bits(), 0_u32, "sub-milli flex_grow {v} did not truncate to +0.0 (got {got})");
+            assert_eq!(
+                got.to_bits(),
+                0_u32,
+                "sub-milli flex_grow {v} did not truncate to +0.0 (got {got})"
+            );
         }
 
         // ... and 0.001 is genuinely the smallest factor that still registers.
         let smallest = dom_flex_grow(&Card::default().with_flex_grow(0.001).dom()).unwrap();
-        assert!(smallest > 0.0, "0.001 is supposed to be the smallest representable factor");
+        assert!(
+            smallest > 0.0,
+            "0.001 is supposed to be the smallest representable factor"
+        );
     }
 
     #[test]
@@ -684,7 +801,11 @@ mod autotest_generated {
         let dom = Card::default().with_flex_grow(f32::NAN).dom();
         let got = dom_flex_grow(&dom).expect("flex-grow must always be declared");
         assert!(!got.is_nan(), "a NaN flex-grow reached the style tree");
-        assert_eq!(got.to_bits(), 0_u32, "NaN must encode to +0.0 (saturating cast), got {got}");
+        assert_eq!(
+            got.to_bits(),
+            0_u32,
+            "NaN must encode to +0.0 (saturating cast), got {got}"
+        );
     }
 
     #[test]
@@ -697,15 +818,27 @@ mod autotest_generated {
 
         for v in [f32::INFINITY, f32::MAX] {
             let got = dom_flex_grow(&Card::default().with_flex_grow(v).dom()).unwrap();
-            assert!(got.is_finite(), "an infinite flex-grow reached the style tree for {v}");
-            assert_eq!(got, max_encoded, "{v} did not saturate at the isize upper bound");
+            assert!(
+                got.is_finite(),
+                "an infinite flex-grow reached the style tree for {v}"
+            );
+            assert_eq!(
+                got, max_encoded,
+                "{v} did not saturate at the isize upper bound"
+            );
             assert!(got > 0.0, "{v} wrapped around into a non-positive factor");
         }
 
         for v in [f32::NEG_INFINITY, f32::MIN] {
             let got = dom_flex_grow(&Card::default().with_flex_grow(v).dom()).unwrap();
-            assert!(got.is_finite(), "an infinite flex-grow reached the style tree for {v}");
-            assert_eq!(got, min_encoded, "{v} did not saturate at the isize lower bound");
+            assert!(
+                got.is_finite(),
+                "an infinite flex-grow reached the style tree for {v}"
+            );
+            assert_eq!(
+                got, min_encoded,
+                "{v} did not saturate at the isize lower bound"
+            );
             assert!(got < 0.0, "{v} wrapped around into a non-negative factor");
         }
     }
@@ -714,7 +847,8 @@ mod autotest_generated {
     fn no_flex_grow_input_can_put_a_nan_or_an_infinity_into_the_style_tree() {
         for v in ADVERSARIAL_FLOATS {
             let dom = Card::default().with_flex_grow(v).dom();
-            let got = dom_flex_grow(&dom).unwrap_or_else(|| panic!("flex-grow disappeared for input {v}"));
+            let got = dom_flex_grow(&dom)
+                .unwrap_or_else(|| panic!("flex-grow disappeared for input {v}"));
             assert!(
                 got.is_finite(),
                 "input {v} produced a non-finite flex-grow ({got}) — the layout solver would NaN out",
@@ -729,7 +863,10 @@ mod autotest_generated {
         let mut prev = f32::NEG_INFINITY;
         for v in ascending {
             let got = dom_flex_grow(&Card::default().with_flex_grow(v).dom()).unwrap();
-            assert!(got >= prev, "encoding is not monotonic: {v} encoded to {got}, below the previous {prev}");
+            assert!(
+                got >= prev,
+                "encoding is not monotonic: {v} encoded to {got}, below the previous {prev}"
+            );
             prev = got;
         }
     }
@@ -744,7 +881,10 @@ mod autotest_generated {
         assert!(c.on_click.is_none());
 
         c.set_on_click(RefAny::new(1u32), click_a as CardOnClickCallbackType);
-        assert!(c.on_click.is_some(), "set_on_click did not store the callback");
+        assert!(
+            c.on_click.is_some(),
+            "set_on_click did not store the callback"
+        );
 
         c.set_on_click(RefAny::new(2u32), click_b as CardOnClickCallbackType);
         let stored = c.on_click.as_ref().expect("callback must still be present");
@@ -767,9 +907,11 @@ mod autotest_generated {
         let cb: CardOnClickCallbackType = click_a;
         let expected_ptr = cb as *const () as usize;
 
-        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("clickable"))
-            .with_on_click(RefAny::new(0xDEAD_BEEF_u32), cb)
-            .dom();
+        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "clickable",
+        ))
+        .with_on_click(RefAny::new(0xDEAD_BEEF_u32), cb)
+        .dom();
 
         let callbacks = dom.root.callbacks.as_ref();
         assert_eq!(callbacks.len(), 1, "exactly one click callback is expected");
@@ -791,7 +933,10 @@ mod autotest_generated {
             0xDEAD_BEEF,
             "payload was corrupted",
         );
-        assert!(data.downcast_ref::<u64>().is_none(), "a wrong-type downcast reinterpreted the payload");
+        assert!(
+            data.downcast_ref::<u64>().is_none(),
+            "a wrong-type downcast reinterpreted the payload"
+        );
     }
 
     #[test]
@@ -805,19 +950,28 @@ mod autotest_generated {
         let raw: CardOnClickCallbackType = click_a;
         let expected_ptr = raw as *const () as usize;
 
-        let dom = Card::default().with_on_click(RefAny::new(1u8), generic).dom();
+        let dom = Card::default()
+            .with_on_click(RefAny::new(1u8), generic)
+            .dom();
         let callbacks = dom.root.callbacks.as_ref();
         assert_eq!(callbacks.len(), 1);
         assert_eq!(
             callbacks[0].callback.cb, expected_ptr,
             "the Callback -> CardOnClickCallback transmute mangled the pointer",
         );
-        assert!(callbacks[0].callback.ctx.is_none(), "a native callback must carry no FFI context");
+        assert!(
+            callbacks[0].callback.ctx.is_none(),
+            "a native callback must carry no FFI context"
+        );
     }
 
     #[test]
     fn a_card_without_a_callback_registers_no_callbacks() {
-        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("inert")).with_flex_grow(1.0).dom();
+        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "inert",
+        ))
+        .with_flex_grow(1.0)
+        .dom();
         assert!(
             dom.root.callbacks.as_ref().is_empty(),
             "a callback appeared on a card that was never given one",
@@ -826,17 +980,31 @@ mod autotest_generated {
 
     #[test]
     fn set_on_click_does_not_disturb_the_other_fields() {
-        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("body")).with_flex_grow(2.0);
-        c.set_on_click(RefAny::new("payload".to_string()), click_a as CardOnClickCallbackType);
+        let mut c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "body",
+        ))
+        .with_flex_grow(2.0);
+        c.set_on_click(
+            RefAny::new("payload".to_string()),
+            click_a as CardOnClickCallbackType,
+        );
 
-        assert_eq!(text_of(&c.content), Some("body"), "set_on_click clobbered the content");
+        assert_eq!(
+            text_of(&c.content),
+            Some("body"),
+            "set_on_click clobbered the content"
+        );
         assert_eq!(c.flex_grow, 2.0, "set_on_click clobbered flex_grow");
 
         let dom = c.dom();
         assert_eq!(dom_flex_grow(&dom), Some(2.0));
         let mut data = dom.root.callbacks.as_ref()[0].refany.clone();
         let payload = data.downcast_ref::<String>().expect("payload changed type");
-        assert_eq!(payload.as_str(), "payload", "the RefAny payload was corrupted");
+        assert_eq!(
+            payload.as_str(),
+            "payload",
+            "the RefAny payload was corrupted"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -845,15 +1013,26 @@ mod autotest_generated {
 
     #[test]
     fn dom_builds_a_single_card_div_holding_the_content_as_its_only_child() {
-        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("body")).dom();
+        let dom = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "body",
+        ))
+        .dom();
 
-        assert_eq!(*dom.root.get_node_type(), NodeType::Div, "the card container must be a div");
+        assert_eq!(
+            *dom.root.get_node_type(),
+            NodeType::Div,
+            "the card container must be a div"
+        );
         assert_eq!(
             classes(&dom),
             vec!["__azul-native-card".to_string()],
             "the card class is what the UA stylesheet and tests key off",
         );
-        assert_eq!(dom.children.as_ref().len(), 1, "the card must wrap exactly one child");
+        assert_eq!(
+            dom.children.as_ref().len(),
+            1,
+            "the card must wrap exactly one child"
+        );
         assert_eq!(text_of(&dom.children.as_ref()[0]), Some("body"));
         assert_eq!(
             dom.estimated_total_children,
@@ -877,7 +1056,10 @@ mod autotest_generated {
             "flex-grow must come first, so nothing in the static style can shadow it",
         );
         assert_eq!(
-            props.iter().filter(|p| matches!(p, CssProperty::FlexGrow(_))).count(),
+            props
+                .iter()
+                .filter(|p| matches!(p, CssProperty::FlexGrow(_)))
+                .count(),
             1,
             "flex-grow was declared more than once",
         );
@@ -899,25 +1081,63 @@ mod autotest_generated {
         for p in &props {
             match p {
                 CssProperty::PaddingTop(v) => paddings.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::PaddingBottom(v) => paddings.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::PaddingLeft(v) => paddings.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::PaddingRight(v) => paddings.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderTopWidth(v) => border_widths.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderBottomWidth(v) => border_widths.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderLeftWidth(v) => border_widths.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderRightWidth(v) => border_widths.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderTopLeftRadius(v) => radii.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderTopRightRadius(v) => radii.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderBottomLeftRadius(v) => radii.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderBottomRightRadius(v) => radii.push(v.get_property().map(|x| px(&x.inner))),
-                CssProperty::BorderTopColor(v) => border_colors.push(v.get_property().map(|x| x.inner)),
-                CssProperty::BorderBottomColor(v) => border_colors.push(v.get_property().map(|x| x.inner)),
-                CssProperty::BorderLeftColor(v) => border_colors.push(v.get_property().map(|x| x.inner)),
-                CssProperty::BorderRightColor(v) => border_colors.push(v.get_property().map(|x| x.inner)),
-                CssProperty::BorderTopStyle(v) => border_styles.push(v.get_property().map(|x| x.inner)),
-                CssProperty::BorderBottomStyle(v) => border_styles.push(v.get_property().map(|x| x.inner)),
-                CssProperty::BorderLeftStyle(v) => border_styles.push(v.get_property().map(|x| x.inner)),
-                CssProperty::BorderRightStyle(v) => border_styles.push(v.get_property().map(|x| x.inner)),
+                CssProperty::PaddingBottom(v) => {
+                    paddings.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::PaddingLeft(v) => {
+                    paddings.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::PaddingRight(v) => {
+                    paddings.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderTopWidth(v) => {
+                    border_widths.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderBottomWidth(v) => {
+                    border_widths.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderLeftWidth(v) => {
+                    border_widths.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderRightWidth(v) => {
+                    border_widths.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderTopLeftRadius(v) => {
+                    radii.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderTopRightRadius(v) => {
+                    radii.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderBottomLeftRadius(v) => {
+                    radii.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderBottomRightRadius(v) => {
+                    radii.push(v.get_property().map(|x| px(&x.inner)))
+                }
+                CssProperty::BorderTopColor(v) => {
+                    border_colors.push(v.get_property().map(|x| x.inner))
+                }
+                CssProperty::BorderBottomColor(v) => {
+                    border_colors.push(v.get_property().map(|x| x.inner))
+                }
+                CssProperty::BorderLeftColor(v) => {
+                    border_colors.push(v.get_property().map(|x| x.inner))
+                }
+                CssProperty::BorderRightColor(v) => {
+                    border_colors.push(v.get_property().map(|x| x.inner))
+                }
+                CssProperty::BorderTopStyle(v) => {
+                    border_styles.push(v.get_property().map(|x| x.inner))
+                }
+                CssProperty::BorderBottomStyle(v) => {
+                    border_styles.push(v.get_property().map(|x| x.inner))
+                }
+                CssProperty::BorderLeftStyle(v) => {
+                    border_styles.push(v.get_property().map(|x| x.inner))
+                }
+                CssProperty::BorderRightStyle(v) => {
+                    border_styles.push(v.get_property().map(|x| x.inner))
+                }
                 CssProperty::Display(v) => display = v.get_property().copied(),
                 CssProperty::FlexDirection(v) => direction = v.get_property().copied(),
                 CssProperty::BackgroundContent(v) => {
@@ -927,18 +1147,44 @@ mod autotest_generated {
             }
         }
 
-        assert_eq!(paddings, vec![Some(12.0); 4], "all four paddings must be 12px");
-        assert_eq!(border_widths, vec![Some(1.0); 4], "all four borders must be 1px");
+        assert_eq!(
+            paddings,
+            vec![Some(12.0); 4],
+            "all four paddings must be 12px"
+        );
+        assert_eq!(
+            border_widths,
+            vec![Some(1.0); 4],
+            "all four borders must be 1px"
+        );
         assert_eq!(radii, vec![Some(8.0); 4], "all four corners must be 8px");
-        assert_eq!(border_colors, vec![Some(CARD_BORDER_COLOR); 4], "all four border colours must match");
-        assert_eq!(border_styles, vec![Some(BorderStyle::Solid); 4], "all four border styles must be solid");
-        assert_eq!(display, Some(LayoutDisplay::Flex), "the card container must be a flex box");
-        assert_eq!(direction, Some(LayoutFlexDirection::Column), "the card must stack its content in a column");
+        assert_eq!(
+            border_colors,
+            vec![Some(CARD_BORDER_COLOR); 4],
+            "all four border colours must match"
+        );
+        assert_eq!(
+            border_styles,
+            vec![Some(BorderStyle::Solid); 4],
+            "all four border styles must be solid"
+        );
+        assert_eq!(
+            display,
+            Some(LayoutDisplay::Flex),
+            "the card container must be a flex box"
+        );
+        assert_eq!(
+            direction,
+            Some(LayoutFlexDirection::Column),
+            "the card must stack its content in a column"
+        );
 
         let bg = background.expect("the card must declare a background");
         assert_eq!(bg.len(), 1, "exactly one background layer expected");
         match &bg[0] {
-            StyleBackgroundContent::Color(c) => assert_eq!(*c, CARD_BG_COLOR, "the card background is not white"),
+            StyleBackgroundContent::Color(c) => {
+                assert_eq!(*c, CARD_BG_COLOR, "the card background is not white")
+            }
             other => panic!("the card background must be a flat colour, got {other:?}"),
         }
     }
@@ -969,7 +1215,10 @@ mod autotest_generated {
             assert_eq!(s.color, CARD_SHADOW_COLOR);
             shadows += 1;
         }
-        assert_eq!(shadows, 4, "the card must declare a shadow on all four edges");
+        assert_eq!(
+            shadows, 4,
+            "the card must declare a shadow on all four edges"
+        );
     }
 
     #[test]
@@ -979,10 +1228,20 @@ mod autotest_generated {
         // would be a use-after-free (and the third a double-free). Build, drop, re-read.
         let survivor = Card::default().dom();
         for _ in 0..64 {
-            drop(Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("throwaway")).with_flex_grow(1.0).dom());
+            drop(
+                Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "throwaway",
+                ))
+                .with_flex_grow(1.0)
+                .dom(),
+            );
         }
 
-        assert_eq!(CARD_SHADOW.offset_y.inner.number.get(), 2.0, "the static shadow was mutated or freed");
+        assert_eq!(
+            CARD_SHADOW.offset_y.inner.number.get(),
+            2.0,
+            "the static shadow was mutated or freed"
+        );
         assert_eq!(CARD_SHADOW.color, CARD_SHADOW_COLOR);
 
         let shadows = survivor
@@ -998,7 +1257,11 @@ mod autotest_generated {
             })
             .map(|b| px(&b.as_ref().blur_radius.inner))
             .collect::<Vec<_>>();
-        assert_eq!(shadows, vec![6.0; 4], "a surviving card's shadows were corrupted by other cards' drops");
+        assert_eq!(
+            shadows,
+            vec![6.0; 4],
+            "a surviving card's shadows were corrupted by other cards' drops"
+        );
     }
 
     #[test]
@@ -1007,20 +1270,38 @@ mod autotest_generated {
 
         for i in 0..32 {
             let props = inline_props(&Card::default().dom());
-            assert_eq!(props.len(), baseline.len(), "build #{i} produced a different number of properties");
-            assert_eq!(props, baseline, "build #{i} diverged — the static CARD_STYLE was mutated");
+            assert_eq!(
+                props.len(),
+                baseline.len(),
+                "build #{i} produced a different number of properties"
+            );
+            assert_eq!(
+                props, baseline,
+                "build #{i} diverged — the static CARD_STYLE was mutated"
+            );
         }
     }
 
     #[test]
     fn from_card_for_dom_is_exactly_dom() {
-        let c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("body")).with_flex_grow(1.5);
-        assert_eq!(Dom::from(c.clone()), c.dom(), "the From impl diverged from Card::dom");
+        let c = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "body",
+        ))
+        .with_flex_grow(1.5);
+        assert_eq!(
+            Dom::from(c.clone()),
+            c.dom(),
+            "the From impl diverged from Card::dom"
+        );
     }
 
     #[test]
     fn cards_nest_without_desyncing_the_child_counts() {
-        let inner = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper("inner")).with_flex_grow(1.0).dom();
+        let inner = Card::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "inner",
+        ))
+        .with_flex_grow(1.0)
+        .dom();
         let outer = Card::create(inner).with_flex_grow(2.0).dom();
 
         assert_eq!(
@@ -1028,12 +1309,19 @@ mod autotest_generated {
             count_descendants(&outer),
             "nesting cards desynced the cached child count",
         );
-        assert_eq!(dom_flex_grow(&outer), Some(2.0), "the outer card's flex-grow was overwritten");
+        assert_eq!(
+            dom_flex_grow(&outer),
+            Some(2.0),
+            "the outer card's flex-grow was overwritten"
+        );
         assert_eq!(
             dom_flex_grow(&outer.children.as_ref()[0]),
             Some(1.0),
             "the inner card's flex-grow was overwritten",
         );
-        assert_eq!(classes(&outer.children.as_ref()[0]), vec!["__azul-native-card".to_string()]);
+        assert_eq!(
+            classes(&outer.children.as_ref()[0]),
+            vec!["__azul-native-card".to_string()]
+        );
     }
 }

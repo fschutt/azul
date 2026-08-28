@@ -22,12 +22,12 @@
 //! and exercisable on the dev host); the iOS `GCController` / Android
 //! `InputDevice` backends are follow-ups (their `start`/`poll` are no-ops).
 
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
-pub mod desktop;
-#[cfg(target_os = "ios")]
-pub mod apple;
 #[cfg(target_os = "android")]
 pub mod android;
+#[cfg(target_os = "ios")]
+pub mod apple;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub mod desktop;
 
 /// One-time native subscription, guarded so only the first frame does it.
 /// No-op on desktop (gilrs initialises lazily inside [`poll`]).

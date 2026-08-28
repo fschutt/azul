@@ -93,7 +93,10 @@ fn seed_scroll(
     lw.scroll_manager.update_node_bounds(
         dom,
         n,
-        LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, container_h)),
+        LogicalRect::new(
+            LogicalPosition::zero(),
+            LogicalSize::new(600.0, container_h),
+        ),
         LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, content_h)),
         now(),
     );
@@ -117,7 +120,10 @@ fn last_cluster_cursor_in(
     dom: DomId,
     node: usize,
 ) -> azul_core::selection::TextCursor {
-    let tree = &lw.get_layout_result(&dom).expect("layout result").layout_tree;
+    let tree = &lw
+        .get_layout_result(&dom)
+        .expect("layout result")
+        .layout_tree;
     let index = tree
         .dom_to_layout
         .get(&NodeId::new(node))
@@ -186,11 +192,12 @@ extern "C" fn nested_view(_data: RefAny, _info: VirtualViewCallbackInfo) -> Virt
         .with_child(editor);
 
     VirtualViewReturn {
-        dom: OptionDom::Some(Dom::create_div().with_css("display: block;").with_child(scroller)),
-        materialized: LogicalRect::new(
-            LogicalPosition::zero(),
-            LogicalSize::new(600.0, 500.0),
+        dom: OptionDom::Some(
+            Dom::create_div()
+                .with_css("display: block;")
+                .with_child(scroller),
         ),
+        materialized: LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 500.0)),
         virtual_rect: LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 500.0)),
     }
 }
@@ -198,10 +205,7 @@ extern "C" fn nested_view(_data: RefAny, _info: VirtualViewCallbackInfo) -> Virt
 /// Returns the window and the nested `DomId` the VirtualView mounted.
 fn nested_fixture() -> (LayoutWindow, DomId) {
     let host = with_class(
-        Dom::create_virtual_view(
-            RefAny::new(0u32),
-            VirtualViewCallback::create(nested_view),
-        ),
+        Dom::create_virtual_view(RefAny::new(0u32), VirtualViewCallback::create(nested_view)),
         "vv",
     );
     let chain = with_class(Dom::create_div(), "w").with_child(
@@ -597,7 +601,14 @@ fn a_small_caret_reveal_follows_immediately_instead_of_gliding() {
 
     // Clipped by about its own height — a follow, not a jump.
     let seeded = caret.origin.y - 96.0;
-    seed_scroll(&mut lw, DomId::ROOT_ID, CLIP, 100.0, caret.origin.y + 400.0, seeded);
+    seed_scroll(
+        &mut lw,
+        DomId::ROOT_ID,
+        CLIP,
+        100.0,
+        caret.origin.y + 400.0,
+        seeded,
+    );
 
     assert!(
         lw.scroll_selection_into_view(SelectionScrollType::Cursor, ScrollMode::Instant),

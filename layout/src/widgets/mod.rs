@@ -130,50 +130,78 @@ macro_rules! impl_widget_callback {
     };
 }
 
+/// Accordion / expander widget.
+///
+/// One or more collapsible titled sections; see `accordion.rs`.
+pub mod accordion;
+/// Alert / banner widget.
+///
+/// A coloured inline message box with an optional dismissible close button; see `alert.rs`.
+pub mod alert;
+/// Avatar widget.
+///
+/// A circular image/initials badge (stateless); see `avatar.rs`.
+pub mod avatar;
+/// Office-style backstage view (the full-window "FILE" screen): accent nav
+/// column + back ring + app-provided pane content. the Office-2013-era look look by default;
+/// pairs with the ribbon's `RibbonAppButton`. See `backstage.rs`.
+pub mod backstage;
+/// Badge widget.
+///
+/// A small rounded count/status pill (stateless); see `badge.rs`.
+pub mod badge;
+/// Breadcrumb widget.
+///
+/// A horizontal trail of clickable crumb links separated by "/", ending in the current (non-clickable) page; see `breadcrumb.rs`.
+pub mod breadcrumb;
 /// Button widget
 pub mod button;
-/// Checkbox widget
-pub mod check_box;
-/// Box displaying a color with a callback for value changes
-pub mod color_input;
-/// File input widget
-pub mod file_input;
-/// Label widget (centered text)
-pub mod label;
-/// Drop-down select widget
-pub mod drop_down;
-/// Frame container widget
-pub mod frame;
-/// List view widget
-pub mod list_view;
-/// Shared core for the video-ish widgets (camera/screencap/video): the
-/// `VideoFrame` type + the GL-texture `present_frame` writeback.
-///
-/// See
-/// `capture_common.rs`.
-pub mod capture_common;
 /// Camera-preview widget (P6) — a "dumb widget" owning a background capture
 /// thread + a GL-texture ImageRef; no camera logic in core.
 ///
 /// Same RefAny-
 /// dataset + merge-callback design as the map widget. See `camera.rs`.
 pub mod camera;
-/// Screen-capture widget (P6) — identical "dumb widget" architecture to the
-/// camera widget, capturing a display/window instead.
+/// Shared core for the video-ish widgets (camera/screencap/video): the
+/// `VideoFrame` type + the GL-texture `present_frame` writeback.
 ///
-/// See `screencap.rs`.
-pub mod screencap;
-/// Video-playback widget (P6) — same "dumb widget" architecture, decoding a
-/// video source (vk-video) into a GL texture.
+/// See
+/// `capture_common.rs`.
+pub mod capture_common;
+/// Card container widget.
 ///
-/// See `video.rs`.
-pub mod video;
-/// Microphone-capture widget (P7) — same "dumb widget" architecture as the
-/// capture widgets, audio instead of video (no GL): a background thread feeds
-/// each `AudioFrame` to the user's `on_frame` hook.
+/// Elevated/bordered content box (no title); see `card.rs`.
+pub mod card;
+/// Checkbox widget
+pub mod check_box;
+/// Chip / tag widget.
 ///
-/// See `microphone.rs`.
-pub mod microphone;
+/// A compact rounded pill with a label + optional removable "x" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
+pub mod chip;
+/// Box displaying a color with a callback for value changes
+pub mod color_input;
+/// Combobox widget.
+///
+/// An editable text field with a click-toggled drop-down list of options (drop_down's select + text_input's editable field); see `combobox.rs`.
+pub mod combobox;
+/// Calendar date picker widget.
+///
+/// A month header (‹ / `Month YYYY` / ›) above a weekday-labelled 7-column day grid computed from real calendar math; clicking a day selects + restyles it (segmented-style), and the per-cell day number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid in-widget (prominent module TODO2); see `date_picker.rs`.
+pub mod date_picker;
+/// Divider / separator rule widget (horizontal or vertical).
+///
+/// See `divider.rs`.
+pub mod divider;
+/// Drop-down select widget
+pub mod drop_down;
+/// File input widget
+pub mod file_input;
+/// Frame container widget
+pub mod frame;
+/// Label widget (centered text)
+pub mod label;
+/// List view widget
+pub mod list_view;
 /// Map widget — MVT tile + MapCSS → SVG → DOM (AzulMaps goal app, P3).
 ///
 /// Cache lives in a dataset RefAny owned by a merge callback so it
@@ -186,130 +214,102 @@ pub mod map_themes;
 /// Renders a window's `Menu` as a horizontal bar; items open dropdowns via the
 /// unified `WindowPosition::RelativeToParentWindow` popup path.
 pub mod menubar;
+/// Microphone-capture widget (P7) — same "dumb widget" architecture as the
+/// capture widgets, audio instead of video (no GL): a background thread feeds
+/// each `AudioFrame` to the user's `on_frame` hook.
+///
+/// See `microphone.rs`.
+pub mod microphone;
+/// Modal / dialog widget.
+///
+/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state toggle; see `modal.rs`.
+pub mod modal;
 /// Node graph widget
 pub mod node_graph;
 /// Same as text input, but only allows numeric input
 pub mod number_input;
+/// Pagination widget.
+///
+/// A `Prev` / page-numbers / `Next` page navigator with an active-page restyle (segmented-style); see `pagination.rs`.
+pub mod pagination;
+/// Popover widget.
+///
+/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the click-toggled sibling of tooltip); see `popover.rs`.
+pub mod popover;
 /// Progress bar widget
 pub mod progressbar;
-/// Ribbon widget
-pub mod ribbon;
-/// Office-style backstage view (the full-window "FILE" screen): accent nav
-/// column + back ring + app-provided pane content. the Office-2013-era look look by default;
-/// pairs with the ribbon's `RibbonAppButton`. See `backstage.rs`.
-pub mod backstage;
-/// Office-style status bar: left text segments, view switcher, zoom cluster
-/// (embeds the `slider` widget). the Office-2013-era look look by default. See `statusbar.rs`.
-pub mod statusbar;
 /// Office-style title band with a Quick Access Toolbar (save/undo/redo),
 /// centered title and window buttons, drawn as DOM. the Office-2013-era look look by
 /// default; use `titlebar` instead for native-caption windows. See
 /// `quick_access.rs`.
 pub mod quick_access;
-/// Tab container widgets
-pub mod tabs;
-/// Single line text input widget
-pub mod text_input;
-/// Titlebar widget for custom window chrome
-pub mod titlebar;
-/// Tree view widget
-pub mod tree_view;
-/// Switch / toggle widget.
-///
-/// Boolean on/off with a sliding knob; see `switch.rs`.
-pub mod switch;
-/// Divider / separator rule widget (horizontal or vertical).
-///
-/// See `divider.rs`.
-pub mod divider;
-/// Card container widget.
-///
-/// Elevated/bordered content box (no title); see `card.rs`.
-pub mod card;
-/// Badge widget.
-///
-/// A small rounded count/status pill (stateless); see `badge.rs`.
-pub mod badge;
-/// Slider / range widget.
-///
-/// Draggable thumb on a track → numeric value; see `slider.rs`.
-pub mod slider;
-/// Segmented control widget.
-///
-/// Joined row of mutually-exclusive buttons; see `segmented.rs`.
-pub mod segmented;
 /// Radio-group widget.
 ///
 /// Vertical/horizontal group of mutually-exclusive options (exactly one selected) with a circular indicator; see `radio_group.rs`.
 pub mod radio_group;
-/// Tooltip widget.
+/// Ribbon widget
+pub mod ribbon;
+/// Screen-capture widget (P6) — identical "dumb widget" architecture to the
+/// camera widget, capturing a display/window instead.
 ///
-/// Shows a small text popup near an anchor on hover; see `tooltip.rs`.
-pub mod tooltip;
-/// Multi-line text input (text area) widget.
+/// See `screencap.rs`.
+pub mod screencap;
+/// Segmented control widget.
 ///
-/// See `text_area.rs`.
-pub mod text_area;
-/// Alert / banner widget.
+/// Joined row of mutually-exclusive buttons; see `segmented.rs`.
+pub mod segmented;
+/// Slider / range widget.
 ///
-/// A coloured inline message box with an optional dismissible close button; see `alert.rs`.
-pub mod alert;
-/// Accordion / expander widget.
-///
-/// One or more collapsible titled sections; see `accordion.rs`.
-pub mod accordion;
-/// Avatar widget.
-///
-/// A circular image/initials badge (stateless); see `avatar.rs`.
-pub mod avatar;
-/// Chip / tag widget.
-///
-/// A compact rounded pill with a label + optional removable "x" (stateful when removable, mirrors alert's dismiss); see `chip.rs`.
-pub mod chip;
+/// Draggable thumb on a track → numeric value; see `slider.rs`.
+pub mod slider;
 /// Spinner / activity widget.
 ///
 /// A static indeterminate busy ring (stateless; no animation — see the file's PARTIAL/TODO2 note); see `spinner.rs`.
 pub mod spinner;
-/// Popover widget.
-///
-/// A click-triggered floating panel holding arbitrary content, anchored to a `Dom` (the click-toggled sibling of tooltip); see `popover.rs`.
-pub mod popover;
-/// Combobox widget.
-///
-/// An editable text field with a click-toggled drop-down list of options (drop_down's select + text_input's editable field); see `combobox.rs`.
-pub mod combobox;
-/// Modal / dialog widget.
-///
-/// An in-app overlay dialog (backdrop + centred panel + arbitrary content), shown/hidden via state toggle; see `modal.rs`.
-pub mod modal;
-/// Toast / snackbar widget.
-///
-/// A transient floating notification banner pinned to a corner, manually dismissed via "x" (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see `toast.rs`.
-pub mod toast;
-/// Breadcrumb widget.
-///
-/// A horizontal trail of clickable crumb links separated by "/", ending in the current (non-clickable) page; see `breadcrumb.rs`.
-pub mod breadcrumb;
-/// Pagination widget.
-///
-/// A `Prev` / page-numbers / `Next` page navigator with an active-page restyle (segmented-style); see `pagination.rs`.
-pub mod pagination;
-/// Stepper / wizard widget.
-///
-/// A horizontal numbered-step progress indicator with connector lines and an accent/muted restyle on step change (segmented-style + progressbar-style filled connector); see `stepper.rs`.
-pub mod stepper;
 /// Split-pane / splitter widget.
 ///
 /// A two-pane (horizontal/vertical) container with a draggable divider that live-resizes the panes via `set_css_property` (the frame two-box layout + the map/slider pointer-drag state machine); see `split_pane.rs`.
 pub mod split_pane;
+/// Office-style status bar: left text segments, view switcher, zoom cluster
+/// (embeds the `slider` widget). the Office-2013-era look look by default. See `statusbar.rs`.
+pub mod statusbar;
+/// Stepper / wizard widget.
+///
+/// A horizontal numbered-step progress indicator with connector lines and an accent/muted restyle on step change (segmented-style + progressbar-style filled connector); see `stepper.rs`.
+pub mod stepper;
+/// Switch / toggle widget.
+///
+/// Boolean on/off with a sliding knob; see `switch.rs`.
+pub mod switch;
+/// Tab container widgets
+pub mod tabs;
+/// Multi-line text input (text area) widget.
+///
+/// See `text_area.rs`.
+pub mod text_area;
+/// Single line text input widget
+pub mod text_input;
 /// Time picker widget.
 ///
 /// Two clamped numeric up/down spinners (hour + minute) side by side with an optional AM/PM toggle for 12-hour mode (the number_input clamp/retext path + segmented's clickable-cell navigation); see `time_picker.rs`.
 pub mod time_picker;
-/// Calendar date picker widget.
+/// Titlebar widget for custom window chrome
+pub mod titlebar;
+/// Toast / snackbar widget.
 ///
-/// A month header (‹ / `Month YYYY` / ›) above a weekday-labelled 7-column day grid computed from real calendar math; clicking a day selects + restyles it (segmented-style), and the per-cell day number is carried drop_down-style. Month nav fires on_change but cannot rebuild the grid in-widget (prominent module TODO2); see `date_picker.rs`.
-pub mod date_picker;
+/// A transient floating notification banner pinned to a corner, manually dismissed via "x" (auto-timeout needs a host timer — see the file's TODO2); a near-clone of `alert.rs` positioned as an overlay; see `toast.rs`.
+pub mod toast;
+/// Tooltip widget.
+///
+/// Shows a small text popup near an anchor on hover; see `tooltip.rs`.
+pub mod tooltip;
+/// Tree view widget
+pub mod tree_view;
+/// Video-playback widget (P6) — same "dumb widget" architecture, decoding a
+/// video source (vk-video) into a GL texture.
+///
+/// See `video.rs`.
+pub mod video;
 // /// Spreadsheet (virtualized view) widget
 // pub mod spreadsheet;
 
@@ -349,7 +349,7 @@ pub(crate) fn all_widget_doms_for_lint() -> Vec<(&'static str, azul_core::dom::D
 /// at AUTHOR priority on a `*` path.
 pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
     use azul_css::{
-        css::{Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock, rule_priority},
+        css::{rule_priority, Css, CssDeclaration, CssPath, CssPathSelector, CssRuleBlock},
         props::{
             layout::{LayoutMarginBottom, LayoutMarginTop},
             property::CssProperty,
@@ -362,7 +362,9 @@ pub(crate) fn widget_p_margin_reset() -> azul_css::css::Css {
             },
             declarations: vec![
                 CssDeclaration::Static(CssProperty::const_margin_top(LayoutMarginTop::const_px(0))),
-                CssDeclaration::Static(CssProperty::const_margin_bottom(LayoutMarginBottom::const_px(0))),
+                CssDeclaration::Static(CssProperty::const_margin_bottom(
+                    LayoutMarginBottom::const_px(0),
+                )),
             ]
             .into(),
             conditions: Vec::new().into(),
@@ -386,7 +388,8 @@ pub(crate) fn widget_p() -> azul_core::dom::Dom {
 /// `Dom::create_p_with_text`.
 #[must_use]
 pub(crate) fn widget_p_with_text<S: Into<azul_css::AzString>>(text: S) -> azul_core::dom::Dom {
-    widget_p().with_child(azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(text))
+    widget_p()
+        .with_child(azul_core::dom::Dom::create_text_do_not_use_without_block_level_wrapper(text))
 }
 
 /// A widget telling its caller that only THEY can supply the missing piece.
@@ -525,11 +528,11 @@ mod ua_paragraph_margin {
             dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
             props::{basic::StyleFontSize, property::CssProperty},
         };
-        let p = super::widget_p_with_text("label").with_css_props(CssPropertyWithConditionsVec::from_vec(
-            vec![CssPropertyWithConditions::simple(CssProperty::const_font_size(
-                StyleFontSize::const_px(12),
-            ))],
-        ));
+        let p = super::widget_p_with_text("label").with_css_props(
+            CssPropertyWithConditionsVec::from_vec(vec![CssPropertyWithConditions::simple(
+                CssProperty::const_font_size(StyleFontSize::const_px(12)),
+            )]),
+        );
         assert!(matches!(p.root.get_node_type(), NodeType::P));
         assert_eq!(p.children.as_ref().len(), 1);
         assert!(own_sheet_sets(&p, CssPropertyType::MarginTop));
@@ -543,9 +546,8 @@ mod ua_paragraph_margin {
     }
 
     // An explicit inline margin wins over the reset: checked at compile time.
-    const _: () = assert!(
-        azul_css::css::rule_priority::AUTHOR < azul_css::css::rule_priority::INLINE
-    );
+    const _: () =
+        assert!(azul_css::css::rule_priority::AUTHOR < azul_css::css::rule_priority::INLINE);
 }
 
 #[cfg(test)]
@@ -655,7 +657,12 @@ mod label_convention {
                     io_type_id: IO_A,
                     io_info: InputOutputInfo {
                         data_type: AzString::from("number"),
-                        color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                        color: ColorU {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 255,
+                        },
                     },
                 },
             ]),
@@ -720,7 +727,10 @@ mod label_convention {
             progressbar::ProgressBar,
             quick_access::QuickAccessBar,
             radio_group::RadioGroup,
-            ribbon::{Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec},
+            ribbon::{
+                Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab,
+                RibbonTabVec,
+            },
             segmented::Segmented,
             slider::Slider,
             spinner::Spinner,
@@ -772,11 +782,19 @@ mod label_convention {
             ("check_box", CheckBox::create(true).dom()),
             (
                 "chip",
-                Chip::create(AzString::from("tag")).with_removable(true).dom(),
+                Chip::create(AzString::from("tag"))
+                    .with_removable(true)
+                    .dom(),
             ),
             (
                 "color_input",
-                ColorInput::create(ColorU { r: 1, g: 2, b: 3, a: 255 }).dom(),
+                ColorInput::create(ColorU {
+                    r: 1,
+                    g: 2,
+                    b: 3,
+                    a: 255,
+                })
+                .dom(),
             ),
             ("combobox", ComboBox::new(labels(&["one", "two"])).dom()),
             ("date_picker", DatePicker::create(2024, 2, 15).dom()),
@@ -788,18 +806,21 @@ mod label_convention {
                 Frame::create(AzString::from("Frame title"), user_content()).dom(),
             ),
             ("label", Label::create(AzString::from("A label")).dom()),
-            ("list_view", ListView::create(labels(&["Name", "Size"])).dom()),
+            (
+                "list_view",
+                ListView::create(labels(&["Name", "Size"])).dom(),
+            ),
             ("map", MapWidget::create(MapTileLayer::default()).dom()),
             (
                 "menubar",
                 build_menubar_dom(&azul_core::menu::Menu::create(
                     azul_core::menu::MenuItemVec::from_vec(vec![
-                        azul_core::menu::MenuItem::String(
-                            azul_core::menu::StringMenuItem::create("File".into()),
-                        ),
-                        azul_core::menu::MenuItem::String(
-                            azul_core::menu::StringMenuItem::create("Edit".into()),
-                        ),
+                        azul_core::menu::MenuItem::String(azul_core::menu::StringMenuItem::create(
+                            "File".into(),
+                        )),
+                        azul_core::menu::MenuItem::String(azul_core::menu::StringMenuItem::create(
+                            "Edit".into(),
+                        )),
                     ]),
                 )),
             ),
@@ -815,7 +836,9 @@ mod label_convention {
             ("pagination", Pagination::create(2, 5).dom()),
             (
                 "popover",
-                Popover::new(user_content(), user_content()).with_open(true).dom(),
+                Popover::new(user_content(), user_content())
+                    .with_open(true)
+                    .dom(),
             ),
             ("progressbar", ProgressBar::create(40.0).dom()),
             (
@@ -854,9 +877,9 @@ mod label_convention {
             ),
             (
                 "statusbar",
-                StatusBar::new(StatusBarSegmentVec::from_vec(vec![
-                    StatusBarSegment::new(AzString::from("Page 1 of 3")),
-                ]))
+                StatusBar::new(StatusBarSegmentVec::from_vec(vec![StatusBarSegment::new(
+                    AzString::from("Page 1 of 3"),
+                )]))
                 .dom(),
             ),
             (
@@ -864,7 +887,10 @@ mod label_convention {
                 Stepper::create(labels(&["Start", "Details", "Done"])).dom(),
             ),
             ("switch", Switch::create(true).dom()),
-            ("tabs (header)", TabHeader::create(labels(&["One", "Two"])).dom()),
+            (
+                "tabs (header)",
+                TabHeader::create(labels(&["One", "Two"])).dom(),
+            ),
             ("tabs (content)", TabContent::new(user_content()).dom()),
             ("text_area", TextArea::create().dom()),
             ("text_input", TextInput::create().dom()),
@@ -913,7 +939,8 @@ mod label_convention {
     fn the_walk_reports_a_deliberately_broken_text_node() {
         use azul_core::dom::TabIndex;
 
-        let mut leaf = Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from("bare"));
+        let mut leaf =
+            Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from("bare"));
         leaf.root.set_css("width: 10px;");
         let broken = Dom::create_div().with_child(leaf.with_tab_index(TabIndex::Auto));
 

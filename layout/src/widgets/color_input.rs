@@ -23,15 +23,16 @@ use azul_core::{
     transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
-use azul_css::{OptionString, 
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
+use azul_css::{
     props::{
         basic::*,
         layout::*,
         property::{CssProperty, *},
         style::*,
     },
-    *,
+    OptionString, *,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -232,9 +233,8 @@ impl ColorInput {
                 .with_tearoff(azul_core::transient::TransientTearoff::Free)
                 .with_material(azul_core::window::WindowBackgroundMaterial::Transparent),
         ));
-        transient.set_attributes(
-            vec![azul_core::dom::AttributeType::Title("Colour".into())].into(),
-        );
+        transient
+            .set_attributes(vec![azul_core::dom::AttributeType::Title("Colour".into())].into());
         transient.add_callback(
             EventFilter::Component(ComponentEventFilter::Dismissed),
             data.clone(),
@@ -248,9 +248,15 @@ impl ColorInput {
         let translucent = color.a < 255;
         let mut swatch = Dom::create_div();
         if translucent {
-            style.push(CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)));
-            style.push(CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)));
-            style.push(CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)));
+            style.push(CssPropertyWithConditions::simple(
+                CssProperty::const_position(LayoutPosition::Relative),
+            ));
+            style.push(CssPropertyWithConditions::simple(
+                CssProperty::const_overflow_x(LayoutOverflow::Hidden),
+            ));
+            style.push(CssPropertyWithConditions::simple(
+                CssProperty::const_overflow_y(LayoutOverflow::Hidden),
+            ));
             let (w, h) = swatch_size(&style);
             swatch = swatch
                 .with_child(checkerboard(w, h, (w.min(h) / 2.0).max(1.0)))
@@ -271,7 +277,9 @@ impl ColorInput {
                 ..Default::default()
             })
             .with_dataset(Some(data.clone()).into())
-            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_picker_data))
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+                merge_picker_data,
+            ))
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -308,7 +316,10 @@ fn swatch_size(style: &[CssPropertyWithConditions]) -> (f32, f32) {
             })
             .unwrap_or(default)
     };
-    (px(CssPropertyType::Width, 14.0), px(CssPropertyType::Height, 14.0))
+    (
+        px(CssPropertyType::Width, 14.0),
+        px(CssPropertyType::Height, 14.0),
+    )
 }
 
 impl From<ColorInput> for Dom {
@@ -350,7 +361,11 @@ impl Hsv {
             60.0 * ((r - g) / delta + 4.0)
         };
         let h = if h < 0.0 { h + 360.0 } else { h };
-        let s = if max <= f32::EPSILON { 0.0 } else { delta / max };
+        let s = if max <= f32::EPSILON {
+            0.0
+        } else {
+            delta / max
+        };
         Self { h, s, v: max }
     }
 
@@ -377,7 +392,12 @@ impl Hsv {
             _ => (c, 0.0, x),
         };
         let ch = |f: f32| ((f + m) * 255.0).round().clamp(0.0, 255.0) as u8;
-        ColorU { r: ch(r), g: ch(g), b: ch(b), a }
+        ColorU {
+            r: ch(r),
+            g: ch(g),
+            b: ch(b),
+            a,
+        }
     }
 }
 
@@ -402,8 +422,18 @@ pub fn color_from_hex(text: &str) -> Option<ColorU> {
     let bytes = t.as_bytes();
     let pair = |i: usize| -> Option<u8> { Some(nib(bytes[i])? * 16 + nib(bytes[i + 1])?) };
     let (r, g, b, a) = match bytes.len() {
-        3 => (nib(bytes[0])? * 17, nib(bytes[1])? * 17, nib(bytes[2])? * 17, 255),
-        4 => (nib(bytes[0])? * 17, nib(bytes[1])? * 17, nib(bytes[2])? * 17, nib(bytes[3])? * 17),
+        3 => (
+            nib(bytes[0])? * 17,
+            nib(bytes[1])? * 17,
+            nib(bytes[2])? * 17,
+            255,
+        ),
+        4 => (
+            nib(bytes[0])? * 17,
+            nib(bytes[1])? * 17,
+            nib(bytes[2])? * 17,
+            nib(bytes[3])? * 17,
+        ),
         6 => (pair(0)?, pair(2)?, pair(4)?, 255),
         8 => (pair(0)?, pair(2)?, pair(4)?, pair(6)?),
         _ => return None,
@@ -501,7 +531,10 @@ extern "C" fn merge_picker_data(mut new_data: RefAny, mut old_data: RefAny) -> R
 /// [`SHADE_CSS`]) — stacking it as a second background layer painted only
 /// one of the two, so the plane never went to black.
 fn plane_background_css(hue: f32) -> String {
-    format!("linear-gradient(to right, #ffffff, hsl({}, 100%, 50%))", hue.round())
+    format!(
+        "linear-gradient(to right, #ffffff, hsl({}, 100%, 50%))",
+        hue.round()
+    )
 }
 
 /// The plane's shade overlay: transparent at the top, black at the bottom.
@@ -537,15 +570,49 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
 
     let cell_css = |dark: bool| -> CssPropertyWithConditionsVec {
         let (light_mode, dark_mode) = if dark {
-            (ColorU { r: 0xcc, g: 0xcc, b: 0xcc, a: 255 }, ColorU { r: 0x33, g: 0x33, b: 0x33, a: 255 })
+            (
+                ColorU {
+                    r: 0xcc,
+                    g: 0xcc,
+                    b: 0xcc,
+                    a: 255,
+                },
+                ColorU {
+                    r: 0x33,
+                    g: 0x33,
+                    b: 0x33,
+                    a: 255,
+                },
+            )
         } else {
-            (ColorU { r: 0xff, g: 0xff, b: 0xff, a: 255 }, ColorU { r: 0x55, g: 0x55, b: 0x55, a: 255 })
+            (
+                ColorU {
+                    r: 0xff,
+                    g: 0xff,
+                    b: 0xff,
+                    a: 255,
+                },
+                ColorU {
+                    r: 0x55,
+                    g: 0x55,
+                    b: 0x55,
+                    a: 255,
+                },
+            )
         };
-        let bg = |c: ColorU| CssProperty::const_background_content(vec![StyleBackgroundContent::Color(c)].into());
+        let bg = |c: ColorU| {
+            CssProperty::const_background_content(vec![StyleBackgroundContent::Color(c)].into())
+        };
         CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(cell as isize))),
-            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(cell as isize))),
-            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+            CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
+                cell as isize,
+            ))),
+            CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+                cell as isize,
+            ))),
+            CssPropertyWithConditions::simple(CssProperty::const_flex_grow(
+                LayoutFlexGrow::const_new(0),
+            )),
             CssPropertyWithConditions::simple(bg(light_mode)),
             CssPropertyWithConditions {
                 property: bg(dark_mode),
@@ -565,7 +632,11 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
         let mut row = Dom::create_div().with_css("display: flex; flex-direction: row;");
         for x in 0..cols {
             let dark = (x + y) % 2 == 1;
-            let class = if dark { CHECKERBOARD_DARK_CLASS } else { CHECKERBOARD_LIGHT_CLASS };
+            let class = if dark {
+                CHECKERBOARD_DARK_CLASS
+            } else {
+                CHECKERBOARD_LIGHT_CLASS
+            };
             row = row.with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![Class(class.into())].into())
@@ -590,28 +661,33 @@ fn css_prop(ty: CssPropertyType, value: &str) -> Option<CssProperty> {
 /// replaced, so the fields inside the picker still look like fields.
 fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditionsVec {
     let mut props: Vec<CssPropertyWithConditions> =
-        crate::widgets::text_input::TextInput::default().container_style.as_ref().to_vec();
+        crate::widgets::text_input::TextInput::default()
+            .container_style
+            .as_ref()
+            .to_vec();
     props.retain(|p| {
         !matches!(
             p.property.get_type(),
             CssPropertyType::Width | CssPropertyType::FlexGrow | CssPropertyType::MinWidth
         )
     });
-    props.push(CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(width_px))));
-    props.push(CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
-        isize::from(grow),
-    ))));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_width(
+        LayoutWidth::const_px(width_px),
+    )));
+    props.push(CssPropertyWithConditions::simple(
+        CssProperty::const_flex_grow(LayoutFlexGrow::const_new(isize::from(grow))),
+    ));
     props.into()
 }
 
 /// The picker panel that lives inside the popup.
 fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
+    use crate::widgets::{label::Label, number_input::NumberInput, text_input::TextInput};
     use azul_core::{
         a11y::{AccessibilityInfo, AccessibilityRole},
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{EventFilter, HoverEventFilter, IdOrClass::Class},
     };
-    use crate::widgets::{label::Label, number_input::NumberInput, text_input::TextInput};
 
     let hsv = Hsv::from_color(color);
     let hex = color_to_hex(color);
@@ -620,7 +696,10 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         let mk = |event: EventFilter, cb: usize| CoreCallbackData {
             event,
             refany: data.clone(),
-            callback: CoreCallback { cb, ctx: azul_core::refany::OptionRefAny::None },
+            callback: CoreCallback {
+                cb,
+                ctx: azul_core::refany::OptionRefAny::None,
+            },
         };
         // The press captures the pointer (see `capture_pointer`), so the
         // moves and the release reach this node wherever the cursor goes —
@@ -634,22 +713,20 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
 
     // Saturation/value plane with its ring marker.
     let plane_marker = Dom::create_div().with_css(&format!(
-            "position: absolute; left: {:.1}%; top: {:.1}%; width: 12px; height: 12px; \
+        "position: absolute; left: {:.1}%; top: {:.1}%; width: 12px; height: 12px; \
              margin-left: -6px; margin-top: -6px; border: 2px solid #ffffff; \
              border-radius: 6px; box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
-            hsv.s * 100.0,
-            (1.0 - hsv.v) * 100.0
-        ),
-    );
+        hsv.s * 100.0,
+        (1.0 - hsv.v) * 100.0
+    ));
     // Children: [shade overlay, marker] — the marker stays on top.
     let plane = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_PLANE_CLASS.into())].into())
         .with_css(&format!(
-                "position: relative; width: {PLANE_WIDTH}px; height: {PLANE_HEIGHT}px; \
+            "position: relative; width: {PLANE_WIDTH}px; height: {PLANE_HEIGHT}px; \
                  border-radius: 4px; cursor: crosshair; background: {};",
-                plane_background_css(hsv.h)
-            )
-        )
+            plane_background_css(hsv.h)
+        ))
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Slider,
             accessibility_name: Some("Saturation and brightness".into()).into(),
@@ -669,19 +746,17 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
 
     // Hue bar with its marker.
     let hue_marker = Dom::create_div().with_css(&format!(
-            "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; \
+        "position: absolute; left: {:.1}%; top: 0px; width: 12px; height: 12px; \
              margin-left: -6px; border: 2px solid #ffffff; border-radius: 6px; \
              box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.6);",
-            hsv.h / 360.0 * 100.0
-        ),
-    );
+        hsv.h / 360.0 * 100.0
+    ));
     let hue = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_HUE_CLASS.into())].into())
         .with_css(&format!(
-                "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
+            "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
                  cursor: pointer; background: {HUE_BACKGROUND_CSS};"
-            )
-        )
+        ))
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Slider,
             accessibility_name: Some("Hue".into()).into(),
@@ -689,8 +764,12 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             ..Default::default()
         })
         .with_callbacks(
-            drag_callbacks(on_hue_down as usize, on_hue_move as usize, on_hue_up as usize)
-                .into(),
+            drag_callbacks(
+                on_hue_down as usize,
+                on_hue_move as usize,
+                on_hue_up as usize,
+            )
+            .into(),
         )
         .with_child(hue_marker);
 
@@ -721,8 +800,12 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             ..Default::default()
         })
         .with_callbacks(
-            drag_callbacks(on_alpha_down as usize, on_alpha_move as usize, on_alpha_up as usize)
-                .into(),
+            drag_callbacks(
+                on_alpha_down as usize,
+                on_alpha_move as usize,
+                on_alpha_up as usize,
+            )
+            .into(),
         );
     alpha = alpha.with_child(checkerboard(PLANE_WIDTH, 12.0, 6.0));
     let alpha = alpha.with_child(alpha_fill).with_child(alpha_marker);
@@ -775,12 +858,20 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     refany: data.clone(),
-                    callback: CoreCallback { cb: on_eyedropper_clicked as usize, ctx: azul_core::refany::OptionRefAny::None },
+                    callback: CoreCallback {
+                        cb: on_eyedropper_clicked as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
                 },
                 CoreCallbackData {
-                    event: EventFilter::Window(azul_core::events::WindowEventFilter::ScreenColorPicked),
+                    event: EventFilter::Window(
+                        azul_core::events::WindowEventFilter::ScreenColorPicked,
+                    ),
                     refany: data.clone(),
-                    callback: CoreCallback { cb: on_screen_color_picked as usize, ctx: azul_core::refany::OptionRefAny::None },
+                    callback: CoreCallback {
+                        cb: on_screen_color_picked as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
+                    },
                 },
             ]
             .into(),
@@ -794,17 +885,21 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         .with_child(eyedropper);
 
     // R / G / B.
-    let channel = |name: &str, short: &str, value: u8, cb: crate::widgets::number_input::NumberInputOnValueChangeCallbackType| {
-        let field = NumberInput::create(f32::from(value))
-            .with_accessibility_name(name)
-            .with_container_style(field_container_style(44, false))
-            .with_on_value_change(data.clone(), cb)
-            .dom();
-        Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: center; gap: 4px;")
-            .with_child(Label::create(short.into()).dom())
-            .with_child(field)
-    };
+    let channel =
+        |name: &str,
+         short: &str,
+         value: u8,
+         cb: crate::widgets::number_input::NumberInputOnValueChangeCallbackType| {
+            let field = NumberInput::create(f32::from(value))
+                .with_accessibility_name(name)
+                .with_container_style(field_container_style(44, false))
+                .with_on_value_change(data.clone(), cb)
+                .dom();
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; align-items: center; gap: 4px;")
+                .with_child(Label::create(short.into()).dom())
+                .with_child(field)
+        };
     let rgb_row = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
         .with_child(channel("Red", "R", color.r, on_red_changed))
@@ -827,9 +922,10 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             accessibility_name: Some("Drag to tear off".into()).into(),
             ..Default::default()
         })
-        .with_child(Dom::create_div().with_css(
-            "width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8;",
-        ));
+        .with_child(
+            Dom::create_div()
+                .with_css("width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8;"),
+        );
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_CLASS.into())].into())
@@ -898,15 +994,25 @@ fn cursor_fraction(info: &CallbackInfo) -> Option<(f32, f32)> {
     // No laid-out rect (a headless test, a node mid-mutation): the nominal
     // size is the right denominator, the same way the slider falls back.
     let rect = info.get_hit_node_rect();
-    let w = rect.map(|r| r.size.width).filter(|w| *w > 0.0).unwrap_or(PLANE_WIDTH);
-    let h = rect.map(|r| r.size.height).filter(|h| *h > 0.0).unwrap_or(PLANE_HEIGHT);
+    let w = rect
+        .map(|r| r.size.width)
+        .filter(|w| *w > 0.0)
+        .unwrap_or(PLANE_WIDTH);
+    let h = rect
+        .map(|r| r.size.height)
+        .filter(|h| *h > 0.0)
+        .unwrap_or(PLANE_HEIGHT);
     Some(((pos.x / w).clamp(0.0, 1.0), (pos.y / h).clamp(0.0, 1.0)))
 }
 
 /// Push the picked colour to the popup's own controls (instant, no relayout)
 /// and to the app. `panel` is the picker panel node (the parent of the three
 /// bars; the grandparent of the eyedropper button).
-fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, panel: Option<DomNodeId>) -> Update {
+fn publish(
+    picker: &mut ColorPickerData,
+    info: &mut CallbackInfo,
+    panel: Option<DomNodeId>,
+) -> Update {
     let hsv = picker.hsv;
     let color = picker.color();
     let hex = color_to_hex(color);
@@ -916,19 +1022,29 @@ fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, panel: Option<
     // fill, marker] (the board is the last child of alpha-less builds, so
     // walk from the end).
     if let Some(panel) = panel {
-        if let Some(plane) = info.get_first_child(panel).and_then(|grip| info.get_next_sibling(grip)) {
-            if let Some(prop) = css_prop(CssPropertyType::BackgroundContent, &plane_background_css(hsv.h)) {
+        if let Some(plane) = info
+            .get_first_child(panel)
+            .and_then(|grip| info.get_next_sibling(grip))
+        {
+            if let Some(prop) = css_prop(
+                CssPropertyType::BackgroundContent,
+                &plane_background_css(hsv.h),
+            ) {
                 info.set_css_property(plane, prop);
             }
             info.set_accessibility_value(plane, sv_a11y_value(hsv).into());
             if let Some(marker) = info.get_last_child(plane) {
                 info.set_css_property(
                     marker,
-                    CssProperty::const_left(LayoutLeft { inner: PixelValue::percent(hsv.s * 100.0) }),
+                    CssProperty::const_left(LayoutLeft {
+                        inner: PixelValue::percent(hsv.s * 100.0),
+                    }),
                 );
                 info.set_css_property(
                     marker,
-                    CssProperty::const_top(LayoutTop { inner: PixelValue::percent((1.0 - hsv.v) * 100.0) }),
+                    CssProperty::const_top(LayoutTop {
+                        inner: PixelValue::percent((1.0 - hsv.v) * 100.0),
+                    }),
                 );
             }
             if let Some(hue) = info.get_next_sibling(plane) {
@@ -936,7 +1052,9 @@ fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, panel: Option<
                 if let Some(marker) = info.get_last_child(hue) {
                     info.set_css_property(
                         marker,
-                        CssProperty::const_left(LayoutLeft { inner: PixelValue::percent(hsv.h / 360.0 * 100.0) }),
+                        CssProperty::const_left(LayoutLeft {
+                            inner: PixelValue::percent(hsv.h / 360.0 * 100.0),
+                        }),
                     );
                 }
                 if let Some(alpha) = info.get_next_sibling(hue) {
@@ -962,7 +1080,10 @@ fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, panel: Option<
                             }
                         }
                     }
-                    if let Some(preview) = info.get_next_sibling(alpha).and_then(|row| info.get_first_child(row)) {
+                    if let Some(preview) = info
+                        .get_next_sibling(alpha)
+                        .and_then(|row| info.get_first_child(row))
+                    {
                         info.set_accessibility_value(preview, hex.into());
                         if let Some(overlay) = info.get_last_child(preview) {
                             info.set_css_property(
@@ -980,7 +1101,9 @@ fn publish(picker: &mut ColorPickerData, info: &mut CallbackInfo, panel: Option<
 
     let inner = picker.state.inner;
     match picker.state.on_value_change.as_mut() {
-        Some(ColorInputOnValueChange { callback, refany }) => (callback.cb)(refany.clone(), *info, inner),
+        Some(ColorInputOnValueChange { callback, refany }) => {
+            (callback.cb)(refany.clone(), *info, inner)
+        }
         None => Update::DoNothing,
     }
 }
@@ -989,7 +1112,11 @@ fn apply_plane(picker: &mut ColorPickerData, info: &mut CallbackInfo) -> Update 
     let Some((x, y)) = cursor_fraction(info) else {
         return Update::DoNothing;
     };
-    let hsv = Hsv { h: picker.hsv.h, s: x, v: 1.0 - y };
+    let hsv = Hsv {
+        h: picker.hsv.h,
+        s: x,
+        v: 1.0 - y,
+    };
     picker.set_hsv(hsv);
     let panel = info.get_parent(info.get_hit_node());
     publish(picker, info, panel)
@@ -999,7 +1126,11 @@ fn apply_hue(picker: &mut ColorPickerData, info: &mut CallbackInfo) -> Update {
     let Some((x, _)) = cursor_fraction(info) else {
         return Update::DoNothing;
     };
-    let hsv = Hsv { h: (x * 360.0).min(359.9), s: picker.hsv.s, v: picker.hsv.v };
+    let hsv = Hsv {
+        h: (x * 360.0).min(359.9),
+        s: picker.hsv.s,
+        v: picker.hsv.v,
+    };
     picker.set_hsv(hsv);
     let panel = info.get_parent(info.get_hit_node());
     publish(picker, info, panel)
@@ -1017,7 +1148,8 @@ extern "C" fn on_eyedropper_clicked(_data: RefAny, mut info: CallbackInfo) -> Up
 /// publish it like any other change. A cancelled pick changes nothing.
 #[allow(unused_qualifications)]
 extern "C" fn on_screen_color_picked(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let azul_css::props::basic::color::OptionColorU::Some(picked) = info.get_picked_screen_color() else {
+    let azul_css::props::basic::color::OptionColorU::Some(picked) = info.get_picked_screen_color()
+    else {
         return Update::DoNothing;
     };
     let Some(mut picker) = data.downcast_mut::<ColorPickerData>() else {
@@ -1026,7 +1158,9 @@ extern "C" fn on_screen_color_picked(mut data: RefAny, mut info: CallbackInfo) -
     let a = picker.color().a;
     picker.set_color(ColorU { a, ..picked });
     // The button sits in the preview row: the panel is two levels up.
-    let panel = info.get_parent(info.get_hit_node()).and_then(|row| info.get_parent(row));
+    let panel = info
+        .get_parent(info.get_hit_node())
+        .and_then(|row| info.get_parent(row));
     publish(&mut picker, &mut info, panel)
 }
 
@@ -1143,7 +1277,9 @@ extern "C" fn on_hex_committed(
     picker.set_color(c);
     let inner = picker.state.inner;
     match picker.state.on_value_change.as_mut() {
-        Some(ColorInputOnValueChange { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+        Some(ColorInputOnValueChange { callback, refany }) => {
+            (callback.cb)(refany.clone(), info, inner)
+        }
         None => Update::DoNothing,
     }
 }
@@ -1153,7 +1289,12 @@ fn channel_value(v: f32) -> u8 {
     v.round().clamp(0.0, 255.0) as u8
 }
 
-fn on_channel_changed(data: &mut RefAny, info: CallbackInfo, value: f32, set: fn(&mut ColorU, u8)) -> Update {
+fn on_channel_changed(
+    data: &mut RefAny,
+    info: CallbackInfo,
+    value: f32,
+    set: fn(&mut ColorU, u8),
+) -> Update {
     let Some(mut picker) = data.downcast_mut::<ColorPickerData>() else {
         return Update::DoNothing;
     };
@@ -1165,7 +1306,9 @@ fn on_channel_changed(data: &mut RefAny, info: CallbackInfo, value: f32, set: fn
     picker.set_color(c);
     let inner = picker.state.inner;
     match picker.state.on_value_change.as_mut() {
-        Some(ColorInputOnValueChange { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+        Some(ColorInputOnValueChange { callback, refany }) => {
+            (callback.cb)(refany.clone(), info, inner)
+        }
         None => Update::DoNothing,
     }
 }
@@ -1260,14 +1403,54 @@ mod autotest_generated {
     /// `{1,2,3,4}` — four distinct small values that catch any channel reordering (an
     /// r/b swap is invisible for greys and for anything symmetric).
     const SAMPLE_COLORS: [ColorU; 8] = [
-        ColorU { r: 0, g: 0, b: 0, a: 0 },
-        ColorU { r: 0, g: 0, b: 0, a: 255 },
-        ColorU { r: 255, g: 255, b: 255, a: 255 },
-        ColorU { r: 255, g: 255, b: 255, a: 0 },
-        ColorU { r: 255, g: 0, b: 0, a: 1 },
-        ColorU { r: 0, g: 255, b: 0, a: 254 },
-        ColorU { r: 1, g: 2, b: 3, a: 4 },
-        ColorU { r: 128, g: 64, b: 32, a: 16 },
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        },
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
+        ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        },
+        ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 0,
+        },
+        ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 1,
+        },
+        ColorU {
+            r: 0,
+            g: 255,
+            b: 0,
+            a: 254,
+        },
+        ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        },
+        ColorU {
+            r: 128,
+            g: 64,
+            b: 32,
+            a: 16,
+        },
     ];
 
     // ------------------------------------------------------------------
@@ -1278,7 +1461,10 @@ mod autotest_generated {
         v.as_ref().iter().map(|p| p.property.clone()).collect()
     }
 
-    fn find<T>(v: &CssPropertyWithConditionsVec, f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+    fn find<T>(
+        v: &CssPropertyWithConditionsVec,
+        f: impl Fn(&CssProperty) -> Option<T>,
+    ) -> Option<T> {
         v.as_ref().iter().find_map(|p| f(&p.property))
     }
 
@@ -1488,7 +1674,11 @@ mod autotest_generated {
     }
 
     /// One "mouse-up on `hit`" delivered to the widget's own registered handler.
-    fn click(styled_dom: StyledDom, state: &RefAny, hit: DomNodeId) -> (Update, Vec<CallbackChange>) {
+    fn click(
+        styled_dom: StyledDom,
+        state: &RefAny,
+        hit: DomNodeId,
+    ) -> (Update, Vec<CallbackChange>) {
         with_info(styled_dom, hit, |info| {
             on_color_input_clicked(state.clone(), *info)
         })
@@ -1626,8 +1816,18 @@ mod autotest_generated {
     fn create_treats_alpha_as_significant() {
         // `{255,0,0,0}` and `{255,0,0,255}` differ only in alpha: an invisible swatch and
         // an opaque red one. Comparing on rgb alone would fuse the two.
-        let opaque = ColorU { r: 255, g: 0, b: 0, a: 255 };
-        let clear = ColorU { r: 255, g: 0, b: 0, a: 0 };
+        let opaque = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let clear = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 0,
+        };
         assert_ne!(
             ColorInput::create(opaque),
             ColorInput::create(clear),
@@ -1641,7 +1841,11 @@ mod autotest_generated {
         for c in SAMPLE_COLORS {
             let w = ColorInput::create(c);
             assert_eq!(width_px(&w.style), Some(SIDE), "{c:?}: wrong swatch width");
-            assert_eq!(height_px(&w.style), Some(SIDE), "{c:?}: wrong swatch height");
+            assert_eq!(
+                height_px(&w.style),
+                Some(SIDE),
+                "{c:?}: wrong swatch height"
+            );
         }
     }
 
@@ -1766,14 +1970,23 @@ mod autotest_generated {
             let a = ColorInputState { color: c };
             let b = ColorInputState { color: c };
             assert_eq!(a, b);
-            assert_eq!(hash_of(&a), hash_of(&b), "equal states hash differently ({c:?})");
+            assert_eq!(
+                hash_of(&a),
+                hash_of(&b),
+                "equal states hash differently ({c:?})"
+            );
         }
     }
 
     #[test]
     fn color_input_state_equality_is_channel_exact() {
         // One channel bumped by one must break equality — in all four channels.
-        let base = ColorU { r: 10, g: 20, b: 30, a: 40 };
+        let base = ColorU {
+            r: 10,
+            g: 20,
+            b: 30,
+            a: 40,
+        };
         let variants = [
             ColorU { r: 11, ..base },
             ColorU { g: 21, ..base },
@@ -1814,7 +2027,9 @@ mod autotest_generated {
 
         let mut data = t.refany.clone();
         assert_eq!(
-            *data.downcast_ref::<u32>().expect("the payload changed type"),
+            *data
+                .downcast_ref::<u32>()
+                .expect("the payload changed type"),
             0xDEAD_BEEF,
             "the payload was corrupted",
         );
@@ -1893,7 +2108,10 @@ mod autotest_generated {
             value_do_nothing as ColorInputOnValueChangeCallbackType,
         );
 
-        assert_eq!(by_builder.color_input_state.inner, by_setter.color_input_state.inner);
+        assert_eq!(
+            by_builder.color_input_state.inner,
+            by_setter.color_input_state.inner
+        );
         assert_eq!(properties(&by_builder.style), properties(&by_setter.style));
 
         let a = by_builder
@@ -1913,8 +2131,10 @@ mod autotest_generated {
 
         let (mut a, mut b) = (a.refany.clone(), b.refany.clone());
         assert_eq!(
-            *a.downcast_ref::<u32>().expect("builder payload changed type"),
-            *b.downcast_ref::<u32>().expect("setter payload changed type"),
+            *a.downcast_ref::<u32>()
+                .expect("builder payload changed type"),
+            *b.downcast_ref::<u32>()
+                .expect("setter payload changed type"),
         );
     }
 
@@ -1936,8 +2156,7 @@ mod autotest_generated {
             .as_ref()
             .expect("the generic callback was dropped");
         assert_eq!(
-            t.callback.cb as *const () as usize,
-            expected,
+            t.callback.cb as *const () as usize, expected,
             "the Callback -> ColorInputOnValueChangeCallback transmute mangled the pointer",
         );
     }
@@ -1952,8 +2171,16 @@ mod autotest_generated {
             let mut w = ColorInput::create(c);
             let old = w.swap_with_default();
 
-            assert_eq!(old, ColorInput::create(c), "{c:?}: the old widget was not returned intact");
-            assert_eq!(w, ColorInput::default(), "{c:?}: what was left behind is not a default widget");
+            assert_eq!(
+                old,
+                ColorInput::create(c),
+                "{c:?}: the old widget was not returned intact"
+            );
+            assert_eq!(
+                w,
+                ColorInput::default(),
+                "{c:?}: what was left behind is not a default widget"
+            );
         }
     }
 
@@ -1980,8 +2207,16 @@ mod autotest_generated {
 
         let mut w = ColorInput::create(SAMPLE_COLORS[6]);
         let _ = w.swap_with_default();
-        assert_eq!(width_px(&w.style), None, "the swapped-in widget unexpectedly has a width");
-        assert_eq!(height_px(&w.style), None, "the swapped-in widget unexpectedly has a height");
+        assert_eq!(
+            width_px(&w.style),
+            None,
+            "the swapped-in widget unexpectedly has a width"
+        );
+        assert_eq!(
+            height_px(&w.style),
+            None,
+            "the swapped-in widget unexpectedly has a height"
+        );
     }
 
     #[test]
@@ -2054,7 +2289,11 @@ mod autotest_generated {
             let expected = if c.a < 255 { 3 } else { 1 };
             assert_eq!(kids.len(), expected, "{c:?}: wrong children for the swatch");
             if c.a < 255 {
-                assert_eq!(classes(&kids[0]), vec![CHECKERBOARD_CLASS.to_string()], "{c:?}: board first");
+                assert_eq!(
+                    classes(&kids[0]),
+                    vec![CHECKERBOARD_CLASS.to_string()],
+                    "{c:?}: board first"
+                );
             }
             let NodeType::TransientWindow(cfg) = kids[expected - 1].root.get_node_type() else {
                 panic!("{c:?}: the last child is not a <transient-window>");
@@ -2065,8 +2304,16 @@ mod autotest_generated {
             // ...holding the panel.
             let panel = &kids[expected - 1].children.as_ref()[0];
             assert_eq!(classes(panel), vec![COLOR_PICKER_CLASS.to_string()]);
-            assert_eq!(panel.children.as_ref().len(), 6, "grip, plane, hue, alpha, preview row, rgb row");
-            assert_eq!(cfg.tearoff, azul_core::transient::TransientTearoff::Free, "{c:?}: the picker tears off");
+            assert_eq!(
+                panel.children.as_ref().len(),
+                6,
+                "grip, plane, hue, alpha, preview row, rgb row"
+            );
+            assert_eq!(
+                cfg.tearoff,
+                azul_core::transient::TransientTearoff::Free,
+                "{c:?}: the picker tears off"
+            );
             assert_eq!(
                 classes(&panel.children.as_ref()[0]),
                 vec![COLOR_PICKER_GRIP_CLASS.to_string()],
@@ -2093,7 +2340,11 @@ mod autotest_generated {
                 "{c:?}: dom() added {} properties instead of {extra}",
                 rendered.len() as i64 - base.len() as i64,
             );
-            assert_eq!(&rendered[..base.len()], &base[..], "{c:?}: dom() rewrote the base style");
+            assert_eq!(
+                &rendered[..base.len()],
+                &base[..],
+                "{c:?}: dom() rewrote the base style"
+            );
             assert_eq!(
                 rendered[base.len()],
                 expected_background(c),
@@ -2121,12 +2372,18 @@ mod autotest_generated {
                 .iter()
                 .filter(|p| matches!(p, CssProperty::BackgroundContent(_)))
                 .count();
-            assert_eq!(backgrounds, 1, "{c:?}: expected exactly one background declaration");
+            assert_eq!(
+                backgrounds, 1,
+                "{c:?}: expected exactly one background declaration"
+            );
 
             let mut seen = Vec::new();
             for p in &props {
                 let d = discriminant(p);
-                assert!(!seen.contains(&d), "{c:?}: the rendered node declares {p:?} twice");
+                assert!(
+                    !seen.contains(&d),
+                    "{c:?}: the rendered node declares {p:?} twice"
+                );
                 seen.push(d);
             }
         }
@@ -2137,12 +2394,21 @@ mod autotest_generated {
         // The geometry has to survive the const-slice -> owned-vec -> vec round trip that
         // `dom()` performs; losing it would leave a background-only, zero-sized node.
         for c in SAMPLE_COLORS {
-            let rendered: CssPropertyWithConditionsVec = inline_properties(&ColorInput::create(c).dom())
-                .into_iter()
-                .map(CssPropertyWithConditions::simple)
-                .collect();
-            assert_eq!(width_px(&rendered), Some(SIDE), "{c:?}: the rendered swatch lost its width");
-            assert_eq!(height_px(&rendered), Some(SIDE), "{c:?}: the rendered swatch lost its height");
+            let rendered: CssPropertyWithConditionsVec =
+                inline_properties(&ColorInput::create(c).dom())
+                    .into_iter()
+                    .map(CssPropertyWithConditions::simple)
+                    .collect();
+            assert_eq!(
+                width_px(&rendered),
+                Some(SIDE),
+                "{c:?}: the rendered swatch lost its width"
+            );
+            assert_eq!(
+                height_px(&rendered),
+                Some(SIDE),
+                "{c:?}: the rendered swatch lost its height"
+            );
         }
     }
 
@@ -2159,8 +2425,7 @@ mod autotest_generated {
                 "{c:?}: the color input must fire on mouse-up",
             );
             assert_eq!(
-                callbacks[0].callback.cb,
-                on_color_input_clicked as usize,
+                callbacks[0].callback.cb, on_color_input_clicked as usize,
                 "{c:?}: the registered handler is not on_color_input_clicked",
             );
             assert_eq!(
@@ -2189,8 +2454,15 @@ mod autotest_generated {
                 .downcast_ref::<ColorPickerData>()
                 .expect("the handler's RefAny is not the picker data");
 
-            assert_eq!(picker.state.inner.color, c, "the color was lost on the way into the DOM");
-            assert_eq!(picker.state.title.as_str(), DEFAULT_TITLE, "the title was lost");
+            assert_eq!(
+                picker.state.inner.color, c,
+                "the color was lost on the way into the DOM"
+            );
+            assert_eq!(
+                picker.state.title.as_str(),
+                DEFAULT_TITLE,
+                "the title was lost"
+            );
             assert!(
                 picker.state.on_value_change.as_ref().is_some(),
                 "the user's value-change callback was lost on the way into the DOM",
@@ -2231,7 +2503,11 @@ mod autotest_generated {
         // flatten under-allocates its arenas. The picker panel is a real subtree.
         let styled = StyledDom::create_from_dom(ColorInput::create(SAMPLE_COLORS[6]).dom());
         let nodes = styled.node_data.as_ref();
-        assert!(nodes.len() > 10, "the picker panel did not flatten: {} nodes", nodes.len());
+        assert!(
+            nodes.len() > 10,
+            "the picker panel did not flatten: {} nodes",
+            nodes.len()
+        );
         let transient = nodes
             .iter()
             .filter(|n| matches!(n.get_node_type(), NodeType::TransientWindow(_)))
@@ -2253,8 +2529,16 @@ mod autotest_generated {
             // Open: the only thing a click does is ask the engine to hold the
             // popup (the swatch's first child) open.
             let (update, changes) = click(styled.clone(), &state, node(0));
-            assert_eq!(update, Update::DoNothing, "{c:?}: a click asked for a redraw itself");
-            assert_eq!(changes.len(), 1, "{c:?}: a click must push exactly one change");
+            assert_eq!(
+                update,
+                Update::DoNothing,
+                "{c:?}: a click asked for a redraw itself"
+            );
+            assert_eq!(
+                changes.len(),
+                1,
+                "{c:?}: a click must push exactly one change"
+            );
             let popup_node = node(1);
             assert!(
                 matches!(
@@ -2264,11 +2548,18 @@ mod autotest_generated {
                 "{c:?}: expected SetTransientWindowOpen(node 1, true), got {:?}",
                 changes[0]
             );
-            assert_eq!(state_color(&state), c, "{c:?}: the click changed the stored color");
+            assert_eq!(
+                state_color(&state),
+                c,
+                "{c:?}: the click changed the stored color"
+            );
             // Close: the second click asks for it closed.
             let (_, changes) = click(styled, &state, node(0));
             assert!(
-                matches!(&changes[0], CallbackChange::SetTransientWindowOpen { open: false, .. }),
+                matches!(
+                    &changes[0],
+                    CallbackChange::SetTransientWindowOpen { open: false, .. }
+                ),
                 "{c:?}: the second click must close"
             );
         }
@@ -2283,7 +2574,10 @@ mod autotest_generated {
         let (update, changes) = click(styled, &foreign, node(0));
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "the handler wrote to the DOM through a foreign RefAny");
+        assert!(
+            changes.is_empty(),
+            "the handler wrote to the DOM through a foreign RefAny"
+        );
 
         let mut foreign = foreign;
         assert_eq!(
@@ -2308,25 +2602,39 @@ mod autotest_generated {
             );
             let (update, _) = click(styled, &state, node(0));
             assert_eq!(update, Update::DoNothing);
-            assert!(read_log(&probe).seen.is_empty(), "a click must not report a value");
+            assert!(
+                read_log(&probe).seen.is_empty(),
+                "a click must not report a value"
+            );
         }
     }
 
     /// Press on the plane at (x, y) as fractions of its size, through the
     /// widget's own handler.
-    fn press_plane(styled: StyledDom, state: &RefAny, fx: f32, fy: f32) -> (Update, Vec<CallbackChange>) {
+    fn press_plane(
+        styled: StyledDom,
+        state: &RefAny,
+        fx: f32,
+        fy: f32,
+    ) -> (Update, Vec<CallbackChange>) {
         // The panel is node 2 (swatch=0, transient=1, panel=2), the plane node 3.
-        with_info_at(styled, node(3), LogicalPosition::new(fx * PLANE_WIDTH, fy * PLANE_HEIGHT), |info| {
-            on_plane_down(state.clone(), *info)
-        })
+        with_info_at(
+            styled,
+            node(3),
+            LogicalPosition::new(fx * PLANE_WIDTH, fy * PLANE_HEIGHT),
+            |info| on_plane_down(state.clone(), *info),
+        )
     }
 
     /// Press on the hue bar at `fx` of its width.
     fn press_hue(styled: StyledDom, state: &RefAny, fx: f32) -> (Update, Vec<CallbackChange>) {
         // The hue bar is the plane's next sibling: plane=3, marker=4, hue=5.
-        with_info_at(styled, node(5), LogicalPosition::new(fx * PLANE_WIDTH, 6.0), |info| {
-            on_hue_down(state.clone(), *info)
-        })
+        with_info_at(
+            styled,
+            node(5),
+            LogicalPosition::new(fx * PLANE_WIDTH, 6.0),
+            |info| on_hue_down(state.clone(), *info),
+        )
     }
 
     #[test]
@@ -2335,45 +2643,123 @@ mod autotest_generated {
         // the full hue, top-left is white.
         let probe = log_refany();
         let (styled, state) = laid_out(
-            ColorInput::create(ColorU { r: 255, g: 0, b: 0, a: 255 })
-                .with_on_value_change(probe.clone(), record_value as ColorInputOnValueChangeCallbackType),
+            ColorInput::create(ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            })
+            .with_on_value_change(
+                probe.clone(),
+                record_value as ColorInputOnValueChangeCallbackType,
+            ),
         );
         let (update, changes) = press_plane(styled.clone(), &state, 1.0, 0.0);
-        assert_eq!(update, Update::RefreshDom, "the user's verdict is forwarded");
-        assert_eq!(state_color(&state), ColorU { r: 255, g: 0, b: 0, a: 255 });
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user's verdict is forwarded"
+        );
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255
+            }
+        );
         assert!(
-            changes.iter().any(|c| matches!(c, CallbackChange::ChangeNodeCssProperties { .. })),
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::ChangeNodeCssProperties { .. })),
             "the marker/preview must move without a relayout; got {changes:?}"
         );
 
         let _ = press_plane(styled.clone(), &state, 0.0, 0.0);
-        assert_eq!(state_color(&state), ColorU { r: 255, g: 255, b: 255, a: 255 }, "top-left is white");
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255
+            },
+            "top-left is white"
+        );
         let _ = press_plane(styled.clone(), &state, 0.5, 1.0);
-        assert_eq!(state_color(&state), ColorU { r: 0, g: 0, b: 0, a: 255 }, "the bottom edge is black");
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255
+            },
+            "the bottom edge is black"
+        );
         // Going through black must not forget the hue: half saturation, full value
         // afterwards is still a RED, not grey.
         let _ = press_plane(styled, &state, 0.5, 0.0);
-        assert_eq!(state_color(&state), ColorU { r: 255, g: 128, b: 128, a: 255 });
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 255,
+                g: 128,
+                b: 128,
+                a: 255
+            }
+        );
         assert_eq!(read_log(&probe).seen.len(), 4, "every pick reported");
     }
 
     #[test]
     fn pressing_the_hue_bar_rotates_the_hue_and_keeps_saturation_and_brightness() {
-        let (styled, state) = laid_out(ColorInput::create(ColorU { r: 255, g: 128, b: 128, a: 255 }));
+        let (styled, state) = laid_out(ColorInput::create(ColorU {
+            r: 255,
+            g: 128,
+            b: 128,
+            a: 255,
+        }));
         let _ = press_hue(styled.clone(), &state, 1.0 / 3.0); // 120° = green
-        assert_eq!(state_color(&state), ColorU { r: 128, g: 255, b: 128, a: 255 });
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 128,
+                g: 255,
+                b: 128,
+                a: 255
+            }
+        );
         let _ = press_hue(styled.clone(), &state, 2.0 / 3.0); // 240° = blue
-        assert_eq!(state_color(&state), ColorU { r: 128, g: 128, b: 255, a: 255 });
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 128,
+                g: 128,
+                b: 255,
+                a: 255
+            }
+        );
         let _ = press_hue(styled, &state, 0.0);
-        assert_eq!(state_color(&state), ColorU { r: 255, g: 128, b: 128, a: 255 });
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 255,
+                g: 128,
+                b: 128,
+                a: 255
+            }
+        );
     }
 
     #[test]
     fn moving_without_a_press_does_nothing() {
         let (styled, state) = laid_out(ColorInput::create(SAMPLE_COLORS[6]));
-        let (update, changes) = with_info_at(styled, node(3), LogicalPosition::new(10.0, 10.0), |info| {
-            on_plane_move(state.clone(), *info)
-        });
+        let (update, changes) =
+            with_info_at(styled, node(3), LogicalPosition::new(10.0, 10.0), |info| {
+                on_plane_move(state.clone(), *info)
+            });
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
         assert_eq!(state_color(&state), SAMPLE_COLORS[6]);
@@ -2384,24 +2770,36 @@ mod autotest_generated {
         // `ColorInputState::default()` (opaque white) instead would type-check.
         let probe = log_refany();
         let (styled, state) = laid_out(
-            ColorInput::create(ColorU { r: 0, g: 0, b: 255, a: 255 }).with_on_value_change(
+            ColorInput::create(ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            })
+            .with_on_value_change(
                 probe.clone(),
                 record_value as ColorInputOnValueChangeCallbackType,
             ),
         );
         let (update, _) = press_plane(styled, &state, 1.0, 0.0);
         assert_eq!(update, Update::RefreshDom);
-        assert_eq!(read_log(&probe).seen, vec![ColorU { r: 0, g: 0, b: 255, a: 255 }]);
+        assert_eq!(
+            read_log(&probe).seen,
+            vec![ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255
+            }]
+        );
     }
     #[test]
     fn the_callback_receives_the_user_payload_not_the_widget_state() {
         let probe = log_refany();
-        let (styled, state) = laid_out(
-            ColorInput::create(SAMPLE_COLORS[6]).with_on_value_change(
-                probe.clone(),
-                record_value as ColorInputOnValueChangeCallbackType,
-            ),
-        );
+        let (styled, state) = laid_out(ColorInput::create(SAMPLE_COLORS[6]).with_on_value_change(
+            probe.clone(),
+            record_value as ColorInputOnValueChangeCallbackType,
+        ));
         press_plane(styled, &state, 0.25, 0.25);
 
         // It wrote into the ColorLog, so it got the user's payload ...
@@ -2420,12 +2818,10 @@ mod autotest_generated {
         // The swatch click only toggles the popup; the colour changes through the picker.
         let probe = log_refany();
         let c = SAMPLE_COLORS[6];
-        let (_, state) = laid_out(
-            ColorInput::create(c).with_on_value_change(
-                probe.clone(),
-                record_value as ColorInputOnValueChangeCallbackType,
-            ),
-        );
+        let (_, state) = laid_out(ColorInput::create(c).with_on_value_change(
+            probe.clone(),
+            record_value as ColorInputOnValueChangeCallbackType,
+        ));
 
         for i in 0..8 {
             let (styled, _) = laid_out(ColorInput::create(c));
@@ -2444,7 +2840,10 @@ mod autotest_generated {
             let (styled, state) = laid_out(ColorInput::create(c));
             let (update, changes) = click(styled, &state, hit);
             assert_eq!(update, Update::DoNothing, "{hit:?}: wrong verdict");
-            assert!(changes.is_empty(), "{hit:?}: a change was pushed for a missing node");
+            assert!(
+                changes.is_empty(),
+                "{hit:?}: a change was pushed for a missing node"
+            );
             assert_eq!(state_color(&state), c);
         }
     }
@@ -2454,20 +2853,33 @@ mod autotest_generated {
         // picking in one would report through the other's callback as well.
         let a_probe = log_refany();
         let b_probe = log_refany();
-        let (a_styled, a_state) = laid_out(ColorInput::create(SAMPLE_COLORS[1]).with_on_value_change(
-            a_probe.clone(),
-            record_value as ColorInputOnValueChangeCallbackType,
-        ));
-        let (_b_styled, b_state) = laid_out(ColorInput::create(SAMPLE_COLORS[1]).with_on_value_change(
-            b_probe.clone(),
-            record_value as ColorInputOnValueChangeCallbackType,
-        ));
+        let (a_styled, a_state) =
+            laid_out(ColorInput::create(SAMPLE_COLORS[1]).with_on_value_change(
+                a_probe.clone(),
+                record_value as ColorInputOnValueChangeCallbackType,
+            ));
+        let (_b_styled, b_state) =
+            laid_out(ColorInput::create(SAMPLE_COLORS[1]).with_on_value_change(
+                b_probe.clone(),
+                record_value as ColorInputOnValueChangeCallbackType,
+            ));
 
         press_plane(a_styled, &a_state, 1.0, 0.0);
 
-        assert_eq!(read_log(&a_probe).seen.len(), 1, "the picked widget did not report");
-        assert!(read_log(&b_probe).seen.is_empty(), "the other widget reported too");
-        assert_eq!(state_color(&b_state), SAMPLE_COLORS[1], "the other widget's colour moved");
+        assert_eq!(
+            read_log(&a_probe).seen.len(),
+            1,
+            "the picked widget did not report"
+        );
+        assert!(
+            read_log(&b_probe).seen.is_empty(),
+            "the other widget reported too"
+        );
+        assert_eq!(
+            state_color(&b_state),
+            SAMPLE_COLORS[1],
+            "the other widget's colour moved"
+        );
     }
 
     // ==================================================================
@@ -2480,18 +2892,77 @@ mod autotest_generated {
             let back = Hsv::from_color(c).to_color(c.a);
             assert_eq!(back, c, "{c:?} did not survive rgb→hsv→rgb");
         }
-        assert_eq!(Hsv::from_color(ColorU { r: 0, g: 255, b: 0, a: 255 }).h, 120.0);
-        assert_eq!(Hsv::from_color(ColorU { r: 0, g: 0, b: 255, a: 255 }).h, 240.0);
-        let grey = Hsv::from_color(ColorU { r: 90, g: 90, b: 90, a: 255 });
-        assert_eq!((grey.h, grey.s), (0.0, 0.0), "grey has no hue and no saturation");
+        assert_eq!(
+            Hsv::from_color(ColorU {
+                r: 0,
+                g: 255,
+                b: 0,
+                a: 255
+            })
+            .h,
+            120.0
+        );
+        assert_eq!(
+            Hsv::from_color(ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255
+            })
+            .h,
+            240.0
+        );
+        let grey = Hsv::from_color(ColorU {
+            r: 90,
+            g: 90,
+            b: 90,
+            a: 255,
+        });
+        assert_eq!(
+            (grey.h, grey.s),
+            (0.0, 0.0),
+            "grey has no hue and no saturation"
+        );
     }
 
     #[test]
     fn hex_parses_both_lengths_and_rejects_junk() {
-        assert_eq!(color_to_hex(ColorU { r: 255, g: 87, b: 51, a: 255 }), "#ff5733");
-        assert_eq!(color_from_hex("#ff5733"), Some(ColorU { r: 255, g: 87, b: 51, a: 255 }));
-        assert_eq!(color_from_hex("  FF5733 "), Some(ColorU { r: 255, g: 87, b: 51, a: 255 }));
-        assert_eq!(color_from_hex("#f53"), Some(ColorU { r: 255, g: 85, b: 51, a: 255 }));
+        assert_eq!(
+            color_to_hex(ColorU {
+                r: 255,
+                g: 87,
+                b: 51,
+                a: 255
+            }),
+            "#ff5733"
+        );
+        assert_eq!(
+            color_from_hex("#ff5733"),
+            Some(ColorU {
+                r: 255,
+                g: 87,
+                b: 51,
+                a: 255
+            })
+        );
+        assert_eq!(
+            color_from_hex("  FF5733 "),
+            Some(ColorU {
+                r: 255,
+                g: 87,
+                b: 51,
+                a: 255
+            })
+        );
+        assert_eq!(
+            color_from_hex("#f53"),
+            Some(ColorU {
+                r: 255,
+                g: 85,
+                b: 51,
+                a: 255
+            })
+        );
         assert_eq!(color_from_hex("#ff573"), None);
         assert_eq!(color_from_hex("#gg5733"), None);
         assert_eq!(color_from_hex(""), None);
@@ -2501,21 +2972,31 @@ mod autotest_generated {
     fn committing_a_hex_value_adopts_it_and_reports_once() {
         use crate::widgets::text_input::TextInputState;
         let probe = log_refany();
-        let (styled, state) = laid_out(
-            ColorInput::create(SAMPLE_COLORS[6]).with_on_value_change(
-                probe.clone(),
-                record_value as ColorInputOnValueChangeCallbackType,
-            ),
-        );
+        let (styled, state) = laid_out(ColorInput::create(SAMPLE_COLORS[6]).with_on_value_change(
+            probe.clone(),
+            record_value as ColorInputOnValueChangeCallbackType,
+        ));
         let text = TextInputState {
-            text: "#00ff00".chars().map(|c| c as u32).collect::<Vec<_>>().into(),
+            text: "#00ff00"
+                .chars()
+                .map(|c| c as u32)
+                .collect::<Vec<_>>()
+                .into(),
             ..Default::default()
         };
         let (update, _) = with_info(styled.clone(), node(0), |info| {
             on_hex_committed(state.clone(), *info, text.clone())
         });
         assert_eq!(update, Update::RefreshDom);
-        assert_eq!(state_color(&state), ColorU { r: 0, g: 255, b: 0, a: 255 });
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 0,
+                g: 255,
+                b: 0,
+                a: 255
+            }
+        );
         // Committing the SAME value again is not a change.
         let (update, _) = with_info(styled.clone(), node(0), |info| {
             on_hex_committed(state.clone(), *info, text.clone())
@@ -2526,55 +3007,140 @@ mod autotest_generated {
             text: "nope".chars().map(|c| c as u32).collect::<Vec<_>>().into(),
             ..Default::default()
         };
-        let (update, _) = with_info(styled, node(0), |info| on_hex_committed(state.clone(), *info, junk));
+        let (update, _) = with_info(styled, node(0), |info| {
+            on_hex_committed(state.clone(), *info, junk)
+        });
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(read_log(&probe).seen, vec![ColorU { r: 0, g: 255, b: 0, a: 255 }]);
+        assert_eq!(
+            read_log(&probe).seen,
+            vec![ColorU {
+                r: 0,
+                g: 255,
+                b: 0,
+                a: 255
+            }]
+        );
     }
 
     #[test]
     fn a_channel_field_changes_only_its_channel() {
         use crate::widgets::number_input::NumberInputState;
-        let (styled, state) = laid_out(ColorInput::create(ColorU { r: 10, g: 20, b: 30, a: 255 }));
-        let n = |v: f32| NumberInputState { number: v, ..Default::default() };
-        let _ = with_info(styled.clone(), node(0), |info| on_red_changed(state.clone(), *info, n(200.0)));
-        assert_eq!(state_color(&state), ColorU { r: 200, g: 20, b: 30, a: 255 });
-        let _ = with_info(styled.clone(), node(0), |info| on_green_changed(state.clone(), *info, n(999.0)));
-        assert_eq!(state_color(&state), ColorU { r: 200, g: 255, b: 30, a: 255 }, "clamped");
-        let _ = with_info(styled, node(0), |info| on_blue_changed(state.clone(), *info, n(-5.0)));
-        assert_eq!(state_color(&state), ColorU { r: 200, g: 255, b: 0, a: 255 }, "clamped");
+        let (styled, state) = laid_out(ColorInput::create(ColorU {
+            r: 10,
+            g: 20,
+            b: 30,
+            a: 255,
+        }));
+        let n = |v: f32| NumberInputState {
+            number: v,
+            ..Default::default()
+        };
+        let _ = with_info(styled.clone(), node(0), |info| {
+            on_red_changed(state.clone(), *info, n(200.0))
+        });
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 200,
+                g: 20,
+                b: 30,
+                a: 255
+            }
+        );
+        let _ = with_info(styled.clone(), node(0), |info| {
+            on_green_changed(state.clone(), *info, n(999.0))
+        });
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 200,
+                g: 255,
+                b: 30,
+                a: 255
+            },
+            "clamped"
+        );
+        let _ = with_info(styled, node(0), |info| {
+            on_blue_changed(state.clone(), *info, n(-5.0))
+        });
+        assert_eq!(
+            state_color(&state),
+            ColorU {
+                r: 200,
+                g: 255,
+                b: 0,
+                a: 255
+            },
+            "clamped"
+        );
     }
 
     #[test]
     fn the_merge_keeps_the_old_allocation_and_adopts_the_apps_color() {
         // The old data (open, mid-drag, a hue the user is on) survives a rebuild; the
         // colour and callback come from the new build, because the app owns the value.
-        let old_dom = ColorInput::create(ColorU { r: 255, g: 0, b: 0, a: 255 }).dom();
+        let old_dom = ColorInput::create(ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        })
+        .dom();
         let old = old_dom.root.get_dataset().cloned().unwrap();
         {
             let mut o = old.clone();
             let mut d = o.downcast_mut::<ColorPickerData>().unwrap();
             d.open = true;
             d.drag = Drag::Hue;
-            d.set_hsv(Hsv { h: 200.0, s: 0.0, v: 0.0 }); // black, but "on" hue 200
+            d.set_hsv(Hsv {
+                h: 200.0,
+                s: 0.0,
+                v: 0.0,
+            }); // black, but "on" hue 200
         }
         // The app rebuilds with the SAME colour (black): hue must be kept.
         let probe = log_refany();
-        let new_dom = ColorInput::create(ColorU { r: 0, g: 0, b: 0, a: 255 })
-            .with_on_value_change(probe, record_value as ColorInputOnValueChangeCallbackType)
-            .dom();
+        let new_dom = ColorInput::create(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        })
+        .with_on_value_change(probe, record_value as ColorInputOnValueChangeCallbackType)
+        .dom();
         let new = new_dom.root.get_dataset().cloned().unwrap();
         let mut merged = merge_picker_data(new, old.clone());
         let d = merged.downcast_ref::<ColorPickerData>().unwrap();
         assert!(d.open && d.drag == Drag::Hue, "runtime state survived");
-        assert_eq!(d.hsv.h, 200.0, "the hue the user is on survived a pass through black");
-        assert!(d.state.on_value_change.as_ref().is_some(), "the new callback was adopted");
+        assert_eq!(
+            d.hsv.h, 200.0,
+            "the hue the user is on survived a pass through black"
+        );
+        assert!(
+            d.state.on_value_change.as_ref().is_some(),
+            "the new callback was adopted"
+        );
         drop(d);
         // The app rebuilds with a DIFFERENT colour: adopted, hue recomputed.
-        let new_dom = ColorInput::create(ColorU { r: 0, g: 255, b: 0, a: 255 }).dom();
+        let new_dom = ColorInput::create(ColorU {
+            r: 0,
+            g: 255,
+            b: 0,
+            a: 255,
+        })
+        .dom();
         let new = new_dom.root.get_dataset().cloned().unwrap();
         let mut merged = merge_picker_data(new, old);
         let d = merged.downcast_ref::<ColorPickerData>().unwrap();
-        assert_eq!(d.state.inner.color, ColorU { r: 0, g: 255, b: 0, a: 255 });
+        assert_eq!(
+            d.state.inner.color,
+            ColorU {
+                r: 0,
+                g: 255,
+                b: 0,
+                a: 255
+            }
+        );
         assert_eq!(d.hsv.h, 120.0);
         // A foreign old payload is not merged into.
         let new_dom = ColorInput::create(DEFAULT_COLOR).dom();
@@ -2591,13 +3157,21 @@ mod autotest_generated {
             let mut s = state.clone();
             assert!(s.downcast_ref::<ColorPickerData>().unwrap().open);
         }
-        let _ = with_info(styled.clone(), node(1), |info| on_picker_dismissed(state.clone(), *info));
+        let _ = with_info(styled.clone(), node(1), |info| {
+            on_picker_dismissed(state.clone(), *info)
+        });
         {
             let mut s = state.clone();
-            assert!(!s.downcast_ref::<ColorPickerData>().unwrap().open, "dismiss closed it");
+            assert!(
+                !s.downcast_ref::<ColorPickerData>().unwrap().open,
+                "dismiss closed it"
+            );
         }
         // The next click OPENS again (not a stale "close").
         let (_, changes) = click(styled, &state, node(0));
-        assert!(matches!(&changes[0], CallbackChange::SetTransientWindowOpen { open: true, .. }));
+        assert!(matches!(
+            &changes[0],
+            CallbackChange::SetTransientWindowOpen { open: true, .. }
+        ));
     }
 }

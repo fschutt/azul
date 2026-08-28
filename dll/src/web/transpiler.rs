@@ -124,7 +124,8 @@ impl Transpiler for StubTranspiler {
     ) -> Result<WasmModule, TranspileError> {
         Err(TranspileError {
             fn_name: fn_name.to_string(),
-            reason: "transpiler not yet implemented (Phase 0 stub — callbacks run server-side)".into(),
+            reason: "transpiler not yet implemented (Phase 0 stub — callbacks run server-side)"
+                .into(),
         })
     }
 

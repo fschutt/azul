@@ -5,12 +5,7 @@
 //! if it passes, the lifted run corrupts data upstream of the bounds check
 //! (mis-lift) and the hunt moves to the wasm side.
 
-use azul_core::{
-    dom::Dom,
-    geom::LogicalSize,
-    resources::RendererResources,
-    styled_dom::StyledDom,
-};
+use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources, styled_dom::StyledDom};
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -32,13 +27,19 @@ fn web_events_dom_layouts_natively() {
     let mut body = Dom::create_body();
     for label in labels {
         let mut div = Dom::create_div();
-        div.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(label));
+        div.add_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            label,
+        ));
         body.add_child(div);
     }
 
     let (css, _) = azul_css::parser2::new_from_str("");
     let styled_dom = StyledDom::create(&mut body, css);
-    assert_eq!(styled_dom.node_data.as_ref().len(), 19, "body + 9 divs + 9 texts");
+    assert_eq!(
+        styled_dom.node_data.as_ref().len(),
+        19,
+        "body + 9 divs + 9 texts"
+    );
 
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();

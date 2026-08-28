@@ -1,9 +1,6 @@
 // In a new file, e.g., azul/layout/src/text3/tests.rs
 
-use std::{
-    num::NonZeroUsize,
-    sync::Arc,
-};
+use std::{num::NonZeroUsize, sync::Arc};
 
 use azul_css::props::basic::ColorU;
 use hyphenation::{Language, Load, Standard};
@@ -22,7 +19,7 @@ fn test_logical_items_combine_upright() {
         text: Arc::from("12ab345c"),
         style: Arc::new(style),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
@@ -43,7 +40,7 @@ fn test_logical_items_combine_upright() {
         text: Arc::from("12ab 345c"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let mut partial_style = PartialStyleProperties::default();
     partial_style.text_combine_upright = Some(Some(TextCombineUpright::Digits(2)));
@@ -110,7 +107,8 @@ fn test_bidi_reordering_mixed_content() {
     ];
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
 
     // The visual order of runs remains the same as the logical order.
     // The second run is simply marked as RTL.
@@ -133,14 +131,15 @@ fn test_long_word_overflow_no_hyphenation() {
         text: Arc::from(text),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(100.0), // much shorter than the word
         ..Default::default()
     };
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let (line_items, _) = super::break_one_line_compat(
@@ -173,7 +172,7 @@ fn test_multi_column_layout() {
         text: Arc::from("a b c d e f g h"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(100.0),
@@ -184,10 +183,12 @@ fn test_multi_column_layout() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout =
+        super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     // column_width = (100 - 10) / 2 = 45.0
     // "a b c" -> a(8)+sp(5)+b(9)+sp(5)+c(8) = 35. Fits.
@@ -238,7 +239,7 @@ fn test_line_clamp() {
         text: Arc::from("a a a a a a a a a a"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(30.0), // Should break frequently
@@ -247,10 +248,12 @@ fn test_line_clamp() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout =
+        super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     let max_line_index = layout.items.iter().map(|i| i.line_index).max().unwrap_or(0);
 
@@ -272,7 +275,7 @@ fn test_flow_across_fragments() {
         text: Arc::from("line one and line two and line three"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let flow_chain = vec![
@@ -294,8 +297,8 @@ fn test_flow_across_fragments() {
         },
     ];
 
-    let result = super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager)
-        .unwrap();
+    let result =
+        super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager).unwrap();
 
     let frag1_layout = result.fragment_layouts.get("frag1").unwrap();
     let frag2_layout = result.fragment_layouts.get("frag2").unwrap();
@@ -334,7 +337,7 @@ fn test_kashida_justification() {
         text: Arc::from("مرحبا"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(100.0),
@@ -345,7 +348,8 @@ fn test_kashida_justification() {
 
     // Directly test the kashida insertion logic
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Rtl).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Rtl).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
 
     let line_constraints = LineConstraints {
@@ -355,10 +359,11 @@ fn test_kashida_justification() {
             priority: 0,
         }],
         total_available: 100.0,
-            is_min_content: false,
+        is_min_content: false,
     };
 
-    let justified_items = super::justify_kashida_and_rebuild_compat(shaped_items, &line_constraints, false);
+    let justified_items =
+        super::justify_kashida_and_rebuild_compat(shaped_items, &line_constraints, false);
 
     let kashida_count = justified_items.iter().filter(|item| {
         matches!(item, ShapedItem::Cluster(c) if c.glyphs.iter().any(|g| matches!(g.kind, GlyphKind::Kashida {..})))
@@ -380,12 +385,13 @@ fn test_kashida_justification() {
 fn test_layout_with_shape_exclusion() {
     let manager = create_mock_font_manager();
     let content = vec![InlineContent::Text(StyledRun {
-        text: Arc::from("this is some very long text that should wrap around a floated exclusion area in \
-               the middle"
-            ),
+        text: Arc::from(
+            "this is some very long text that should wrap around a floated exclusion area in \
+               the middle",
+        ),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(300.0),
@@ -414,10 +420,12 @@ fn test_layout_with_shape_exclusion() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout =
+        super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     // With line_height = 16.0 and correct intersection logic:
     // Exclusion rect is y in [10, 40]
@@ -450,7 +458,7 @@ fn test_bug1_shaping_across_style_boundaries() {
         text: Arc::from("first fish"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let overrides = vec![StyleOverride {
@@ -541,7 +549,8 @@ fn test_bug3_rtl_glyph_reversal() {
         })],
         &[],
     );
-    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout =
+        super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     // Check glyph order and positions
     assert_eq!(layout.items.len(), 4);
@@ -581,7 +590,7 @@ fn test_simple_line_break() {
         text: Arc::from("a a a a a a"), // 6 chars * 8px + 5 spaces * 5px = 48 + 25 = 73px
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let flow_chain = [LayoutFragment {
@@ -594,12 +603,17 @@ fn test_simple_line_break() {
 
     // Using layout_flow is complex for mocks, so we'll test stages
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout =
-        super::perform_fragment_layout_compat(&mut cursor, &logical_items, &flow_chain[0].constraints).unwrap();
+    let layout = super::perform_fragment_layout_compat(
+        &mut cursor,
+        &logical_items,
+        &flow_chain[0].constraints,
+    )
+    .unwrap();
 
     // "a a a a " = 4*8 + 4*5 = 32 + 20 = 52, which overflows.
     // Safe break is after 3rd space: "a a a " = 3*8 + 3*5 = 24 + 15 = 39px.
@@ -639,7 +653,7 @@ fn test_justification_inter_word() {
         text: Arc::from("a b"), // a=8, space=5, b=9 (mocked) => total 22px
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let constraints = UnifiedConstraints {
@@ -651,11 +665,13 @@ fn test_justification_inter_word() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items = super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let visual_items =
+        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
     let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
-    let layout = super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
+    let layout =
+        super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
 
     assert_eq!(layout.items.len(), 3);
 
@@ -688,10 +704,14 @@ fn test_hyphenation_break() {
             ..(*default_style()).clone()
         }),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let shaped_items = super::shape_visual_items_compat(
-        &super::reorder_logical_items_compat(&super::create_logical_items_compat(&content, &[]), BidiDirection::Ltr).unwrap(),
+        &super::reorder_logical_items_compat(
+            &super::create_logical_items_compat(&content, &[]),
+            BidiDirection::Ltr,
+        )
+        .unwrap(),
         &manager,
     )
     .unwrap();
@@ -703,7 +723,7 @@ fn test_hyphenation_break() {
             priority: 0,
         }],
         total_available: 50.0,
-            is_min_content: false,
+        is_min_content: false,
     };
 
     let (line1_items, was_hyphenated) =
@@ -745,10 +765,14 @@ fn test_hyphenation_break_2() {
             ..(*default_style()).clone()
         }),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let shaped_items = super::shape_visual_items_compat(
-        &super::reorder_logical_items_compat(&super::create_logical_items_compat(&content, &[]), BidiDirection::Ltr).unwrap(),
+        &super::reorder_logical_items_compat(
+            &super::create_logical_items_compat(&content, &[]),
+            BidiDirection::Ltr,
+        )
+        .unwrap(),
         &manager,
     )
     .unwrap();
@@ -760,7 +784,7 @@ fn test_hyphenation_break_2() {
             priority: 0,
         }],
         total_available: 60.0,
-            is_min_content: false,
+        is_min_content: false,
     };
 
     // "hy-phen-ation".
@@ -805,8 +829,8 @@ fn test_empty_input_layout() {
         },
     }];
 
-    let result = super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager)
-        .unwrap();
+    let result =
+        super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager).unwrap();
 
     let main_layout = result.fragment_layouts.get("main").unwrap();
     assert!(main_layout.items.is_empty());

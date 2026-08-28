@@ -33,7 +33,11 @@ fn run_layout_with_size(html: &str, w: f32, h: f32) -> Solver3LayoutCache {
     run_layout_styled(&styled_dom, w, h)
 }
 
-fn run_layout_styled(styled_dom: &azul_core::styled_dom::StyledDom, w: f32, h: f32) -> Solver3LayoutCache {
+fn run_layout_styled(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    w: f32,
+    h: f32,
+) -> Solver3LayoutCache {
     let fc_cache = build_font_cache();
     let mut font_manager = FontManager::new(fc_cache).expect("Failed to create FontManager");
     let mut layout_cache = Solver3LayoutCache {
@@ -84,7 +88,8 @@ fn run_layout_styled(styled_dom: &azul_core::styled_dom::StyledDom, w: f32, h: f
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback {
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
             cb: azul_core::task::get_system_time_libstd,
         },
         false,

@@ -115,10 +115,9 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
         .map(|a| {
             let pas_ty = match a.ref_kind {
                 ArgRefKind::Owned => map_type_to_pascal(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => ptr_type_for_arg(&a.type_name, ir),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    ptr_type_for_arg(&a.type_name, ir)
+                }
             };
             format!("{}: {}", sanitize_identifier(&a.name), pas_ty)
         })

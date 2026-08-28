@@ -40,7 +40,7 @@ use rich_clipboard::{ClipboardItem, ClipboardPayload, Flavor, Platform};
 
 use super::super::common::clipboard::MAX_FLAVOR_BYTES;
 use super::super::common::debug_server::LogCategory;
-use crate::{log_warn, log_debug};
+use crate::{log_debug, log_warn};
 
 /// How many times to retry `OpenClipboard` before giving up.
 ///

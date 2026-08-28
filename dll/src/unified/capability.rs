@@ -33,14 +33,34 @@ impl PlatformCapability {
             reason: AzString::from_const_str("UDP has no wasm backend"),
         }
     }
-    pub fn camera() -> PlatformCapability { Self::unavailable() }
-    pub fn screen_capture() -> PlatformCapability { Self::unavailable() }
-    pub fn microphone() -> PlatformCapability { Self::unavailable() }
-    pub fn audio_output() -> PlatformCapability { Self::unavailable() }
-    pub fn sensors() -> PlatformCapability { Self::unavailable() }
-    pub fn gamepad() -> PlatformCapability { Self::unavailable() }
-    pub fn geolocation() -> PlatformCapability { Self::unavailable() }
-    pub fn keyring() -> PlatformCapability { Self::unavailable() }
-    pub fn biometric() -> PlatformCapability { Self::unavailable() }
-    pub fn video_codec() -> PlatformCapability { Self::unavailable() }
+    pub fn camera() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn screen_capture() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn microphone() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn audio_output() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn sensors() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn gamepad() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn geolocation() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn keyring() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn biometric() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn video_codec() -> PlatformCapability {
+        Self::unavailable()
+    }
 }

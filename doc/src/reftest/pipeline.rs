@@ -8,8 +8,8 @@ use std::time::Instant;
 
 use super::autodebug::cdp::{ChromeCdp, ChromePerformanceTiming};
 use super::{
-    compare_images, generate_chrome_screenshot_with_debug,
-    DebugData, TestMetadata, PASS_THRESHOLD_PIXELS,
+    compare_images, generate_chrome_screenshot_with_debug, DebugData, TestMetadata,
+    PASS_THRESHOLD_PIXELS,
 };
 
 /// Per-test timing breakdown (microseconds).
@@ -59,26 +59,57 @@ impl ChromeBackend {
     /// CDP-backed construction.
     pub fn new_cdp(chrome_path: &str) -> Self {
         match ChromeCdp::launch(chrome_path) {
-            Ok(cdp) => { println!("  Chrome CDP connected"); ChromeBackend::Cdp(cdp) }
-            Err(e) => { println!("  Chrome CDP failed ({}), using process", e); ChromeBackend::Process(chrome_path.to_string()) }
+            Ok(cdp) => {
+                println!("  Chrome CDP connected");
+                ChromeBackend::Cdp(cdp)
+            }
+            Err(e) => {
+                println!("  Chrome CDP failed ({}), using process", e);
+                ChromeBackend::Process(chrome_path.to_string())
+            }
         }
     }
 
-    fn screenshot(&mut self, test_file: &Path, chrome_img: &Path, chrome_layout_json: &Path, width: u32, height: u32,
+    fn screenshot(
+        &mut self,
+        test_file: &Path,
+        chrome_img: &Path,
+        chrome_layout_json: &Path,
+        width: u32,
+        height: u32,
     ) -> Result<(String, Option<ChromePerformanceTiming>), String> {
         match self {
             ChromeBackend::Cdp(cdp) => {
                 let needs_convert = chrome_img.extension().map_or(false, |e| e == "webp");
-                let save_path = if needs_convert { chrome_img.with_extension("png") } else { chrome_img.to_path_buf() };
-                cdp.screenshot_and_layout(test_file, &save_path, Some(chrome_layout_json), width, height)
-                    .map_err(|e| format!("CDP: {}", e))?;
+                let save_path = if needs_convert {
+                    chrome_img.with_extension("png")
+                } else {
+                    chrome_img.to_path_buf()
+                };
+                cdp.screenshot_and_layout(
+                    test_file,
+                    &save_path,
+                    Some(chrome_layout_json),
+                    width,
+                    height,
+                )
+                .map_err(|e| format!("CDP: {}", e))?;
                 if needs_convert {
-                    let img = image::open(&save_path).map_err(|e| format!("open: {}", e))?.to_rgba8();
-                    let enc = image::codecs::webp::WebPEncoder::new_lossless(
-                        std::io::BufWriter::new(std::fs::File::create(chrome_img).map_err(|e| format!("{}", e))?));
+                    let img = image::open(&save_path)
+                        .map_err(|e| format!("open: {}", e))?
+                        .to_rgba8();
+                    let enc =
+                        image::codecs::webp::WebPEncoder::new_lossless(std::io::BufWriter::new(
+                            std::fs::File::create(chrome_img).map_err(|e| format!("{}", e))?,
+                        ));
                     use image::ImageEncoder;
-                    enc.write_image(img.as_raw(), img.width(), img.height(), image::ExtendedColorType::Rgba8)
-                        .map_err(|e| format!("{}", e))?;
+                    enc.write_image(
+                        img.as_raw(),
+                        img.width(),
+                        img.height(),
+                        image::ExtendedColorType::Rgba8,
+                    )
+                    .map_err(|e| format!("{}", e))?;
                     let _ = std::fs::remove_file(&save_path);
                 }
                 let timing = cdp.get_performance_metrics().ok();
@@ -86,8 +117,15 @@ impl ChromeBackend {
                 Ok((layout_data, timing))
             }
             ChromeBackend::Process(p) => {
-                let data = generate_chrome_screenshot_with_debug(p, test_file, chrome_img, chrome_layout_json, width, height)
-                    .map_err(|e| format!("{}", e))?;
+                let data = generate_chrome_screenshot_with_debug(
+                    p,
+                    test_file,
+                    chrome_img,
+                    chrome_layout_json,
+                    width,
+                    height,
+                )
+                .map_err(|e| format!("{}", e))?;
                 Ok((data, None))
             }
         }
@@ -143,7 +181,9 @@ impl ReftestPipeline {
     /// Sans here) and every text-bearing test diverges by a whole font.
     /// Pinning one deterministic family set for the generics AND the classic
     /// web families makes the comparison hermetic across machines.
-    pub fn write_hermetic_fontconfig(output_dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    pub fn write_hermetic_fontconfig(
+        output_dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf, String> {
         let dir = output_dir.join("fontconfig");
         std::fs::create_dir_all(&dir).map_err(|e| format!("fontconfig dir: {e}"))?;
         let cache_dir = dir.join("cache");
@@ -251,10 +291,16 @@ impl ReftestPipeline {
         }
         font_context.load_fonts_for_chains();
 
-        println!("  Font context: {:.0}ms ({} chains, {} parsed fonts)",
+        println!(
+            "  Font context: {:.0}ms ({} chains, {} parsed fonts)",
             t0.elapsed().as_secs_f64() * 1000.0,
             font_context.font_chain_cache.len(),
-            font_context.parsed_fonts.lock().map(|m| m.len()).unwrap_or(0));
+            font_context
+                .parsed_fonts
+                .lock()
+                .map(|m| m.len())
+                .unwrap_or(0)
+        );
 
         Ok(Self {
             chrome: ChromeBackend::new(chrome_path),
@@ -262,22 +308,40 @@ impl ReftestPipeline {
         })
     }
 
-    pub fn run_test(&mut self, test_file: &Path, chrome_img: &Path, azul_img: &Path,
-        chrome_layout_json: &Path, width: u32, height: u32,
+    pub fn run_test(
+        &mut self,
+        test_file: &Path,
+        chrome_img: &Path,
+        azul_img: &Path,
+        chrome_layout_json: &Path,
+        width: u32,
+        height: u32,
     ) -> Result<TestRunResult, String> {
         let test_name = test_file.file_stem().unwrap().to_string_lossy().to_string();
 
         // Chrome
         let (chrome_layout_data, chrome_timing) = if !chrome_img.exists() {
-            self.chrome.screenshot(test_file, chrome_img, chrome_layout_json, width, height)?
+            self.chrome
+                .screenshot(test_file, chrome_img, chrome_layout_json, width, height)?
         } else {
-            (std::fs::read_to_string(chrome_layout_json).unwrap_or_default(), None)
+            (
+                std::fs::read_to_string(chrome_layout_json).unwrap_or_default(),
+                None,
+            )
         };
 
         // Debug pass (collects layout diagnostics)
-        let (debug_pass_data, _) = render_xhtml_to_webp(&self.font_context, test_file, azul_img, width, height, true)?;
+        let (debug_pass_data, _) =
+            render_xhtml_to_webp(&self.font_context, test_file, azul_img, width, height, true)?;
         // Timing pass (accurate measurement)
-        let (mut debug_data, azul_timing) = render_xhtml_to_webp(&self.font_context, test_file, azul_img, width, height, false)?;
+        let (mut debug_data, azul_timing) = render_xhtml_to_webp(
+            &self.font_context,
+            test_file,
+            azul_img,
+            width,
+            height,
+            false,
+        )?;
 
         debug_data.chrome_layout = chrome_layout_data.clone();
         debug_data.render_warnings = debug_pass_data.render_warnings;
@@ -286,13 +350,27 @@ impl ReftestPipeline {
         let diff_pixels = compare_images(chrome_img, azul_img).map_err(|e| format!("{}", e))?;
         let passed = diff_pixels <= PASS_THRESHOLD_PIXELS;
 
-        if let Some(ref ct) = chrome_timing { println!("  Chrome: {}", ct); }
+        if let Some(ref ct) = chrome_timing {
+            println!("  Chrome: {}", ct);
+        }
         println!("  Azul:   parse={:.0}us layout={:.0}us render={:.0}us save={:.0}us total={:.0}us ({:.2}ms)",
             azul_timing.parse_us, azul_timing.layout_us, azul_timing.render_us,
             azul_timing.save_us, azul_timing.total_us, azul_timing.total_us / 1000.0);
-        println!("  Diff:   {} pixels ({})", diff_pixels, if passed { "PASS" } else { "FAIL" });
+        println!(
+            "  Diff:   {} pixels ({})",
+            diff_pixels,
+            if passed { "PASS" } else { "FAIL" }
+        );
 
-        Ok(TestRunResult { test_name, debug_data, chrome_timing, azul_timing, diff_pixels, passed, chrome_layout_data })
+        Ok(TestRunResult {
+            test_name,
+            debug_data,
+            chrome_timing,
+            azul_timing,
+            diff_pixels,
+            passed,
+            chrome_layout_data,
+        })
     }
 }
 
@@ -313,7 +391,8 @@ pub fn render_xhtml_to_webp(
 
     let t_parse = Instant::now();
     let xml_content = std::fs::read_to_string(test_file).map_err(|e| format!("read: {}", e))?;
-    let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content).map_err(|e| format!("parse: {}", e))?;
+    let styled_dom = azul_layout::xml::parse_xml_to_styled_dom(&xml_content)
+        .map_err(|e| format!("parse: {}", e))?;
     let parse_us = t_parse.elapsed().as_secs_f64() * 1_000_000.0;
 
     // Fresh LayoutWindow from shared FontContext — no stale cache
@@ -322,37 +401,65 @@ pub fn render_xhtml_to_webp(
 
     let t_layout = Instant::now();
     let mut ws = FullWindowState::default();
-    ws.size.dimensions = LogicalSize { width: width as f32, height: height as f32 };
+    ws.size.dimensions = LogicalSize {
+        width: width as f32,
+        height: height as f32,
+    };
     ws.size.dpi = 96;
     let mut rr = azul_core::resources::RendererResources::default();
     let ext = ExternalSystemCallbacks::rust_internal();
-    let mut debug_messages = if collect_debug { Some(Vec::new()) } else { None };
+    let mut debug_messages = if collect_debug {
+        Some(Vec::new())
+    } else {
+        None
+    };
 
-    layout_window.layout_and_generate_display_list(styled_dom, &ws, &mut rr, &ext, &mut debug_messages)
+    layout_window
+        .layout_and_generate_display_list(styled_dom, &ws, &mut rr, &ext, &mut debug_messages)
         .map_err(|e| format!("layout: {}", e))?;
 
-    let dl = layout_window.layout_results.remove(&DomId::ROOT_ID).ok_or("No layout result")?.display_list;
+    let dl = layout_window
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .ok_or("No layout result")?
+        .display_list;
     let layout_us = t_layout.elapsed().as_secs_f64() * 1_000_000.0;
 
     let t_render = Instant::now();
     let dpi = 1.0_f32;
     let mut gc = azul_layout::glyph_cache::GlyphCache::new();
     let pixmap = azul_layout::cpurender::render_with_font_manager(
-        &dl, &rr, &layout_window.font_manager,
-        azul_layout::cpurender::RenderOptions { width: width as f32, height: height as f32, dpi_factor: dpi },
+        &dl,
+        &rr,
+        &layout_window.font_manager,
+        azul_layout::cpurender::RenderOptions {
+            width: width as f32,
+            height: height as f32,
+            dpi_factor: dpi,
+        },
         &mut gc,
-    ).map_err(|e| format!("render: {}", e))?;
+    )
+    .map_err(|e| format!("render: {}", e))?;
     let render_us = t_render.elapsed().as_secs_f64() * 1_000_000.0;
 
     let t_save = Instant::now();
     let img = image::RgbaImage::from_raw(
-        (width as f32 * dpi) as u32, (height as f32 * dpi) as u32, pixmap.data().to_vec(),
-    ).ok_or("image")?;
-    let enc = image::codecs::webp::WebPEncoder::new_lossless(
-        std::io::BufWriter::new(std::fs::File::create(output_file).map_err(|e| format!("{}", e))?));
+        (width as f32 * dpi) as u32,
+        (height as f32 * dpi) as u32,
+        pixmap.data().to_vec(),
+    )
+    .ok_or("image")?;
+    let enc = image::codecs::webp::WebPEncoder::new_lossless(std::io::BufWriter::new(
+        std::fs::File::create(output_file).map_err(|e| format!("{}", e))?,
+    ));
     use image::ImageEncoder;
-    enc.write_image(img.as_raw(), img.width(), img.height(), image::ExtendedColorType::Rgba8)
-        .map_err(|e| format!("{}", e))?;
+    enc.write_image(
+        img.as_raw(),
+        img.width(),
+        img.height(),
+        image::ExtendedColorType::Rgba8,
+    )
+    .map_err(|e| format!("{}", e))?;
     let save_us = t_save.elapsed().as_secs_f64() * 1_000_000.0;
     let total_us = parse_us + layout_us + render_us;
 
@@ -366,10 +473,20 @@ pub fn render_xhtml_to_webp(
     dd.layout_time_us = layout_us.round() as u64;
     dd.render_time_us = render_us.round() as u64;
     if let Some(msgs) = debug_messages {
-        dd.render_warnings = msgs.into_iter()
+        dd.render_warnings = msgs
+            .into_iter()
             .map(|m| format!("[{:?}] {}", m.message_type, m.message.as_str()))
             .collect();
     }
 
-    Ok((dd, AzulTiming { parse_us, layout_us, render_us, save_us, total_us }))
+    Ok((
+        dd,
+        AzulTiming {
+            parse_us,
+            layout_us,
+            render_us,
+            save_us,
+            total_us,
+        },
+    ))
 }

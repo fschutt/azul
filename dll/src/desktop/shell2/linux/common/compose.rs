@@ -24,8 +24,8 @@
 
 use std::ffi::{c_char, CString};
 
-use super::super::x11::defines::xkb_context;
 use super::super::super::common::debug_server::LogCategory;
+use super::super::x11::defines::xkb_context;
 use crate::{log_debug, log_warn};
 
 /// Opaque `struct xkb_compose_table`.
@@ -76,8 +76,7 @@ pub struct ComposeFns {
     pub table_new_from_locale:
         unsafe extern "C" fn(*mut xkb_context, *const c_char, u32) -> *mut xkb_compose_table,
     pub table_unref: unsafe extern "C" fn(*mut xkb_compose_table),
-    pub state_new:
-        unsafe extern "C" fn(*mut xkb_compose_table, u32) -> *mut xkb_compose_state,
+    pub state_new: unsafe extern "C" fn(*mut xkb_compose_table, u32) -> *mut xkb_compose_state,
     pub state_unref: unsafe extern "C" fn(*mut xkb_compose_state),
     pub state_feed: unsafe extern "C" fn(*mut xkb_compose_state, u32) -> i32,
     pub state_reset: unsafe extern "C" fn(*mut xkb_compose_state),
@@ -131,11 +130,7 @@ impl ComposeSequencer {
             return None;
         };
         let table = unsafe {
-            (fns.table_new_from_locale)(
-                context,
-                c_locale.as_ptr(),
-                XKB_COMPOSE_COMPILE_NO_FLAGS,
-            )
+            (fns.table_new_from_locale)(context, c_locale.as_ptr(), XKB_COMPOSE_COMPILE_NO_FLAGS)
         };
         if table.is_null() {
             log_warn!(
@@ -491,10 +486,7 @@ mod tests {
 
         assert_eq!(compose.feed(MULTI_KEY), ComposeAction::Composing);
         assert_eq!(compose.feed(KEY_O), ComposeAction::Composing);
-        assert_eq!(
-            compose.feed(KEY_C),
-            ComposeAction::Commit("©".to_string())
-        );
+        assert_eq!(compose.feed(KEY_C), ComposeAction::Commit("©".to_string()));
     }
 
     /// Ordinary typing must not go anywhere near the compose machinery.
@@ -578,11 +570,7 @@ mod tests {
         {
             let mut backing = FakeTable::new();
             let ptr = (&mut *backing) as *mut FakeTable as *mut xkb_compose_state;
-            let _compose = ComposeSequencer::from_parts(
-                fns(),
-                1 as *mut xkb_compose_table,
-                ptr,
-            );
+            let _compose = ComposeSequencer::from_parts(fns(), 1 as *mut xkb_compose_table, ptr);
         }
         assert_eq!(*UNREFS.lock().unwrap(), (1, 1));
     }

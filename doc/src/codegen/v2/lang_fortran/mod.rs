@@ -519,8 +519,5 @@ pub fn pascal_to_snake_case(s: &str) -> String {
 /// Newlines split the comment over multiple `!` lines; the caller is
 /// responsible for emitting one `!` prefix per resulting line.
 pub fn sanitize_comment_line(s: &str) -> String {
-    s.replace('\r', " ")
-        .replace('\n', " ")
-        .trim()
-        .to_string()
+    s.replace('\r', " ").replace('\n', " ").trim().to_string()
 }

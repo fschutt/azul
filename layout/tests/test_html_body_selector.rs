@@ -6,10 +6,7 @@
 use azul_core::{dom::Dom, styled_dom::StyledDom};
 
 /// Fetch the font-family hash for the given node from the compact cache.
-fn font_family_hash_for(
-    styled_dom: &StyledDom,
-    node_id: azul_core::id::NodeId,
-) -> u64 {
+fn font_family_hash_for(styled_dom: &StyledDom, node_id: azul_core::id::NodeId) -> u64 {
     let cache = &styled_dom.css_property_cache.ptr;
     let cc = cache
         .compact_cache

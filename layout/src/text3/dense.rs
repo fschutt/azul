@@ -24,12 +24,12 @@ use azul_core::{
     ui_solver::GlyphInstance,
 };
 
+use super::cache::Point;
 use super::cache::{
     BidiDirection, ClusterFlags, LayoutFontMetrics, LoadedFonts, ParsedFontTrait, PositionedItem,
     ShapedItem, StyleProperties, UnifiedLayout,
 };
 use super::glyphs::{PdfGlyphRun, PdfPositionedGlyph, PositionedGlyph, SimpleGlyphRun};
-use super::cache::Point;
 use crate::text3::script::Script;
 
 /// One per shaped cluster. Dense, POD, no Drop glue, no owned heap.
@@ -168,7 +168,13 @@ pub struct DenseText {
 
 impl Default for LineRecord {
     fn default() -> Self {
-        Self { clusters: (0, 0), baseline_y: 0.0, top_y: 0.0, height: 0.0, source_index: 0 }
+        Self {
+            clusters: (0, 0),
+            baseline_y: 0.0,
+            top_y: 0.0,
+            height: 0.0,
+            source_index: 0,
+        }
     }
 }
 
@@ -233,7 +239,11 @@ impl DenseText {
         let mut item_run_const_base: Option<u32> = None;
 
         for item in &layout.items {
-            let PositionedItem { item: shaped, position, line_index } = item;
+            let PositionedItem {
+                item: shaped,
+                position,
+                line_index,
+            } = item;
             let ShapedItem::Cluster(c) = shaped else {
                 continue;
             };
@@ -276,8 +286,8 @@ impl DenseText {
             // it when neither model fits.
             let item_index = c.source_content_index.item_index;
             let start_byte = c.source_cluster_id.start_byte_in_run;
-            let fits_linear = item_run_linear_base
-                .is_some_and(|b| item_index == b.wrapping_add(start_byte));
+            let fits_linear =
+                item_run_linear_base.is_some_and(|b| item_index == b.wrapping_add(start_byte));
             let fits_const = item_run_const_base.is_some_and(|b| item_index == b);
             let split = match &current_run {
                 None => true,
@@ -299,11 +309,7 @@ impl DenseText {
             if split {
                 if let Some(mut r) = current_run.take() {
                     r.clusters.end = cluster_index;
-                    close_item_model(
-                        &mut r,
-                        item_run_linear_base,
-                        item_run_const_base,
-                    );
+                    close_item_model(&mut r, item_run_linear_base, item_run_const_base);
                     dense.runs.push(r);
                 }
                 // Fresh run: both models start viable, seeded from this
@@ -560,13 +566,12 @@ impl DenseText {
             return cursor;
         };
         let l = &self.lines[line_ord];
-        let best = (l.clusters.0..l.clusters.1)
-            .min_by(|a, b| {
-                self.clusters[*a as usize]
-                    .x
-                    .partial_cmp(&self.clusters[*b as usize].x)
-                    .unwrap_or(core::cmp::Ordering::Equal)
-            });
+        let best = (l.clusters.0..l.clusters.1).min_by(|a, b| {
+            self.clusters[*a as usize]
+                .x
+                .partial_cmp(&self.clusters[*b as usize].x)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
         let Some(ci) = best else { return cursor };
         let run = self.runs.iter().find(|r| r.clusters.contains(&ci));
         let Some(run) = run else { return cursor };
@@ -590,13 +595,12 @@ impl DenseText {
             return cursor;
         };
         let l = &self.lines[line_ord];
-        let best = (l.clusters.0..l.clusters.1)
-            .max_by(|a, b| {
-                self.clusters[*a as usize]
-                    .x
-                    .partial_cmp(&self.clusters[*b as usize].x)
-                    .unwrap_or(core::cmp::Ordering::Equal)
-            });
+        let best = (l.clusters.0..l.clusters.1).max_by(|a, b| {
+            self.clusters[*a as usize]
+                .x
+                .partial_cmp(&self.clusters[*b as usize].x)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
         let Some(ci) = best else { return cursor };
         let run = self.runs.iter().find(|r| r.clusters.contains(&ci));
         let Some(run) = run else { return cursor };
@@ -758,8 +762,7 @@ impl DenseText {
                     line_cursor += 1;
                 }
                 let line = &self.lines[line_cursor.min(self.lines.len().saturating_sub(1))];
-                while detail_cursor < self.details.len()
-                    && self.details[detail_cursor].cluster < ci
+                while detail_cursor < self.details.len() && self.details[detail_cursor].cluster < ci
                 {
                     detail_cursor += 1;
                 }
@@ -774,7 +777,10 @@ impl DenseText {
                                 cluster_offset: u32::from(dg.cluster_offset),
                                 advance: dg.advance - dg.kerning,
                                 kerning: dg.kerning,
-                                offset: Point { x: dg.offset_x, y: dg.offset_y },
+                                offset: Point {
+                                    x: dg.offset_x,
+                                    y: dg.offset_y,
+                                },
                                 vertical_advance: dg.vertical_advance,
                                 vertical_offset: Point {
                                     x: dg.vertical_offset_x,
@@ -921,10 +927,7 @@ impl DenseText {
     /// line record + the run's resolved line height. Also the
     /// click-to-position primitive.
     #[must_use]
-    pub fn hittest_cursor(
-        &self,
-        point: Point,
-    ) -> Option<azul_core::selection::TextCursor> {
+    pub fn hittest_cursor(&self, point: Point) -> Option<azul_core::selection::TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
         if self.clusters.is_empty() {
             return None;
@@ -1033,8 +1036,11 @@ impl DenseText {
         });
         let target = &self.lines[line_ord - 1];
         let target_y = target.top_y + target.height / 2.0;
-        self.hittest_cursor(Point { x: current_x, y: target_y })
-            .unwrap_or(cursor)
+        self.hittest_cursor(Point {
+            x: current_x,
+            y: target_y,
+        })
+        .unwrap_or(cursor)
     }
 
     /// (d6d) One line down — see [`Self::move_cursor_up`].
@@ -1062,8 +1068,11 @@ impl DenseText {
         });
         let target = &self.lines[line_ord + 1];
         let target_y = target.top_y + target.height / 2.0;
-        self.hittest_cursor(Point { x: current_x, y: target_y })
-            .unwrap_or(cursor)
+        self.hittest_cursor(Point {
+            x: current_x,
+            y: target_y,
+        })
+        .unwrap_or(cursor)
     }
 
     /// (d6c) One caret stop left — IDENTICAL to the sparse
@@ -1118,7 +1127,11 @@ impl DenseText {
     pub fn last_cluster_cursor(&self) -> Option<azul_core::selection::TextCursor> {
         let last_ci = u32::try_from(self.clusters.len()).ok()?.checked_sub(1)?;
         let c = self.clusters.last()?;
-        let run = self.runs.iter().rev().find(|r| r.clusters.contains(&last_ci))?;
+        let run = self
+            .runs
+            .iter()
+            .rev()
+            .find(|r| r.clusters.contains(&last_ci))?;
         Some(azul_core::selection::TextCursor {
             cluster_id: azul_core::selection::GraphemeClusterId {
                 source_run: run.source_run,
@@ -1133,7 +1146,10 @@ impl DenseText {
     /// contributing `cluster_byte_len`, first cluster whose span
     /// contains the offset wins; past-the-end falls to the last cluster.
     #[must_use]
-    pub fn byte_offset_to_cursor(&self, byte_offset: u32) -> Option<azul_core::selection::TextCursor> {
+    pub fn byte_offset_to_cursor(
+        &self,
+        byte_offset: u32,
+    ) -> Option<azul_core::selection::TextCursor> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
         let cursor_at = |ci: u32| -> Option<TextCursor> {
             let c = self.clusters.get(ci as usize)?;
@@ -1164,7 +1180,6 @@ impl DenseText {
         cursor_at(self.clusters.len() as u32 - 1)
     }
 }
-
 
 /// §3.2 step 3: the dense twin of [`super::glyphs::get_glyph_positions`]
 /// (the reference walker the other two consumers agree with). Walks the
@@ -1247,7 +1262,10 @@ pub fn get_glyph_positions_dense(dense: &DenseText) -> Vec<PositionedGlyph> {
             None => {
                 out.push(PositionedGlyph {
                     glyph_id: c.glyph_id,
-                    position: Point { x: c.x, y: baseline_y },
+                    position: Point {
+                        x: c.x,
+                        y: baseline_y,
+                    },
                     advance: c.advance,
                 });
             }
@@ -1390,7 +1408,10 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
             None => {
                 out.push(GlyphInstance {
                     index: u32::from(c.glyph_id),
-                    point: LogicalPosition { x: c.x, y: baseline_y },
+                    point: LogicalPosition {
+                        x: c.x,
+                        y: baseline_y,
+                    },
                     size: LogicalSize::default(),
                 });
             }
@@ -1553,7 +1574,10 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 line_index,
                 direction: run.direction,
                 writing_mode: style.writing_mode,
-                baseline_start: Point { x: c.x, y: baseline_y },
+                baseline_start: Point {
+                    x: c.x,
+                    y: baseline_y,
+                },
                 cluster_texts: Vec::new(),
             });
         }
@@ -1570,10 +1594,10 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 } else {
                     let byte_offset = dg.cluster_offset as usize;
                     if byte_offset < cluster_text.len() {
-                        cluster_text[byte_offset..].chars().next().map_or_else(
-                            || cluster_text.to_string(),
-                            |ch| ch.to_string(),
-                        )
+                        cluster_text[byte_offset..]
+                            .chars()
+                            .next()
+                            .map_or_else(|| cluster_text.to_string(), |ch| ch.to_string())
                     } else if glyph_idx == 0 {
                         cluster_text.to_string()
                     } else {
@@ -1595,7 +1619,10 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
         } else {
             open.glyphs.push(PdfPositionedGlyph {
                 glyph_id: c.glyph_id,
-                position: Point { x: c.x, y: baseline_y },
+                position: Point {
+                    x: c.x,
+                    y: baseline_y,
+                },
                 advance: c.advance,
                 unicode_codepoint: cluster_text.to_string(),
             });

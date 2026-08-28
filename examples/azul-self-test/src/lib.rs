@@ -25,16 +25,16 @@ use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
-use azul::dom::OnAudioFrameCallback;
 use azul::audio::AudioConfig;
+use azul::audio::AudioSink;
 use azul::camera::CameraConfig;
-use azul::sensor::SensorKind;
+use azul::dom::OnAudioFrameCallback;
 use azul::option::OptionRefAny;
 use azul::prelude::*;
+use azul::sensor::SensorKind;
 use azul::task::TerminateTimer;
 use azul::vec::U8Vec;
 use azul::widgets::{AudioFrame, CameraWidget, MicrophoneWidget};
-use azul::audio::AudioSink;
 use azul::window::PlatformCapability;
 
 /// How long the windowed (event-loop) probe phase runs before auto-closing.
@@ -134,7 +134,11 @@ fn probe_capabilities() {
         ("video-codec", PlatformCapability::video_codec()),
     ];
     for (name, c) in rows {
-        let status = if c.available { "AVAILABLE  " } else { "unavailable" };
+        let status = if c.available {
+            "AVAILABLE  "
+        } else {
+            "unavailable"
+        };
         let reason = c.reason.as_str();
         if reason.is_empty() {
             log::info!("[cap] {:<12} {} via {}", name, status, c.backend.as_str());
@@ -152,7 +156,6 @@ fn probe_capabilities() {
 
 // ─────────────────────── standalone probes ───────────────────────
 
-
 /// AudioSink open probe — opening the default output device. Unavailable (no
 /// device / CI box) is NOT a failure; we only report.
 fn probe_audio_sink() {
@@ -167,7 +170,6 @@ fn probe_audio_sink() {
         log::info!("[audio] sink NOT open — no output device (unavailable, not a failure)");
     }
 }
-
 
 // ─────────────────────── event-loop probes ───────────────────────
 
@@ -215,7 +217,12 @@ extern "C" fn on_mic_frame(_data: RefAny, _info: CallbackInfo, frame: AudioFrame
     let n = MIC_FRAMES.fetch_add(1, Ordering::SeqCst) + 1;
     println!("[mic] {:5} |{}| rms={:.4}", n, bar, rms);
     if n == 1 {
-        log::info!("[mic] first frame: {} samples @ {}Hz x{}ch", samples.len(), frame.sample_rate, frame.channels);
+        log::info!(
+            "[mic] first frame: {} samples @ {}Hz x{}ch",
+            samples.len(),
+            frame.sample_rate,
+            frame.channels
+        );
     }
     Update::DoNothing
 }
@@ -368,10 +375,16 @@ fn banner() {
     println!("  FAIL    — a required API is broken. This is a real bug; the process");
     println!("            exits non-zero. (Only UDP loopback is currently required.)");
     println!();
-    println!("INTERACTION: runs UNATTENDED and exits on its own (~{}s for the device", RUN_SECS);
+    println!(
+        "INTERACTION: runs UNATTENDED and exits on its own (~{}s for the device",
+        RUN_SECS
+    );
     println!("  phase). No clicks needed.");
     if !no_window {
-        println!("  • A window opens for ~{}s for the live device probes. To see real", RUN_SECS);
+        println!(
+            "  • A window opens for ~{}s for the live device probes. To see real",
+            RUN_SECS
+        );
         println!("    data: move a connected GAMEPAD, SPEAK into the mic (you'll see a");
         println!("    dot-bar rise), point the CAMERA at something. All optional — it");
         println!("    auto-closes and nothing blocks if no device is present.");
@@ -386,7 +399,10 @@ fn banner() {
         println!("  • Keyring/biometric probes are SKIPPED (they prompt). Set");
         println!("    AZUL_SELFTEST_INTERACTIVE=1 to include them.");
     }
-    println!("LOG FILE: {}  (override with AZUL_SELFTEST_LOG=<path>)", log_path().display());
+    println!(
+        "LOG FILE: {}  (override with AZUL_SELFTEST_LOG=<path>)",
+        log_path().display()
+    );
     println!("────────────────────────────────────────────────────────────────────");
     println!();
 }
@@ -412,7 +428,10 @@ pub fn start() {
     }
 
     // 3) Windowed device probes via the App event loop.
-    log::info!("── opening window for live device probes ({}s) ──", RUN_SECS);
+    log::info!(
+        "── opening window for live device probes ({}s) ──",
+        RUN_SECS
+    );
     println!(">>> A window is opening for ~{}s — move a gamepad / speak / show the camera to see live data (optional). It closes automatically.", RUN_SECS);
     let data = RefAny::new(ProbeState::new());
     let config = AppConfig::create();
@@ -433,10 +452,16 @@ fn finish() {
         println!("RESULT: PASS (exit 0). All required probes passed; UNAVAIL items are");
         println!("  expected on machines without that device.");
     } else {
-        println!("RESULT: FAIL (exit {}). A required probe failed — see the FAIL line(s)", code);
+        println!(
+            "RESULT: FAIL (exit {}). A required probe failed — see the FAIL line(s)",
+            code
+        );
         println!("  above; that is a real platform bug to debug.");
     }
-    println!("Full trace (incl. azul backend logs): {}", log_path().display());
+    println!(
+        "Full trace (incl. azul backend logs): {}",
+        log_path().display()
+    );
     println!("To compare against another OS: run this there and diff the two logs.");
     log::info!("self-test complete (exit code {})", code);
 }

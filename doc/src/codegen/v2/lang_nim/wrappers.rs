@@ -25,9 +25,7 @@ use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory,
-};
+use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, FunctionKind, StructDef, TypeCategory};
 use super::types::nim_arg_type;
 use super::ProcDedup;
 use super::{ffi_type_name, map_type_to_nim, sanitize_identifier, to_lower_camel, to_pascal_case};
@@ -207,7 +205,11 @@ fn emit_forwarder(
     let param_str = params.join(", ");
     // Forward to the raw external under the exact name it was emitted as —
     // which may be a de-collided alias, not the bare C symbol.
-    let call = format!("{}({})", procs.external_name(&func.c_name), call_args.join(", "));
+    let call = format!(
+        "{}({})",
+        procs.external_name(&func.c_name),
+        call_args.join(", ")
+    );
 
     match &func.return_type {
         Some(ret) if ret.trim() != "void" && ret.trim() != "()" => {

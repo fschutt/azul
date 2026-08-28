@@ -7,7 +7,7 @@
 use super::super::config::*;
 use super::super::ir::*;
 use super::cpp11::emit_class_declaration_cpp11_or_later;
-use super::{common::*, CppDialect, Cpp11Generator};
+use super::{common::*, Cpp11Generator, CppDialect};
 use anyhow::Result;
 
 pub struct Cpp14Generator;
@@ -35,8 +35,11 @@ impl CppDialect for Cpp14Generator {
         let synthesized = synthesize_option_result_structs(ir);
         let mut sorted_structs: Vec<&StructDef> = ir.structs.iter().collect();
         sorted_structs.sort_by_key(|s| s.sort_order);
-        let all_structs: Vec<&StructDef> =
-            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
+        let all_structs: Vec<&StructDef> = sorted_structs
+            .iter()
+            .copied()
+            .chain(synthesized.iter())
+            .collect();
 
         code.push_str("// Forward declarations\r\n");
         for struct_def in &all_structs {
@@ -87,8 +90,14 @@ impl CppDialect for Cpp14Generator {
             // Cpp11Generator::generate_enum_wrapper).
             let c_type_name = config.apply_prefix(&enum_def.name);
             if enum_def.is_union {
-                code.push_str(&format!("// {} is a tagged union - use C API\r\n", enum_def.name));
-                code.push_str(&format!("using {} = {};\r\n\r\n", enum_def.name, c_type_name));
+                code.push_str(&format!(
+                    "// {} is a tagged union - use C API\r\n",
+                    enum_def.name
+                ));
+                code.push_str(&format!(
+                    "using {} = {};\r\n\r\n",
+                    enum_def.name, c_type_name
+                ));
             } else {
                 // Unit enum: scoped, non-prefixed value constants
                 // (`Update::RefreshDom`). C++14 namespace-scope `constexpr`

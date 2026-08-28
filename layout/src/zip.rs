@@ -2,9 +2,9 @@
 //!
 //! Provides a ZipFile struct for reading/writing ZIP archives.
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::format;
 use core::fmt;
 
 #[cfg(feature = "std")]
@@ -27,16 +27,19 @@ pub struct ZipReadConfig {
 }
 
 impl ZipReadConfig {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
-    
-    #[must_use] pub const fn with_max_file_size(mut self, max_size: u64) -> Self {
+
+    #[must_use]
+    pub const fn with_max_file_size(mut self, max_size: u64) -> Self {
         self.max_file_size = max_size;
         self
     }
-    
-    #[must_use] pub const fn with_allow_path_traversal(mut self, allow: bool) -> Self {
+
+    #[must_use]
+    pub const fn with_allow_path_traversal(mut self, allow: bool) -> Self {
         self.allow_path_traversal = allow;
         self
     }
@@ -68,26 +71,29 @@ impl Default for ZipWriteConfig {
 }
 
 impl ZipWriteConfig {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
-    
-    #[must_use] pub fn store() -> Self {
+
+    #[must_use]
+    pub fn store() -> Self {
         Self {
             compression_method: 0,
             compression_level: 0,
             ..Default::default()
         }
     }
-    
-    #[must_use] pub fn deflate(level: u8) -> Self {
+
+    #[must_use]
+    pub fn deflate(level: u8) -> Self {
         Self {
             compression_method: 1,
             compression_level: level.min(9),
             ..Default::default()
         }
     }
-    
+
     #[must_use]
     pub fn with_comment(mut self, comment: impl Into<String>) -> Self {
         self.comment = comment.into();
@@ -139,7 +145,7 @@ impl ZipFileEntry {
             is_directory: false,
         }
     }
-    
+
     /// Create a new directory entry
     pub fn directory(path: impl Into<String>) -> Self {
         Self {
@@ -172,7 +178,11 @@ pub enum ZipReadError {
     /// File is encrypted (unsupported)
     EncryptedFile(String),
     /// File too large
-    FileTooLarge { path: String, size: u64, max_size: u64 },
+    FileTooLarge {
+        path: String,
+        size: u64,
+        max_size: u64,
+    },
 }
 
 impl fmt::Display for ZipReadError {
@@ -183,7 +193,11 @@ impl fmt::Display for ZipReadError {
             Self::IoError(msg) => write!(f, "I/O error: {msg}"),
             Self::UnsafePath(path) => write!(f, "Unsafe path: {path}"),
             Self::EncryptedFile(path) => write!(f, "Encrypted file: {path}"),
-            Self::FileTooLarge { path, size, max_size } => {
+            Self::FileTooLarge {
+                path,
+                size,
+                max_size,
+            } => {
                 write!(f, "File too large: {path} ({size} > {max_size})")
             }
         }
@@ -232,18 +246,19 @@ pub struct ZipFile {
 
 impl ZipFile {
     /// Create a new empty ZIP archive
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
         }
     }
-    
+
     /// List contents of a ZIP archive without loading file data
-    /// 
+    ///
     /// # Arguments
     /// * `data` - ZIP file bytes
     /// * `config` - Read configuration
-    /// 
+    ///
     /// # Returns
     /// List of path entries (metadata only)
     #[cfg(feature = "zip")]
@@ -252,24 +267,25 @@ impl ZipFile {
     /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
     pub fn list(data: &[u8], config: &ZipReadConfig) -> Result<ZipPathEntryVec, ZipReadError> {
         use std::io::Cursor;
-        
+
         let cursor = Cursor::new(data);
-        let mut archive = zip::ZipArchive::new(cursor)
-            .map_err(|e| ZipReadError::InvalidFormat(e.to_string()))?;
-        
+        let mut archive =
+            zip::ZipArchive::new(cursor).map_err(|e| ZipReadError::InvalidFormat(e.to_string()))?;
+
         let mut entries = Vec::new();
-        
+
         for i in 0..archive.len() {
-            let file = archive.by_index(i)
+            let file = archive
+                .by_index(i)
                 .map_err(|e| ZipReadError::IoError(e.to_string()))?;
-            
+
             let path = file.name().to_string();
-            
+
             // Security check
             if !config.allow_path_traversal && path.contains("..") {
                 return Err(ZipReadError::UnsafePath(path));
             }
-            
+
             entries.push(ZipPathEntry {
                 path,
                 is_directory: file.is_dir(),
@@ -278,17 +294,17 @@ impl ZipFile {
                 crc32: file.crc32(),
             });
         }
-        
+
         Ok(entries)
     }
-    
+
     /// Extract a single file from ZIP data
-    /// 
+    ///
     /// # Arguments
     /// * `data` - ZIP file bytes
     /// * `entry` - The path entry to extract
     /// * `config` - Read configuration
-    /// 
+    ///
     /// # Returns
     /// The file contents, or None if not found
     #[cfg(feature = "zip")]
@@ -296,12 +312,12 @@ impl ZipFile {
     ///
     /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
     pub fn get_single_file(
-        data: &[u8], 
+        data: &[u8],
         entry: &ZipPathEntry,
         config: &ZipReadConfig,
     ) -> Result<Option<Vec<u8>>, ZipReadError> {
         use std::io::{Cursor, Read};
-        
+
         // Size check
         if config.max_file_size > 0 && entry.size > config.max_file_size {
             return Err(ZipReadError::FileTooLarge {
@@ -310,30 +326,30 @@ impl ZipFile {
                 max_size: config.max_file_size,
             });
         }
-        
+
         let cursor = Cursor::new(data);
-        let mut archive = zip::ZipArchive::new(cursor)
-            .map_err(|e| ZipReadError::InvalidFormat(e.to_string()))?;
-        
+        let mut archive =
+            zip::ZipArchive::new(cursor).map_err(|e| ZipReadError::InvalidFormat(e.to_string()))?;
+
         let mut file = match archive.by_name(&entry.path) {
             Ok(f) => f,
             Err(zip::result::ZipError::FileNotFound) => return Ok(None),
             Err(e) => return Err(ZipReadError::IoError(e.to_string())),
         };
-        
+
         if file.is_dir() {
             return Ok(Some(Vec::new()));
         }
-        
+
         let mut contents = Vec::with_capacity(usize::try_from(entry.size).unwrap_or(0));
         file.read_to_end(&mut contents)
             .map_err(|e| ZipReadError::IoError(e.to_string()))?;
-        
+
         Ok(Some(contents))
     }
-    
+
     /// Load a ZIP archive from bytes
-    /// 
+    ///
     /// # Arguments
     /// * `data` - ZIP file bytes (borrowed)
     /// * `config` - Read configuration
@@ -345,22 +361,23 @@ impl ZipFile {
         use std::io::{Cursor, Read};
 
         let cursor = Cursor::new(data);
-        let mut archive = zip::ZipArchive::new(cursor)
-            .map_err(|e| ZipReadError::InvalidFormat(e.to_string()))?;
-        
+        let mut archive =
+            zip::ZipArchive::new(cursor).map_err(|e| ZipReadError::InvalidFormat(e.to_string()))?;
+
         let mut entries = Vec::new();
-        
+
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i)
+            let mut file = archive
+                .by_index(i)
                 .map_err(|e| ZipReadError::IoError(e.to_string()))?;
-            
+
             let path = file.name().to_string();
-            
+
             // Security check
             if !config.allow_path_traversal && path.contains("..") {
                 return Err(ZipReadError::UnsafePath(path));
             }
-            
+
             // Size check
             if config.max_file_size > 0 && file.size() > config.max_file_size {
                 return Err(ZipReadError::FileTooLarge {
@@ -369,38 +386,37 @@ impl ZipFile {
                     max_size: config.max_file_size,
                 });
             }
-            
+
             let is_directory = file.is_dir();
             let mut file_data = Vec::new();
-            
+
             if !is_directory {
                 file.read_to_end(&mut file_data)
                     .map_err(|e| ZipReadError::IoError(e.to_string()))?;
             }
-            
+
             entries.push(ZipFileEntry {
                 path,
                 data: file_data,
                 is_directory,
             });
         }
-        
+
         Ok(Self { entries })
     }
-    
+
     /// Load a ZIP archive from a file path
     #[cfg(all(feature = "zip", feature = "std"))]
     /// # Errors
     ///
     /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
     pub fn from_file(path: &Path, config: &ZipReadConfig) -> Result<Self, ZipReadError> {
-        let data = std::fs::read(path)
-            .map_err(|e| ZipReadError::IoError(e.to_string()))?;
+        let data = std::fs::read(path).map_err(|e| ZipReadError::IoError(e.to_string()))?;
         Self::from_bytes(&data, config)
     }
-    
+
     /// Write the ZIP archive to bytes
-    /// 
+    ///
     /// # Arguments
     /// * `config` - Write configuration
     #[cfg(feature = "zip")]
@@ -410,44 +426,48 @@ impl ZipFile {
     pub fn to_bytes(&self, config: &ZipWriteConfig) -> Result<Vec<u8>, ZipWriteError> {
         use std::io::{Cursor, Write};
         use zip::write::SimpleFileOptions;
-        
+
         let buffer = Vec::new();
         let cursor = Cursor::new(buffer);
         let mut writer = zip::ZipWriter::new(cursor);
-        
+
         // Set archive comment
         if !config.comment.is_empty() {
             writer.set_comment(config.comment.clone());
         }
-        
+
         let compression = match config.compression_method {
             0 => zip::CompressionMethod::Stored,
             _ => zip::CompressionMethod::Deflated,
         };
-        
+
         let options = SimpleFileOptions::default()
             .compression_method(compression)
             .compression_level(Some(i64::from(config.compression_level)))
             .unix_permissions(config.unix_permissions);
-        
+
         for entry in &self.entries {
             if entry.is_directory {
-                writer.add_directory(&entry.path, options)
+                writer
+                    .add_directory(&entry.path, options)
                     .map_err(|e| ZipWriteError::IoError(e.to_string()))?;
             } else {
-                writer.start_file(&entry.path, options)
+                writer
+                    .start_file(&entry.path, options)
                     .map_err(|e| ZipWriteError::IoError(e.to_string()))?;
-                writer.write_all(&entry.data)
+                writer
+                    .write_all(&entry.data)
                     .map_err(|e| ZipWriteError::IoError(e.to_string()))?;
             }
         }
-        
-        let result = writer.finish()
+
+        let result = writer
+            .finish()
             .map_err(|e| ZipWriteError::IoError(e.to_string()))?;
-        
+
         Ok(result.into_inner())
     }
-    
+
     /// Write the ZIP archive to a file
     #[cfg(all(feature = "zip", feature = "std"))]
     /// # Errors
@@ -455,15 +475,14 @@ impl ZipFile {
     /// Returns a `ZipWriteError` if the archive cannot be built or written.
     pub fn to_file(&self, path: &Path, config: &ZipWriteConfig) -> Result<(), ZipWriteError> {
         let data = self.to_bytes(config)?;
-        std::fs::write(path, data)
-            .map_err(|e| ZipWriteError::IoError(e.to_string()))?;
+        std::fs::write(path, data).map_err(|e| ZipWriteError::IoError(e.to_string()))?;
         Ok(())
     }
-    
+
     // ========================================================================
     // Convenience methods for modifying the archive
     // ========================================================================
-    
+
     /// Add a file entry (consumes the data, no clone)
     pub fn add_file(&mut self, path: impl Into<String>, data: Vec<u8>) {
         let path = path.into();
@@ -471,37 +490,42 @@ impl ZipFile {
         self.entries.retain(|e| e.path != path);
         self.entries.push(ZipFileEntry::file(path, data));
     }
-    
+
     /// Add a directory entry
     pub fn add_directory(&mut self, path: impl Into<String>) {
         let path = path.into();
         self.entries.retain(|e| e.path != path);
         self.entries.push(ZipFileEntry::directory(path));
     }
-    
+
     /// Remove an entry by path
     pub fn remove(&mut self, path: &str) {
         self.entries.retain(|e| e.path != path);
     }
-    
+
     /// Get an entry by path
-    #[must_use] pub fn get(&self, path: &str) -> Option<&ZipFileEntry> {
+    #[must_use]
+    pub fn get(&self, path: &str) -> Option<&ZipFileEntry> {
         self.entries.iter().find(|e| e.path == path)
     }
-    
+
     /// Check if archive contains a path
-    #[must_use] pub fn contains(&self, path: &str) -> bool {
+    #[must_use]
+    pub fn contains(&self, path: &str) -> bool {
         self.entries.iter().any(|e| e.path == path)
     }
-    
+
     /// Get list of all paths
-    #[must_use] pub fn paths(&self) -> Vec<&str> {
+    #[must_use]
+    pub fn paths(&self) -> Vec<&str> {
         self.entries.iter().map(|e| e.path.as_str()).collect()
     }
-    
+
     /// Filter entries by suffix (e.g., ".fluent", ".json")
-    #[must_use] pub fn filter_by_suffix(&self, suffix: &str) -> Vec<&ZipFileEntry> {
-        self.entries.iter()
+    #[must_use]
+    pub fn filter_by_suffix(&self, suffix: &str) -> Vec<&ZipFileEntry> {
+        self.entries
+            .iter()
             .filter(|e| !e.is_directory && e.path.ends_with(suffix))
             .collect()
     }
@@ -516,7 +540,10 @@ impl ZipFile {
 /// # Errors
 ///
 /// Returns a `ZipWriteError` if the archive cannot be built or written.
-pub fn zip_create(entries: Vec<ZipFileEntry>, config: &ZipWriteConfig) -> Result<Vec<u8>, ZipWriteError> {
+pub fn zip_create(
+    entries: Vec<ZipFileEntry>,
+    config: &ZipWriteConfig,
+) -> Result<Vec<u8>, ZipWriteError> {
     let zip = ZipFile { entries };
     zip.to_bytes(config)
 }
@@ -527,7 +554,7 @@ pub fn zip_create(entries: Vec<ZipFileEntry>, config: &ZipWriteConfig) -> Result
 ///
 /// Returns a `ZipWriteError` if the archive cannot be built or written.
 pub fn zip_create_from_files(
-    files: Vec<(String, Vec<u8>)>, 
+    files: Vec<(String, Vec<u8>)>,
     config: &ZipWriteConfig,
 ) -> Result<Vec<u8>, ZipWriteError> {
     let entries: Vec<ZipFileEntry> = files
@@ -542,7 +569,10 @@ pub fn zip_create_from_files(
 /// # Errors
 ///
 /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
-pub fn zip_extract_all(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipFileEntry>, ZipReadError> {
+pub fn zip_extract_all(
+    data: &[u8],
+    config: &ZipReadConfig,
+) -> Result<Vec<ZipFileEntry>, ZipReadError> {
     let zip = ZipFile::from_bytes(data, config)?;
     Ok(zip.entries)
 }
@@ -552,7 +582,10 @@ pub fn zip_extract_all(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipFil
 /// # Errors
 ///
 /// Returns a `ZipReadError` if the archive is malformed or cannot be read.
-pub fn zip_list_contents(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipPathEntry>, ZipReadError> {
+pub fn zip_list_contents(
+    data: &[u8],
+    config: &ZipReadConfig,
+) -> Result<Vec<ZipPathEntry>, ZipReadError> {
     ZipFile::list(data, config)
 }
 
@@ -563,30 +596,30 @@ pub fn zip_list_contents(data: &[u8], config: &ZipReadConfig) -> Result<Vec<ZipP
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_zip_config_defaults() {
         let read_config = ZipReadConfig::default();
         assert_eq!(read_config.max_file_size, 0);
         assert!(!read_config.allow_path_traversal);
-        
+
         let write_config = ZipWriteConfig::default();
         assert_eq!(write_config.compression_method, 1);
         assert_eq!(write_config.compression_level, 6);
     }
-    
+
     #[test]
     fn test_zip_file_entry_creation() {
         let file = ZipFileEntry::file("test.txt", b"Hello".to_vec());
         assert_eq!(file.path, "test.txt");
         assert!(!file.is_directory);
         assert_eq!(file.data, b"Hello");
-        
+
         let dir = ZipFileEntry::directory("subdir/");
         assert!(dir.is_directory);
         assert!(dir.data.is_empty());
     }
-    
+
     #[cfg(feature = "zip")]
     #[test]
     fn test_zip_roundtrip() {
@@ -594,34 +627,34 @@ mod tests {
             ("hello.txt".to_string(), b"Hello, World!".to_vec()),
             ("sub/nested.txt".to_string(), b"Nested file".to_vec()),
         ];
-        
+
         let write_config = ZipWriteConfig::default();
         let zip_data = zip_create_from_files(files, &write_config).expect("Failed to create ZIP");
-        
+
         let read_config = ZipReadConfig::default();
         let entries = zip_extract_all(&zip_data, &read_config).expect("Failed to extract");
-        
+
         assert_eq!(entries.len(), 2);
         assert!(entries.iter().any(|e| e.path == "hello.txt"));
         assert!(entries.iter().any(|e| e.path == "sub/nested.txt"));
     }
-    
+
     #[cfg(feature = "zip")]
     #[test]
     fn test_zip_file_manipulation() {
         let mut zip = ZipFile::new();
-        
+
         zip.add_file("a.txt", b"AAA".to_vec());
         zip.add_file("b.txt", b"BBB".to_vec());
-        
+
         assert_eq!(zip.entries.len(), 2);
         assert!(zip.contains("a.txt"));
         assert!(zip.contains("b.txt"));
-        
+
         zip.remove("a.txt");
         assert_eq!(zip.entries.len(), 1);
         assert!(!zip.contains("a.txt"));
-        
+
         // Overwrite existing
         zip.add_file("b.txt", b"NEW".to_vec());
         assert_eq!(zip.entries.len(), 1);
@@ -702,7 +735,14 @@ mod autotest_generated {
         assert!(!base.allow_path_traversal);
         assert!(!base.skip_encrypted);
 
-        for size in [0u64, 1, u64::from(u32::MAX), u64::MAX / 2, u64::MAX - 1, u64::MAX] {
+        for size in [
+            0u64,
+            1,
+            u64::from(u32::MAX),
+            u64::MAX / 2,
+            u64::MAX - 1,
+            u64::MAX,
+        ] {
             let c = ZipReadConfig::new().with_max_file_size(size);
             assert_eq!(c.max_file_size, size);
             // the other fields must not be perturbed by the builder
@@ -719,8 +759,12 @@ mod autotest_generated {
         }
 
         // builders are order-independent and idempotent
-        let a = ZipReadConfig::new().with_max_file_size(7).with_allow_path_traversal(true);
-        let b = ZipReadConfig::new().with_allow_path_traversal(true).with_max_file_size(7);
+        let a = ZipReadConfig::new()
+            .with_max_file_size(7)
+            .with_allow_path_traversal(true);
+        let b = ZipReadConfig::new()
+            .with_allow_path_traversal(true)
+            .with_max_file_size(7);
         assert_eq!(a.max_file_size, b.max_file_size);
         assert_eq!(a.allow_path_traversal, b.allow_path_traversal);
         let c = a.with_max_file_size(7);
@@ -760,7 +804,10 @@ mod autotest_generated {
         for level in 0u16..=255 {
             let level = u8::try_from(level).unwrap();
             let cfg = ZipWriteConfig::deflate(level);
-            assert_eq!(cfg.compression_method, 1, "deflate() must always select Deflate");
+            assert_eq!(
+                cfg.compression_method, 1,
+                "deflate() must always select Deflate"
+            );
             assert_eq!(
                 cfg.compression_level,
                 level.min(9),
@@ -805,7 +852,9 @@ mod autotest_generated {
         assert_eq!(c.compression_level, 6);
 
         // with_comment accepts both &str and String, and last write wins
-        let c = ZipWriteConfig::store().with_comment("a").with_comment(String::from("b"));
+        let c = ZipWriteConfig::store()
+            .with_comment("a")
+            .with_comment(String::from("b"));
         assert_eq!(c.comment, "b");
         assert_eq!(c.compression_method, 0);
     }
@@ -907,7 +956,13 @@ mod autotest_generated {
         }
 
         // unicode / control / NUL payloads round-trip through Display unchanged
-        for payload in ["\u{1F600}", "e\u{0301}", "a\0b", "line\nbreak", &"L".repeat(50_000)] {
+        for payload in [
+            "\u{1F600}",
+            "e\u{0301}",
+            "a\0b",
+            "line\nbreak",
+            &"L".repeat(50_000),
+        ] {
             let err = ZipReadError::UnsafePath(payload.to_string());
             assert!(err.to_string().contains(payload));
         }
@@ -951,8 +1006,16 @@ mod autotest_generated {
             ZipReadError::FileNotFound("a".into())
         );
         assert_ne!(
-            ZipReadError::FileTooLarge { path: "p".into(), size: 1, max_size: 2 },
-            ZipReadError::FileTooLarge { path: "p".into(), size: 1, max_size: 3 }
+            ZipReadError::FileTooLarge {
+                path: "p".into(),
+                size: 1,
+                max_size: 2
+            },
+            ZipReadError::FileTooLarge {
+                path: "p".into(),
+                size: 1,
+                max_size: 3
+            }
         );
         assert_eq!(
             ZipWriteError::IoError("x".into()),
@@ -1080,7 +1143,11 @@ mod autotest_generated {
         zip.remove("file.txt");
         zip.remove("dir/file.tx");
         zip.remove("dir/file.txt ");
-        assert_eq!(zip.entries.len(), 1, "remove() must match the whole path only");
+        assert_eq!(
+            zip.entries.len(),
+            1,
+            "remove() must match the whole path only"
+        );
         zip.remove("dir/file.txt");
         assert!(zip.entries.is_empty());
     }
@@ -1099,8 +1166,17 @@ mod autotest_generated {
 
         // leading/trailing junk, case changes and near-misses are all rejected
         for p in [
-            " a.txt", "a.txt ", "A.TXT", "a.txt\0", "./a.txt", "/a.txt", "a.txt;x", "sub", "sub//",
-            "\u{1F600}", "\u{1F600}.TXT",
+            " a.txt",
+            "a.txt ",
+            "A.TXT",
+            "a.txt\0",
+            "./a.txt",
+            "/a.txt",
+            "a.txt;x",
+            "sub",
+            "sub//",
+            "\u{1F600}",
+            "\u{1F600}.TXT",
         ] {
             assert!(!zip.contains(p), "unexpected match for {p:?}");
             assert!(zip.get(p).is_none());
@@ -1209,10 +1285,10 @@ mod autotest_generated {
             b"not a zip file at all".to_vec(),
             vec![0u8; 22],
             vec![0xFF, 0xFE, 0x00],
-            vec![0xC3, 0x28, 0xA0, 0xA1],           // invalid UTF-8
-            b"PK".to_vec(),                          // truncated signature
-            b"PK\x03\x04".to_vec(),                  // local header signature only
-            b"PK\x05\x06".to_vec(),                  // truncated EOCD
+            vec![0xC3, 0x28, 0xA0, 0xA1], // invalid UTF-8
+            b"PK".to_vec(),               // truncated signature
+            b"PK\x03\x04".to_vec(),       // local header signature only
+            b"PK\x05\x06".to_vec(),       // truncated EOCD
             b"0 -0 NaN inf 9223372036854775807".to_vec(),
             "\u{1F600}\u{0301}".as_bytes().to_vec(), // multibyte unicode
             b"[".repeat(10_000),                     // "deeply nested" junk
@@ -1234,10 +1310,7 @@ mod autotest_generated {
                     // garbage must surface as a *parse* failure, never as a
                     // security/limit verdict (UnsafePath / FileTooLarge / ...)
                     assert!(
-                        matches!(
-                            e,
-                            ZipReadError::InvalidFormat(_) | ZipReadError::IoError(_)
-                        ),
+                        matches!(e, ZipReadError::InvalidFormat(_) | ZipReadError::IoError(_)),
                         "unexpected error kind for {:?}: {e:?}",
                         &data[..data.len().min(8)]
                     );
@@ -1318,7 +1391,16 @@ mod autotest_generated {
         assert!(ZipFile::from_bytes(&good, &cfg).is_ok());
 
         // every truncation prefix must be handled (Err or degenerate Ok), never a panic
-        for cut in [0, 1, 3, 4, 10, good.len() / 4, good.len() / 2, good.len() - 1] {
+        for cut in [
+            0,
+            1,
+            3,
+            4,
+            10,
+            good.len() / 4,
+            good.len() / 2,
+            good.len() - 1,
+        ] {
             let _ = ZipFile::from_bytes(&good[..cut], &cfg);
             let _ = ZipFile::list(&good[..cut], &cfg);
         }
@@ -1409,7 +1491,9 @@ mod autotest_generated {
         let deep = "a/".repeat(2000) + "leaf.txt";
         assert!(!deep.contains(".."));
         // 100 KiB payload with a non-degenerate byte distribution
-        let big: Vec<u8> = (0..100_000u32).map(|i| u8::try_from(i % 251).unwrap()).collect();
+        let big: Vec<u8> = (0..100_000u32)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect();
 
         let bytes = build(vec![
             ZipFileEntry::file(deep.clone(), b"leaf".to_vec()),
@@ -1444,7 +1528,9 @@ mod autotest_generated {
         // NOTE: the underlying writer rewrites "no_slash" -> "no_slash/", so the
         // path that comes back is NOT the path that went in. Asserted, not fixed.
         assert!(round.get("no_slash").is_none());
-        let without = round.get("no_slash/").expect("dir without slash was rewritten");
+        let without = round
+            .get("no_slash/")
+            .expect("dir without slash was rewritten");
         assert!(without.is_directory);
 
         assert!(!round.get("f.txt").unwrap().is_directory);
@@ -1632,7 +1718,11 @@ mod autotest_generated {
         assert!(ZipFile::from_bytes(&bytes, &at).is_ok());
         let under = ZipReadConfig::new().with_max_file_size(999);
         match ZipFile::from_bytes(&bytes, &under) {
-            Err(ZipReadError::FileTooLarge { path, size, max_size }) => {
+            Err(ZipReadError::FileTooLarge {
+                path,
+                size,
+                max_size,
+            }) => {
                 assert_eq!(path, "big.bin");
                 assert_eq!(size, 1000);
                 assert_eq!(max_size, 999);
@@ -1665,12 +1755,18 @@ mod autotest_generated {
         let loaded = ZipFile::from_bytes(&bytes, &cfg).unwrap();
         for m in &meta {
             let got = ZipFile::get_single_file(&bytes, m, &cfg).unwrap();
-            assert_eq!(got.as_deref(), Some(loaded.get(&m.path).unwrap().data.as_slice()));
+            assert_eq!(
+                got.as_deref(),
+                Some(loaded.get(&m.path).unwrap().data.as_slice())
+            );
         }
 
         // a directory yields an empty payload, not an error
         let dir = meta.iter().find(|m| m.is_directory).unwrap();
-        assert_eq!(ZipFile::get_single_file(&bytes, dir, &cfg).unwrap(), Some(Vec::new()));
+        assert_eq!(
+            ZipFile::get_single_file(&bytes, dir, &cfg).unwrap(),
+            Some(Vec::new())
+        );
 
         // missing / junk paths return Ok(None), never Err and never a panic
         for p in nasty_paths() {
@@ -1718,7 +1814,11 @@ mod autotest_generated {
             crc32: 0,
         };
         match ZipFile::get_single_file(b"total garbage", &entry, &cfg) {
-            Err(ZipReadError::FileTooLarge { path, size, max_size }) => {
+            Err(ZipReadError::FileTooLarge {
+                path,
+                size,
+                max_size,
+            }) => {
                 assert_eq!(path, "x");
                 assert_eq!(size, 11);
                 assert_eq!(max_size, 10);
@@ -1727,7 +1827,10 @@ mod autotest_generated {
         }
 
         // boundary: size == max is allowed through to the parser
-        let at_limit = ZipPathEntry { size: 10, ..entry.clone() };
+        let at_limit = ZipPathEntry {
+            size: 10,
+            ..entry.clone()
+        };
         assert!(matches!(
             ZipFile::get_single_file(b"total garbage", &at_limit, &cfg),
             Err(ZipReadError::InvalidFormat(_))
@@ -1735,7 +1838,10 @@ mod autotest_generated {
 
         // max_file_size == 0 disables the check entirely, even for u64::MAX sizes
         let unlimited = ZipReadConfig::default();
-        let huge = ZipPathEntry { size: u64::MAX, ..entry };
+        let huge = ZipPathEntry {
+            size: u64::MAX,
+            ..entry
+        };
         assert!(matches!(
             ZipFile::get_single_file(b"total garbage", &huge, &unlimited),
             Err(ZipReadError::InvalidFormat(_))
@@ -1841,7 +1947,11 @@ mod autotest_generated {
         let mut deflate_ish = ZipWriteConfig::store();
         deflate_ish.compression_method = 2;
         deflate_ish.compression_level = 6;
-        assert!(zip_create(vec![ZipFileEntry::file("a.txt", b"A".to_vec())], &deflate_ish).is_ok());
+        assert!(zip_create(
+            vec![ZipFileEntry::file("a.txt", b"A".to_vec())],
+            &deflate_ish
+        )
+        .is_ok());
     }
 
     /// BUG (documented, not fixed): `ZipWriteConfig::deflate(0)` is accepted by the
@@ -1859,7 +1969,11 @@ mod autotest_generated {
             "unexpected error for deflate(0): {err}"
         );
         // level 1 is the first level that actually works
-        assert!(zip_create(vec![ZipFileEntry::file("a.txt", b"A".to_vec())], &ZipWriteConfig::deflate(1)).is_ok());
+        assert!(zip_create(
+            vec![ZipFileEntry::file("a.txt", b"A".to_vec())],
+            &ZipWriteConfig::deflate(1)
+        )
+        .is_ok());
     }
 
     #[cfg(feature = "zip")]
@@ -1933,7 +2047,11 @@ mod autotest_generated {
         let bytes = zip_create(vec![ZipFileEntry::file(long.clone(), b"x".to_vec())], &cfg)
             .expect("60_000-byte path must be writable");
         assert_eq!(
-            ZipFile::from_bytes(&bytes, &loose).unwrap().get(&long).unwrap().data,
+            ZipFile::from_bytes(&bytes, &loose)
+                .unwrap()
+                .get(&long)
+                .unwrap()
+                .data,
             b"x"
         );
     }
@@ -1978,7 +2096,12 @@ mod autotest_generated {
 
         // a write-config failure is reported before the filesystem is touched
         let store = ZipWriteConfig::store();
-        assert!(zip.to_file(Path::new("/nonexistent_dir_azul_autotest_zip/x.zip"), &store).is_err());
+        assert!(zip
+            .to_file(
+                Path::new("/nonexistent_dir_azul_autotest_zip/x.zip"),
+                &store
+            )
+            .is_err());
     }
 
     #[cfg(all(feature = "zip", feature = "std"))]
@@ -2001,7 +2124,10 @@ mod autotest_generated {
                     .expect("archive written by to_file must be readable");
                 assert_eq!(round.entries.len(), 3);
                 assert_eq!(round.get("a.txt").unwrap().data, b"AAA");
-                assert_eq!(round.get("\u{1F600}/b.bin").unwrap().data, vec![0u8, 255, 128]);
+                assert_eq!(
+                    round.get("\u{1F600}/b.bin").unwrap().data,
+                    vec![0u8, 255, 128]
+                );
                 assert!(round.get("d/").unwrap().is_directory);
                 // to_file and to_bytes must produce identical content
                 let in_memory = zip.to_bytes(&ZipWriteConfig::default()).unwrap();

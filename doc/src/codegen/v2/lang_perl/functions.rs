@@ -26,11 +26,7 @@ use super::super::ir::{ArgRefKind, CodegenIR, FieldRefKind, FunctionDef, Functio
 use super::types::{should_emit_enum, should_emit_struct, type_with_ref_to_perl};
 
 /// Emit `$Azul::ffi->attach(...)` lines for every IR function.
-pub fn emit_attach_functions(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) {
+pub fn emit_attach_functions(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("# --- $ffi->attach declarations --------------------------------");
     builder.line("# (Subs are installed into the current package, Azul::FFI.)");
 

@@ -1,13 +1,12 @@
 /// Test case to reproduce the bounds.width=0 bug
-/// 
+///
 /// ISSUE: When layout_flow is called with valid available_width (e.g., 800.0),
 /// the returned FragmentLayout has bounds.width=0, causing text to be positioned
 /// vertically instead of horizontally.
-/// 
+///
 // This test should FAIL initially, demonstrating the bug.
 use azul_layout::text3::cache::{
-    AvailableSpace, InlineContent, LayoutFragment, StyledRun, TextShapingCache,
-    UnifiedConstraints,
+    AvailableSpace, InlineContent, LayoutFragment, StyledRun, TextShapingCache, UnifiedConstraints,
 };
 
 use super::{create_mock_font_manager, default_style};
@@ -52,8 +51,9 @@ fn test_available_width_should_produce_nonzero_bounds() {
     println!("\nCalling layout_flow()...");
 
     // Perform layout
-    let result = super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
-        .expect("layout_flow should succeed");
+    let result =
+        super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
+            .expect("layout_flow should succeed");
 
     println!("layout_flow() completed");
 
@@ -73,10 +73,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
     if !fragment.items.is_empty() {
         println!("\nItem positions:");
         for (i, item) in fragment.items.iter().take(5).enumerate() {
-            println!(
-                "    [{}] pos=({}, {})",
-                i, item.position.x, item.position.y
-            );
+            println!("    [{}] pos=({}, {})", i, item.position.x, item.position.y);
         }
         if fragment.items.len() > 5 {
             println!("    ... ({} more items)", fragment.items.len() - 5);
@@ -88,7 +85,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
     // CRITICAL ASSERTION: bounds.width should NOT be zero!
     // With available_width=800.0 and text "Hello World" (11 chars),
     // we expect bounds.width to be > 0 (approximately the width of the text)
-    
+
     println!("Checking: bounds.width > 0");
     assert!(
         frag_bounds.width > 0.0,
@@ -119,11 +116,11 @@ fn test_available_width_should_produce_nonzero_bounds() {
     if fragment.items.len() > 1 {
         let first_x = fragment.items[0].position.x;
         let last_x = fragment.items[fragment.items.len() - 1].position.x;
-        
+
         println!("Checking: horizontal layout (last_x > first_x)");
         println!("  first_x: {first_x}");
         println!("  last_x: {last_x}");
-        
+
         assert!(
             last_x > first_x,
             "FAIL: Text appears to be laid out vertically (first_x={first_x}, last_x={last_x}). \
@@ -158,8 +155,9 @@ fn test_available_width_zero_should_produce_zero_bounds() {
         constraints,
     }];
 
-    let result = super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
-        .expect("layout_flow should succeed");
+    let result =
+        super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
+            .expect("layout_flow should succeed");
 
     let fragment = result.fragment_layouts.get("test").unwrap();
 
@@ -194,8 +192,9 @@ fn test_available_width_infinite_should_produce_full_width() {
         constraints,
     }];
 
-    let result = super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
-        .expect("layout_flow should succeed");
+    let result =
+        super::layout_flow_compat(&mut text_cache, &content, &[], &fragments, &font_manager)
+            .expect("layout_flow should succeed");
 
     let fragment = result.fragment_layouts.get("test").unwrap();
 

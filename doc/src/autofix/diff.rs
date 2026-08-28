@@ -631,19 +631,21 @@ pub fn generate_diff(
                         super::type_index::TypeDefKind::Enum {
                             variants, derives, ..
                         } => {
-                            let variant_vec: Vec<(String, Option<String>, crate::api::RefKind)> = variants
-                                .iter()
-                                .map(|(name, variant)| {
-                                    let (base_ty, rk) = match variant.ty.as_deref() {
-                                        Some(t) => {
-                                            let (b, k) = crate::autofix::utils::extract_type_and_ref_kind(t);
-                                            (Some(b), k)
-                                        }
-                                        None => (None, crate::api::RefKind::Value),
-                                    };
-                                    (name.clone(), base_ty, rk)
-                                })
-                                .collect();
+                            let variant_vec: Vec<(String, Option<String>, crate::api::RefKind)> =
+                                variants
+                                    .iter()
+                                    .map(|(name, variant)| {
+                                        let (base_ty, rk) = match variant.ty.as_deref() {
+                                            Some(t) => {
+                                                let (b, k) =
+                                                crate::autofix::utils::extract_type_and_ref_kind(t);
+                                                (Some(b), k)
+                                            }
+                                            None => (None, crate::api::RefKind::Value),
+                                        };
+                                        (name.clone(), base_ty, rk)
+                                    })
+                                    .collect();
                             (None, Some(variant_vec), derives, None)
                         }
                         super::type_index::TypeDefKind::CallbackTypedef {
@@ -1032,7 +1034,10 @@ fn collect_api_json_types(api_data: &ApiData) -> BTreeMap<String, ApiTypeInfo> {
                     }
                 }
 
-                let has_constructors = class_data.constructors.as_ref().map_or(false, |c| !c.is_empty());
+                let has_constructors = class_data
+                    .constructors
+                    .as_ref()
+                    .map_or(false, |c| !c.is_empty());
 
                 types.insert(
                     class_name.clone(),
@@ -1216,8 +1221,11 @@ fn generate_diff_v2(
                 ));
 
                 // Check if type is in the wrong module
-                if let Some(correct_module) = get_correct_module_with_path(matched_api_name, &api_info.module, Some(&api_info.path))
-                {
+                if let Some(correct_module) = get_correct_module_with_path(
+                    matched_api_name,
+                    &api_info.module,
+                    Some(&api_info.path),
+                ) {
                     diff.module_moves.push(ModuleMove {
                         type_name: matched_api_name.to_string(),
                         from_module: api_info.module.clone(),
@@ -1275,7 +1283,9 @@ fn generate_diff_v2(
 
         // Check if ANY type (matched or not) is in the wrong module
         // This ensures we move legacy module types even if they weren't resolved from workspace
-        if let Some(correct_module) = get_correct_module_with_path(api_name, &api_info.module, Some(&api_info.path)) {
+        if let Some(correct_module) =
+            get_correct_module_with_path(api_name, &api_info.module, Some(&api_info.path))
+        {
             // Avoid duplicate moves (already added in matched types loop)
             let already_has_move = diff.module_moves.iter().any(|m| m.type_name == *api_name);
 
@@ -1345,7 +1355,9 @@ fn generate_diff_v2(
     // We must detect dead types on the MERGED state (current - removals + additions),
     // otherwise removing a dead parent can cause its children to be re-added as new types,
     // oscillating between add/remove cycles.
-    let already_removed: BTreeSet<String> = diff.removals.iter()
+    let already_removed: BTreeSet<String> = diff
+        .removals
+        .iter()
         .map(|r| r.split(':').next().unwrap_or(r).to_string())
         .collect();
 
@@ -1359,52 +1371,62 @@ fn generate_diff_v2(
     // Convert proposed additions to ApiTypeInfo for dead cluster detection
     for addition in &diff.additions {
         let struct_fields = addition.struct_fields.as_ref().map(|fields| {
-            fields.iter().map(|(name, ty, ref_kind)| {
-                let rk = match ref_kind.as_str() {
-                    "constptr" => crate::api::RefKind::ConstPtr,
-                    "mutptr" => crate::api::RefKind::MutPtr,
-                    "ref" => crate::api::RefKind::Ref,
-                    "refmut" => crate::api::RefKind::RefMut,
-                    _ => crate::api::RefKind::Value,
-                };
-                (name.clone(), ty.clone(), rk)
-            }).collect()
+            fields
+                .iter()
+                .map(|(name, ty, ref_kind)| {
+                    let rk = match ref_kind.as_str() {
+                        "constptr" => crate::api::RefKind::ConstPtr,
+                        "mutptr" => crate::api::RefKind::MutPtr,
+                        "ref" => crate::api::RefKind::Ref,
+                        "refmut" => crate::api::RefKind::RefMut,
+                        _ => crate::api::RefKind::Value,
+                    };
+                    (name.clone(), ty.clone(), rk)
+                })
+                .collect()
         });
         let enum_variants = addition.enum_variants.clone();
         let (callback_args, callback_returns) = if let Some(ref cb) = addition.callback_typedef {
-            let args: Vec<(String, crate::api::RefKind)> = cb.fn_args.iter().map(|(ty, rk)| {
-                let ref_kind = match rk.as_str() {
-                    "constptr" => crate::api::RefKind::ConstPtr,
-                    "mutptr" => crate::api::RefKind::MutPtr,
-                    "ref" => crate::api::RefKind::Ref,
-                    "refmut" => crate::api::RefKind::RefMut,
-                    _ => crate::api::RefKind::Value,
-                };
-                (ty.clone(), ref_kind)
-            }).collect();
+            let args: Vec<(String, crate::api::RefKind)> = cb
+                .fn_args
+                .iter()
+                .map(|(ty, rk)| {
+                    let ref_kind = match rk.as_str() {
+                        "constptr" => crate::api::RefKind::ConstPtr,
+                        "mutptr" => crate::api::RefKind::MutPtr,
+                        "ref" => crate::api::RefKind::Ref,
+                        "refmut" => crate::api::RefKind::RefMut,
+                        _ => crate::api::RefKind::Value,
+                    };
+                    (ty.clone(), ref_kind)
+                })
+                .collect();
             let returns = cb.returns.clone();
             (Some(args), returns)
         } else {
             (None, None)
         };
 
-        merged_types.insert(addition.type_name.clone(), ApiTypeInfo {
-            path: addition.full_path.clone(),
-            module: String::new(),
-            derives: addition.derives.clone(),
-            custom_impls: vec![],
-            repr: None,
-            struct_fields,
-            enum_variants,
-            callback_args,
-            callback_returns,
-            type_alias_target: None,
-            type_alias_generic_args: vec![],
-            generic_params: vec![],
-            functions: BTreeMap::new(), // additions don't have functions
-            has_constructors: false,
-            vec_element_type: None,
-        });
+        merged_types.insert(
+            addition.type_name.clone(),
+            ApiTypeInfo {
+                path: addition.full_path.clone(),
+                module: String::new(),
+                derives: addition.derives.clone(),
+                custom_impls: vec![],
+                repr: None,
+                struct_fields,
+                enum_variants,
+                callback_args,
+                callback_returns,
+                type_alias_target: None,
+                type_alias_generic_args: vec![],
+                generic_params: vec![],
+                functions: BTreeMap::new(), // additions don't have functions
+                has_constructors: false,
+                vec_element_type: None,
+            },
+        );
     }
 
     let dead_types = find_dead_type_clusters(&merged_types);
@@ -1419,15 +1441,18 @@ fn generate_diff_v2(
                 continue;
             }
             if let Some(api_info) = current_api_types.get(dead_type) {
-                diff.removals.push(format!("{}:{}", dead_type, api_info.path));
+                diff.removals
+                    .push(format!("{}:{}", dead_type, api_info.path));
             }
         }
     }
 
     // Filter out modifications and additions for dead types - they'd conflict with removals
     if !dead_types.is_empty() {
-        diff.modifications.retain(|m| !dead_types.contains(&m.type_name));
-        diff.additions.retain(|a| !dead_types.contains(&a.type_name));
+        diff.modifications
+            .retain(|m| !dead_types.contains(&m.type_name));
+        diff.additions
+            .retain(|a| !dead_types.contains(&a.type_name));
     }
 
     diff
@@ -1449,9 +1474,7 @@ fn generate_diff_v2(
 ///
 /// Primitive types (u8, bool, usize, etc.) and `c_void` are not api.json types
 /// and are ignored in the graph.
-fn find_dead_type_clusters(
-    current_api_types: &BTreeMap<String, ApiTypeInfo>,
-) -> BTreeSet<String> {
+fn find_dead_type_clusters(current_api_types: &BTreeMap<String, ApiTypeInfo>) -> BTreeSet<String> {
     use std::collections::VecDeque;
 
     let all_type_names: BTreeSet<&str> = current_api_types.keys().map(|s| s.as_str()).collect();
@@ -1788,7 +1811,8 @@ fn compare_struct_fields(
             |(ws, (api_name, api_type, api_ref_kind))| {
                 let name_differs = ws.name != *api_name;
                 // Check if types are equivalent (handles Arc<T>/Box<T>/Rc<T> = *const c_void)
-                let types_equivalent = are_types_equivalent(&ws.ty, ws.ref_kind, api_type, *api_ref_kind);
+                let types_equivalent =
+                    are_types_equivalent(&ws.ty, ws.ref_kind, api_type, *api_ref_kind);
                 name_differs || !types_equivalent
             },
         )
@@ -1852,10 +1876,8 @@ fn compare_enum_variants(
         true
     } else {
         // Compare variant by variant in order
-        workspace_variants
-            .iter()
-            .zip(api_variants.iter())
-            .any(|(ws, (api_name, api_type, api_ref_kind))| {
+        workspace_variants.iter().zip(api_variants.iter()).any(
+            |(ws, (api_name, api_type, api_ref_kind))| {
                 let name_differs = ws.name != *api_name;
                 let workspace_normalized = ws.ty.as_ref().map(|t| {
                     // Use normalize_generic_type to collapse BoxOrStatic<T> → BoxOrStaticT, etc.
@@ -1866,7 +1888,8 @@ fn compare_enum_variants(
                 let type_differs = workspace_normalized != api_normalized;
                 let ref_kind_differs = ws.ref_kind != *api_ref_kind;
                 name_differs || type_differs || ref_kind_differs
-            })
+            },
+        )
     };
 
     // If any difference exists, replace ALL variants with the correct ones from workspace
@@ -2452,13 +2475,13 @@ fn build_element_to_option_map(
     current_api_types: &BTreeMap<String, ApiTypeInfo>,
 ) -> BTreeMap<String, String> {
     let mut element_to_option: BTreeMap<String, String> = BTreeMap::new();
-    
+
     for (type_name, api_info) in current_api_types {
         // Only consider Option types (start with "Option" and have enum variants)
         if !type_name.starts_with("Option") {
             continue;
         }
-        
+
         if let Some(ref variants) = api_info.enum_variants {
             // Look for the Some variant and extract its inner type
             for (variant_name, variant_type, _) in variants {
@@ -2472,12 +2495,12 @@ fn build_element_to_option_map(
             }
         }
     }
-    
+
     element_to_option
 }
 
 /// Collect all types that are required by Vec types for their macro-generated functions.
-/// 
+///
 /// Vec types (generated by impl_vec!) have functions like:
 /// - `c_get(&self, index) -> OptionElementType` - needs the Option wrapper type
 /// - `as_c_slice(&self) -> VecTypeSlice` - needs the Slice type
@@ -2494,7 +2517,7 @@ fn collect_vec_required_types(
     reachable_types: &BTreeSet<String>,
 ) -> BTreeSet<String> {
     let mut required_types = BTreeSet::new();
-    
+
     for (type_name, api_info) in current_api_types {
         // Only protect sub-types of Vec types that are themselves reachable.
         // This prevents dead circular type clusters from being kept alive:
@@ -2508,67 +2531,67 @@ fn collect_vec_required_types(
         if type_name.starts_with("Option") && type_name.ends_with("Vec") {
             continue;
         }
-        
+
         // Skip VecRef and VecRefMut types
         if type_name.ends_with("VecRef") || type_name.ends_with("VecRefMut") {
             continue;
         }
-        
+
         // Check if this is a Vec type
         let is_vec_type = if api_info.vec_element_type.is_some() {
             true
         } else if type_name.ends_with("Vec") {
             // Check if it has the standard Vec fields: ptr, len, cap, destructor
             if let Some(ref fields) = api_info.struct_fields {
-                let field_names: BTreeSet<&str> = fields.iter()
-                    .map(|(name, _, _)| name.as_str())
-                    .collect();
-                field_names.contains("ptr") && 
-                field_names.contains("len") && 
-                field_names.contains("cap") && 
-                field_names.contains("destructor")
+                let field_names: BTreeSet<&str> =
+                    fields.iter().map(|(name, _, _)| name.as_str()).collect();
+                field_names.contains("ptr")
+                    && field_names.contains("len")
+                    && field_names.contains("cap")
+                    && field_names.contains("destructor")
             } else {
                 false
             }
         } else {
             false
         };
-        
+
         if !is_vec_type {
             continue;
         }
-        
+
         // Determine element type
         let element_type = if let Some(ref elem_type) = api_info.vec_element_type {
             elem_type.clone()
         } else if let Some(ref fields) = api_info.struct_fields {
             // Look for the 'ptr' field and get its type
-            fields.iter()
+            fields
+                .iter()
                 .find(|(name, _, _)| name == "ptr")
                 .map(|(_, type_str, _)| type_str.clone())
                 .unwrap_or_else(|| infer_element_type_from_name(type_name))
         } else {
             infer_element_type_from_name(type_name)
         };
-        
+
         // Get the Option type for c_get function
         let option_type_name = element_to_option_map
             .get(&element_type)
             .cloned()
             .unwrap_or_else(|| canonicalize_option_type_name(&element_type));
-        
+
         // Get the Slice type for as_c_slice / as_c_slice_range functions
         let slice_type_name = format!("{}Slice", type_name);
-        
+
         // Add these as required types (should not be removed)
         required_types.insert(option_type_name);
         required_types.insert(slice_type_name);
-        
+
         // Also add the element type itself and its destructor
         required_types.insert(element_type.clone());
         required_types.insert(format!("{}VecDestructor", element_type));
     }
-    
+
     required_types
 }
 
@@ -2605,13 +2628,12 @@ fn check_vec_functions(
     } else if type_name.ends_with("Vec") {
         // Check if it has the standard Vec fields: ptr, len, cap, destructor
         if let Some(ref fields) = api_info.struct_fields {
-            let field_names: std::collections::BTreeSet<&str> = fields.iter()
-                .map(|(name, _, _)| name.as_str())
-                .collect();
-            field_names.contains("ptr") && 
-            field_names.contains("len") && 
-            field_names.contains("cap") && 
-            field_names.contains("destructor")
+            let field_names: std::collections::BTreeSet<&str> =
+                fields.iter().map(|(name, _, _)| name.as_str()).collect();
+            field_names.contains("ptr")
+                && field_names.contains("len")
+                && field_names.contains("cap")
+                && field_names.contains("destructor")
         } else {
             false
         }
@@ -2631,10 +2653,11 @@ fn check_vec_functions(
         elem_type.clone()
     } else if let Some(ref fields) = api_info.struct_fields {
         // Look for the 'ptr' field and get its type
-        let ptr_type = fields.iter()
+        let ptr_type = fields
+            .iter()
             .find(|(name, _, _)| name == "ptr")
             .map(|(_, type_str, _)| type_str.clone());
-        
+
         if let Some(pt) = ptr_type {
             pt
         } else {
@@ -2651,12 +2674,12 @@ fn check_vec_functions(
         .get(&element_type)
         .cloned()
         .unwrap_or_else(|| canonicalize_option_type_name(&element_type));
-    
+
     let slice_type_name = format!("{}Slice", type_name);
-    
+
     // Check if OptionX exists in api.json (needed for c_get)
     let option_type_exists = current_api_types.contains_key(&option_type_name);
-    
+
     // Check if XVecSlice exists in api.json (needed for as_c_slice, as_c_slice_range)
     let slice_type_exists = current_api_types.contains_key(&slice_type_name);
 
@@ -2671,7 +2694,7 @@ fn check_vec_functions(
             },
         });
     }
-    
+
     if !slice_type_exists {
         modifications.push(TypeModification {
             type_name: type_name.to_string(),
@@ -2684,11 +2707,8 @@ fn check_vec_functions(
     }
 
     // Find missing functions
-    let existing_functions: std::collections::BTreeSet<&str> = api_info
-        .functions
-        .keys()
-        .map(|s| s.as_str())
-        .collect();
+    let existing_functions: std::collections::BTreeSet<&str> =
+        api_info.functions.keys().map(|s| s.as_str()).collect();
 
     // Filter out functions that require missing dependency types
     let missing: Vec<String> = VEC_STANDARD_FUNCTIONS
@@ -2724,7 +2744,7 @@ fn check_vec_functions(
 /// Infer Vec element type from type name (fallback when struct_fields not available)
 fn infer_element_type_from_name(type_name: &str) -> String {
     let base = &type_name[..type_name.len() - 3]; // Remove "Vec" suffix
-    // Handle special cases like "U8Vec" -> "u8", "U16Vec" -> "u16", etc.
+                                                  // Handle special cases like "U8Vec" -> "u8", "U16Vec" -> "u16", etc.
     match base {
         "U8" => "u8".to_string(),
         "U16" => "u16".to_string(),
@@ -2805,7 +2825,10 @@ mod api_json_declared_derives {
 
         // The generated Rust mirror. If codegen has not been run, skip rather
         // than report a false pass: an absent file is not evidence of anything.
-        let gen = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/codegen/dll_api_internal.rs");
+        let gen = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../target/codegen/dll_api_internal.rs"
+        );
         let Ok(src) = std::fs::read_to_string(gen) else {
             eprintln!("skipping: {gen} not present (run `azul-doc codegen all` first)");
             return;
@@ -2897,11 +2920,19 @@ mod api_json_declared_derives {
                 // already was: `Hash` is not in the prelude, so a generated impl
                 // must spell it `impl core::hash::Hash for AzX` — that is a real
                 // implementation and has to count as one.
-                let hand_impl = ["", "core::fmt::", "::core::fmt::", "core::hash::", "::core::hash::"]
-                    .iter()
-                    .any(|path| src.contains(&format!("impl {path}{d} for {az} {{")));
+                let hand_impl = [
+                    "",
+                    "core::fmt::",
+                    "::core::fmt::",
+                    "core::hash::",
+                    "::core::hash::",
+                ]
+                .iter()
+                .any(|path| src.contains(&format!("impl {path}{d} for {az} {{")));
                 if !attrs.contains(d.as_str()) && !hand_impl {
-                    missing.push(format!("{az} declares {d} but neither derives nor implements it"));
+                    missing.push(format!(
+                        "{az} declares {d} but neither derives nor implements it"
+                    ));
                 }
             }
         }

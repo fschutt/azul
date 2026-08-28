@@ -74,14 +74,16 @@ impl File {
         }
     }
     /// Opens a file in read-only mode, returning `None` on failure.
-    #[must_use] pub fn open(path: &str) -> Option<Self> {
+    #[must_use]
+    pub fn open(path: &str) -> Option<Self> {
         Some(Self::new(
             fs::File::open(path).ok()?,
             path.to_string().into(),
         ))
     }
     /// Creates a file (truncating if it exists), returning `None` on failure.
-    #[must_use] pub fn create(path: &str) -> Option<Self> {
+    #[must_use]
+    pub fn create(path: &str) -> Option<Self> {
         Some(Self::new(
             fs::File::create(path).ok()?,
             path.to_string().into(),
@@ -189,7 +191,10 @@ mod autotest_generated {
         let file = File::new(handle, temp.as_str().to_string().into());
 
         assert_eq!(file.path.as_str(), temp.as_str());
-        assert!(file.run_destructor, "a freshly built File must own its handle");
+        assert!(
+            file.run_destructor,
+            "a freshly built File must own its handle"
+        );
         assert_eq!(
             Arc::strong_count(&file.ptr),
             1,
@@ -404,12 +409,18 @@ mod autotest_generated {
         let mut file = File::create(temp.as_str()).expect("create");
         assert!(file.write_string("hello world"));
         assert_eq!(file.read_to_string().expect("read").as_str(), "hello world");
-        assert_eq!(file.read_to_bytes().expect("read").as_slice(), b"hello world");
+        assert_eq!(
+            file.read_to_bytes().expect("read").as_slice(),
+            b"hello world"
+        );
 
         // ...and the same content survives a close + reopen cycle.
         file.close();
         let mut reopened = File::open(temp.as_str()).expect("reopen");
-        assert_eq!(reopened.read_to_string().expect("read").as_str(), "hello world");
+        assert_eq!(
+            reopened.read_to_string().expect("read").as_str(),
+            "hello world"
+        );
     }
 
     #[test]
@@ -417,7 +428,10 @@ mod autotest_generated {
         let temp = TempPath::new("empty_write");
         let mut file = File::create(temp.as_str()).expect("create");
 
-        assert!(file.write_bytes(&[]), "writing zero bytes must still succeed");
+        assert!(
+            file.write_bytes(&[]),
+            "writing zero bytes must still succeed"
+        );
         assert!(file.write_string(""));
         assert_eq!(file.read_to_string().expect("read").as_str(), "");
         assert_eq!(file.read_to_bytes().expect("read").len(), 0);
@@ -449,7 +463,10 @@ mod autotest_generated {
 
         let reopened = File::open(temp.as_str()).expect("reopen unicode path");
         assert_eq!(reopened.path.as_str(), temp.as_str());
-        assert_eq!(reopened, file, "equality is path-based, so these must match");
+        assert_eq!(
+            reopened, file,
+            "equality is path-based, so these must match"
+        );
     }
 
     #[test]
@@ -604,7 +621,10 @@ mod autotest_generated {
 
         file.close();
         let mut reopened = File::open(temp.as_str()).expect("reopen after close");
-        assert_eq!(reopened.read_to_string().expect("read").as_str(), "persisted!");
+        assert_eq!(
+            reopened.read_to_string().expect("read").as_str(),
+            "persisted!"
+        );
     }
 
     #[test]
@@ -629,8 +649,16 @@ mod autotest_generated {
             "line\nbreak\ttab",
         ] {
             let file = with_path(path);
-            assert_eq!(format!("{file}"), path, "Display must echo the path verbatim");
-            assert_eq!(format!("{file:?}"), path, "Debug must echo the path verbatim");
+            assert_eq!(
+                format!("{file}"),
+                path,
+                "Display must echo the path verbatim"
+            );
+            assert_eq!(
+                format!("{file:?}"),
+                path,
+                "Debug must echo the path verbatim"
+            );
             assert_eq!(
                 format!("{file}"),
                 format!("{file:?}"),
@@ -678,7 +706,10 @@ mod autotest_generated {
         let emoji = with_path("\u{1F600}");
         assert_eq!(empty.partial_cmp(&emoji), "".partial_cmp("\u{1F600}"));
         assert_eq!(emoji.partial_cmp(&empty), "\u{1F600}".partial_cmp(""));
-        assert_eq!(emoji.partial_cmp(&emoji.clone()), Some(core::cmp::Ordering::Equal));
+        assert_eq!(
+            emoji.partial_cmp(&emoji.clone()),
+            Some(core::cmp::Ordering::Equal)
+        );
 
         // Reflexive / symmetric on a clone (which shares the handle).
         let cloned = a1.clone();

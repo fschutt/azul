@@ -2713,7 +2713,10 @@ mod priority_contract {
             for (module_name, module) in &version_data.api {
                 check(format!("{version} mod {module_name}"), module.priority);
                 for (class_name, class) in &module.classes {
-                    check(format!("{version} {module_name}.{class_name}"), class.priority);
+                    check(
+                        format!("{version} {module_name}.{class_name}"),
+                        class.priority,
+                    );
                     for (name, f) in class.constructors.iter().flatten() {
                         check(
                             format!("{version} {module_name}.{class_name}.{name}"),

@@ -20,8 +20,8 @@
 //! DOMs on successive frames.
 
 use std::cell::RefCell;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
 use azul_core::dom::{Dom, NodeData};
@@ -72,8 +72,9 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     };
 
     if ctx.include_image.load(Ordering::SeqCst) {
-        Dom::create_body()
-            .with_child(Dom::create_from_data(NodeData::create_image(ctx.image.clone())))
+        Dom::create_body().with_child(Dom::create_from_data(NodeData::create_image(
+            ctx.image.clone(),
+        )))
     } else {
         Dom::create_body()
     }
@@ -145,8 +146,7 @@ fn image_lifecycle_produces_add_then_disappears_from_scan() {
         .as_ref()
         .expect("layout_window populated after first regenerate_layout");
 
-    let used_frame0 = layout_window
-        .scan_used_images(&azul_core::resources::ImageCache::new());
+    let used_frame0 = layout_window.scan_used_images(&azul_core::resources::ImageCache::new());
     assert!(
         used_frame0.contains(&expected_hash),
         "frame 0: the image we placed in the DOM must appear in scan_used_images \
@@ -171,8 +171,7 @@ fn image_lifecycle_produces_add_then_disappears_from_scan() {
     assert_eq!(*hash0, expected_hash, "AddImage hash must match");
 
     // ImageKey must round-trip from the hash losslessly.
-    let expected_key =
-        image_ref_hash_to_image_key(expected_hash, layout_window.id_namespace);
+    let expected_key = image_ref_hash_to_image_key(expected_hash, layout_window.id_namespace);
     assert_eq!(
         add_msg0.0.key, expected_key,
         "AddImage.key must equal image_ref_hash_to_image_key(hash, ns) exactly"
@@ -190,8 +189,7 @@ fn image_lifecycle_produces_add_then_disappears_from_scan() {
         .as_ref()
         .expect("layout_window still populated after second regenerate_layout");
 
-    let used_frame1 = layout_window
-        .scan_used_images(&azul_core::resources::ImageCache::new());
+    let used_frame1 = layout_window.scan_used_images(&azul_core::resources::ImageCache::new());
     assert!(
         !used_frame1.contains(&expected_hash),
         "frame 1: image is no longer referenced by the DOM, so scan_used_images \
@@ -225,7 +223,10 @@ fn stale_image_is_deleted_after_retention_window() {
     let image = make_image();
     let expected_hash = image.get_hash();
     let include_image = Arc::new(AtomicBool::new(true));
-    let ctx = Ctx { include_image: include_image.clone(), image: image.clone() };
+    let ctx = Ctx {
+        include_image: include_image.clone(),
+        image: image.clone(),
+    };
     drop(image);
 
     let mut window = make_window(ctx);
@@ -233,7 +234,9 @@ fn stale_image_is_deleted_after_retention_window() {
     // Frame 0 → image on screen. Grab a real (key, descriptor) from the
     // AddImage the collector produces, then register it by hand exactly as
     // register_frame_resources would (the test harness never runs a WR txn).
-    window.regenerate_layout().expect("frame 0 regenerate_layout");
+    window
+        .regenerate_layout()
+        .expect("frame 0 regenerate_layout");
     let (key, descriptor, epoch0) = {
         let lw = window.common.layout_window.as_ref().expect("layout_window");
         let (adds, live) = collect_image_resource_updates(lw, &lw.renderer_resources);
@@ -280,7 +283,13 @@ fn stale_image_is_deleted_after_retention_window() {
         other => panic!("expected DeleteImage, got {:?}", other),
     }
     let rr = &lw.renderer_resources;
-    assert!(!rr.currently_registered_images.contains_key(&expected_hash), "evicted from registry");
+    assert!(
+        !rr.currently_registered_images.contains_key(&expected_hash),
+        "evicted from registry"
+    );
     assert!(!rr.image_key_map.contains_key(&key), "evicted from key map");
-    assert!(!rr.image_last_seen_epoch.contains_key(&expected_hash), "evicted from gc map");
+    assert!(
+        !rr.image_last_seen_epoch.contains_key(&expected_hash),
+        "evicted from gc map"
+    );
 }

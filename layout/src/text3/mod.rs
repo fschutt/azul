@@ -13,8 +13,8 @@
 //! - `selection`: text selection and cursor utilities
 
 pub mod cache;
-pub mod dense;
 pub mod default;
+pub mod dense;
 pub mod edit;
 pub mod glyphs;
 pub mod knuth_plass;

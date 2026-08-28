@@ -19,9 +19,9 @@ use azul_layout::font::parsed::ParsedFont;
 use azul_layout::parsed_font_to_font_ref;
 use azul_layout::text3::cache::{
     create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent, LoadedFonts,
-    OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
-    UnifiedLayout,
+    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+    UnifiedConstraints, UnifiedLayout,
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
@@ -94,8 +94,8 @@ fn layout_content(
         .expect("bidi reorder must succeed");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None)
-        .expect("shaping must succeed");
+    let shaped =
+        shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shaping must succeed");
     let mut cursor = BreakCursor::new(&shaped);
     perform_fragment_layout(&mut cursor, &logical, constraints, &mut None, &loaded)
         .expect("fragment layout must succeed")
@@ -185,9 +185,17 @@ fn multinode_two_spans_same_line_is_one_rect() {
         cur(0, 2, CursorAffinity::Leading),
         cur(1, 1, CursorAffinity::Trailing),
     ));
-    assert_eq!(rects.len(), 1, "cross-span same-line selection => 1 rect, got {rects:?}");
+    assert_eq!(
+        rects.len(),
+        1,
+        "cross-span same-line selection => 1 rect, got {rects:?}"
+    );
     assert_px(rects[0].origin.x, 20.0, "rect x");
-    assert_px(rects[0].size.width, 50.0, "rect width (3 in span0 + 2 in span1)");
+    assert_px(
+        rects[0].size.width,
+        50.0,
+        "rect width (3 in span0 + 2 in span1)",
+    );
 }
 
 #[test]
@@ -199,7 +207,11 @@ fn multinode_three_spans_full_union() {
         cur(0, 0, CursorAffinity::Leading),
         cur(2, 1, CursorAffinity::Trailing),
     ));
-    assert_eq!(rects.len(), 1, "3-span same-line selection => 1 rect, got {rects:?}");
+    assert_eq!(
+        rects.len(),
+        1,
+        "3-span same-line selection => 1 rect, got {rects:?}"
+    );
     assert_px(rects[0].origin.x, 0.0, "rect x");
     assert_px(rects[0].size.width, 60.0, "rect width (all 6 chars)");
 }
@@ -231,7 +243,11 @@ fn selection_across_wrap_is_two_rects() {
         cur(0, 2, CursorAffinity::Leading),
         cur(0, 7, CursorAffinity::Trailing),
     ));
-    assert_eq!(rects.len(), 2, "selection across a wrap => 2 rects, got {rects:?}");
+    assert_eq!(
+        rects.len(),
+        2,
+        "selection across a wrap => 2 rects, got {rects:?}"
+    );
     // Rects order is line-order; first line rect starts at x=20, second at x=0.
     let mut xs: Vec<f32> = rects.iter().map(|r| r.origin.x).collect();
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -254,9 +270,21 @@ fn empty_selection_is_zero_width_caret() {
         cur(0, 3, CursorAffinity::Leading),
         cur(0, 3, CursorAffinity::Leading),
     ));
-    assert_eq!(rects.len(), 1, "collapsed selection => 1 zero-width caret rect, got {rects:?}");
-    assert_px(rects[0].size.width, 0.0, "collapsed selection rect must be zero-width");
-    assert_px(rects[0].origin.x, 30.0, "caret sits at byte-3 leading edge x=30");
+    assert_eq!(
+        rects.len(),
+        1,
+        "collapsed selection => 1 zero-width caret rect, got {rects:?}"
+    );
+    assert_px(
+        rects[0].size.width,
+        0.0,
+        "collapsed selection rect must be zero-width",
+    );
+    assert_px(
+        rects[0].origin.x,
+        30.0,
+        "caret sits at byte-3 leading edge x=30",
+    );
     assert_px(rects[0].size.height, 20.0, "caret spans full line height");
 }
 
@@ -290,8 +318,16 @@ fn reversed_range_selects_same_span() {
         "reversed range must select the same number of rects"
     );
     if !forward.is_empty() && !reversed.is_empty() {
-        assert_px(reversed[0].origin.x, forward[0].origin.x, "reversed rect x matches");
-        assert_px(reversed[0].size.width, forward[0].size.width, "reversed rect width matches");
+        assert_px(
+            reversed[0].origin.x,
+            forward[0].origin.x,
+            "reversed rect x matches",
+        );
+        assert_px(
+            reversed[0].size.width,
+            forward[0].size.width,
+            "reversed rect width matches",
+        );
     }
 }
 
@@ -345,7 +381,10 @@ fn rtl_selection_maps_to_right_side() {
         cur(0, 0, CursorAffinity::Leading),
         cur(0, 0, CursorAffinity::Trailing),
     ));
-    assert!(!rects.is_empty(), "RTL first-char selection must produce a rect");
+    assert!(
+        !rects.is_empty(),
+        "RTL first-char selection must produce a rect"
+    );
     let right_edge = rects[0].origin.x + rects[0].size.width;
     assert!(
         right_edge >= 25.0,

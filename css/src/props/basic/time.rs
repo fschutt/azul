@@ -1,7 +1,7 @@
 //! CSS property types for time durations (`s`, `ms`, `t`).
 
-use alloc::string::{String, ToString};
 use crate::corety::AzString;
+use alloc::string::{String, ToString};
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -186,7 +186,8 @@ pub enum DurationParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl DurationParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> DurationParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> DurationParseErrorOwned {
         match self {
             Self::InvalidValue(s) => DurationParseErrorOwned::InvalidValue((*s).to_string().into()),
             Self::ParseFloat(e) => DurationParseErrorOwned::ParseFloat(e.to_string().into()),
@@ -196,7 +197,8 @@ impl DurationParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl DurationParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> DurationParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> DurationParseError<'_> {
         match self {
             Self::InvalidValue(s) => DurationParseError::InvalidValue(s),
             Self::ParseFloat(s) => DurationParseError::InvalidValue(s.as_str()),
@@ -245,7 +247,9 @@ pub fn parse_duration(input: &str) -> Result<CssDuration, DurationParseError<'_>
         if s < 0.0 {
             return Err(DurationParseError::InvalidValue(input));
         }
-        Ok(CssDuration::from_millis(crate::cast::f32_to_u32(s * 1000.0)))
+        Ok(CssDuration::from_millis(crate::cast::f32_to_u32(
+            s * 1000.0,
+        )))
     } else if let Some(num_str) = trimmed.strip_suffix('t') {
         let t = num_str
             .parse::<f32>()
@@ -387,7 +391,11 @@ mod autotest_generated {
 
         assert_eq!(CssDuration::from_millis(1000).ticks(), 60);
         assert_eq!(CssDuration::from_millis(500).ticks(), 30);
-        assert_eq!(CssDuration::from_millis(16).ticks(), 0, "sub-frame is 0 frames");
+        assert_eq!(
+            CssDuration::from_millis(16).ticks(),
+            0,
+            "sub-frame is 0 frames"
+        );
         assert_eq!(CssDuration::from_millis(17).ticks(), 1);
         assert_eq!(CssDuration::from_millis(0).ticks(), 0);
 
@@ -429,7 +437,10 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn empty_input_is_rejected_without_panicking() {
-        assert_eq!(parse_duration(""), Err(DurationParseError::InvalidValue("")));
+        assert_eq!(
+            parse_duration(""),
+            Err(DurationParseError::InvalidValue(""))
+        );
     }
 
     #[cfg(feature = "parser")]
@@ -493,8 +504,24 @@ mod autotest_generated {
     #[test]
     fn garbage_and_junk_never_panic() {
         for garbage in [
-            "abc", "!!!", "\0\0\0", "ms ms", "1,5s", "1 ms", "--5ms", "5mss", "5sms", "0x10ms",
-            "1e", "1e+", ".s", "-.ms", "s1", "ms200", "200ms;garbage", "200ms !important",
+            "abc",
+            "!!!",
+            "\0\0\0",
+            "ms ms",
+            "1,5s",
+            "1 ms",
+            "--5ms",
+            "5mss",
+            "5sms",
+            "0x10ms",
+            "1e",
+            "1e+",
+            ".s",
+            "-.ms",
+            "s1",
+            "ms200",
+            "200ms;garbage",
+            "200ms !important",
         ] {
             // The only contract is: never panic, and never silently succeed with
             // a value we did not ask for. Every one of these is an error.
@@ -687,13 +714,13 @@ mod autotest_generated {
     #[test]
     fn non_ascii_input_is_rejected_without_panicking() {
         for input in [
-            "\u{1F600}",       // emoji
-            "\u{1F600}ms",     // emoji + valid unit
-            "1\u{FF53}",       // FULLWIDTH LATIN SMALL LETTER S is not "s"
-            "1s\u{0301}",      // combining acute after the unit
-            "２００ms",        // fullwidth digits
-            "\u{202E}200ms",   // RTL override prefix
-            "1\u{00A0}s",      // NBSP *inside* the value
+            "\u{1F600}",     // emoji
+            "\u{1F600}ms",   // emoji + valid unit
+            "1\u{FF53}",     // FULLWIDTH LATIN SMALL LETTER S is not "s"
+            "1s\u{0301}",    // combining acute after the unit
+            "２００ms",      // fullwidth digits
+            "\u{202E}200ms", // RTL override prefix
+            "1\u{00A0}s",    // NBSP *inside* the value
         ] {
             assert!(
                 parse_duration(input).is_err(),
@@ -734,9 +761,9 @@ mod autotest_generated {
             1000,
             65_535,
             1_000_000,
-            TWO_POW_24,      // last exactly-representable integer in f32
-            4_294_967_040,   // 2^32 - 256: still exact (a multiple of the f32 ulp there)
-            u32::MAX,        // rounds up to 2^32 in f32, then the cast saturates back down
+            TWO_POW_24,    // last exactly-representable integer in f32
+            4_294_967_040, // 2^32 - 256: still exact (a multiple of the f32 ulp there)
+            u32::MAX,      // rounds up to 2^32 in f32, then the cast saturates back down
         ] {
             let duration = CssDuration::from_millis(inner);
             let printed = duration.print_as_css_value();
@@ -910,7 +937,10 @@ mod autotest_generated {
     #[test]
     fn to_shared_preserves_an_invalid_value_payload() {
         let owned = DurationParseErrorOwned::InvalidValue("garbage".to_string().into());
-        assert_eq!(owned.to_shared(), DurationParseError::InvalidValue("garbage"));
+        assert_eq!(
+            owned.to_shared(),
+            DurationParseError::InvalidValue("garbage")
+        );
     }
 
     /// `DurationParseErrorOwned::to_shared` maps `ParseFloat(msg)` onto
@@ -942,7 +972,10 @@ mod autotest_generated {
         assert_eq!(owned.to_shared(), DurationParseError::InvalidValue(&huge));
 
         let empty_float = DurationParseErrorOwned::ParseFloat(String::new().into());
-        assert_eq!(empty_float.to_shared(), DurationParseError::InvalidValue(""));
+        assert_eq!(
+            empty_float.to_shared(),
+            DurationParseError::InvalidValue("")
+        );
     }
 
     /// A real error straight out of the parser must survive the owned round-trip

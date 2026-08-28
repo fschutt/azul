@@ -28,8 +28,7 @@ fn scroller() -> LayoutWindow {
     let class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("box".into())].into();
     let mut box_dom = Dom::create_div().with_ids_and_classes(class);
     for i in 0..LINES {
-        let line_class: azul_core::dom::IdOrClassVec =
-            vec![IdOrClass::Class("line".into())].into();
+        let line_class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("line".into())].into();
         box_dom = box_dom.with_child(
             Dom::create_div()
                 .with_ids_and_classes(line_class)

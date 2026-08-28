@@ -115,7 +115,11 @@ mod tests {
     fn drain_takes_everything_at_once() {
         let q = A11yActionQueue::new();
         q.push(DomId::ROOT_ID, NodeId::new(1), AccessibilityAction::Expand);
-        q.push(DomId::ROOT_ID, NodeId::new(2), AccessibilityAction::Collapse);
+        q.push(
+            DomId::ROOT_ID,
+            NodeId::new(2),
+            AccessibilityAction::Collapse,
+        );
         assert_eq!(q.drain().len(), 2);
         assert!(q.drain().is_empty());
     }

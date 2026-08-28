@@ -6,7 +6,8 @@ use azul_core::{
     dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClass::Id, IdOrClassVec},
     refany::RefAny,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -62,8 +63,18 @@ const DEFAULT_BUTTON_SIDE_LEFT: bool = true;
 const DEFAULT_BUTTON_SIDE_LEFT: bool = false;
 
 // Default title text color for light / dark fallback
-const DEFAULT_TITLE_COLOR_LIGHT: ColorU = ColorU { r: 76, g: 76, b: 76, a: 255 };  // #4c4c4c
-const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU { r: 229, g: 229, b: 229, a: 255 }; // #e5e5e5
+const DEFAULT_TITLE_COLOR_LIGHT: ColorU = ColorU {
+    r: 76,
+    g: 76,
+    b: 76,
+    a: 255,
+}; // #4c4c4c
+const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
+    r: 229,
+    g: 229,
+    b: 229,
+    a: 255,
+}; // #e5e5e5
 
 // ── Titlebar ─────────────────────────────────────────────────────────────
 
@@ -123,7 +134,8 @@ impl Titlebar {
     /// Use [`Titlebar::from_system_style`] when you have a
     /// `SystemStyle` available for pixel-perfect metrics.
     #[inline]
-    #[must_use] pub fn new(title: AzString) -> Self {
+    #[must_use]
+    pub fn new(title: AzString) -> Self {
         // Equal padding on both sides keeps text-align:center at the window midpoint.
         // The button-side half prevents overlap; the opposite half balances it.
         let half = DEFAULT_BUTTON_AREA_WIDTH / 2.0;
@@ -140,13 +152,15 @@ impl Titlebar {
 
     /// FFI-compatible alias for [`Titlebar::new`].
     #[inline]
-    #[must_use] pub fn create(title: AzString) -> Self {
+    #[must_use]
+    pub fn create(title: AzString) -> Self {
         Self::new(title)
     }
 
     /// Create a titlebar with a custom height.
     #[inline]
-    #[must_use] pub fn with_height(title: AzString, height: f32) -> Self {
+    #[must_use]
+    pub fn with_height(title: AzString, height: f32) -> Self {
         let mut tb = Self::new(title);
         tb.height = height;
         tb
@@ -175,59 +189,95 @@ impl Titlebar {
 
     /// Create from a live [`SystemStyle`] (for title-only mode, padding
     /// reserves space for OS-drawn buttons).
-    #[must_use] pub fn from_system_style(title: AzString, system_style: &SystemStyle) -> Self {
+    #[must_use]
+    pub fn from_system_style(title: AzString, system_style: &SystemStyle) -> Self {
         let tm = &system_style.metrics.titlebar;
-        let height = tm.height.as_ref()
-            .map_or(DEFAULT_TITLEBAR_HEIGHT, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
-        let font_size = tm.title_font_size
+        let height = tm.height.as_ref().map_or(DEFAULT_TITLEBAR_HEIGHT, |pv| {
+            pv.to_pixels_internal(0.0, 0.0, 0.0)
+        });
+        let font_size = tm
+            .title_font_size
             .into_option()
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
-        let button_area = tm.button_area_width.as_ref()
-            .map_or(DEFAULT_BUTTON_AREA_WIDTH, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
-        let safe_left = tm.safe_area.left.as_ref()
+        let button_area = tm
+            .button_area_width
+            .as_ref()
+            .map_or(DEFAULT_BUTTON_AREA_WIDTH, |pv| {
+                pv.to_pixels_internal(0.0, 0.0, 0.0)
+            });
+        let safe_left = tm
+            .safe_area
+            .left
+            .as_ref()
             .map_or(0.0, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
-        let safe_right = tm.safe_area.right.as_ref()
+        let safe_right = tm
+            .safe_area
+            .right
+            .as_ref()
             .map_or(0.0, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
         // Apply padding_horizontal from TitlebarMetrics
-        let pad_h = tm.padding_horizontal.as_ref()
+        let pad_h = tm
+            .padding_horizontal
+            .as_ref()
             .map_or(0.0, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
 
         // Equal padding on both sides so text-align:center stays at the window midpoint.
         // button_area/2 on each side: the button-side half clears the traffic-lights/caption
         // buttons, the opposite half balances the centering offset.
         let half_btn = button_area / 2.0;
-        let (padding_left, padding_right) = (
-            half_btn + safe_left + pad_h,
-            half_btn + safe_right + pad_h,
-        );
+        let (padding_left, padding_right) =
+            (half_btn + safe_left + pad_h, half_btn + safe_right + pad_h);
 
         // Resolve title color from system style, with dark/light fallback
-        let title_color = system_style.colors.text.into_option().unwrap_or(
-            match system_style.theme {
-                system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
-            }
-        );
+        let title_color =
+            system_style
+                .colors
+                .text
+                .into_option()
+                .unwrap_or(match system_style.theme {
+                    system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                    system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+                });
 
-        Self { title, height, font_size, padding_left, padding_right, title_color }
+        Self {
+            title,
+            height,
+            font_size,
+            padding_left,
+            padding_right,
+            title_color,
+        }
     }
 
     /// Create from [`SystemStyle`] for **full CSD** mode (no padding - the
     /// buttons are rendered as DOM children).
-    #[must_use] pub fn from_system_style_csd(title: AzString, system_style: &SystemStyle) -> Self {
+    #[must_use]
+    pub fn from_system_style_csd(title: AzString, system_style: &SystemStyle) -> Self {
         let tm = &system_style.metrics.titlebar;
-        let height = tm.height.as_ref()
-            .map_or(DEFAULT_TITLEBAR_HEIGHT, |pv| pv.to_pixels_internal(0.0, 0.0, 0.0));
-        let font_size = tm.title_font_size
+        let height = tm.height.as_ref().map_or(DEFAULT_TITLEBAR_HEIGHT, |pv| {
+            pv.to_pixels_internal(0.0, 0.0, 0.0)
+        });
+        let font_size = tm
+            .title_font_size
             .into_option()
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
-        let title_color = system_style.colors.text.into_option().unwrap_or(
-            match system_style.theme {
-                system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
-            }
-        );
-        Self { title, height, font_size, padding_left: 0.0, padding_right: 0.0, title_color }
+        let title_color =
+            system_style
+                .colors
+                .text
+                .into_option()
+                .unwrap_or(match system_style.theme {
+                    system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                    system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+                });
+        Self {
+            title,
+            height,
+            font_size,
+            padding_left: 0.0,
+            padding_right: 0.0,
+            title_color,
+        }
     }
 
     /// Build inline CSS for the container div.
@@ -259,9 +309,9 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_cursor(StyleCursor::Grab),
         ));
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::user_select(StyleUserSelect::None),
-        ));
+        props.push(CssPropertyWithConditions::simple(CssProperty::user_select(
+            StyleUserSelect::None,
+        )));
         if self.padding_left > 0.0 {
             props.push(CssPropertyWithConditions::simple(
                 CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
@@ -282,9 +332,9 @@ impl Titlebar {
     /// Build inline CSS for the title text node.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn build_title_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
-        let font_family = StyleFontFamilyVec::from_vec(vec![
-            StyleFontFamily::SystemType(SystemFontType::TitleBold),
-        ]);
+        let font_family = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::SystemType(
+            SystemFontType::TitleBold,
+        )]);
         let mut props = Vec::with_capacity(10);
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_font_size(StyleFontSize::const_px(self.font_size as isize)),
@@ -294,7 +344,9 @@ impl Titlebar {
         ));
         // Use resolved title color from SystemStyle (adapts to dark mode)
         props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_text_color(StyleTextColor { inner: self.title_color }),
+            CssProperty::const_text_color(StyleTextColor {
+                inner: self.title_color,
+            }),
         ));
         // In CSD mode (flex container), title must grow to fill remaining space
         if show_buttons {
@@ -308,9 +360,9 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_text_align(StyleTextAlign::Center),
         ));
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap)),
-        ));
+        props.push(CssPropertyWithConditions::simple(CssProperty::WhiteSpace(
+            StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap),
+        )));
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_overflow_x(LayoutOverflow::Hidden),
         ));
@@ -329,15 +381,21 @@ impl Titlebar {
     /// The OS draws the native window-control buttons; this just renders
     /// a centred title with drag support.
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
-        self.dom_inner(false, &TitlebarButtons::default(), TitlebarButtonSide::Right)
+    #[must_use]
+    pub fn dom(self) -> Dom {
+        self.dom_inner(
+            false,
+            &TitlebarButtons::default(),
+            TitlebarButtonSide::Right,
+        )
     }
 
     /// Full-CSD DOM with close / minimize / maximize buttons.
     ///
     /// Each button is a div with a `MouseDown` callback that calls
     /// `modify_window_state()` - no special hooks needed.
-    #[must_use] pub fn dom_with_buttons(
+    #[must_use]
+    pub fn dom_with_buttons(
         self,
         buttons: &TitlebarButtons,
         button_side: TitlebarButtonSide,
@@ -420,12 +478,16 @@ impl Titlebar {
         //   Right (Win/Lin): [title] [buttons]
         match button_side {
             TitlebarButtonSide::Left => {
-                if let Some(btn) = button_container { root = root.with_child(btn); }
+                if let Some(btn) = button_container {
+                    root = root.with_child(btn);
+                }
                 root = root.with_child(title_node);
             }
             TitlebarButtonSide::Right => {
                 root = root.with_child(title_node);
-                if let Some(btn) = button_container { root = root.with_child(btn); }
+                if let Some(btn) = button_container {
+                    root = root.with_child(btn);
+                }
             }
         }
 
@@ -449,17 +511,22 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
             Class("csd-button".into()),
             Class("csd-minimize".into()),
         ]);
-        children.push(Dom::create_div()
-            .with_ids_and_classes(classes)
-            .with_child(Dom::create_icon("minimize"))
-            .with_callbacks(vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseDown),
-                callback: CoreCallback {
-                    cb: callbacks::csd_minimize as usize,
-                    ctx: azul_core::refany::OptionRefAny::None,
-                },
-                refany: RefAny::new(()),
-            }].into()));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(classes)
+                .with_child(Dom::create_icon("minimize"))
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseDown),
+                        callback: CoreCallback {
+                            cb: callbacks::csd_minimize as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(()),
+                    }]
+                    .into(),
+                ),
+        );
     }
 
     if buttons.has_maximize {
@@ -468,17 +535,22 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
             Class("csd-button".into()),
             Class("csd-maximize".into()),
         ]);
-        children.push(Dom::create_div()
-            .with_ids_and_classes(classes)
-            .with_child(Dom::create_icon("maximize"))
-            .with_callbacks(vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseDown),
-                callback: CoreCallback {
-                    cb: callbacks::csd_maximize as usize,
-                    ctx: azul_core::refany::OptionRefAny::None,
-                },
-                refany: RefAny::new(()),
-            }].into()));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(classes)
+                .with_child(Dom::create_icon("maximize"))
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseDown),
+                        callback: CoreCallback {
+                            cb: callbacks::csd_maximize as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(()),
+                    }]
+                    .into(),
+                ),
+        );
     }
 
     if buttons.has_close {
@@ -487,17 +559,22 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
             Class("csd-button".into()),
             Class("csd-close".into()),
         ]);
-        children.push(Dom::create_div()
-            .with_ids_and_classes(classes)
-            .with_child(Dom::create_icon("close"))
-            .with_callbacks(vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseDown),
-                callback: CoreCallback {
-                    cb: callbacks::csd_close as usize,
-                    ctx: azul_core::refany::OptionRefAny::None,
-                },
-                refany: RefAny::new(()),
-            }].into()));
+        children.push(
+            Dom::create_div()
+                .with_ids_and_classes(classes)
+                .with_child(Dom::create_icon("close"))
+                .with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseDown),
+                        callback: CoreCallback {
+                            cb: callbacks::csd_close as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(()),
+                    }]
+                    .into(),
+                ),
+        );
     }
 
     let classes = IdOrClassVec::from_vec(vec![Class("csd-buttons".into())]);
@@ -507,7 +584,9 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
 }
 
 impl From<Titlebar> for Dom {
-    fn from(t: Titlebar) -> Self { t.dom() }
+    fn from(t: Titlebar) -> Self {
+        t.dom()
+    }
 }
 
 impl Default for Titlebar {
@@ -523,16 +602,14 @@ impl Default for Titlebar {
 /// Every callback is a plain `extern "C"` function that uses
 /// `CallbackInfo::modify_window_state()`.  No special hooks needed.
 pub mod callbacks {
+    use crate::callbacks::CallbackInfo;
     use azul_core::callbacks::Update;
     use azul_core::refany::RefAny;
-    use crate::callbacks::CallbackInfo;
 
     /// `DragStart` - on Wayland, initiate compositor-managed move immediately.
     /// On other platforms, just acknowledge (movement happens in `titlebar_drag`).
     #[must_use]
-    pub extern "C" fn titlebar_drag_start(
-        _data: RefAny, mut info: CallbackInfo,
-    ) -> Update {
+    pub extern "C" fn titlebar_drag_start(_data: RefAny, mut info: CallbackInfo) -> Update {
         // On Wayland, window position is Uninitialized (compositor hides it).
         // We must use xdg_toplevel_move via begin_interactive_move().
         // MWA-B9 (D2): macOS ALSO takes the native path — the backend maps
@@ -541,8 +618,10 @@ pub mod callbacks {
         // per-event position loop below remains for X11/Windows and as the
         // programmatic fallback.
         let ws = info.get_current_window_state().clone();
-        let native_move = matches!(ws.position, azul_core::window::WindowPosition::Uninitialized)
-            || cfg!(target_os = "macos");
+        let native_move = matches!(
+            ws.position,
+            azul_core::window::WindowPosition::Uninitialized
+        ) || cfg!(target_os = "macos");
         if native_move {
             info.begin_interactive_move();
         } else {
@@ -567,10 +646,8 @@ pub mod callbacks {
     /// consistent direction, so very slow trackpad drags crawled. Only one
     /// interactive drag exists at a time and callbacks run on the UI
     /// thread; atomics keep this no_std-friendly (f32 stored as bits).
-    static RESIDUAL_X_BITS: core::sync::atomic::AtomicU32 =
-        core::sync::atomic::AtomicU32::new(0);
-    static RESIDUAL_Y_BITS: core::sync::atomic::AtomicU32 =
-        core::sync::atomic::AtomicU32::new(0);
+    static RESIDUAL_X_BITS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    static RESIDUAL_Y_BITS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
     /// Drag - apply incremental screen-space delta to the CURRENT window position.
     ///
@@ -584,16 +661,16 @@ pub mod callbacks {
     /// (initiated by `begin_interactive_move()` in `titlebar_drag_start`).
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[must_use]
-    pub extern "C" fn titlebar_drag(
-        _data: RefAny, mut info: CallbackInfo,
-    ) -> Update {
-        use azul_core::window::WindowPosition;
+    pub extern "C" fn titlebar_drag(_data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::geom::PhysicalPositionI32;
+        use azul_core::window::WindowPosition;
 
         let delta = info.get_drag_delta_screen_incremental();
         let current_pos = info.get_current_window_state().position;
 
-        if let (azul_core::geom::OptionDragDelta::Some(d), WindowPosition::Initialized(pos)) = (delta, current_pos) {
+        if let (azul_core::geom::OptionDragDelta::Some(d), WindowPosition::Initialized(pos)) =
+            (delta, current_pos)
+        {
             use core::sync::atomic::Ordering;
             // MWA-C-csd: full fractional-residual carry (upgrades MWA-B9's
             // round-only fix). Each event applies the integer part of
@@ -619,21 +696,20 @@ pub mod callbacks {
 
     /// `DoubleClick` - toggle Maximized ↔ Normal.
     #[must_use]
-    pub extern "C" fn titlebar_double_click(
-        _data: RefAny, mut info: CallbackInfo,
-    ) -> Update {
+    pub extern "C" fn titlebar_double_click(_data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::window::WindowFrame;
         let mut s = info.get_current_window_state().clone();
         s.flags.frame = if s.flags.frame == WindowFrame::Maximized {
-            WindowFrame::Normal } else { WindowFrame::Maximized };
+            WindowFrame::Normal
+        } else {
+            WindowFrame::Maximized
+        };
         info.modify_window_state(s);
         Update::DoNothing
     }
 
     /// Close button - `close_requested = true`.
-    pub(super) extern "C" fn csd_close(
-        _data: RefAny, mut info: CallbackInfo,
-    ) -> Update {
+    pub(super) extern "C" fn csd_close(_data: RefAny, mut info: CallbackInfo) -> Update {
         let mut s = info.get_current_window_state().clone();
         s.flags.close_requested = true;
         info.modify_window_state(s);
@@ -641,9 +717,7 @@ pub mod callbacks {
     }
 
     /// Minimize button - `frame = Minimized`.
-    pub(super) extern "C" fn csd_minimize(
-        _data: RefAny, mut info: CallbackInfo,
-    ) -> Update {
+    pub(super) extern "C" fn csd_minimize(_data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::window::WindowFrame;
         let mut s = info.get_current_window_state().clone();
         s.flags.frame = WindowFrame::Minimized;
@@ -652,13 +726,14 @@ pub mod callbacks {
     }
 
     /// Maximize button - toggle Maximized ↔ Normal.
-    pub(super) extern "C" fn csd_maximize(
-        _data: RefAny, mut info: CallbackInfo,
-    ) -> Update {
+    pub(super) extern "C" fn csd_maximize(_data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::window::WindowFrame;
         let mut s = info.get_current_window_state().clone();
         s.flags.frame = if s.flags.frame == WindowFrame::Maximized {
-            WindowFrame::Normal } else { WindowFrame::Maximized };
+            WindowFrame::Normal
+        } else {
+            WindowFrame::Maximized
+        };
         info.modify_window_state(s);
         Update::DoNothing
     }
@@ -747,8 +822,7 @@ mod autotest_generated {
 
     /// The magnitudes that overflow `PixelValue`'s `value * 1000` encoding on
     /// every pointer width: `as isize` saturates them to `isize::MIN`/`MAX`.
-    const UNENCODABLE_FLOATS: [f32; 4] =
-        [f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN];
+    const UNENCODABLE_FLOATS: [f32; 4] = [f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN];
 
     /// Every `TitlebarButtonSide`.
     const BOTH_SIDES: [TitlebarButtonSide; 2] =
@@ -845,18 +919,20 @@ mod autotest_generated {
         } else {
             v.push(CssProperty::const_display(LayoutDisplay::Block));
         }
-        v.push(CssProperty::const_height(LayoutHeight::const_px(t.height as isize)));
+        v.push(CssProperty::const_height(LayoutHeight::const_px(
+            t.height as isize,
+        )));
         v.push(CssProperty::const_cursor(StyleCursor::Grab));
         v.push(CssProperty::user_select(StyleUserSelect::None));
         if t.padding_left > 0.0 {
-            v.push(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-                t.padding_left as isize,
-            )));
+            v.push(CssProperty::const_padding_left(
+                LayoutPaddingLeft::const_px(t.padding_left as isize),
+            ));
         }
         if t.padding_right > 0.0 {
-            v.push(CssProperty::const_padding_right(LayoutPaddingRight::const_px(
-                t.padding_right as isize,
-            )));
+            v.push(CssProperty::const_padding_right(
+                LayoutPaddingRight::const_px(t.padding_right as isize),
+            ));
         }
         v
     }
@@ -869,7 +945,9 @@ mod autotest_generated {
         let mut v = vec![
             CssProperty::const_font_size(StyleFontSize::const_px(t.font_size as isize)),
             CssProperty::const_font_family(font_family),
-            CssProperty::const_text_color(StyleTextColor { inner: t.title_color }),
+            CssProperty::const_text_color(StyleTextColor {
+                inner: t.title_color,
+            }),
         ];
         if show_buttons {
             v.push(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1)));
@@ -950,7 +1028,11 @@ mod autotest_generated {
 
     /// A node's *inline* style properties, in declaration order.
     fn inline_props(node: &Dom) -> Vec<CssProperty> {
-        node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
     }
 
     /// `(event, callback fn address)` for every callback on `node`, in order.
@@ -968,7 +1050,11 @@ mod autotest_generated {
     /// under-allocate its arenas and panic on out-of-bounds writes — so it has to
     /// match this exactly for every button combination.
     fn count_descendants(dom: &Dom) -> usize {
-        dom.children.as_ref().iter().map(|c| 1 + count_descendants(c)).sum()
+        dom.children
+            .as_ref()
+            .iter()
+            .map(|c| 1 + count_descendants(c))
+            .sum()
     }
 
     /// A pre-order, structural fingerprint of a DOM: node type, ids/classes,
@@ -1005,7 +1091,10 @@ mod autotest_generated {
 
     /// The `.csd-buttons` node of a rendered titlebar, if there is one.
     fn buttons_node(dom: &Dom) -> Option<&Dom> {
-        dom.children.as_ref().iter().find(|c| has_class(c, "csd-buttons"))
+        dom.children
+            .as_ref()
+            .iter()
+            .find(|c| has_class(c, "csd-buttons"))
     }
 
     fn all_button_combinations() -> Vec<TitlebarButtons> {
@@ -1137,7 +1226,10 @@ mod autotest_generated {
             t.padding_left, t.padding_right,
             "title-only padding must stay symmetric",
         );
-        assert!(t.padding_left >= 0.0, "negative reserved space is meaningless");
+        assert!(
+            t.padding_left >= 0.0,
+            "negative reserved space is meaningless"
+        );
         assert!(t.height > 0.0 && t.height.is_finite());
         assert!(t.font_size > 0.0 && t.font_size.is_finite());
         assert!(
@@ -1150,7 +1242,11 @@ mod autotest_generated {
     fn new_stores_pathological_titles_byte_for_byte() {
         for title in ADVERSARIAL_TITLES {
             let t = tb(title);
-            assert_eq!(t.title.as_str(), title, "the title was mangled or normalised");
+            assert_eq!(
+                t.title.as_str(),
+                title,
+                "the title was mangled or normalised"
+            );
             assert_eq!(
                 t.title.as_str().len(),
                 title.len(),
@@ -1166,7 +1262,10 @@ mod autotest_generated {
         assert_eq!(t.title.as_str().len(), 1_000_000);
         // ... and it survives the trip into the DOM without being re-encoded.
         let dom = t.dom();
-        assert_eq!(text_of(&title_node(&dom).children.as_ref()[0]), Some(huge.as_str()));
+        assert_eq!(
+            text_of(&title_node(&dom).children.as_ref()[0]),
+            Some(huge.as_str())
+        );
     }
 
     #[test]
@@ -1204,10 +1303,22 @@ mod autotest_generated {
                 "with_height({h}) did not store the value verbatim",
             );
             assert_eq!(t.title.as_str(), "t");
-            assert_eq!(t.font_size, base.font_size, "with_height({h}) moved the font size");
-            assert_eq!(t.padding_left, base.padding_left, "with_height({h}) moved the padding");
-            assert_eq!(t.padding_right, base.padding_right, "with_height({h}) moved the padding");
-            assert_eq!(t.title_color, base.title_color, "with_height({h}) moved the colour");
+            assert_eq!(
+                t.font_size, base.font_size,
+                "with_height({h}) moved the font size"
+            );
+            assert_eq!(
+                t.padding_left, base.padding_left,
+                "with_height({h}) moved the padding"
+            );
+            assert_eq!(
+                t.padding_right, base.padding_right,
+                "with_height({h}) moved the padding"
+            );
+            assert_eq!(
+                t.title_color, base.title_color,
+                "with_height({h}) moved the colour"
+            );
         }
     }
 
@@ -1218,7 +1329,11 @@ mod autotest_generated {
 
         for h in TAME_FLOATS.into_iter().chain(UNENCODABLE_FLOATS) {
             t.set_height(h);
-            assert_eq!(t.height.to_bits(), h.to_bits(), "set_height({h}) was not verbatim");
+            assert_eq!(
+                t.height.to_bits(),
+                h.to_bits(),
+                "set_height({h}) was not verbatim"
+            );
             assert_eq!(t.font_size, base.font_size);
             assert_eq!(t.padding_left, base.padding_left);
             assert_eq!(t.padding_right, base.padding_right);
@@ -1241,10 +1356,17 @@ mod autotest_generated {
         assert_eq!(t.height.to_bits(), 0_f32.to_bits(), "0.0 must stay +0.0");
 
         t.set_height(-0.0);
-        assert_eq!(t.height.to_bits(), (-0.0_f32).to_bits(), "-0.0 must not be normalised");
+        assert_eq!(
+            t.height.to_bits(),
+            (-0.0_f32).to_bits(),
+            "-0.0 must not be normalised"
+        );
 
         t.set_height(-42.0);
-        assert_eq!(t.height, -42.0, "a negative height must not be clamped by the setter");
+        assert_eq!(
+            t.height, -42.0,
+            "a negative height must not be clamped by the setter"
+        );
     }
 
     // ==================================================================
@@ -1259,7 +1381,11 @@ mod autotest_generated {
             assert_eq!(t.title.as_str(), title);
             assert_eq!(t.title.as_str().len(), title.len());
             assert_eq!(t.height, 44.0, "set_title moved the height");
-            assert_eq!(t.padding_left, tb("").padding_left, "set_title moved the padding");
+            assert_eq!(
+                t.padding_left,
+                tb("").padding_left,
+                "set_title moved the padding"
+            );
         }
     }
 
@@ -1270,15 +1396,36 @@ mod autotest_generated {
     #[test]
     fn swap_with_default_hands_back_the_old_value_and_leaves_a_default() {
         let mut t = Titlebar::with_height(AzString::from("payload"), 99.5);
-        t.title_color = ColorU { r: 1, g: 2, b: 3, a: 4 };
+        t.title_color = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        };
 
         let taken = t.swap_with_default();
 
-        assert_eq!(taken.title.as_str(), "payload", "the title did not travel out");
+        assert_eq!(
+            taken.title.as_str(),
+            "payload",
+            "the title did not travel out"
+        );
         assert_eq!(taken.height, 99.5, "the height did not travel out");
-        assert_eq!(taken.title_color, ColorU { r: 1, g: 2, b: 3, a: 4 });
+        assert_eq!(
+            taken.title_color,
+            ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 4
+            }
+        );
 
-        assert_eq!(t, Titlebar::default(), "what was left behind is not a default titlebar");
+        assert_eq!(
+            t,
+            Titlebar::default(),
+            "what was left behind is not a default titlebar"
+        );
         assert_eq!(t.title.as_str(), "");
     }
 
@@ -1292,7 +1439,10 @@ mod autotest_generated {
         let taken = t.swap_with_default();
 
         assert!(taken.height.is_nan(), "the NaN height did not travel out");
-        assert_eq!(t.height, DEFAULT_TITLEBAR_HEIGHT, "the leftover kept the NaN");
+        assert_eq!(
+            t.height, DEFAULT_TITLEBAR_HEIGHT,
+            "the leftover kept the NaN"
+        );
         assert_eq!(t, Titlebar::default());
     }
 
@@ -1303,8 +1453,16 @@ mod autotest_generated {
 
         for i in 0..8 {
             let taken = t.swap_with_default();
-            assert_eq!(taken, Titlebar::default(), "swap #{i} handed back a non-default");
-            assert_eq!(t, Titlebar::default(), "swap #{i} left a non-default behind");
+            assert_eq!(
+                taken,
+                Titlebar::default(),
+                "swap #{i} handed back a non-default"
+            );
+            assert_eq!(
+                t,
+                Titlebar::default(),
+                "swap #{i} left a non-default behind"
+            );
         }
 
         // The drained titlebar still renders a well-formed DOM.
@@ -1323,7 +1481,10 @@ mod autotest_generated {
         let t = Titlebar::from_system_style(AzString::from("sys"), &ss);
 
         assert_eq!(t.title.as_str(), "sys");
-        assert_eq!(t.height, DEFAULT_TITLEBAR_HEIGHT, "an undetected height must fall back");
+        assert_eq!(
+            t.height, DEFAULT_TITLEBAR_HEIGHT,
+            "an undetected height must fall back"
+        );
         // `TitlebarMetrics::default()` *does* carry a font size (13.0), so the
         // compile-time default is only reachable when it is explicitly None.
         assert_eq!(t.font_size, 13.0);
@@ -1404,14 +1565,24 @@ mod autotest_generated {
         // `PixelValue::px(inf)` encodes as `f32_to_isize(inf * 1000) == isize::MAX`,
         // so what comes back out is huge but *finite*: an infinity reaching the
         // layout solver would poison every downstream size computation.
-        for bogus in [f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN, f32::NAN] {
+        for bogus in [
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            f32::MIN,
+            f32::NAN,
+        ] {
             let mut ss = blank_system_style();
             ss.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(bogus));
             ss.metrics.titlebar.button_area_width = OptionPixelValue::Some(PixelValue::px(bogus));
 
             let t = Titlebar::from_system_style(AzString::from("x"), &ss);
 
-            assert!(t.height.is_finite(), "{bogus} produced a non-finite height {}", t.height);
+            assert!(
+                t.height.is_finite(),
+                "{bogus} produced a non-finite height {}",
+                t.height
+            );
             assert!(
                 t.padding_left.is_finite() && t.padding_right.is_finite(),
                 "{bogus} produced non-finite padding",
@@ -1421,12 +1592,20 @@ mod autotest_generated {
         // NaN specifically collapses to zero rather than staying NaN.
         let mut ss = blank_system_style();
         ss.metrics.titlebar.height = OptionPixelValue::Some(PixelValue::px(f32::NAN));
-        assert_eq!(Titlebar::from_system_style(AzString::from("x"), &ss).height, 0.0);
+        assert_eq!(
+            Titlebar::from_system_style(AzString::from("x"), &ss).height,
+            0.0
+        );
     }
 
     #[test]
     fn from_system_style_prefers_the_detected_text_colour_over_both_theme_fallbacks() {
-        let detected = ColorU { r: 9, g: 8, b: 7, a: 6 };
+        let detected = ColorU {
+            r: 9,
+            g: 8,
+            b: 7,
+            a: 6,
+        };
         for theme in [system::Theme::Light, system::Theme::Dark] {
             let mut ss = blank_system_style();
             ss.theme = theme;
@@ -1527,7 +1706,10 @@ mod autotest_generated {
                 expected_container(&t, show_buttons),
                 "container declarations drifted (show_buttons = {show_buttons})",
             );
-            assert!(all_unconditional(&style), "a container declaration became conditional");
+            assert!(
+                all_unconditional(&style),
+                "a container declaration became conditional"
+            );
         }
     }
 
@@ -1543,9 +1725,10 @@ mod autotest_generated {
         // Title-only mode must *not* declare flex layout — the doc comment says it
         // deliberately avoids flex-grow complexity.
         assert!(
-            !properties(&block)
-                .iter()
-                .any(|p| matches!(p, CssProperty::FlexDirection(_) | CssProperty::AlignItems(_))),
+            !properties(&block).iter().any(|p| matches!(
+                p,
+                CssProperty::FlexDirection(_) | CssProperty::AlignItems(_)
+            )),
             "title-only mode leaked flex declarations",
         );
         // Everything else is identical.
@@ -1610,7 +1793,11 @@ mod autotest_generated {
                 None,
                 "padding-left {pad} must not be declared at all",
             );
-            assert_eq!(padding_right_px(&style), None, "padding-right {pad} was declared");
+            assert_eq!(
+                padding_right_px(&style),
+                None,
+                "padding-right {pad} was declared"
+            );
         }
     }
 
@@ -1650,7 +1837,10 @@ mod autotest_generated {
                 expected_title(&t, show_buttons),
                 "title declarations drifted (show_buttons = {show_buttons})",
             );
-            assert!(all_unconditional(&style), "a title declaration became conditional");
+            assert!(
+                all_unconditional(&style),
+                "a title declaration became conditional"
+            );
         }
     }
 
@@ -1677,9 +1867,11 @@ mod autotest_generated {
         for show_buttons in [false, true] {
             let props = properties(&tb("x").build_title_style(show_buttons));
             assert!(props.contains(&CssProperty::const_text_align(StyleTextAlign::Center)));
-            assert!(props.contains(&CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
-                StyleWhiteSpace::Nowrap
-            ))));
+            assert!(
+                props.contains(&CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+                    StyleWhiteSpace::Nowrap
+                )))
+            );
             assert!(props.contains(&CssProperty::const_overflow_x(LayoutOverflow::Hidden)));
         }
     }
@@ -1687,9 +1879,24 @@ mod autotest_generated {
     #[test]
     fn build_title_style_forwards_the_resolved_title_colour_verbatim() {
         for c in [
-            ColorU { r: 0, g: 0, b: 0, a: 0 },
-            ColorU { r: 255, g: 255, b: 255, a: 255 },
-            ColorU { r: 1, g: 2, b: 3, a: 4 },
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+            ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 4,
+            },
             DEFAULT_TITLE_COLOR_DARK,
         ] {
             let mut t = tb("x");
@@ -1751,7 +1958,12 @@ mod autotest_generated {
 
     #[test]
     fn build_title_style_truncates_the_font_size_toward_zero() {
-        for (fs, expected) in [(13.0_f32, 13.0_f32), (13.9, 13.0), (0.5, 0.0), (-13.9, -13.0)] {
+        for (fs, expected) in [
+            (13.0_f32, 13.0_f32),
+            (13.9, 13.0),
+            (0.5, 0.0),
+            (-13.9, -13.0),
+        ] {
             let mut t = tb("x");
             t.font_size = fs;
             assert_eq!(font_size_px(&t.build_title_style(false)), Some(expected));
@@ -1826,7 +2038,10 @@ mod autotest_generated {
             t.set_height(bogus);
             let panicked =
                 catch_unwind(AssertUnwindSafe(|| drop(t.build_title_style(false)))).is_err();
-            assert_eq!(panicked, profile_traps_overflow, "height {bogus} via padding-top");
+            assert_eq!(
+                panicked, profile_traps_overflow,
+                "height {bogus} via padding-top"
+            );
         }
 
         for safe in [f32::NEG_INFINITY, f32::MIN] {
@@ -1848,15 +2063,25 @@ mod autotest_generated {
     fn dom_builds_the_documented_title_only_tree() {
         let dom = tb("caption").dom();
 
-        assert_eq!(classes(&dom), vec!["csd-titlebar", "__azul-native-titlebar"]);
+        assert_eq!(
+            classes(&dom),
+            vec!["csd-titlebar", "__azul-native-titlebar"]
+        );
         assert!(ids(&dom).is_empty(), "the container must not claim an id");
-        assert_eq!(dom.children.as_ref().len(), 1, "title-only mode has exactly one child");
+        assert_eq!(
+            dom.children.as_ref().len(),
+            1,
+            "title-only mode has exactly one child"
+        );
 
         let title = title_node(&dom);
         assert_eq!(classes(title), vec!["csd-title"]);
         assert_eq!(title.children.as_ref().len(), 1);
         assert_eq!(text_of(&title.children.as_ref()[0]), Some("caption"));
-        assert!(buttons_node(&dom).is_none(), "title-only mode must render no buttons");
+        assert!(
+            buttons_node(&dom).is_none(),
+            "title-only mode must render no buttons"
+        );
     }
 
     #[test]
@@ -1885,7 +2110,10 @@ mod autotest_generated {
                     EventFilter::Hover(HoverEventFilter::DragStart),
                     callbacks::titlebar_drag_start as usize,
                 ),
-                (EventFilter::Hover(HoverEventFilter::Drag), callbacks::titlebar_drag as usize),
+                (
+                    EventFilter::Hover(HoverEventFilter::Drag),
+                    callbacks::titlebar_drag as usize
+                ),
                 (
                     EventFilter::Hover(HoverEventFilter::DoubleClick),
                     callbacks::titlebar_double_click as usize,
@@ -1899,7 +2127,11 @@ mod autotest_generated {
         for title in ADVERSARIAL_TITLES {
             let dom = tb(title).dom();
             let text = &title_node(&dom).children.as_ref()[0];
-            assert_eq!(text_of(text), Some(title), "the title was mangled on the way in");
+            assert_eq!(
+                text_of(text),
+                Some(title),
+                "the title was mangled on the way in"
+            );
             // Even an empty title still gets a text node, so the drag target exists.
             assert_eq!(title_node(&dom).children.as_ref().len(), 1);
         }
@@ -1911,7 +2143,10 @@ mod autotest_generated {
         // under-allocate and panic on an out-of-bounds write.
         let dom = tb("x").dom();
         assert_eq!(dom.estimated_total_children, count_descendants(&dom));
-        assert_eq!(dom.estimated_total_children, 3, "title div + label <p> + text node");
+        assert_eq!(
+            dom.estimated_total_children, 3,
+            "title div + label <p> + text node"
+        );
     }
 
     #[test]
@@ -1937,13 +2172,19 @@ mod autotest_generated {
         let left = tb("x").dom_with_buttons(&buttons, TitlebarButtonSide::Left);
         let left_kids = left.children.as_ref();
         assert_eq!(left_kids.len(), 2);
-        assert!(has_class(&left_kids[0], "csd-buttons"), "macOS puts the buttons first");
+        assert!(
+            has_class(&left_kids[0], "csd-buttons"),
+            "macOS puts the buttons first"
+        );
         assert!(has_class(&left_kids[1], "csd-title"));
 
         let right = tb("x").dom_with_buttons(&buttons, TitlebarButtonSide::Right);
         let right_kids = right.children.as_ref();
         assert_eq!(right_kids.len(), 2);
-        assert!(has_class(&right_kids[0], "csd-title"), "Windows/Linux put the title first");
+        assert!(
+            has_class(&right_kids[0], "csd-title"),
+            "Windows/Linux put the title first"
+        );
         assert!(has_class(&right_kids[1], "csd-buttons"));
     }
 
@@ -1965,13 +2206,12 @@ mod autotest_generated {
                     expected.push("csd-button-close");
                 }
 
-                let actual: Vec<String> = container
-                    .children
-                    .as_ref()
-                    .iter()
-                    .flat_map(ids)
-                    .collect();
-                assert_eq!(actual, expected, "{buttons:?} on {side:?} produced the wrong buttons");
+                let actual: Vec<String> =
+                    container.children.as_ref().iter().flat_map(ids).collect();
+                assert_eq!(
+                    actual, expected,
+                    "{buttons:?} on {side:?} produced the wrong buttons"
+                );
             }
         }
     }
@@ -1980,15 +2220,21 @@ mod autotest_generated {
     fn has_fullscreen_is_never_rendered() {
         // The flag exists in `TitlebarButtons` but the widget has no fullscreen
         // button; toggling it must not change a single node.
-        for &(close, min, max) in &[(true, true, true), (false, false, false), (true, false, true)]
-        {
+        for &(close, min, max) in &[
+            (true, true, true),
+            (false, false, false),
+            (true, false, true),
+        ] {
             let off = TitlebarButtons {
                 has_close: close,
                 has_minimize: min,
                 has_maximize: max,
                 has_fullscreen: false,
             };
-            let on = TitlebarButtons { has_fullscreen: true, ..off };
+            let on = TitlebarButtons {
+                has_fullscreen: true,
+                ..off
+            };
             assert_eq!(
                 fingerprint(&build_button_container(&off)),
                 fingerprint(&build_button_container(&on)),
@@ -2020,8 +2266,16 @@ mod autotest_generated {
     #[test]
     fn every_button_carries_one_mousedown_callback_and_the_matching_icon() {
         let expected: [(&str, &str, usize); 3] = [
-            ("csd-button-minimize", "minimize", callbacks::csd_minimize as usize),
-            ("csd-button-maximize", "maximize", callbacks::csd_maximize as usize),
+            (
+                "csd-button-minimize",
+                "minimize",
+                callbacks::csd_minimize as usize,
+            ),
+            (
+                "csd-button-maximize",
+                "maximize",
+                callbacks::csd_maximize as usize,
+            ),
             ("csd-button-close", "close", callbacks::csd_close as usize),
         ];
 
@@ -2048,11 +2302,12 @@ mod autotest_generated {
     #[test]
     fn every_button_carries_the_shared_and_the_specific_class() {
         let container = build_button_container(&TitlebarButtons::default());
-        for (node, specific) in container
-            .children
-            .as_ref()
-            .iter()
-            .zip(["csd-minimize", "csd-maximize", "csd-close"])
+        for (node, specific) in
+            container
+                .children
+                .as_ref()
+                .iter()
+                .zip(["csd-minimize", "csd-maximize", "csd-close"])
         {
             assert_eq!(
                 classes(node),
@@ -2086,7 +2341,9 @@ mod autotest_generated {
     #[test]
     fn dom_with_buttons_uses_the_csd_container_and_title_styles() {
         let t = tb("x");
-        let dom = t.clone().dom_with_buttons(&TitlebarButtons::default(), TitlebarButtonSide::Right);
+        let dom = t
+            .clone()
+            .dom_with_buttons(&TitlebarButtons::default(), TitlebarButtonSide::Right);
 
         assert_eq!(inline_props(&dom), expected_container(&t, true));
         assert_eq!(inline_props(title_node(&dom)), expected_title(&t, true));
@@ -2117,7 +2374,8 @@ mod autotest_generated {
     #[test]
     fn dom_with_buttons_carries_pathological_titles_verbatim() {
         for title in ADVERSARIAL_TITLES {
-            let dom = tb(title).dom_with_buttons(&TitlebarButtons::default(), TitlebarButtonSide::Left);
+            let dom =
+                tb(title).dom_with_buttons(&TitlebarButtons::default(), TitlebarButtonSide::Left);
             let text = &title_node(&dom).children.as_ref()[0];
             assert_eq!(text_of(text), Some(title));
         }
@@ -2137,8 +2395,15 @@ mod autotest_generated {
         );
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(interactive_moves(&changes), 1, "the compositor move was not requested");
-        assert!(state_writes(&changes).is_empty(), "the native path must not write state");
+        assert_eq!(
+            interactive_moves(&changes),
+            1,
+            "the compositor move was not requested"
+        );
+        assert!(
+            state_writes(&changes).is_empty(),
+            "the native path must not write state"
+        );
     }
 
     #[test]
@@ -2159,7 +2424,11 @@ mod autotest_generated {
         if cfg!(target_os = "macos") {
             assert_eq!(interactive_moves(&changes), 1);
         } else {
-            assert_eq!(interactive_moves(&changes), 0, "the manual path must not ask the OS");
+            assert_eq!(
+                interactive_moves(&changes),
+                0,
+                "the manual path must not ask the OS"
+            );
             assert!(
                 changes.is_empty(),
                 "a normal-frame manual drag start must record nothing at all",
@@ -2191,15 +2460,25 @@ mod autotest_generated {
             // Nothing else may be touched on the way through.
             let mut expected = before;
             expected.flags.frame = WindowFrame::Normal;
-            assert_eq!(writes[0], expected, "drag start changed more than the frame");
+            assert_eq!(
+                writes[0], expected,
+                "drag start changed more than the frame"
+            );
         }
     }
 
     #[test]
     fn drag_start_leaves_a_fullscreen_or_minimized_frame_alone() {
-        for frame in [WindowFrame::Fullscreen, WindowFrame::Minimized, WindowFrame::Normal] {
+        for frame in [
+            WindowFrame::Fullscreen,
+            WindowFrame::Minimized,
+            WindowFrame::Normal,
+        ] {
             let (_, changes) = with_callback_info(
-                state_with(frame, WindowPosition::Initialized(PhysicalPositionI32::new(1, 1))),
+                state_with(
+                    frame,
+                    WindowPosition::Initialized(PhysicalPositionI32::new(1, 1)),
+                ),
                 |info| callbacks::titlebar_drag_start(RefAny::new(()), info),
             );
             if !cfg!(target_os = "macos") {
@@ -2229,7 +2508,10 @@ mod autotest_generated {
                     callbacks::titlebar_drag(RefAny::new(()), info)
                 });
             assert_eq!(update, Update::DoNothing);
-            assert!(changes.is_empty(), "{position:?}: a no-delta drag recorded a change");
+            assert!(
+                changes.is_empty(),
+                "{position:?}: a no-delta drag recorded a change"
+            );
         }
     }
 
@@ -2264,18 +2546,28 @@ mod autotest_generated {
 
             assert_eq!(update, Update::DoNothing);
             let writes = state_writes(&changes);
-            assert_eq!(writes.len(), 1, "{frame:?}: exactly one state write expected");
+            assert_eq!(
+                writes.len(),
+                1,
+                "{frame:?}: exactly one state write expected"
+            );
 
             let expected_frame = if frame == WindowFrame::Maximized {
                 WindowFrame::Normal
             } else {
                 WindowFrame::Maximized
             };
-            assert_eq!(writes[0].flags.frame, expected_frame, "{frame:?} toggled wrongly");
+            assert_eq!(
+                writes[0].flags.frame, expected_frame,
+                "{frame:?} toggled wrongly"
+            );
 
             let mut expected = before;
             expected.flags.frame = expected_frame;
-            assert_eq!(writes[0], expected, "{frame:?}: more than the frame changed");
+            assert_eq!(
+                writes[0], expected,
+                "{frame:?}: more than the frame changed"
+            );
         }
     }
 
@@ -2320,20 +2612,30 @@ mod autotest_generated {
     fn close_sets_close_requested_and_nothing_else() {
         for frame in ALL_FRAMES {
             let before = state_with(frame, WindowPosition::Uninitialized);
-            assert!(!before.flags.close_requested, "fixture must start un-closed");
+            assert!(
+                !before.flags.close_requested,
+                "fixture must start un-closed"
+            );
 
-            let (update, changes) =
-                with_callback_info(before.clone(), |info| callbacks::csd_close(RefAny::new(()), info));
+            let (update, changes) = with_callback_info(before.clone(), |info| {
+                callbacks::csd_close(RefAny::new(()), info)
+            });
 
             assert_eq!(update, Update::DoNothing);
             let writes = state_writes(&changes);
             assert_eq!(writes.len(), 1);
             assert!(writes[0].flags.close_requested);
-            assert_eq!(writes[0].flags.frame, frame, "close must not move the frame");
+            assert_eq!(
+                writes[0].flags.frame, frame,
+                "close must not move the frame"
+            );
 
             let mut expected = before;
             expected.flags.close_requested = true;
-            assert_eq!(writes[0], expected, "close changed more than close_requested");
+            assert_eq!(
+                writes[0], expected,
+                "close changed more than close_requested"
+            );
         }
     }
 
@@ -2342,10 +2644,15 @@ mod autotest_generated {
         let mut before = state_with(WindowFrame::Normal, WindowPosition::Uninitialized);
         before.flags.close_requested = true;
 
-        let (_, changes) =
-            with_callback_info(before.clone(), |info| callbacks::csd_close(RefAny::new(()), info));
+        let (_, changes) = with_callback_info(before.clone(), |info| {
+            callbacks::csd_close(RefAny::new(()), info)
+        });
 
-        assert_eq!(state_writes(&changes), vec![before], "a second close must be a re-assert");
+        assert_eq!(
+            state_writes(&changes),
+            vec![before],
+            "a second close must be a re-assert"
+        );
     }
 
     #[test]
@@ -2359,11 +2666,18 @@ mod autotest_generated {
             assert_eq!(update, Update::DoNothing);
             let writes = state_writes(&changes);
             assert_eq!(writes.len(), 1);
-            assert_eq!(writes[0].flags.frame, WindowFrame::Minimized, "{frame:?} was not minimized");
+            assert_eq!(
+                writes[0].flags.frame,
+                WindowFrame::Minimized,
+                "{frame:?} was not minimized"
+            );
 
             let mut expected = before;
             expected.flags.frame = WindowFrame::Minimized;
-            assert_eq!(writes[0], expected, "{frame:?}: minimize changed more than the frame");
+            assert_eq!(
+                writes[0], expected,
+                "{frame:?}: minimize changed more than the frame"
+            );
         }
     }
 
@@ -2377,7 +2691,6 @@ mod autotest_generated {
         assert_eq!(interactive_moves(&changes), 0);
     }
 }
-
 
 /// Make any `Dom` behave as a window-drag region — azul's answer to Electron's
 /// `-webkit-app-region: drag`.
@@ -2504,8 +2817,13 @@ mod drag_region_tests {
     #[test]
     fn a_drag_region_carries_drag_start_drag_and_double_click() {
         let dom = window_drag_region(Dom::create_div());
-        let events: Vec<EventFilter> =
-            dom.root.callbacks.as_ref().iter().map(|c| c.event).collect();
+        let events: Vec<EventFilter> = dom
+            .root
+            .callbacks
+            .as_ref()
+            .iter()
+            .map(|c| c.event)
+            .collect();
 
         for want in [
             HoverEventFilter::DragStart,
@@ -2533,10 +2851,9 @@ mod drag_region_tests {
         );
         assert_eq!(dom.children.as_ref().len(), 1, "the child must survive");
         assert!(
-            dom.root
-                .get_ids_and_classes()
-                .iter()
-                .any(|c| matches!(c, azul_core::dom::IdOrClass::Class(s) if s.as_str() == "app-bar")),
+            dom.root.get_ids_and_classes().iter().any(
+                |c| matches!(c, azul_core::dom::IdOrClass::Class(s) if s.as_str() == "app-bar")
+            ),
             "the caller's class must survive"
         );
     }

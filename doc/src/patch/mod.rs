@@ -206,7 +206,10 @@ impl ApiPatch {
     }
 
     /// Load patch from file, using existing API data to resolve module names
-    pub fn from_file_with_context(path: &Path, existing_api: Option<&crate::api::ApiData>) -> Result<Self> {
+    pub fn from_file_with_context(
+        path: &Path,
+        existing_api: Option<&crate::api::ApiData>,
+    ) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read patch file: {}", path.display()))?;
 
@@ -228,7 +231,10 @@ impl ApiPatch {
     }
 
     /// Load all patches from a directory, using existing API data for module resolution
-    pub fn from_directory_with_context(dir_path: &Path, existing_api: Option<&crate::api::ApiData>) -> Result<Vec<(String, Self)>> {
+    pub fn from_directory_with_context(
+        dir_path: &Path,
+        existing_api: Option<&crate::api::ApiData>,
+    ) -> Result<Vec<(String, Self)>> {
         if !dir_path.is_dir() {
             anyhow::bail!("Not a directory: {}", dir_path.display());
         }

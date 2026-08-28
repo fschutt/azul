@@ -358,7 +358,11 @@ pub fn generate_enum_constants_extern(
 ) -> String {
     let enum_name = &enum_def.name;
     let c_type_name = config.apply_prefix(enum_name);
-    let member_kw = if is_cpp03 { "static const" } else { "static constexpr" };
+    let member_kw = if is_cpp03 {
+        "static const"
+    } else {
+        "static constexpr"
+    };
     let def_kw = if is_cpp03 { "const" } else { "constexpr" };
     let holder = format!("{}_consts_", enum_name);
 
@@ -504,7 +508,9 @@ pub fn generate_module_partition(
     let header_name = standard.header_filename();
     let mut code = String::new();
     code.push_str("// Auto-generated module partition for the Azul C++ wrapper.\r\n");
-    code.push_str("// Compile with `c++ -std=c++20 -fmodules-ts -c azul.cppm` (or your toolchain's\r\n");
+    code.push_str(
+        "// Compile with `c++ -std=c++20 -fmodules-ts -c azul.cppm` (or your toolchain's\r\n",
+    );
     code.push_str("// equivalent) so consumers can `import azul;`.\r\n\r\n");
     code.push_str("module;\r\n");
     // Suppress the header's own unit-enum constant namespaces in the global
@@ -585,7 +591,9 @@ pub fn generate_structured_binding_specs(ir: &CodegenIR) -> String {
         return code;
     }
 
-    code.push_str("// Structured-binding specializations: every ResultXxx wrapper destructures\r\n");
+    code.push_str(
+        "// Structured-binding specializations: every ResultXxx wrapper destructures\r\n",
+    );
     code.push_str("// to (std::optional<Ok>, std::optional<Err>).\r\n");
 
     // First emit get<I> ADL hooks inside namespace azul (one block).
@@ -1135,9 +1143,12 @@ pub fn generate_call_args_ex(
                 if super::super::managed_host_invoker::is_callback_wrapper(&arg.type_name) {
                     result.push(escaped_name);
                 } else {
-                    let wrapper_struct = config
-                        .apply_prefix(cb_typedef.strip_suffix("Type").unwrap_or(&cb_typedef));
-                    result.push(format!("az_detail_wrap_cb<{}>({})", wrapper_struct, escaped_name));
+                    let wrapper_struct =
+                        config.apply_prefix(cb_typedef.strip_suffix("Type").unwrap_or(&cb_typedef));
+                    result.push(format!(
+                        "az_detail_wrap_cb<{}>({})",
+                        wrapper_struct, escaped_name
+                    ));
                 }
                 continue;
             }
@@ -1385,7 +1396,9 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         // takes over ownership of the bits, so the temporary lives in stack
         // storage and is deliberately not destroyed here (destroy-in-place
         // happens once, via the destructor above, at last drop).
-        code.push_str("        alignas(structName) unsigned char storage_[sizeof(structName)]; \\\r\n");
+        code.push_str(
+            "        alignas(structName) unsigned char storage_[sizeof(structName)]; \\\r\n",
+        );
         code.push_str("        structName* tmp = ::new (static_cast<void*>(storage_)) structName(std::move(model)); \\\r\n");
         code.push_str("        AzGlVoidPtrConst ptr = { tmp, true }; \\\r\n");
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
@@ -1424,9 +1437,7 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         // are destroyed exactly once, in place, at last drop).
         code.push_str("    static azul::RefAny structName##_upcast(structName model) { \\\r\n");
         code.push_str("        structName* heap = new structName(model); \\\r\n");
-        code.push_str(
-            "        AzGlVoidPtrConst ptr; ptr.ptr = heap; \\\r\n",
-        );
+        code.push_str("        AzGlVoidPtrConst ptr; ptr.ptr = heap; \\\r\n");
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
         code.push_str("        azul::RefAny result(AzRefAny_newC(ptr, sizeof(structName), \\\r\n");
         code.push_str("            AZ_ALIGNOF(structName), structName##_type_id(), name, structName##_destructor, serializeFn, deserializeFn)); \\\r\n");
@@ -1439,7 +1450,9 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str(
             "        if (!AzRefAny_isType(&data.inner(), structName##_type_id())) return 0; \\\r\n",
         );
-        code.push_str("        return (structName const*)(AzRefAny_getDataPtr(&data.inner())); \\\r\n");
+        code.push_str(
+            "        return (structName const*)(AzRefAny_getDataPtr(&data.inner())); \\\r\n",
+        );
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static structName* structName##_downcast_mut(azul::RefAny& data) { \\\r\n",
@@ -1479,13 +1492,21 @@ pub fn generate_template_reflection(standard: CppStandard) -> String {
     }
 
     let mut code = String::new();
-    code.push_str("// =============================================================================\r\n");
+    code.push_str(
+        "// =============================================================================\r\n",
+    );
     code.push_str("// Template-based reflection scaffolding for RefAny::create<T> et al.\r\n");
-    code.push_str("// =============================================================================\r\n\r\n");
+    code.push_str(
+        "// =============================================================================\r\n\r\n",
+    );
 
     code.push_str("namespace detail {\r\n");
-    code.push_str("    // Per-type runtime tag, derived from the address of a template-instantiated\r\n");
-    code.push_str("    // static. The address is unique per T and has program-lifetime storage.\r\n");
+    code.push_str(
+        "    // Per-type runtime tag, derived from the address of a template-instantiated\r\n",
+    );
+    code.push_str(
+        "    // static. The address is unique per T and has program-lifetime storage.\r\n",
+    );
     code.push_str("    template<class T>\r\n");
     code.push_str("    struct type_id_holder { static const uint64_t value; };\r\n");
     code.push_str("    template<class T>\r\n");
@@ -1501,11 +1522,17 @@ pub fn generate_template_reflection(standard: CppStandard) -> String {
     code.push_str("} // namespace detail\r\n\r\n");
 
     if standard >= CppStandard::Cpp20 {
-        code.push_str("/// Structural concept: any object type T can be reflected as long as it is\r\n");
-        code.push_str("/// destructible and isn't `RefAny` itself (wrapping a RefAny in a RefAny is\r\n");
+        code.push_str(
+            "/// Structural concept: any object type T can be reflected as long as it is\r\n",
+        );
+        code.push_str(
+            "/// destructible and isn't `RefAny` itself (wrapping a RefAny in a RefAny is\r\n",
+        );
         code.push_str("/// not what anyone wants). No per-class registration needed.\r\n");
         code.push_str("template<class T>\r\n");
-        code.push_str("concept ReflectableModel = std::is_object_v<T> && std::is_destructible_v<T>\r\n");
+        code.push_str(
+            "concept ReflectableModel = std::is_object_v<T> && std::is_destructible_v<T>\r\n",
+        );
         code.push_str("    && !std::is_same_v<T, RefAny>;\r\n\r\n");
     }
 
@@ -1533,10 +1560,14 @@ pub fn generate_refany_template_members(standard: CppStandard) -> String {
 
     code.push_str("\r\n    // Template-based reflection - C++11+ replacement for AZ_REFLECT.\r\n");
 
-    code.push_str("    /// Per-type runtime tag - unique per T, stable across translation units.\r\n");
+    code.push_str(
+        "    /// Per-type runtime tag - unique per T, stable across translation units.\r\n",
+    );
     code.push_str(&format!("{}\r\n", template_intro));
     code.push_str("    static uint64_t type_id() noexcept {\r\n");
-    code.push_str("        return reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n");
+    code.push_str(
+        "        return reinterpret_cast<uint64_t>(&detail::type_id_holder<T>::value);\r\n",
+    );
     code.push_str("    }\r\n\r\n");
 
     if standard >= CppStandard::Cpp14 {
@@ -1553,12 +1584,20 @@ pub fn generate_refany_template_members(standard: CppStandard) -> String {
         }
     }
 
-    code.push_str("    /// Move T into a RefAny. The Rust-side equivalent of `RefAny::new(model)`.\r\n");
+    code.push_str(
+        "    /// Move T into a RefAny. The Rust-side equivalent of `RefAny::new(model)`.\r\n",
+    );
     code.push_str("    ///\r\n");
-    code.push_str("    /// AzRefAny_newC memcpys the bytes into a Rust-side allocation that takes\r\n");
-    code.push_str("    /// over ownership of the bits, so the temporary lives in stack storage\r\n");
+    code.push_str(
+        "    /// AzRefAny_newC memcpys the bytes into a Rust-side allocation that takes\r\n",
+    );
+    code.push_str(
+        "    /// over ownership of the bits, so the temporary lives in stack storage\r\n",
+    );
     code.push_str("    /// and is deliberately NOT destroyed here: destroy-in-place happens\r\n");
-    code.push_str("    /// exactly once, via detail::type_destructor<T> on the Rust-side buffer,\r\n");
+    code.push_str(
+        "    /// exactly once, via detail::type_destructor<T> on the Rust-side buffer,\r\n",
+    );
     code.push_str("    /// when the last reference drops.\r\n");
     code.push_str(&format!("{}\r\n", template_intro));
     code.push_str("    static RefAny create(T model) {\r\n");
@@ -1578,18 +1617,28 @@ pub fn generate_refany_template_members(standard: CppStandard) -> String {
     code.push_str("        ));\r\n");
     code.push_str("    }\r\n\r\n");
 
-    code.push_str("    /// Read-only borrow of the T inside this RefAny. nullptr on type mismatch.\r\n");
+    code.push_str(
+        "    /// Read-only borrow of the T inside this RefAny. nullptr on type mismatch.\r\n",
+    );
     code.push_str(&format!("{}\r\n", template_intro));
     code.push_str("    const T* downcast_ref() const noexcept {\r\n");
-    code.push_str("        if (!AzRefAny_isType(&inner_, RefAny::type_id<T>())) return nullptr;\r\n");
+    code.push_str(
+        "        if (!AzRefAny_isType(&inner_, RefAny::type_id<T>())) return nullptr;\r\n",
+    );
     code.push_str("        return static_cast<const T*>(AzRefAny_getDataPtr(&inner_));\r\n");
     code.push_str("    }\r\n\r\n");
 
-    code.push_str("    /// Mutable borrow of the T inside this RefAny. nullptr on type mismatch.\r\n");
+    code.push_str(
+        "    /// Mutable borrow of the T inside this RefAny. nullptr on type mismatch.\r\n",
+    );
     code.push_str(&format!("{}\r\n", template_intro));
     code.push_str("    T* downcast_mut() noexcept {\r\n");
-    code.push_str("        if (!AzRefAny_isType(&inner_, RefAny::type_id<T>())) return nullptr;\r\n");
-    code.push_str("        return static_cast<T*>(const_cast<void*>(AzRefAny_getDataPtr(&inner_)));\r\n");
+    code.push_str(
+        "        if (!AzRefAny_isType(&inner_, RefAny::type_id<T>())) return nullptr;\r\n",
+    );
+    code.push_str(
+        "        return static_cast<T*>(const_cast<void*>(AzRefAny_getDataPtr(&inner_)));\r\n",
+    );
     code.push_str("    }\r\n");
 
     code
@@ -1651,4 +1700,3 @@ pub fn generate_refany_freefn_downcasts(standard: CppStandard) -> String {
     code.push_str("}\r\n");
     code
 }
-

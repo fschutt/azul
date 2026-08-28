@@ -230,14 +230,7 @@ pub fn map_type_to_vb6(rust_type: &str, ir: &CodegenIR) -> String {
 
         // 32-bit. VB6 Long is 32-bit signed. Unsigned 32-bit silently
         // widens to a 32-bit signed Long — VB6 has no native u32.
-        "i32"
-        | "c_int"
-        | "u32"
-        | "c_uint"
-        | "GLint"
-        | "GLuint"
-        | "GLenum"
-        | "GLsizei"
+        "i32" | "c_int" | "u32" | "c_uint" | "GLint" | "GLuint" | "GLenum" | "GLsizei"
         | "GLbitfield" => "Long".to_string(),
 
         // f32 -> Single, f64 -> Double.
@@ -281,8 +274,7 @@ pub fn is_vb6_reserved(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     matches!(
         lower.as_str(),
-        "as"
-            | "binary"
+        "as" | "binary"
             | "boolean"
             | "byref"
             | "byte"

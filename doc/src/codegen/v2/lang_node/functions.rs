@@ -88,11 +88,7 @@ fn emit_function_binding(b: &mut CodeBuilder, f: &FunctionDef, ir: &CodegenIR) {
         .map(|r| map_type_to_koffi(r, ir))
         .unwrap_or_else(|| "void".to_string());
 
-    let param_specs: Vec<String> = f
-        .args
-        .iter()
-        .map(|a| arg_spec(a, ir))
-        .collect();
+    let param_specs: Vec<String> = f.args.iter().map(|a| arg_spec(a, ir)).collect();
 
     if !f.doc.is_empty() {
         b.line(&format!("// {}", f.doc.join(" ")));
@@ -108,12 +104,7 @@ fn emit_function_binding(b: &mut CodeBuilder, f: &FunctionDef, ir: &CodegenIR) {
     // The JS-side property name stays `lib.<c_name>` so wrappers don't
     // change.
     let c_symbol = super::super::managed_host_invoker::managed_c_symbol(f);
-    let decl_string = format!(
-        "{} {}({})",
-        return_spec,
-        c_symbol,
-        param_specs.join(", ")
-    );
+    let decl_string = format!("{} {}({})", return_spec, c_symbol, param_specs.join(", "));
 
     b.line(&format!(
         "lib.{} = azulFFI.func({{ name: '{}', decl: '{}', parameters: [{}], returns: '{}' }});",

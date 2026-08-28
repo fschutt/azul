@@ -11,14 +11,14 @@ pub mod api;
 pub mod autofix;
 pub mod autotest;
 pub mod codegen;
-pub mod doc_coverage;
 pub mod dllgen;
+pub mod doc_coverage;
+pub mod docgen;
 pub mod e2erun;
 pub mod gene2e;
 pub mod lint_examples;
-pub mod lint_orphans;
 pub mod lint_links;
-pub mod docgen;
+pub mod lint_orphans;
 pub mod patch;
 pub mod print;
 pub mod reftest;
@@ -110,10 +110,24 @@ fn main() -> anyhow::Result<()> {
             let enum_variant_count = api::normalize_enum_variant_types(&mut api_data);
             let dedup_count = patch::remove_duplicate_types(&mut api_data);
 
-            if array_count > 0 { println!("[ARRAY] Normalized {} array type fields", array_count); }
-            if type_alias_count > 0 { println!("[TYPE_ALIAS] Normalized {} type alias entries", type_alias_count); }
-            if enum_variant_count > 0 { println!("[ENUM_VARIANT] Normalized {} enum variant type entries", enum_variant_count); }
-            if dedup_count > 0 { println!("[DEDUP] Removed {} duplicate types", dedup_count); }
+            if array_count > 0 {
+                println!("[ARRAY] Normalized {} array type fields", array_count);
+            }
+            if type_alias_count > 0 {
+                println!(
+                    "[TYPE_ALIAS] Normalized {} type alias entries",
+                    type_alias_count
+                );
+            }
+            if enum_variant_count > 0 {
+                println!(
+                    "[ENUM_VARIANT] Normalized {} enum variant type entries",
+                    enum_variant_count
+                );
+            }
+            if dedup_count > 0 {
+                println!("[DEDUP] Removed {} duplicate types", dedup_count);
+            }
 
             let api_json = to_json_pretty_4space(&api_data)?;
             if api_json != original_content {
@@ -136,7 +150,10 @@ fn main() -> anyhow::Result<()> {
             // repo path under doc/guide/en must land on something real.
             let problems = lint_links::check_guide_links(&project_root);
             if !problems.is_empty() {
-                eprintln!("[FAIL] dangling pointers in the guide ({}):", problems.len());
+                eprintln!(
+                    "[FAIL] dangling pointers in the guide ({}):",
+                    problems.len()
+                );
                 for p in &problems {
                     eprintln!("    {}:{}: {}", p.file, p.line, p.detail);
                 }
@@ -265,9 +282,9 @@ fn main() -> anyhow::Result<()> {
                             continue;
                         }
                         let has_custom_drop = custom_impls.iter().any(|s| s == "Drop");
-                        let has_raw_ptr = fields.values().any(|f| {
-                            matches!(f.ref_kind, RefKind::ConstPtr | RefKind::MutPtr)
-                        });
+                        let has_raw_ptr = fields
+                            .values()
+                            .any(|f| matches!(f.ref_kind, RefKind::ConstPtr | RefKind::MutPtr));
                         // A PURE AGGREGATE (no custom `Drop`, no owned raw pointer)
                         // must NOT carry a mirror `impl Drop` — it delegates to its
                         // fields' own `Drop` via Rust field-glue. If the generated
@@ -288,7 +305,9 @@ fn main() -> anyhow::Result<()> {
                      absent (run `codegen all` first)"
                 ),
                 Some(_) if dd_violations.is_empty() => {
-                    println!("[ok] double-drop invariant: no aggregate carries a mirror `impl Drop`")
+                    println!(
+                        "[ok] double-drop invariant: no aggregate carries a mirror `impl Drop`"
+                    )
                 }
                 Some(_) => {
                     eprintln!(
@@ -372,7 +391,10 @@ fn main() -> anyhow::Result<()> {
                 if dangling.is_empty() {
                     println!("[ok] every guide link, anchor and documented path resolves");
                 } else {
-                    eprintln!("[FAIL] dangling pointers in the guide ({}):", dangling.len());
+                    eprintln!(
+                        "[FAIL] dangling pointers in the guide ({}):",
+                        dangling.len()
+                    );
                     for p in &dangling {
                         eprintln!("    {}:{}: {}", p.file, p.line, p.detail);
                     }
@@ -415,9 +437,8 @@ fn main() -> anyhow::Result<()> {
             // `capture_damage_png` writes `target/e2e/<name>.png` — exactly as the
             // DLL host does when CI runs them from the root. Staying in doc/ would
             // silently write into doc/target/ (or fail with ENOENT).
-            std::env::set_current_dir(&project_root).with_context(|| {
-                format!("cannot enter project root {}", project_root.display())
-            })?;
+            std::env::set_current_dir(&project_root)
+                .with_context(|| format!("cannot enter project root {}", project_root.display()))?;
             let opts = e2erun::E2eRunOptions::parse(rest)?;
             let code = e2erun::run(&opts)?;
             std::process::exit(code);
@@ -1415,7 +1436,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         // Regression analysis - walk git history to find when tests changed
-        // 
+        //
         // Usage:
         //   debug-regression <commits.txt>        - Process commits from file (one hash per line)
         //   debug-regression statistics           - Generate report from existing data
@@ -1439,7 +1460,7 @@ fn main() -> anyhow::Result<()> {
                 output_dir: PathBuf::from("target").join("reftest"),
             };
             reftest::regression::run_visual_report(config)?;
-            
+
             // Open in browser
             let report_path = PathBuf::from("target/reftest/regression/visual.html");
             if report_path.exists() {
@@ -1447,9 +1468,13 @@ fn main() -> anyhow::Result<()> {
                 #[cfg(target_os = "macos")]
                 let _ = std::process::Command::new("open").arg(&report_path).spawn();
                 #[cfg(target_os = "linux")]
-                let _ = std::process::Command::new("xdg-open").arg(&report_path).spawn();
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(&report_path)
+                    .spawn();
                 #[cfg(target_os = "windows")]
-                let _ = std::process::Command::new("cmd").args(["/C", "start", report_path.to_str().unwrap()]).spawn();
+                let _ = std::process::Command::new("cmd")
+                    .args(["/C", "start", report_path.to_str().unwrap()])
+                    .spawn();
             }
             return Ok(());
         }
@@ -1516,17 +1541,27 @@ fn main() -> anyhow::Result<()> {
             println!("Usage:");
             println!("  azul-doc debug-regression <commits.txt>      - Process commits from file");
             println!("  azul-doc debug-regression <git-ref>          - Process single ref");
-            println!("  azul-doc debug-regression visual             - Generate visual HTML report");
-            println!("  azul-doc debug-regression statistics         - Generate diff report (stdout)");
+            println!(
+                "  azul-doc debug-regression visual             - Generate visual HTML report"
+            );
+            println!(
+                "  azul-doc debug-regression statistics         - Generate diff report (stdout)"
+            );
             println!("  azul-doc debug-regression statistics prompt  - Generate Gemini prompt with source");
             println!("  azul-doc debug-regression statistics send    - Send prompt to Gemini API");
-            println!("  azul-doc debug-regression statistics send -o <file>  - Save response to file");
+            println!(
+                "  azul-doc debug-regression statistics send -o <file>  - Save response to file"
+            );
             println!();
             println!("Example workflow:");
             println!("  1. Generate commit list:  ./scripts/find_layout_commits.py c0e504a3..HEAD -o commits.txt");
-            println!("  2. Run regression:        cargo run --release -- debug-regression commits.txt");
+            println!(
+                "  2. Run regression:        cargo run --release -- debug-regression commits.txt"
+            );
             println!("  3. View visual report:    cargo run --release -- debug-regression visual");
-            println!("  4. View text diffs:       cargo run --release -- debug-regression statistics");
+            println!(
+                "  4. View text diffs:       cargo run --release -- debug-regression statistics"
+            );
             println!("  5. Generate prompt:       cargo run --release -- debug-regression statistics prompt > prompt.md");
             println!("  6. Send to Gemini:        cargo run --release -- debug-regression statistics send -o response.md");
             return Ok(());
@@ -1561,8 +1596,7 @@ fn main() -> anyhow::Result<()> {
         ["autodebug", rest @ ..] | ["autodebug", "claude-exec", rest @ ..] => {
             let config = reftest::autodebug::parse_autodebug_args(rest, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            reftest::autodebug::run_autodebug(config)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::autodebug::run_autodebug(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["autoreview", "apply-midlevel", "triage", rest @ ..] => {
@@ -1573,8 +1607,7 @@ fn main() -> anyhow::Result<()> {
             let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
             let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            reftest::apply_midlevel::run(config)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["autoreview", "apply-midlevel", "pending", rest @ ..] => {
@@ -1585,8 +1618,7 @@ fn main() -> anyhow::Result<()> {
             let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
             let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            reftest::apply_midlevel::run(config)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["autoreview", "apply-midlevel", "auto", rest @ ..] => {
@@ -1598,8 +1630,7 @@ fn main() -> anyhow::Result<()> {
             let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
             let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            reftest::apply_midlevel::run(config)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["autoreview", "apply-midlevel", "refresh-pending", rest @ ..] => {
@@ -1611,33 +1642,28 @@ fn main() -> anyhow::Result<()> {
             let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
             let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            reftest::apply_midlevel::run(config)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["autoreview", "apply-midlevel", rest @ ..] => {
             let config = reftest::apply_midlevel::parse_args(rest, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            reftest::apply_midlevel::run(config)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["telegram-setup"] | ["autoreview", "telegram-setup"] => {
-            reftest::telegram::setup_interactive()
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::telegram::setup_interactive().map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["autoreview", rest @ ..] => {
             let config = reftest::autoreview::parse_autoreview_args(rest, &project_root)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            reftest::autoreview::run_autoreview(config)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::autoreview::run_autoreview(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["spec", rest @ ..] => {
             let args: Vec<String> = rest.iter().map(|s| s.to_string()).collect();
-            spec::run_spec_command(&args, &project_root)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            spec::run_spec_command(&args, &project_root).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["reftest"] | ["reftest", "open"] => {
@@ -1685,7 +1711,10 @@ fn main() -> anyhow::Result<()> {
             let baseline_path =
                 PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("reftest_baseline.txt");
             let baseline_text = std::fs::read_to_string(&baseline_path).map_err(|e| {
-                anyhow::anyhow!("cannot read reftest baseline {}: {e}", baseline_path.display())
+                anyhow::anyhow!(
+                    "cannot read reftest baseline {}: {e}",
+                    baseline_path.display()
+                )
             })?;
             let baseline = reftest::parse_baseline(&baseline_text);
             if baseline.is_empty() {
@@ -1753,7 +1782,10 @@ fn main() -> anyhow::Result<()> {
             println!("\nAll language bindings generated successfully.");
             return Ok(());
         }
-        ["deploy"] | ["deploy", ..] | ["fast-deploy-with-reftests"] | ["fast-deploy-with-reftests", ..] => {
+        ["deploy"]
+        | ["deploy", ..]
+        | ["fast-deploy-with-reftests"]
+        | ["fast-deploy-with-reftests", ..] => {
             // Modes: "deploy" (production), "deploy debug" (fast, external CSS),
             // "deploy with-reftests" (debug + run reftests), "fast-deploy-with-reftests" (legacy alias)
             let is_debug = args.len() > 2 && (args[2] == "debug" || args[2] == "with-reftests");
@@ -1802,11 +1834,19 @@ fn main() -> anyhow::Result<()> {
 
             // Generate documentation (API docs, guide, etc.)
             let inline_css = !is_debug;
-            let image_url = if is_debug { "./images" } else { "https://azul.rs/images" };
+            let image_url = if is_debug {
+                "./images"
+            } else {
+                "https://azul.rs/images"
+            };
             // In debug mode the install commands need a fully qualified host
             // so `curl` resolves to the local dev server, not a relative URL
             // (which would 404). Production keeps the canonical hostname.
-            let hostname = if is_debug { "http://localhost:8000" } else { "https://azul.rs" };
+            let hostname = if is_debug {
+                "http://localhost:8000"
+            } else {
+                "https://azul.rs"
+            };
             println!("Generating documentation (inline_css={})...", inline_css);
             for (path, html) in
                 docgen::generate_docs(&api_data, &image_path, image_url, inline_css, hostname)?
@@ -1871,7 +1911,10 @@ fn main() -> anyhow::Result<()> {
                         copied += 1;
                     }
                 }
-                println!("  [OK] Copied {} screenshot(s) to guide/screenshots/", copied);
+                println!(
+                    "  [OK] Copied {} screenshot(s) to guide/screenshots/",
+                    copied
+                );
             }
 
             // Verify all example files exist before proceeding
@@ -1993,21 +2036,12 @@ fn main() -> anyhow::Result<()> {
             // "https://azul.rs", so the debug rewrite leaves them correct —
             // copy them verbatim into the deploy root.
             let templates_dir = project_root.join("doc").join("templates");
-            fs::copy(
-                templates_dir.join("flora.css"),
-                root_dir.join("flora.css"),
-            )?;
+            fs::copy(templates_dir.join("flora.css"), root_dir.join("flora.css"))?;
             // Brand logo for the marketing nav (same asset the /ui docs use).
-            fs::copy(
-                templates_dir.join("logo.svg"),
-                root_dir.join("logo.svg"),
-            )?;
+            fs::copy(templates_dir.join("logo.svg"), root_dir.join("logo.svg"))?;
             // Animated foam decoration for the landing hero (copied from the
             // erp-site design; that repo ships no hero video, so only the SVG).
-            fs::copy(
-                templates_dir.join("foam.svg"),
-                root_dir.join("foam.svg"),
-            )?;
+            fs::copy(templates_dir.join("foam.svg"), root_dir.join("foam.svg"))?;
             // Native AzWidgets screenshot shown above the foam blob in the
             // marketing hero (captured via the AZ_DEBUG screenshot API).
             // Optional so a missing capture never breaks a deploy.
@@ -2147,30 +2181,39 @@ fn generate_release_pages(
         // links resolve to a `docker build`-able URL. Best-effort: a missing source
         // (running outside the repo) just skips that demo.
         for crate_name in [
-            "azul-paint", "azul-widgets", "azul-maps", "azul-vault",
-            "azul-gamepad", "azul-camera-app", "azul-screenshare-app",
-            "azul-video-app", "azul-meet", "azul-self-test",
+            "azul-paint",
+            "azul-widgets",
+            "azul-maps",
+            "azul-vault",
+            "azul-gamepad",
+            "azul-camera-app",
+            "azul-screenshare-app",
+            "azul-video-app",
+            "azul-meet",
+            "azul-self-test",
         ] {
             let src = examples_dir.join(crate_name).join("Dockerfile");
             if let Ok(contents) = fs::read_to_string(&src) {
-                let pinned = contents
-                    .replace("ARG AZUL_VERSION=0.2.0", &format!("ARG AZUL_VERSION={version}"));
+                let pinned = contents.replace(
+                    "ARG AZUL_VERSION=0.2.0",
+                    &format!("ARG AZUL_VERSION={version}"),
+                );
                 let _ = fs::write(version_dir.join(format!("{crate_name}.Dockerfile")), pinned);
             }
         }
-        println!("  [OK] Generated: release/{}/<demo>.Dockerfile (web/Docker)", version);
+        println!(
+            "  [OK] Generated: release/{}/<demo>.Dockerfile (web/Docker)",
+            version
+        );
 
         // Copy per-language (non-whitelist) bindings + scaffolding so that the
         // go/haskell/ada/pascal/zig/cobol/fortran/perl/php/lisp/smalltalk/vb6/
         // freebasic/algol68/powershell install steps' `curl` targets resolve.
         // Same idea as the azul.h / azul*.hpp writes just above, but the
         // sources are the `codegen all` outputs (+ a few `examples/` files).
-        if let Err(e) = dllgen::deploy::copy_language_bindings(
-            version,
-            &version_dir,
-            codegen_dir,
-            examples_dir,
-        ) {
+        if let Err(e) =
+            dllgen::deploy::copy_language_bindings(version, &version_dir, codegen_dir, examples_dir)
+        {
             eprintln!("  [WARN] Failed to copy per-language bindings: {}", e);
         }
 
@@ -2254,11 +2297,7 @@ fn generate_release_pages(
             }
             // Twin release/<version>/index.html lands INSIDE the artifact
             // dir, making the extensionless /release/<version> URL resolve.
-            write_page_with_clean_twin(
-                &releases_dir,
-                &format!("{version}.html"),
-                &release_html,
-            )?;
+            write_page_with_clean_twin(&releases_dir, &format!("{version}.html"), &release_html)?;
             println!("  [OK] Generated: release/{}.html", version);
         }
 
@@ -2275,11 +2314,7 @@ fn generate_release_pages(
             }
             // Twin release/<version>/index.html lands INSIDE the artifact
             // dir, making the extensionless /release/<version> URL resolve.
-            write_page_with_clean_twin(
-                &releases_dir,
-                &format!("{version}.html"),
-                &release_html,
-            )?;
+            write_page_with_clean_twin(&releases_dir, &format!("{version}.html"), &release_html)?;
             println!("  [OK] Generated: release/{}.html", version);
         }
     }
@@ -2388,34 +2423,60 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview --status           - Show review progress");
     println!("    autoreview --retry-failed     - Re-queue failed reviews");
     println!("    autoreview small-fixes         - Fix small issues in parallel (docs, style, minor bugs)");
-    println!("    autoreview midlevel-fixes     - Fix mid-level issues sequentially (dedup, refactor)");
-    println!("    autoreview summarize-highlevel - For each committed review report, ask a low-effort");
-    println!("                                    agent whether its HIGH-LEVEL / architectural finding");
+    println!(
+        "    autoreview midlevel-fixes     - Fix mid-level issues sequentially (dedup, refactor)"
+    );
+    println!(
+        "    autoreview summarize-highlevel - For each committed review report, ask a low-effort"
+    );
+    println!(
+        "                                    agent whether its HIGH-LEVEL / architectural finding"
+    );
     println!("                                    still applies, and append one bullet to");
     println!("                                    scripts/HIGHLEVEL_SUPERPLAN.md (sequential, resumable,");
-    println!("                                    NO commits). [--reference=<branch>] [--model=<name>]");
+    println!(
+        "                                    NO commits). [--reference=<branch>] [--model=<name>]"
+    );
     println!("                                    [--limit=N] [--timeout=SECS]  (default ref:");
     println!("                                    midlevel-fixes-reference)");
     println!("    autoreview merge              - Merge reports into a single checklist");
     println!("    autoreview process            - Implement checklist items (one commit each)");
-    println!("    autoreview apply-midlevel     - Interactively replay commits from a reference branch");
+    println!(
+        "    autoreview apply-midlevel     - Interactively replay commits from a reference branch"
+    );
     println!("                                    --reference=<branch/tag> [--base=<ref>] [--model=<name>]");
     println!("                                    [--no-telegram] [--triage] [--pending-only] [--auto-apply]");
     println!("                                    [--limit=N] [--last=N] [--retries=N]");
-    println!("                                    --last=N windows to the most recent N commits of the");
+    println!(
+        "                                    --last=N windows to the most recent N commits of the"
+    );
     println!("                                    range (resume the un-applied tail after lost progress).");
-    println!("                                    Pending pre-decisions (from `triage`) auto-apply");
-    println!("                                    without prompting; failures retry up to --retries=3");
-    println!("                                    (concurrent-build errors wait 60s, real errors 5s");
+    println!(
+        "                                    Pending pre-decisions (from `triage`) auto-apply"
+    );
+    println!(
+        "                                    without prompting; failures retry up to --retries=3"
+    );
+    println!(
+        "                                    (concurrent-build errors wait 60s, real errors 5s"
+    );
     println!("                                    with a hint to the agent). After N failures the");
-    println!("                                    entry is recorded as Rejected and the loop continues.");
-    println!("                                    The apply agent now produces `follow-up: ` commits");
+    println!(
+        "                                    entry is recorded as Rejected and the loop continues."
+    );
+    println!(
+        "                                    The apply agent now produces `follow-up: ` commits"
+    );
     println!("                                    for any 'also do X' work in the AGREED PLAN.");
     println!("                                    --limit=N stops the session after N decisions.");
     println!("    autoreview apply-midlevel triage");
-    println!("                                  - Same flags as apply-midlevel, but skips the apply");
+    println!(
+        "                                  - Same flags as apply-midlevel, but skips the apply"
+    );
     println!("                                    agent entirely. Runs only the ~30s analyzer per");
-    println!("                                    commit and saves your decision to progress.json:");
+    println!(
+        "                                    commit and saves your decision to progress.json:"
+    );
     println!("                                      apply/refine→apply  → queued in `pending` for");
     println!("                                                            a later unattended run");
     println!("                                      skip / reject       → finalized immediately");
@@ -2424,33 +2485,61 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autoreview apply-midlevel auto");
     println!("                                  - Sugar for --auto-apply. FULLY UNATTENDED: the analyzer");
     println!("                                    classifies every un-processed commit and acts on its tag");
-    println!("                                    with no human in the loop and no prior triage needed:");
-    println!("                                      [KEEP]/[WIRE]/[REFACTOR] → apply (retries up to N)");
+    println!(
+        "                                    with no human in the loop and no prior triage needed:"
+    );
+    println!(
+        "                                      [KEEP]/[WIRE]/[REFACTOR] → apply (retries up to N)"
+    );
     println!("                                      [DONE]    → skip (already fixed in the drifted tree)");
     println!("                                      [REJECT]  → reject");
     println!("                                      [UNCLEAR] → skip for human review");
-    println!("                                    Add --auto-apply-unclear to apply [UNCLEAR] too.");
-    println!("                                    Walks all commits in order; pair with --limit=N for");
+    println!(
+        "                                    Add --auto-apply-unclear to apply [UNCLEAR] too."
+    );
+    println!(
+        "                                    Walks all commits in order; pair with --limit=N for"
+    );
     println!("                                    batches. Skips/rejects are recorded so re-runs resume.");
     println!("    autoreview apply-midlevel pending");
     println!("                                  - Sugar for --pending-only. Applies ONLY commits");
-    println!("                                    you already pre-decided in a triage pass, in commit");
-    println!("                                    order, then exits. Un-triaged commits are skipped");
-    println!("                                    (not prompted) — so a queue of 5–10 pre-decisions");
+    println!(
+        "                                    you already pre-decided in a triage pass, in commit"
+    );
+    println!(
+        "                                    order, then exits. Un-triaged commits are skipped"
+    );
+    println!(
+        "                                    (not prompted) — so a queue of 5–10 pre-decisions"
+    );
     println!("                                    runs to completion unattended and stops.");
     println!("    autoreview apply-midlevel refresh-pending");
-    println!("                                  - Sugar for --refresh-pending. For any legacy pending");
+    println!(
+        "                                  - Sugar for --refresh-pending. For any legacy pending"
+    );
     println!("                                    entry (from before the full iteration trace was");
-    println!("                                    saved), replays the analyzer + saved feedback so");
-    println!("                                    the locked-in AGREED PLAN matches what you saw at");
-    println!("                                    triage. Run this once after upgrading, before the");
+    println!(
+        "                                    saved), replays the analyzer + saved feedback so"
+    );
+    println!(
+        "                                    the locked-in AGREED PLAN matches what you saw at"
+    );
+    println!(
+        "                                    triage. Run this once after upgrading, before the"
+    );
     println!("                                    next `apply-midlevel pending`.");
-    println!("    autoreview autodoc            - Generate guide pages from doc/autodoc-groups.toml");
+    println!(
+        "    autoreview autodoc            - Generate guide pages from doc/autodoc-groups.toml"
+    );
     println!("                                    [--agents=N] [--file=GROUP_ID] [--dry-run]");
-    println!("    autoreview autodoc-check      - Detect guide pages whose tracked source files have");
+    println!(
+        "    autoreview autodoc-check      - Detect guide pages whose tracked source files have"
+    );
     println!("                                    changed since generation (writes outdated.md)");
     println!("                                    [--strict] (exits non-zero on any staleness)");
-    println!("    autoreview autodoc-screenshots - Render `azul-render` blocks in guide pages to PNG");
+    println!(
+        "    autoreview autodoc-screenshots - Render `azul-render` blocks in guide pages to PNG"
+    );
     println!("    telegram-setup                - Pair azul-doc with a Telegram bot so prompts");
     println!("                                    (apply-midlevel etc.) mirror to your phone");
     println!();
@@ -2475,7 +2564,9 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autofix difficult             - Rank types by FFI difficulty");
     println!("    autofix internal              - Show types that should be internal-only");
     println!("    autofix modules               - Show types in wrong modules");
-    println!("    autofix deps                  - Analyze function dependencies on difficult types");
+    println!(
+        "    autofix deps                  - Analyze function dependencies on difficult types"
+    );
     println!();
     println!("  API MANAGEMENT:");
     println!("    normalize                     - Normalize/reformat api.json");
@@ -2613,11 +2704,7 @@ fn clean_internal_url(url: &str) -> String {
 
 /// Write `dir/<rel>` AND, when `rel` is `<stem>.html` (not index.html),
 /// `dir/<stem>/index.html` with the same content.
-fn write_page_with_clean_twin(
-    dir: &std::path::Path,
-    rel: &str,
-    html: &str,
-) -> anyhow::Result<()> {
+fn write_page_with_clean_twin(dir: &std::path::Path, rel: &str, html: &str) -> anyhow::Result<()> {
     let path = dir.join(rel);
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);

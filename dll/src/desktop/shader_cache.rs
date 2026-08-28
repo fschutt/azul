@@ -195,11 +195,7 @@ fn get_shader_cache_base_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         let local_app_data = std::env::var("LOCALAPPDATA").ok()?;
-        Some(
-            PathBuf::from(local_app_data)
-                .join("azul")
-                .join("shaders"),
-        )
+        Some(PathBuf::from(local_app_data).join("azul").join("shaders"))
     }
 
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]

@@ -11,12 +11,13 @@ use azul_core::{
     },
     refany::RefAny,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{
-            color::{ColorU, ColorOrSystem},
+            color::{ColorOrSystem, ColorU},
             font::{StyleFontFamily, StyleFontFamilyVec},
             *,
         },
@@ -27,7 +28,9 @@ use azul_css::{
     *,
 };
 
-use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut};
+use azul_css::{
+    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq,
+};
 
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -67,20 +70,49 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 
 // -- Colors --
 
-const TEXT_COLOR: ColorU = ColorU { r: 30, g: 30, b: 30, a: 255 };
-const SELECTED_BG: ColorU = ColorU { r: 0, g: 120, b: 215, a: 255 };
-const SELECTED_TEXT: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const HOVER_BG: ColorU = ColorU { r: 229, g: 243, b: 255, a: 255 };
-const ICON_COLOR: ColorU = ColorU { r: 100, g: 100, b: 100, a: 255 };
+const TEXT_COLOR: ColorU = ColorU {
+    r: 30,
+    g: 30,
+    b: 30,
+    a: 255,
+};
+const SELECTED_BG: ColorU = ColorU {
+    r: 0,
+    g: 120,
+    b: 215,
+    a: 255,
+};
+const SELECTED_TEXT: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+const HOVER_BG: ColorU = ColorU {
+    r: 229,
+    g: 243,
+    b: 255,
+    a: 255,
+};
+const ICON_COLOR: ColorU = ColorU {
+    r: 100,
+    g: 100,
+    b: 100,
+    a: 255,
+};
 
 // -- Tree container style --
 
 static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor { inner: TEXT_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: TEXT_COLOR,
+    })),
 ];
 
 // -- Row style (each tree node row) --
@@ -89,10 +121,18 @@ static ROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        2,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(4),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     // Hover
     CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
@@ -109,23 +149,37 @@ static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        2,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(2),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(4),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(SELECTED_BG)]),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor { inner: SELECTED_TEXT })),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: SELECTED_TEXT,
+    })),
 ];
 
 // -- Children container style --
 
 static CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(16))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(16),
+    )),
 ];
 
 // -- Disclosure icon style --
@@ -135,7 +189,9 @@ static CHILDREN_STYLE: &[CssPropertyWithConditions] = &[
 static ICON_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor { inner: ICON_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: ICON_COLOR,
+    })),
 ];
 
 // -- Leaf spacer (same width as icon, for alignment) --
@@ -149,7 +205,9 @@ static LEAF_SPACER_STYLE: &[CssPropertyWithConditions] = &[
 
 static LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(4),
+    )),
 ];
 
 // ============================================================================
@@ -187,26 +245,41 @@ impl TreeViewNode {
     }
 
     /// Builder method: appends a child node.
-    #[must_use] pub fn with_child(mut self, child: Self) -> Self {
+    #[must_use]
+    pub fn with_child(mut self, child: Self) -> Self {
         self.children.push(child);
         self
     }
 
     /// Builder method: sets the expanded state.
-    #[must_use] pub const fn with_expanded(mut self, expanded: bool) -> Self {
+    #[must_use]
+    pub const fn with_expanded(mut self, expanded: bool) -> Self {
         self.is_expanded = expanded;
         self
     }
 
     /// Builder method: sets the selected state.
-    #[must_use] pub const fn with_selected(mut self, selected: bool) -> Self {
+    #[must_use]
+    pub const fn with_selected(mut self, selected: bool) -> Self {
         self.is_selected = selected;
         self
     }
 }
 
-impl_option!(TreeViewNode, OptionTreeViewNode, copy = false, [Debug, Clone, PartialEq]);
-impl_vec!(TreeViewNode, TreeViewNodeVec, TreeViewNodeVecDestructor, TreeViewNodeVecDestructorType, TreeViewNodeVecSlice, OptionTreeViewNode);
+impl_option!(
+    TreeViewNode,
+    OptionTreeViewNode,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+impl_vec!(
+    TreeViewNode,
+    TreeViewNodeVec,
+    TreeViewNodeVecDestructor,
+    TreeViewNodeVecDestructorType,
+    TreeViewNodeVecSlice,
+    OptionTreeViewNode
+);
 impl_vec_clone!(TreeViewNode, TreeViewNodeVec, TreeViewNodeVecDestructor);
 impl_vec_debug!(TreeViewNode, TreeViewNodeVec);
 impl_vec_partialeq!(TreeViewNode, TreeViewNodeVec);
@@ -224,7 +297,8 @@ pub struct TreeView {
 
 impl TreeView {
     /// Creates a new tree view with the given root node and no click callback.
-    #[must_use] pub fn new(root: TreeViewNode) -> Self {
+    #[must_use]
+    pub fn new(root: TreeViewNode) -> Self {
         Self {
             root,
             on_node_click: None.into(),
@@ -256,7 +330,8 @@ impl TreeView {
     }
 
     /// Renders the tree view into a [`Dom`] subtree.
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         const TREE_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-tree-view"))];
 
@@ -268,7 +343,9 @@ impl TreeView {
         render_node(&root, &on_node_click, &mut index, &mut children);
 
         Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TREE_CONTAINER_STYLE))
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                TREE_CONTAINER_STYLE,
+            ))
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TREE_CLASS))
             .with_children(DomVec::from_vec(children))
     }
@@ -307,8 +384,9 @@ fn render_node(
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ICON_STYLE))
     } else {
         // Empty spacer for leaf alignment
-        Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(LEAF_SPACER_STYLE))
+        Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            LEAF_SPACER_STYLE,
+        ))
     };
 
     // Build the label
@@ -361,7 +439,9 @@ fn render_node(
         }
 
         let children_container = Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHILDREN_STYLE))
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                CHILDREN_STYLE,
+            ))
             .with_children(DomVec::from_vec(child_doms));
 
         out.push(children_container);
@@ -902,7 +982,11 @@ mod autotest_generated {
         }
         // Order is insertion order, and nothing is deduplicated.
         root.add_child(leaf("c0"));
-        assert_eq!(root.children.len(), n + 1, "duplicates are kept, not merged");
+        assert_eq!(
+            root.children.len(),
+            n + 1,
+            "duplicates are kept, not merged"
+        );
         assert_eq!(root.children.as_slice()[0].label.as_str(), "c0");
         assert_eq!(root.children.as_slice()[n - 1].label.as_str(), "c4999");
         assert_eq!(root.children.as_slice()[n].label.as_str(), "c0");
@@ -971,10 +1055,7 @@ mod autotest_generated {
                 assert_eq!(node, flipped);
 
                 // …and applying the same value twice must be a no-op.
-                let twice = node
-                    .clone()
-                    .with_expanded(expanded)
-                    .with_selected(selected);
+                let twice = node.clone().with_expanded(expanded).with_selected(selected);
                 assert_eq!(node, twice);
 
                 // The last write wins when the value is flipped.
@@ -1153,7 +1234,12 @@ mod autotest_generated {
             for start in [0usize, 1, 12_345, usize::MAX / 4] {
                 let mut index = start;
                 let mut out = Vec::new();
-                render_node(&shape, &OptionTreeViewOnNodeClick::None, &mut index, &mut out);
+                render_node(
+                    &shape,
+                    &OptionTreeViewOnNodeClick::None,
+                    &mut index,
+                    &mut out,
+                );
                 assert_eq!(
                     index - start,
                     expected,
@@ -1190,7 +1276,10 @@ mod autotest_generated {
         let on_click = some_click(record_click, &log);
 
         // Pre-existing content in `out` must be preserved, not clobbered.
-        let mut out = vec![Dom::create_div(), Dom::create_text_do_not_use_without_block_level_wrapper("sentinel")];
+        let mut out = vec![
+            Dom::create_div(),
+            Dom::create_text_do_not_use_without_block_level_wrapper("sentinel"),
+        ];
         let mut index = start;
         render_node(&shape, &on_click, &mut index, &mut out);
 
@@ -1247,7 +1336,12 @@ mod autotest_generated {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut index = usize::MAX;
             let mut out = Vec::new();
-            render_node(&node, &OptionTreeViewOnNodeClick::None, &mut index, &mut out);
+            render_node(
+                &node,
+                &OptionTreeViewOnNodeClick::None,
+                &mut index,
+                &mut out,
+            );
             index
         }));
 
@@ -1265,7 +1359,12 @@ mod autotest_generated {
         for shape in shapes() {
             let mut index = 0usize;
             let mut out = Vec::new();
-            render_node(&shape, &OptionTreeViewOnNodeClick::None, &mut index, &mut out);
+            render_node(
+                &shape,
+                &OptionTreeViewOnNodeClick::None,
+                &mut index,
+                &mut out,
+            );
 
             for row in rows_of(&out) {
                 assert!(
@@ -1284,7 +1383,12 @@ mod autotest_generated {
 
             let mut index = 0usize;
             let mut out = Vec::new();
-            render_node(&root, &OptionTreeViewOnNodeClick::None, &mut index, &mut out);
+            render_node(
+                &root,
+                &OptionTreeViewOnNodeClick::None,
+                &mut index,
+                &mut out,
+            );
 
             assert_eq!(index, depth, "one index per level");
             assert_eq!(rows_of(&out).len(), depth, "every level renders one row");
@@ -1343,7 +1447,11 @@ mod autotest_generated {
 
         let row = &dom.children.as_ref()[0];
         let (icon, label) = row_parts(row);
-        assert_eq!(icon_of(icon), None, "a childless node gets no disclosure icon");
+        assert_eq!(
+            icon_of(icon),
+            None,
+            "a childless node gets no disclosure icon"
+        );
         assert!(
             style_is(icon, LEAF_SPACER_STYLE),
             "the placeholder must use the leaf-spacer style so labels stay aligned"
@@ -1386,7 +1494,11 @@ mod autotest_generated {
         );
         let (icon, _) = row_parts(&dom.children.as_ref()[0]);
         assert_eq!(icon_of(icon), Some("chevron_right"));
-        assert_eq!(rows_of(dom.children.as_ref()).len(), 1, "children stay hidden");
+        assert_eq!(
+            rows_of(dom.children.as_ref()).len(),
+            1,
+            "children stay hidden"
+        );
     }
 
     #[test]
@@ -1409,7 +1521,10 @@ mod autotest_generated {
         let rows = rows_of(dom.children.as_ref());
         assert_eq!(rows.len(), 3);
 
-        assert!(style_is(rows[0], ROW_STYLE), "unselected root uses ROW_STYLE");
+        assert!(
+            style_is(rows[0], ROW_STYLE),
+            "unselected root uses ROW_STYLE"
+        );
         assert!(
             style_is(rows[1], ROW_SELECTED_STYLE),
             "the selected node must switch to the selected style"

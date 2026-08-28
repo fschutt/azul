@@ -67,7 +67,11 @@ pub fn ensure_av_access(media: &AVMediaType) -> bool {
                  Privacy & Security → {}.",
                 label,
                 state,
-                if label == "camera" { "Camera" } else { "Microphone" }
+                if label == "camera" {
+                    "Camera"
+                } else {
+                    "Microphone"
+                }
             );
             false
         }
@@ -138,7 +142,13 @@ pub fn ensure_mic_access() -> bool {
 /// block that logs the outcome (the next `probe_status` poll picks up the
 /// new state).
 pub fn request_av_access_nonblocking(video: bool) {
-    let media = match unsafe { if video { AVMediaTypeVideo } else { AVMediaTypeAudio } } {
+    let media = match unsafe {
+        if video {
+            AVMediaTypeVideo
+        } else {
+            AVMediaTypeAudio
+        }
+    } {
         Some(m) => m,
         None => return,
     };

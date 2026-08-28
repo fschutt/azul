@@ -161,7 +161,11 @@ fn trim_surrounding_text(
     let (lo, hi) = (cursor.min(anchor), cursor.max(anchor));
     // Centre the window on the selection when it fits, on the CURSOR when the
     // selection alone exceeds the budget.
-    let (centre_lo, centre_hi) = if hi - lo <= BUDGET { (lo, hi) } else { (cursor, cursor) };
+    let (centre_lo, centre_hi) = if hi - lo <= BUDGET {
+        (lo, hi)
+    } else {
+        (cursor, cursor)
+    };
     let slack = BUDGET - (centre_hi - centre_lo);
     let mut start = centre_lo.saturating_sub(slack / 2);
     let mut end = (start + BUDGET).min(len);
@@ -186,7 +190,10 @@ pub(super) fn pool_census() -> String {
     use core::sync::atomic::Ordering::Relaxed;
     let c = POOLS_CREATED.load(Relaxed);
     let d = POOLS_DESTROYED.load(Relaxed);
-    format!("pools created={c} destroyed={d} live={}", c.saturating_sub(d))
+    format!(
+        "pools created={c} destroyed={d} live={}",
+        c.saturating_sub(d)
+    )
 }
 
 pub mod clipboard;
@@ -239,7 +246,10 @@ use super::{
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
-        event::{self, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_RIGHT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE},
+        event::{
+            self, HitTestNode, PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE,
+            BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
+        },
         WindowError,
     },
     wr_translate2::{self, AsyncHitTester, Notifier, WrRenderApi},
@@ -760,8 +770,7 @@ const WL_AXIS_SOURCE_FINGER: u32 = 1;
 const WL_AXIS_SOURCE_CONTINUOUS: u32 = 2;
 
 /// Pixels per discrete wheel detent — the shared cross-backend constant.
-const WHEEL_TICK_PIXELS: f32 =
-    crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE;
+const WHEEL_TICK_PIXELS: f32 = crate::desktop::shell2::common::event::WHEEL_SCROLL_PIXELS_PER_LINE;
 
 /// `wl_pointer.frame` and `.axis_discrete` were both added in wl_seat v5.
 const WL_POINTER_FRAME_SINCE_VERSION: u32 = 5;
@@ -866,13 +875,12 @@ fn axis_source_is_trackpad(source: u32) -> bool {
 /// compositor, or a continuous source) fall back to the raw value.
 ///
 /// Trackpad deltas are already pixel distances and pass through untouched.
-fn axis_frame_delta(
-    is_trackpad: bool,
-    raw: (f32, f32),
-    discrete: (f32, f32),
-) -> (f32, f32) {
+fn axis_frame_delta(is_trackpad: bool, raw: (f32, f32), discrete: (f32, f32)) -> (f32, f32) {
     if !is_trackpad && (discrete.0 != 0.0 || discrete.1 != 0.0) {
-        (discrete.0 * WHEEL_TICK_PIXELS, discrete.1 * WHEEL_TICK_PIXELS)
+        (
+            discrete.0 * WHEEL_TICK_PIXELS,
+            discrete.1 * WHEEL_TICK_PIXELS,
+        )
     } else {
         raw
     }
@@ -913,7 +921,8 @@ impl WaylandWindow {
         // if readable or cancel_read if not, and finally dispatch what we read.
         let mut hung_up = false;
         let dispatched = unsafe {
-            while (self.wayland.wl_display_prepare_read_queue)(self.display, self.event_queue) != 0 {
+            while (self.wayland.wl_display_prepare_read_queue)(self.display, self.event_queue) != 0
+            {
                 // Queue not empty -> dispatch what's already there, then retry prepare.
                 (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue);
             }
@@ -921,7 +930,11 @@ impl WaylandWindow {
             (self.wayland.wl_display_flush)(self.display);
 
             let fd = (self.wayland.wl_display_get_fd)(self.display);
-            let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+            let mut pfd = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
             let polled = libc::poll(&mut pfd, 1, 0);
             // POLLHUP/POLLERR are reported regardless of the events mask:
             // the compositor closed the socket.
@@ -1148,11 +1161,9 @@ impl WaylandWindow {
             self.generate_frame_if_needed();
         }
     }
-
 }
 
 // PlatformWindow Trait Implementation (Cross-platform V2 Event System)
-
 
 /// `wl_surface.set_input_region` from the frame's alpha outline. Rects are
 /// PHYSICAL pixels; a wl_region is in surface-local (logical) coordinates,
@@ -1181,7 +1192,13 @@ fn apply_input_region_from_shape(
             let y0 = (r.y as f32 / scale).floor();
             let x1 = ((r.x + r.width) as f32 / scale).ceil();
             let y1 = ((r.y + r.height) as f32 / scale).ceil();
-            (wayland.wl_region_add)(region, x0 as i32, y0 as i32, (x1 - x0) as i32, (y1 - y0) as i32);
+            (wayland.wl_region_add)(
+                region,
+                x0 as i32,
+                y0 as i32,
+                (x1 - x0) as i32,
+                (y1 - y0) as i32,
+            );
         }
         (wayland.wl_surface_set_input_region)(surface, region);
         (wayland.wl_region_destroy)(region);
@@ -1190,12 +1207,24 @@ fn apply_input_region_from_shape(
 
 impl PlatformWindow for WaylandWindow {
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
-        let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
         crate::desktop::eyedropper::wayland::capture(scale)
     }
 
     fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {
-        let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
         apply_input_region_from_shape(&self.wayland, self.compositor, self.surface, rects, scale);
     }
 
@@ -1213,7 +1242,6 @@ impl PlatformWindow for WaylandWindow {
         // default `regenerate_layout`, which is what frame paths call.
         self.regenerate_layout_inner()
     }
-
 
     impl_platform_window_getters!(common);
 
@@ -1288,7 +1316,8 @@ impl PlatformWindow for WaylandWindow {
         // For Wayland, we don't need a separate timer - threads are checked
         // in the event loop when layout_window.threads is non-empty
         // Just mark for regeneration to start checking
-        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     fn stop_thread_poll_timer(&mut self) {
@@ -1307,7 +1336,8 @@ impl PlatformWindow for WaylandWindow {
         }
 
         // Mark for regeneration to start thread polling
-        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     fn remove_threads(
@@ -1328,7 +1358,8 @@ impl PlatformWindow for WaylandWindow {
             }
             if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                 if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
-                    w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    w.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     w.request_redraw();
                 }
             }
@@ -1351,7 +1382,12 @@ impl PlatformWindow for WaylandWindow {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Check if native menus are enabled
-        if self.common.current_window_state().flags.use_native_context_menus {
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .use_native_context_menus
+        {
             // TODO: Show native Wayland popup via xdg_popup protocol
             log_debug!(
                 LogCategory::Platform,
@@ -1414,10 +1450,8 @@ impl WaylandWindow {
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
     ) {
-        let trigger_rect = azul_core::geom::LogicalRect::new(
-            position,
-            azul_core::geom::LogicalSize::zero(),
-        );
+        let trigger_rect =
+            azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero());
         let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
         let menu_options = self::menu::create_menu_popup_options(
@@ -1460,10 +1494,13 @@ impl WaylandWindow {
         let (mailbox_anchor, edge) = match &options.window_state.layout_callback.ctx {
             azul_core::refany::OptionRefAny::Some(refany) => {
                 let mut r = refany.clone();
-                let menu = r.downcast_ref::<self::menu::MenuLayoutData>().map(|d| d.trigger_rect);
+                let menu = r
+                    .downcast_ref::<self::menu::MenuLayoutData>()
+                    .map(|d| d.trigger_rect);
                 let mut r2 = refany.clone();
                 let transient = r2
-                    .downcast_ref::<crate::desktop::shell2::common::transient::TransientWindowData>()
+                    .downcast_ref::<crate::desktop::shell2::common::transient::TransientWindowData>(
+                    )
                     .map(|d| (d.placement.anchor_rect, d.placement.anchor));
                 match (menu, transient) {
                     (Some(rect), _) => (Some(rect), azul_core::transient::TransientAnchor::Cursor),
@@ -1471,10 +1508,16 @@ impl WaylandWindow {
                     (None, None) => (None, azul_core::transient::TransientAnchor::Cursor),
                 }
             }
-            azul_core::refany::OptionRefAny::None => (None, azul_core::transient::TransientAnchor::Cursor),
+            azul_core::refany::OptionRefAny::None => {
+                (None, azul_core::transient::TransientAnchor::Cursor)
+            }
         };
-        let mut anchor_rect = mailbox_anchor
-            .unwrap_or_else(|| LogicalRect::new(azul_core::geom::LogicalPosition::zero(), LogicalSize::zero()));
+        let mut anchor_rect = mailbox_anchor.unwrap_or_else(|| {
+            LogicalRect::new(
+                azul_core::geom::LogicalPosition::zero(),
+                LogicalSize::zero(),
+            )
+        });
 
         // A zero-sized anchor rect is rejected by some compositors — clamp >= 1x1.
         anchor_rect.size.width = anchor_rect.size.width.max(1.0);
@@ -1486,9 +1529,12 @@ impl WaylandWindow {
 
         crate::plog_info!(
             "[wayland-popup] open_menu_popup: anchor=({:.0},{:.0} {:.0}x{:.0}) size={:.0}x{:.0}",
-            anchor_rect.origin.x, anchor_rect.origin.y,
-            anchor_rect.size.width, anchor_rect.size.height,
-            popup_size.width, popup_size.height
+            anchor_rect.origin.x,
+            anchor_rect.origin.y,
+            anchor_rect.size.width,
+            anchor_rect.size.height,
+            popup_size.width,
+            popup_size.height
         );
         let popup = WaylandPopup::new(self, anchor_rect, popup_size, edge, options)?;
         self.active_popup = Some(Box::new(popup));
@@ -1510,10 +1556,14 @@ impl WaylandWindow {
             // through the mailbox, so the engine's manager and the widget
             // learn it was dismissed (popup_done / click-outside) instead of
             // keeping a ghost "open" that the next swatch click only closes.
-            use crate::desktop::shell2::common::transient::{poll_popup, post_dismissed, PopupAction};
-            let closed_by_parent = poll_popup(popup.common.current_window_state()) == PopupAction::Close;
+            use crate::desktop::shell2::common::transient::{
+                poll_popup, post_dismissed, PopupAction,
+            };
+            let closed_by_parent =
+                poll_popup(popup.common.current_window_state()) == PopupAction::Close;
             if !closed_by_parent && post_dismissed(popup.common.current_window_state()) {
-                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
             drop(popup);
@@ -1536,8 +1586,9 @@ impl WaylandWindow {
                 p.is_dismissed()
                     || !p.is_open
                     || p.close_requested()
-                    || crate::desktop::shell2::common::transient::poll_popup(p.common.current_window_state())
-                        == crate::desktop::shell2::common::transient::PopupAction::Close
+                    || crate::desktop::shell2::common::transient::poll_popup(
+                        p.common.current_window_state(),
+                    ) == crate::desktop::shell2::common::transient::PopupAction::Close
             }
             None => return,
         };
@@ -1566,12 +1617,16 @@ impl WaylandWindow {
         // Note: When a material is set, the renderer will use transparent clear color automatically
         if options.window_state.background_color.is_none() {
             use azul_core::window::WindowBackgroundMaterial;
-            if matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
-                options.window_state.background_color = resources.system_style.colors.window_background;
+            if matches!(
+                options.window_state.flags.background_material,
+                WindowBackgroundMaterial::Opaque
+            ) {
+                options.window_state.background_color =
+                    resources.system_style.colors.window_background;
             }
             // For materials, leave background_color as None - renderer handles transparency
         }
-        
+
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
 
@@ -1622,9 +1677,14 @@ impl WaylandWindow {
         unsafe { (wayland.wl_proxy_set_queue)(registry as _, event_queue) };
 
         // Initialize LayoutWindow
-        let mut layout_window = crate::desktop::shell2::common::layout::layout_window_sharing_fonts(resources.font_manager.as_ref(), &resources.fc_cache).map_err(|e| {
-            WindowError::PlatformError(format!("LayoutWindow::new failed: {:?}", e))
-        })?;
+        let mut layout_window =
+            crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                resources.font_manager.as_ref(),
+                &resources.fc_cache,
+            )
+            .map_err(|e| {
+                WindowError::PlatformError(format!("LayoutWindow::new failed: {:?}", e))
+            })?;
         layout_window.routes = resources.config.routes.clone();
 
         let mut common = event::CommonWindowState::new(
@@ -1759,8 +1819,9 @@ impl WaylandWindow {
             gnome_menu: None, // Will be initialized if GNOME menus are enabled
             resources: resources.clone(),
             dynamic_selector_context: {
-                let mut ctx =
-                    azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&resources.system_style);
+                let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(
+                    &resources.system_style,
+                );
                 ctx.viewport_width = options.window_state.size.dimensions.width;
                 ctx.viewport_height = options.window_state.size.dimensions.height;
                 ctx.orientation = if ctx.viewport_width > ctx.viewport_height {
@@ -1850,8 +1911,11 @@ impl WaylandWindow {
                 // get_fractional_scale: opcode 1, "no" (new_id, object<wl_surface>)
                 // — same marshal_constructor pattern as get_toplevel_decoration.
                 type GetFracCtor = unsafe extern "C" fn(
-                    *mut defines::wl_proxy, u32, *const defines::wl_interface,
-                    *mut c_void, *mut defines::wl_surface,
+                    *mut defines::wl_proxy,
+                    u32,
+                    *const defines::wl_interface,
+                    *mut c_void,
+                    *mut defines::wl_surface,
                 ) -> *mut defines::wl_proxy;
                 let f: GetFracCtor =
                     std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
@@ -1895,9 +1959,10 @@ impl WaylandWindow {
         // 'static: wl_proxy_add_listener stores the pointer, so the listener must
         // outlive the proxy (a stack-local here is a use-after-free that only
         // "works" until the stack frame is reused).
-        static XDG_SURFACE_LISTENER: defines::xdg_surface_listener = defines::xdg_surface_listener {
-            configure: events::xdg_surface_configure_handler,
-        };
+        static XDG_SURFACE_LISTENER: defines::xdg_surface_listener =
+            defines::xdg_surface_listener {
+                configure: events::xdg_surface_configure_handler,
+            };
         unsafe {
             (window.wayland.xdg_surface_add_listener)(
                 window.xdg_surface,
@@ -1911,12 +1976,13 @@ impl WaylandWindow {
             unsafe { (window.wayland.xdg_surface_get_toplevel)(window.xdg_surface) };
 
         // Attach listener to receive configure and close events from compositor
-        static XDG_TOPLEVEL_LISTENER: defines::xdg_toplevel_listener = defines::xdg_toplevel_listener {
-            configure: events::xdg_toplevel_configure_handler,
-            close: events::xdg_toplevel_close_handler,
-            configure_bounds: events::xdg_toplevel_configure_bounds_handler,
-            wm_capabilities: events::xdg_toplevel_wm_capabilities_handler,
-        };
+        static XDG_TOPLEVEL_LISTENER: defines::xdg_toplevel_listener =
+            defines::xdg_toplevel_listener {
+                configure: events::xdg_toplevel_configure_handler,
+                close: events::xdg_toplevel_close_handler,
+                configure_bounds: events::xdg_toplevel_configure_bounds_handler,
+                wm_capabilities: events::xdg_toplevel_wm_capabilities_handler,
+            };
         unsafe {
             (window.wayland.xdg_toplevel_add_listener)(
                 window.xdg_toplevel,
@@ -1941,14 +2007,22 @@ impl WaylandWindow {
                 // xdg_surface_get_toplevel etc. (The wl_proxy_marshal_flags variant
                 // returned NULL here.) get_toplevel_decoration: opcode 0, "no".
                 type GetDecoCtor = unsafe extern "C" fn(
-                    *mut defines::wl_proxy, u32, *const defines::wl_interface,
-                    *mut std::ffi::c_void, *mut defines::xdg_toplevel,
+                    *mut defines::wl_proxy,
+                    u32,
+                    *const defines::wl_interface,
+                    *mut std::ffi::c_void,
+                    *mut defines::xdg_toplevel,
                 ) -> *mut defines::wl_proxy;
                 let f: GetDecoCtor =
                     std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
                 // opcode 1 = get_toplevel_decoration (opcode 0 is `destroy`!).
-                let deco = f(mgr as *mut defines::wl_proxy, 1, deco_iface,
-                             std::ptr::null_mut(), window.xdg_toplevel);
+                let deco = f(
+                    mgr as *mut defines::wl_proxy,
+                    1,
+                    deco_iface,
+                    std::ptr::null_mut(),
+                    window.xdg_toplevel,
+                );
                 if !deco.is_null() {
                     static DECO_LISTENER: defines::zxdg_toplevel_decoration_v1_listener =
                         defines::zxdg_toplevel_decoration_v1_listener {
@@ -1977,8 +2051,7 @@ impl WaylandWindow {
                         flags.has_decorations,
                         flags.decorations,
                     );
-                    let frameless = flags.decorations
-                        == azul_core::window::WindowDecorations::None;
+                    let frameless = flags.decorations == azul_core::window::WindowDecorations::None;
                     let mode: u32 = if wants_csd || frameless { 1 } else { 2 };
                     // set_mode: opcode 1, signature "u".
                     type SetModeFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32);
@@ -1990,7 +2063,11 @@ impl WaylandWindow {
                     log_info!(
                         LogCategory::Platform,
                         "[Wayland] Requested {} decorations (xdg-decoration)",
-                        if mode == 2 { "server-side" } else { "client-side" }
+                        if mode == 2 {
+                            "server-side"
+                        } else {
+                            "client-side"
+                        }
                     );
                 }
             }
@@ -2002,10 +2079,12 @@ impl WaylandWindow {
             if window.common.current_window_state().flags.decorations
                 != azul_core::window::WindowDecorations::None
             {
-                window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                    ws.flags.decorations = azul_core::window::WindowDecorations::None;
-                    ws.flags.has_decorations = true;
-                });
+                window
+                    .common
+                    .update_window_state(event::WindowStateSource::Os, |ws| {
+                        ws.flags.decorations = azul_core::window::WindowDecorations::None;
+                        ws.flags.has_decorations = true;
+                    });
                 log_info!(
                     LogCategory::Platform,
                     "[Wayland] No xdg-decoration protocol — falling back to CSD titlebar"
@@ -2074,12 +2153,13 @@ impl WaylandWindow {
                     // Keep the blacklist detail — the X11 twin prints the
                     // renderer string, and "software GL" alone doesn't say
                     // WHICH driver was rejected or why.
-                    let software_info = match crate::desktop::shell2::common::compositor::query_gpu_info(
-                        &gl_functions.functions,
-                    ) {
-                        GpuCheckResult::Blacklisted { info, reason } => Some((info, reason)),
-                        _ => None,
-                    };
+                    let software_info =
+                        match crate::desktop::shell2::common::compositor::query_gpu_info(
+                            &gl_functions.functions,
+                        ) {
+                            GpuCheckResult::Blacklisted { info, reason } => Some((info, reason)),
+                            _ => None,
+                        };
                     let is_software = software_info.is_some();
                     if is_software && !force_gpu {
                         let (info, reason) = software_info.unwrap_or_default();
@@ -2115,26 +2195,25 @@ impl WaylandWindow {
         // Initialize WebRender on the GPU context; if it fails (e.g. shaders won't
         // compile on this driver) fall back to CPU rendering for this window rather
         // than failing window creation — "GPU init failed" must never mean "no window".
-        let webrender_failed = if let RenderMode::Gpu(gl_context, gl_functions) =
-            &mut window.render_mode
-        {
-            gl_context.make_current();
-            // Borrow gl_functions separately to avoid double mutable borrow
-            let gl_funcs_ref = gl_functions as *const GlFunctions;
-            match window.initialize_webrender(&options, unsafe { &*gl_funcs_ref }) {
-                Ok(_) => false,
-                Err(e) => {
-                    log_warn!(
-                        LogCategory::Rendering,
-                        "[Wayland] WebRender init failed: {:?} — falling back to CPU rendering",
-                        e
-                    );
-                    true
+        let webrender_failed =
+            if let RenderMode::Gpu(gl_context, gl_functions) = &mut window.render_mode {
+                gl_context.make_current();
+                // Borrow gl_functions separately to avoid double mutable borrow
+                let gl_funcs_ref = gl_functions as *const GlFunctions;
+                match window.initialize_webrender(&options, unsafe { &*gl_funcs_ref }) {
+                    Ok(_) => false,
+                    Err(e) => {
+                        log_warn!(
+                            LogCategory::Rendering,
+                            "[Wayland] WebRender init failed: {:?} — falling back to CPU rendering",
+                            e
+                        );
+                        true
+                    }
                 }
-            }
-        } else {
-            false
-        };
+            } else {
+                false
+            };
         if webrender_failed {
             window.render_mode = RenderMode::Cpu(Some(CpuFallbackState::new(
                 &wayland, window.shm, width, height, 1,
@@ -2215,13 +2294,16 @@ impl WaylandWindow {
             // Initialize LayoutWindow if not already done
             if window.common.layout_window.is_none() {
                 let mut layout_window =
-                    crate::desktop::shell2::common::layout::layout_window_sharing_fonts(window.resources.font_manager.as_ref(), &window.resources.fc_cache)
-                        .map_err(|e| {
-                            WindowError::PlatformError(format!(
-                                "Failed to create LayoutWindow: {:?}",
-                                e
-                            ))
-                        })?;
+                    crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                        window.resources.font_manager.as_ref(),
+                        &window.resources.fc_cache,
+                    )
+                    .map_err(|e| {
+                        WindowError::PlatformError(format!(
+                            "Failed to create LayoutWindow: {:?}",
+                            e
+                        ))
+                    })?;
 
                 if let Some(doc_id) = window.common.document_id {
                     layout_window.document_id = doc_id;
@@ -2264,7 +2346,9 @@ impl WaylandWindow {
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    window
+                        .common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
             }
         }
@@ -2275,7 +2359,10 @@ impl WaylandWindow {
             // Initialize LayoutWindow if not already done
             if window.common.layout_window.is_none() {
                 if let Ok(mut layout_window) =
-                    crate::desktop::shell2::common::layout::layout_window_sharing_fonts(window.resources.font_manager.as_ref(), &window.resources.fc_cache)
+                    crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                        window.resources.font_manager.as_ref(),
+                        &window.resources.fc_cache,
+                    )
                 {
                     if let Some(doc_id) = window.common.document_id {
                         layout_window.document_id = doc_id;
@@ -2283,7 +2370,8 @@ impl WaylandWindow {
                     if let Some(ns_id) = window.common.id_namespace {
                         layout_window.id_namespace = ns_id;
                     }
-                    layout_window.current_window_state = window.common.current_window_state().clone();
+                    layout_window.current_window_state =
+                        window.common.current_window_state().clone();
                     layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                     layout_window.routes = window.resources.config.routes.clone();
                     // Initialize monitor cache once at window creation
@@ -2300,7 +2388,11 @@ impl WaylandWindow {
         // Apply initial background material if not Opaque
         {
             use azul_core::window::WindowBackgroundMaterial;
-            let initial_material = window.common.current_window_state().flags.background_material;
+            let initial_material = window
+                .common
+                .current_window_state()
+                .flags
+                .background_material;
             if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
                 log_trace!(
                     LogCategory::Window,
@@ -2470,8 +2562,7 @@ impl WaylandWindow {
         // generate_frame_if_needed() re-checks the frame-callback latch, so
         // this cannot over-render: with a fresh `done` outstanding it returns
         // immediately and the retry rides on frame_done_callback instead.
-        let closing_now = !self.is_open
-            || self.common.current_window_state().flags.close_requested;
+        let closing_now = !self.is_open || self.common.current_window_state().flags.close_requested;
         if self.configured && !closing_now {
             let vview_pending = self
                 .common
@@ -2553,8 +2644,7 @@ impl WaylandWindow {
             //
             // While closing, poll with 0 so the iteration completes and the run
             // loop reaches its `get_all_window_ids()` check and unregisters.
-            let closing = !self.is_open
-                || self.common.current_window_state().flags.close_requested;
+            let closing = !self.is_open || self.common.current_window_state().flags.close_requested;
             let timeout_ms: i32 = if closing {
                 0
             } else if has_threads {
@@ -2619,10 +2709,7 @@ impl WaylandWindow {
                 // dispatching nothing, forever. Treat it as a close request:
                 // the run loop honours the flag, unregisters the window and
                 // tears it down.
-                if pollfds[0].revents
-                    & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)
-                    != 0
-                {
+                if pollfds[0].revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
                     log_error!(
                         LogCategory::Platform,
                         "[Wayland] display connection lost (revents {:#x}) — closing window",
@@ -2694,7 +2781,6 @@ impl WaylandWindow {
 
         Ok(())
     }
-
 
     /// Export the application menu bar to GNOME Shell via DBus.
     ///
@@ -2802,7 +2888,9 @@ impl WaylandWindow {
             use azul_core::callbacks::Update;
             match update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
-                    event_result = event_result.max(azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                    event_result = event_result.max(
+                        azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow,
+                    );
                 }
                 Update::DoNothing => {}
             }
@@ -2829,7 +2917,8 @@ impl WaylandWindow {
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::ShouldRegenerateDomAllWindows
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                    self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    self.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     self.request_redraw();
                 }
                 // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
@@ -2861,8 +2950,14 @@ impl WaylandWindow {
             // We can't resolve the VK here yet (need XKB), but we can check
             // pressed_scancodes. The evdev keycode maps 1:1 with scan codes.
             let scan = key;
-            let already_pressed = self.common.current_window_state().keyboard_state
-                .pressed_scancodes.as_ref().iter().any(|s| *s == scan);
+            let already_pressed = self
+                .common
+                .current_window_state()
+                .keyboard_state
+                .pressed_scancodes
+                .as_ref()
+                .iter()
+                .any(|s| *s == scan);
             if already_pressed {
                 prev_snapshot.keyboard_state.current_virtual_keycode =
                     azul_core::window::OptionVirtualKeyCode::None;
@@ -2874,7 +2969,8 @@ impl WaylandWindow {
         // Wayland doesn't have explicit focus events like X11, so we detect focus from keyboard
         // activity
         if is_pressed && !self.common.current_window_state().window_focused {
-            self.common.update_unsynced_state(|ws| ws.window_focused = true);
+            self.common
+                .update_unsynced_state(|ws| ws.window_focused = true);
             self.dynamic_selector_context.window_focused = true;
             self.sync_ime_position_to_os();
         }
@@ -2972,7 +3068,9 @@ impl WaylandWindow {
                     )
                 };
                 if len > 0 && len < buffer.len() as i32 {
-                    let raw = unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u8, len as usize) };
+                    let raw = unsafe {
+                        std::slice::from_raw_parts(buffer.as_ptr() as *const u8, len as usize)
+                    };
                     std::str::from_utf8(raw)
                         .ok()
                         .filter(|t| !t.chars().all(char::is_control))
@@ -3146,13 +3244,16 @@ impl WaylandWindow {
                         }
                         if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                             if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
-                                w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                                w.common.request_regeneration(
+                                    azul_core::callbacks::RelayoutReason::RefreshDom,
+                                );
                                 w.request_redraw();
                             }
                         }
                     }
                 }
-                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
@@ -3251,10 +3352,7 @@ impl WaylandWindow {
         self.snapshot_window_state_baseline("wayland.handle_touch_up");
         let ts = self.common.touch_state_mut();
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
-        let last_pos = pts
-            .iter()
-            .find(|p| p.id == id as u64)
-            .map(|p| p.position);
+        let last_pos = pts.iter().find(|p| p.id == id as u64).map(|p| p.position);
         pts.retain(|p| p.id != id as u64);
         ts.touch_points = TouchPointVec::from_vec(pts);
         ts.num_touches = ts.touch_points.len();
@@ -3299,13 +3397,14 @@ impl WaylandWindow {
         let pad = self.tablet_pad;
         self.snapshot_window_state_baseline("wayland.handle_tablet_pad_frame");
         if let Some(lw) = self.common.layout_window.as_mut() {
-            lw.gesture_drag_manager
-                .update_pad_state(azul_layout::managers::gesture::WacomPadState {
+            lw.gesture_drag_manager.update_pad_state(
+                azul_layout::managers::gesture::WacomPadState {
                     express_keys: pad.express_keys,
                     touch_ring: pad.touch_ring,
                     touch_ring_active: pad.touch_ring_active,
                     device_id: 0,
-                });
+                },
+            );
         }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
@@ -3349,8 +3448,7 @@ impl WaylandWindow {
         // Save previous state BEFORE making changes
         self.snapshot_window_state_baseline("wayland.handle_pointer_motion");
 
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::InWindow(logical_pos);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(logical_pos);
 
         // Handle scrollbar dragging if active
         if self.common.scrollbar_drag_state.is_some() {
@@ -3421,7 +3519,8 @@ impl WaylandWindow {
         if self.pointer_over_popup && self.active_popup.is_some() {
             crate::plog_info!(
                 "[wayland-popup] pointer button (btn={:#x} state={}) -> routing to popup",
-                button, state
+                button,
+                state
             );
             if let Some(popup) = self.active_popup.as_mut() {
                 popup.pointer_button(button, state);
@@ -3437,7 +3536,12 @@ impl WaylandWindow {
         };
 
         let is_down = state == 1;
-        let position = match self.common.current_window_state().mouse_state.cursor_position {
+        let position = match self
+            .common
+            .current_window_state()
+            .mouse_state
+            .cursor_position
+        {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
@@ -3523,11 +3627,7 @@ impl WaylandWindow {
         // three from `mouse_button == …` cleared the OTHER buttons, so pressing
         // Right while Left was held made the state diff synthesize a phantom
         // LeftMouseUp — drags and text selections died mid-gesture.
-        set_mouse_button_down(
-            self.common.mouse_state_mut(),
-            mouse_button,
-            is_down,
-        );
+        set_mouse_button_down(self.common.mouse_state_mut(), mouse_button, is_down);
         self.pointer_state.button_down = if is_down { Some(mouse_button) } else { None };
 
         // Record input sample for gesture detection
@@ -3661,8 +3761,7 @@ impl WaylandWindow {
         let (disc_x, disc_y) = std::mem::replace(&mut self.pending_axis_discrete, (0.0, 0.0));
 
         let is_trackpad = axis_source_is_trackpad(self.current_axis_source);
-        let (delta_x, delta_y) =
-            axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
+        let (delta_x, delta_y) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
 
         if delta_x == 0.0 && delta_y == 0.0 {
             return;
@@ -3675,7 +3774,12 @@ impl WaylandWindow {
         // hover manager's last hit test meant a stationary cursor over content
         // that had scrolled/relaid-out beneath it kept scrolling the node that
         // used to be there (X11 re-runs the hit test for exactly this reason).
-        let hover_pos = match self.common.current_window_state().mouse_state.cursor_position {
+        let hover_pos = match self
+            .common
+            .current_window_state()
+            .mouse_state
+            .cursor_position
+        {
             CursorPosition::InWindow(pos) => Some(pos),
             _ => None,
         };
@@ -3716,8 +3820,16 @@ impl WaylandWindow {
                     delta_x,
                     delta_y,
                     is_trackpad,
-                    if is_trackpad { "TrackpadContinuous" } else { "WheelDiscrete" },
-                    if is_trackpad { "Touchpad" } else { "MouseWheel" },
+                    if is_trackpad {
+                        "TrackpadContinuous"
+                    } else {
+                        "WheelDiscrete"
+                    },
+                    if is_trackpad {
+                        "Touchpad"
+                    } else {
+                        "MouseWheel"
+                    },
                 );
 
                 if let Some((_dom_id, _node_id, start_timer)) =
@@ -3746,9 +3858,7 @@ impl WaylandWindow {
                             .timers
                             .contains_key(&azul_core::task::SCROLL_MOMENTUM_TIMER_ID);
                     if start_timer {
-                        input_queue_clone = Some(
-                            layout_window.scroll_manager.get_input_queue()
-                        );
+                        input_queue_clone = Some(layout_window.scroll_manager.get_input_queue());
                     }
                 }
             }
@@ -3756,13 +3866,18 @@ impl WaylandWindow {
             // Start the scroll momentum timer if this is the first input
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
-                    use azul_layout::scroll_timer::{ScrollPhysicsState, scroll_physics_timer_callback};
-                    use azul_layout::timer::{Timer, TimerCallbackType};
                     use azul_core::refany::RefAny;
                     use azul_core::task::Duration;
+                    use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
+                    use azul_layout::scroll_timer::{
+                        scroll_physics_timer_callback, ScrollPhysicsState,
+                    };
+                    use azul_layout::timer::{Timer, TimerCallbackType};
 
-                    let physics_state = ScrollPhysicsState::new(queue, self.common.system_style.scroll_physics.clone());
+                    let physics_state = ScrollPhysicsState::new(
+                        queue,
+                        self.common.system_style.scroll_physics.clone(),
+                    );
                     let interval_ms = self.common.system_style.scroll_physics.timer_interval_ms;
                     let data = RefAny::new(physics_state);
                     let timer = Timer::create(
@@ -3844,7 +3959,8 @@ impl WaylandWindow {
         if over_popup {
             crate::plog_info!(
                 "[wayland-popup] pointer entered popup surface at ({:.1},{:.1})",
-                x, y
+                x,
+                y
             );
             if let Some(popup) = self.active_popup.as_mut() {
                 popup.pointer_enter(logical_pos);
@@ -3856,8 +3972,7 @@ impl WaylandWindow {
         // MouseEnter callbacks and :hover styling fire on the entry itself
         // instead of on the first subsequent motion event.
         self.snapshot_window_state_baseline("wayland.handle_pointer_enter");
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::InWindow(logical_pos);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(logical_pos);
         self.update_hit_test(logical_pos);
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
@@ -3872,10 +3987,10 @@ impl WaylandWindow {
         self.common.update_unsynced_state(|ws| {
             ws.window_focused = false;
             // Release the mouse buttons: focus left while a button was down, so the
-                        // OS delivers the mouse-UP elsewhere and `left_down` would stay true
-                        // forever — every later move reads as a DRAG (text selects, buttons stop
-                        // clicking). Clearing the flags lets the normal state diff emit the
-                        // MouseUp that unwinds it. See macos::window_did_resign_key.
+            // OS delivers the mouse-UP elsewhere and `left_down` would stay true
+            // forever — every later move reads as a DRAG (text selects, buttons stop
+            // clicking). Clearing the flags lets the normal state diff emit the
+            // MouseUp that unwinds it. See macos::window_did_resign_key.
             ws.mouse_state.left_down = false;
             ws.mouse_state.right_down = false;
             ws.mouse_state.middle_down = false;
@@ -3885,11 +4000,11 @@ impl WaylandWindow {
             // latched and turns every later keystroke into a shortcut. Windows
             // has done this since it was written; the other three never did.
             ws.keyboard_state.current_virtual_keycode =
-            azul_core::window::OptionVirtualKeyCode::None;
+                azul_core::window::OptionVirtualKeyCode::None;
             ws.keyboard_state.pressed_virtual_keycodes =
-            azul_core::window::VirtualKeyCodeVec::from_vec(Vec::new());
+                azul_core::window::VirtualKeyCodeVec::from_vec(Vec::new());
             ws.keyboard_state.pressed_scancodes =
-            azul_core::window::ScanCodeVec::from_vec(Vec::new());
+                azul_core::window::ScanCodeVec::from_vec(Vec::new());
         });
         self.dynamic_selector_context.window_focused = false;
         // Every held key is released somewhere we will never hear about, so drop
@@ -3899,8 +4014,7 @@ impl WaylandWindow {
         // Alt-Tab away with a modifier down.
         self.common.keyboard_state_mut().pressed_virtual_keycodes =
             azul_core::window::VirtualKeyCodeVec::new();
-        self.common.keyboard_state_mut().pressed_scancodes =
-            azul_core::window::ScanCodeVec::new();
+        self.common.keyboard_state_mut().pressed_scancodes = azul_core::window::ScanCodeVec::new();
         self.common.keyboard_state_mut().current_virtual_keycode =
             azul_core::window::OptionVirtualKeyCode::None;
         // The press→code record must die with the list it mirrors, or a key held
@@ -4193,11 +4307,8 @@ impl WaylandWindow {
             // failed. Fall back to the single-flavor read, which asks for
             // plain text unconditionally.
             let text = self.read_wayland_selection()?;
-            return rich_clipboard::encode(
-                &rich_clipboard::RichItem::Text(text),
-                Platform::Unix,
-            )
-            .ok();
+            return rich_clipboard::encode(&rich_clipboard::RichItem::Text(text), Platform::Unix)
+                .ok();
         }
         Some(payload)
     }
@@ -4316,7 +4427,8 @@ impl WaylandWindow {
     /// stays wrong until each of them is released.
     pub fn handle_keyboard_enter(&mut self, held_scancodes: &[u32]) {
         self.snapshot_window_state_baseline("wayland.handle_keyboard_enter");
-        self.common.update_unsynced_state(|ws| ws.window_focused = true);
+        self.common
+            .update_unsynced_state(|ws| ws.window_focused = true);
         self.dynamic_selector_context.window_focused = true;
 
         let xkb_state = self.keyboard_state.state;
@@ -4329,8 +4441,7 @@ impl WaylandWindow {
                 continue;
             }
             // XKB keycode = evdev keycode + 8 (same offset as handle_key).
-            let keysym =
-                unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, scancode + 8) };
+            let keysym = unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, scancode + 8) };
             // Same shared table, same rule: a keysym with no virtual key seeds
             // nothing. Record what we DID seed so the eventual release removes
             // exactly that code (see the bookkeeping in `handle_key`).
@@ -4363,7 +4474,12 @@ impl WaylandWindow {
         }
 
         // Get last known position before leaving
-        let last_pos = match self.common.current_window_state().mouse_state.cursor_position {
+        let last_pos = match self
+            .common
+            .current_window_state()
+            .mouse_state
+            .cursor_position
+        {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
@@ -4373,8 +4489,7 @@ impl WaylandWindow {
         // stop and the :hover restyle were all deferred to whatever event
         // happened to arrive next (macOS/X11/Windows all diff immediately).
         self.snapshot_window_state_baseline("wayland.handle_pointer_leave");
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::OutOfWindow(last_pos);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::OutOfWindow(last_pos);
         if let Some(ref mut layout_window) = self.common.layout_window {
             layout_window
                 .hover_manager
@@ -4410,8 +4525,7 @@ impl WaylandWindow {
         paths: Vec<String>,
     ) -> ProcessEventResult {
         self.snapshot_window_state_baseline("wayland.handle_file_drag_entered");
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
                 // MWA-B7: pass EVERY path — multi-file drops were silently
@@ -4448,8 +4562,7 @@ impl WaylandWindow {
         paths: Vec<String>,
     ) -> ProcessEventResult {
         self.snapshot_window_state_baseline("wayland.handle_file_drop");
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
         if !paths.is_empty() {
             if let Some(layout_window) = self.common.layout_window.as_mut() {
                 // MWA-B7: pass EVERY path — multi-file drops were silently
@@ -4563,10 +4676,8 @@ impl WaylandWindow {
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
     ) {
-        let trigger_rect = azul_core::geom::LogicalRect::new(
-            position,
-            azul_core::geom::LogicalSize::zero(),
-        );
+        let trigger_rect =
+            azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero());
         let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
         let menu_options = self::menu::create_menu_popup_options(
@@ -4589,7 +4700,9 @@ impl WaylandWindow {
     /// Regenerate layout after DOM changes
     ///
     /// Wayland-specific implementation with mandatory CSD injection.
-    pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+    pub fn regenerate_layout_inner(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         // Consume the reason tag BEFORE borrowing the layout window: this is
         // the regeneration this window asked for, and the tag travels with
         // the request (see CommonWindowState::request_regeneration).
@@ -4618,7 +4731,6 @@ impl WaylandWindow {
             borrows.system_style,
             &self.resources.icon_provider,
             &mut debug_messages,
-        
             relayout_reason,
         )?;
 
@@ -4681,10 +4793,9 @@ impl WaylandWindow {
         if let Some(layout_window) = &self.common.layout_window {
             if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
                 // Successfully calculated cursor position from text layout
-                self.common
-                    .update_unsynced_state(|ws| {
-                        ws.ime_position = ImePosition::Initialized(cursor_rect);
-                    });
+                self.common.update_unsynced_state(|ws| {
+                    ws.ime_position = ImePosition::Initialized(cursor_rect);
+                });
             }
         }
     }
@@ -4732,7 +4843,9 @@ impl WaylandWindow {
         }
 
         // Min dimensions
-        if let OptionLogicalSize::Some(dims) = self.common.current_window_state().size.min_dimensions {
+        if let OptionLogicalSize::Some(dims) =
+            self.common.current_window_state().size.min_dimensions
+        {
             unsafe {
                 (self.wayland.xdg_toplevel_set_min_size)(
                     self.xdg_toplevel,
@@ -4744,7 +4857,9 @@ impl WaylandWindow {
         }
 
         // Max dimensions
-        if let OptionLogicalSize::Some(dims) = self.common.current_window_state().size.max_dimensions {
+        if let OptionLogicalSize::Some(dims) =
+            self.common.current_window_state().size.max_dimensions
+        {
             unsafe {
                 (self.wayland.xdg_toplevel_set_max_size)(
                     self.xdg_toplevel,
@@ -4761,7 +4876,12 @@ impl WaylandWindow {
         }
 
         // prevent_system_sleep
-        if self.common.current_window_state().flags.prevent_system_sleep {
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .prevent_system_sleep
+        {
             self.set_prevent_system_sleep(true);
         }
 
@@ -4816,11 +4936,9 @@ impl WaylandWindow {
         // Window frame state changed? (Minimize/Maximize/Normal/Fullscreen)
         if previous.flags.frame != current.flags.frame {
             match current.flags.frame {
-                WindowFrame::Minimized => {
-                    unsafe {
-                        (self.wayland.xdg_toplevel_set_minimized)(self.xdg_toplevel);
-                    }
-                }
+                WindowFrame::Minimized => unsafe {
+                    (self.wayland.xdg_toplevel_set_minimized)(self.xdg_toplevel);
+                },
                 WindowFrame::Maximized => {
                     // If previously fullscreen, unset fullscreen first
                     if previous.flags.frame == WindowFrame::Fullscreen {
@@ -5056,23 +5174,44 @@ impl WaylandWindow {
         // (with a wl_proxy_marshal_constructor fallback for libwayland < 1.20).
         unsafe {
             let blur_iface = defines::get_kde_blur_interface();
-            let version = (self.wayland.wl_proxy_get_version)(blur_manager as *mut defines::wl_proxy);
+            let version =
+                (self.wayland.wl_proxy_get_version)(blur_manager as *mut defines::wl_proxy);
             let blur = if !self.wayland.wl_proxy_marshal_flags.is_null() {
                 type CreateFlags = unsafe extern "C" fn(
-                    *mut defines::wl_proxy, u32, *const defines::wl_interface, u32, u32,
-                    *mut std::ffi::c_void, *mut defines::wl_surface,
+                    *mut defines::wl_proxy,
+                    u32,
+                    *const defines::wl_interface,
+                    u32,
+                    u32,
+                    *mut std::ffi::c_void,
+                    *mut defines::wl_surface,
                 ) -> *mut defines::wl_proxy;
                 let f: CreateFlags = std::mem::transmute(self.wayland.wl_proxy_marshal_flags);
-                f(blur_manager as *mut defines::wl_proxy, 0, blur_iface, version, 0,
-                  std::ptr::null_mut(), self.surface)
+                f(
+                    blur_manager as *mut defines::wl_proxy,
+                    0,
+                    blur_iface,
+                    version,
+                    0,
+                    std::ptr::null_mut(),
+                    self.surface,
+                )
             } else {
                 type CreateCtor = unsafe extern "C" fn(
-                    *mut defines::wl_proxy, u32, *const defines::wl_interface,
-                    *mut std::ffi::c_void, *mut defines::wl_surface,
+                    *mut defines::wl_proxy,
+                    u32,
+                    *const defines::wl_interface,
+                    *mut std::ffi::c_void,
+                    *mut defines::wl_surface,
                 ) -> *mut defines::wl_proxy;
                 let f: CreateCtor = std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
-                f(blur_manager as *mut defines::wl_proxy, 0, blur_iface,
-                  std::ptr::null_mut(), self.surface)
+                f(
+                    blur_manager as *mut defines::wl_proxy,
+                    0,
+                    blur_iface,
+                    std::ptr::null_mut(),
+                    self.surface,
+                )
             };
 
             if blur.is_null() {
@@ -5088,7 +5227,11 @@ impl WaylandWindow {
             type SetRegionFn =
                 unsafe extern "C" fn(*mut defines::wl_proxy, u32, *const defines::wl_region);
             let set_region_fn: SetRegionFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
-            set_region_fn(blur as *mut defines::wl_proxy, 1, std::ptr::null::<defines::wl_region>());
+            set_region_fn(
+                blur as *mut defines::wl_proxy,
+                1,
+                std::ptr::null::<defines::wl_region>(),
+            );
 
             // commit() => apply. opcode 0 (NOT 2 — opcode 2 is `release`, the
             // destructor; the old code committed with 2 and tore the blur down).
@@ -5297,7 +5440,9 @@ impl WaylandWindow {
                     #[cfg(feature = "std")]
                     let now = azul_core::task::Instant::System(std::time::Instant::now().into());
                     #[cfg(not(feature = "std"))]
-                    let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+                    let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick {
+                        tick_counter: 0,
+                    });
                     let tick_result = layout_window.scroll_manager.tick(now);
                     if tick_result.needs_repaint {
                         layout_window.scroll_manager.calculate_scrollbar_states();
@@ -5306,7 +5451,8 @@ impl WaylandWindow {
 
                 // Process pending VirtualView updates (queued by ScrollTo → check_and_queue_virtual_view_reinvoke).
                 // If present, we need a full display list rebuild rather than lightweight.
-                let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
+                let has_virtual_view_updates =
+                    !layout_window.pending_virtual_view_updates.is_empty();
                 if has_virtual_view_updates {
                     crate::desktop::shell2::common::layout::generate_frame(
                         layout_window,
@@ -5352,8 +5498,8 @@ impl WaylandWindow {
             // after each flush (as macOS does) keeps it current. CPU mode has no
             // render_api, so it falls through to the cpu_hit_tester in perform_hit_test.
             if let Some(doc_id) = self.common.document_id {
-                let req = render_api
-                    .request_hit_tester(wr_translate2::wr_translate_document_id(doc_id));
+                let req =
+                    render_api.request_hit_tester(wr_translate2::wr_translate_document_id(doc_id));
                 self.common.hit_tester = Some(AsyncHitTester::Requested(req));
             }
         }
@@ -5456,9 +5602,12 @@ impl WaylandWindow {
                                 should_present = true;
                             }
                             // Store dirty rects for wl_surface_damage per-rect hints.
-                            let dpi_scale = self.common.current_window_state().size.dpi as f32 / 96.0;
-                            self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
-                                azul_core::geom::LogicalRect {
+                            let dpi_scale =
+                                self.common.current_window_state().size.dpi as f32 / 96.0;
+                            self.gpu_damage_rects = results
+                                .dirty_rects
+                                .iter()
+                                .map(|dr| azul_core::geom::LogicalRect {
                                     origin: azul_core::geom::LogicalPosition {
                                         x: dr.min.x as f32 / dpi_scale,
                                         y: dr.min.y as f32 / dpi_scale,
@@ -5467,8 +5616,8 @@ impl WaylandWindow {
                                         width: dr.width() as f32 / dpi_scale,
                                         height: dr.height() as f32 / dpi_scale,
                                     },
-                                }
-                            }).collect();
+                                })
+                                .collect();
                         }
                         Err(e) => {
                             log_error!(
@@ -5546,11 +5695,13 @@ impl WaylandWindow {
                             self.gpu_damage_rects.clear();
                         } else if self.common.display_list_initialized {
                             // No damage rects computed — full surface damage as fallback
-                            let physical_size = self.common.current_window_state().size.get_physical_size();
+                            let physical_size =
+                                self.common.current_window_state().size.get_physical_size();
                             unsafe {
                                 (self.wayland.wl_surface_damage)(
                                     self.surface,
-                                    0, 0,
+                                    0,
+                                    0,
                                     physical_size.width as i32,
                                     physical_size.height as i32,
                                 );
@@ -5675,7 +5826,8 @@ impl WaylandWindow {
                                 if !native_skip_render {
                                     // Transparent material clears to alpha 0
                                     // (ARGB8888 carries it); shape if asked.
-                                    self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
+                                    self.cpu_backend
+                                        .sync_window_flags(&layout_window.current_window_state);
                                     self.cpu_backend.render_frame(
                                         layout_window,
                                         &layout_window.renderer_resources,
@@ -5735,9 +5887,9 @@ impl WaylandWindow {
                                         // changes.
                                         let other = 1 - slot;
                                         for (x, y, w, h) in &rects {
-                                            cpu_state.slots[other].stale.push((
-                                                *x as i32, *y as i32, *w as i32, *h as i32,
-                                            ));
+                                            cpu_state.slots[other]
+                                                .stale
+                                                .push((*x as i32, *y as i32, *w as i32, *h as i32));
                                         }
                                         if cpu_state.slots[other].stale.len() > 32 {
                                             cpu_state.slots[other].stale.clear();
@@ -5811,30 +5963,28 @@ impl WaylandWindow {
                                             // slot missed while the other one
                                             // was on screen.
                                             let full = (0u32, 0u32, clamp_w, clamp_h);
-                                            let copy_rects: Vec<(u32, u32, u32, u32)> =
-                                                if cpu_state.slots[slot].stale_overflow {
-                                                    vec![full]
-                                                } else {
-                                                    rects
-                                                        .iter()
-                                                        .copied()
-                                                        .chain(
-                                                            cpu_state.slots[slot]
-                                                                .stale
-                                                                .iter()
-                                                                .map(|&(x, y, w, h)| {
-                                                                    (
-                                                                        x.max(0) as u32,
-                                                                        y.max(0) as u32,
-                                                                        w.max(0) as u32,
-                                                                        h.max(0) as u32,
-                                                                    )
-                                                                }),
-                                                        )
-                                                        .collect()
-                                                };
-                                            let dst_stride =
-                                                (cpu_state.width.max(0) as usize) * 4;
+                                            let copy_rects: Vec<(u32, u32, u32, u32)> = if cpu_state
+                                                .slots[slot]
+                                                .stale_overflow
+                                            {
+                                                vec![full]
+                                            } else {
+                                                rects
+                                                    .iter()
+                                                    .copied()
+                                                    .chain(cpu_state.slots[slot].stale.iter().map(
+                                                        |&(x, y, w, h)| {
+                                                            (
+                                                                x.max(0) as u32,
+                                                                y.max(0) as u32,
+                                                                w.max(0) as u32,
+                                                                h.max(0) as u32,
+                                                            )
+                                                        },
+                                                    ))
+                                                    .collect()
+                                            };
+                                            let dst_stride = (cpu_state.width.max(0) as usize) * 4;
                                             let src_stride = (src_w as usize) * 4;
                                             // #27: ABGR pool = renderer byte
                                             // order → rows copy verbatim (this
@@ -5859,11 +6009,9 @@ impl WaylandWindow {
                                                         continue;
                                                     }
                                                     // RGBA → ARGB8888 (BGRA in LE memory)
-                                                    for (s, d) in src[so..so + n]
-                                                        .chunks_exact(4)
-                                                        .zip(
-                                                            buf[doff..doff + n]
-                                                                .chunks_exact_mut(4),
+                                                    for (s, d) in
+                                                        src[so..so + n].chunks_exact(4).zip(
+                                                            buf[doff..doff + n].chunks_exact_mut(4),
                                                         )
                                                     {
                                                         d[0] = s[2]; // B
@@ -5888,11 +6036,16 @@ impl WaylandWindow {
                                                     let doff = y * dst_stride;
                                                     for x in 0..clamp_w as usize {
                                                         let s = &src[so + x * 4..so + x * 4 + 4];
-                                                        let d = &buf[doff + x * 4..doff + x * 4 + 4];
+                                                        let d =
+                                                            &buf[doff + x * 4..doff + x * 4 + 4];
                                                         let differs = if straight {
-                                                            d[0] != s[0] || d[1] != s[1] || d[2] != s[2]
+                                                            d[0] != s[0]
+                                                                || d[1] != s[1]
+                                                                || d[2] != s[2]
                                                         } else {
-                                                            d[0] != s[2] || d[1] != s[1] || d[2] != s[0]
+                                                            d[0] != s[2]
+                                                                || d[1] != s[1]
+                                                                || d[2] != s[0]
                                                         };
                                                         if differs {
                                                             bad += 1;
@@ -5929,9 +6082,9 @@ impl WaylandWindow {
                                             cpu_state.slots[slot].valid = true;
                                             let other = 1 - slot;
                                             for (x, y, w, h) in &rects {
-                                                cpu_state.slots[other]
-                                                    .stale
-                                                    .push((*x as i32, *y as i32, *w as i32, *h as i32));
+                                                cpu_state.slots[other].stale.push((
+                                                    *x as i32, *y as i32, *w as i32, *h as i32,
+                                                ));
                                             }
                                             if cpu_state.slots[other].stale.len() > 32 {
                                                 cpu_state.slots[other].stale.clear();
@@ -5944,7 +6097,6 @@ impl WaylandWindow {
                                                     (*x as i32, *y as i32, *w as i32, *h as i32)
                                                 },
                                             ));
-
                                         } else {
                                             // Both buffers held by the
                                             // compositor — retry next cycle.
@@ -5966,9 +6118,15 @@ impl WaylandWindow {
                                 // (previous-display-list tracking now lives inside
                                 // CpuBackend::render_frame.)
                                 true
-                            } else { false }
-                        } else { false }
-                    } else { false };
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
 
                     if !rendered {
                         if cpu_state.acquire_slot().is_some() {
@@ -6020,7 +6178,10 @@ impl WaylandWindow {
                             }
                             if let Some(vp) = self.viewport {
                                 wp_viewport_set_destination(
-                                    &self.wayland, vp, logical_w, logical_h,
+                                    &self.wayland,
+                                    vp,
+                                    logical_w,
+                                    logical_h,
                                 );
                             }
                         } else if surface_version >= 3 && cpu_state.scale > 1 {
@@ -6041,9 +6202,7 @@ impl WaylandWindow {
                     let scale = cpu_state.scale.max(1);
                     for (dx, dy, dw, dh) in cpu_state.damage_rects.drain(..) {
                         if surface_version >= 4 {
-                            (self.wayland.wl_surface_damage_buffer)(
-                                self.surface, dx, dy, dw, dh,
-                            );
+                            (self.wayland.wl_surface_damage_buffer)(self.surface, dx, dy, dw, dh);
                         } else {
                             let x0 = dx.div_euclid(scale);
                             let y0 = dy.div_euclid(scale);
@@ -6105,7 +6264,8 @@ impl WaylandWindow {
                 // and was not: one visually-inert regeneration left
                 // `regeneration_pending` raised forever, and every subsequent
                 // frame took the full regenerate_layout() path.
-                self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+                self.common
+                    .clear_regeneration_unless_reraised(regen_epoch_seen);
                 self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
                 log_debug!(
                     LogCategory::Rendering,
@@ -6192,7 +6352,9 @@ impl WaylandWindow {
             // stack and jumped to a garbage fn pointer (SIGSEGV in ffi_call). Use a
             // 'static listener, like every other listener in this file.
             static FRAME_CALLBACK_LISTENER: defines::wl_callback_listener =
-                defines::wl_callback_listener { done: frame_done_callback };
+                defines::wl_callback_listener {
+                    done: frame_done_callback,
+                };
             (self.wayland.wl_callback_add_listener)(
                 frame_callback,
                 &FRAME_CALLBACK_LISTENER,
@@ -6213,7 +6375,8 @@ impl WaylandWindow {
         // produced: `regenerate_layout` above runs user lifecycle callbacks, and
         // the CPU present retry raises the redraw request from inside this very
         // function, a few dozen lines up.
-        self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+        self.common
+            .clear_regeneration_unless_reraised(regen_epoch_seen);
         self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
 
         // ARM THE THROTTLE FIRST, then re-arm the fade. The order matters and the
@@ -6238,7 +6401,10 @@ impl WaylandWindow {
         // runs to completion. Without this a DOM transition would advance only
         // on frames something ELSE happened to request, which looks like a
         // stutter rather than a slide.
-        let needs_anim_frame = self.common.layout_window.as_ref()
+        let needs_anim_frame = self
+            .common
+            .layout_window
+            .as_ref()
             .map(|lw| lw.gpu_state_manager.scrollbar_fade_active || lw.needs_animation_frame())
             .unwrap_or(false);
         if needs_anim_frame {
@@ -6407,7 +6573,9 @@ extern "C" fn frame_done_callback(
     // "malloc(): mismatching next->prev_size" heap-corruption abort when the event
     // queue is torn down with all those dangling proxies still attached.
     if !callback.is_null() {
-        unsafe { (window.wayland.wl_proxy_destroy)(callback as _); }
+        unsafe {
+            (window.wayland.wl_proxy_destroy)(callback as _);
+        }
     }
 
     // If there are more changes pending, request another frame
@@ -6790,7 +6958,11 @@ impl CpuFallbackState {
         wl_trace!(
             "shm pool CREATE pool={pool:p} {width}x{height} stride={stride} scale={scale} \
              bytes={size} fd={fd} fmt={} — {}",
-            if format == WL_SHM_FORMAT_ABGR8888 { "ABGR(native)" } else { "ARGB(legacy)" },
+            if format == WL_SHM_FORMAT_ABGR8888 {
+                "ABGR(native)"
+            } else {
+                "ARGB(legacy)"
+            },
             pool_census()
         );
         log_debug!(
@@ -7081,7 +7253,8 @@ impl WaylandWindow {
 
     /// Returns the DPI scale factor for the window.
     pub fn get_scale_factor(&self) -> f32 {
-        self.common.current_window_state()
+        self.common
+            .current_window_state()
             .size
             .get_hidpi_factor()
             .inner
@@ -7228,11 +7401,26 @@ impl WaylandPopup {
             // says so; a menu opens at its trigger's bottom-right like before.
             use azul_core::transient::TransientAnchor;
             let (anchor, gravity) = match edge {
-                TransientAnchor::Bottom => (XDG_POSITIONER_ANCHOR_BOTTOM_LEFT, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT),
-                TransientAnchor::Top => (XDG_POSITIONER_ANCHOR_TOP_LEFT, XDG_POSITIONER_GRAVITY_TOP_RIGHT),
-                TransientAnchor::Left => (XDG_POSITIONER_ANCHOR_TOP_LEFT, XDG_POSITIONER_GRAVITY_BOTTOM_LEFT),
-                TransientAnchor::Right => (XDG_POSITIONER_ANCHOR_TOP_RIGHT, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT),
-                TransientAnchor::Cursor => (XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT, XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT),
+                TransientAnchor::Bottom => (
+                    XDG_POSITIONER_ANCHOR_BOTTOM_LEFT,
+                    XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+                ),
+                TransientAnchor::Top => (
+                    XDG_POSITIONER_ANCHOR_TOP_LEFT,
+                    XDG_POSITIONER_GRAVITY_TOP_RIGHT,
+                ),
+                TransientAnchor::Left => (
+                    XDG_POSITIONER_ANCHOR_TOP_LEFT,
+                    XDG_POSITIONER_GRAVITY_BOTTOM_LEFT,
+                ),
+                TransientAnchor::Right => (
+                    XDG_POSITIONER_ANCHOR_TOP_RIGHT,
+                    XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+                ),
+                TransientAnchor::Cursor => (
+                    XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
+                    XDG_POSITIONER_GRAVITY_BOTTOM_RIGHT,
+                ),
             };
             (wayland.xdg_positioner_set_anchor)(positioner, anchor);
             (wayland.xdg_positioner_set_gravity)(positioner, gravity);
@@ -7501,11 +7689,27 @@ impl WaylandPopup {
             return;
         }
 
-        let logical_w = self.common.current_window_state().size.dimensions.width.max(1.0);
-        let logical_h = self.common.current_window_state().size.dimensions.height.max(1.0);
+        let logical_w = self
+            .common
+            .current_window_state()
+            .size
+            .dimensions
+            .width
+            .max(1.0);
+        let logical_h = self
+            .common
+            .current_window_state()
+            .size
+            .dimensions
+            .height
+            .max(1.0);
         let dpi_factor = {
             let d = self.common.current_window_state().size.dpi as f32 / 96.0;
-            if d <= 0.0 { 1.0 } else { d }
+            if d <= 0.0 {
+                1.0
+            } else {
+                d
+            }
         };
         let buf_w = (logical_w * dpi_factor).ceil() as i32;
         let buf_h = (logical_h * dpi_factor).ceil() as i32;
@@ -7525,7 +7729,11 @@ impl WaylandPopup {
             // physical-sized pixmap; give the buffer the matching integer
             // scale (rounded up to a multiple of it) so the compositor
             // doesn't display it dpi× oversized (set_buffer_scale at attach).
-            let scale = if fractional { 1 } else { dpi_factor.round().max(1.0) as i32 };
+            let scale = if fractional {
+                1
+            } else {
+                dpi_factor.round().max(1.0) as i32
+            };
             let (phys_w, phys_h) = if fractional {
                 (buf_w, buf_h)
             } else {
@@ -7534,13 +7742,7 @@ impl WaylandPopup {
                     ((buf_h + scale - 1) / scale) * scale,
                 )
             };
-            match CpuFallbackState::new(
-                &self.wayland,
-                self.shm,
-                phys_w,
-                phys_h,
-                scale,
-            ) {
+            match CpuFallbackState::new(&self.wayland, self.shm, phys_w, phys_h, scale) {
                 Ok(state) => self.render_mode = RenderMode::Cpu(Some(state)),
                 Err(e) => {
                     log_error!(
@@ -7569,7 +7771,8 @@ impl WaylandPopup {
                         lw.prepare_frame_cpu();
                     }
                     if let Some(ref layout_window) = self.common.layout_window {
-                        self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
+                        self.cpu_backend
+                            .sync_window_flags(&layout_window.current_window_state);
                         self.cpu_backend.render_frame(
                             layout_window,
                             &layout_window.renderer_resources,
@@ -7591,9 +7794,9 @@ impl WaylandPopup {
                                 // RGBA -> ARGB8888: swap R and B for Wayland.
                                 let mut i = 0;
                                 while i + 3 < copy_len {
-                                    buf[i] = src[i + 2];     // B
+                                    buf[i] = src[i + 2]; // B
                                     buf[i + 1] = src[i + 1]; // G
-                                    buf[i + 2] = src[i];     // R
+                                    buf[i + 2] = src[i]; // R
                                     buf[i + 3] = src[i + 3]; // A
                                     i += 4;
                                 }
@@ -7670,8 +7873,8 @@ impl WaylandPopup {
     /// a root layout exists afterwards.
     #[cfg(feature = "cpurender")]
     fn ensure_layout(&mut self) -> bool {
-        use azul_core::dom::DomId;
         use crate::desktop::shell2::common::event::PlatformWindow as _;
+        use azul_core::dom::DomId;
         let has_root = self
             .common
             .layout_window
@@ -7708,7 +7911,11 @@ impl WaylandPopup {
                     crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                     &mut debug_messages,
                 ) {
-                    log_warn!(LogCategory::Layout, "[Wayland popup] incremental relayout failed: {}", e);
+                    log_warn!(
+                        LogCategory::Layout,
+                        "[Wayland popup] incremental relayout failed: {}",
+                        e
+                    );
                 }
                 self.common.request_relayout_only();
                 self.needs_repaint = true;
@@ -7719,7 +7926,8 @@ impl WaylandPopup {
                 if result == ProcessEventResult::ShouldRegenerateDomAllWindows {
                     self.request_regeneration_all_windows();
                 }
-                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.needs_repaint = true;
             }
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
@@ -7756,7 +7964,9 @@ impl WaylandPopup {
 
     /// The gesture manager's button bitfield from the popup's mouse state.
     fn pressed_button_state(&self) -> u8 {
-        use crate::desktop::shell2::common::event::{BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT};
+        use crate::desktop::shell2::common::event::{
+            BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
+        };
         let ms = &self.common.current_window_state().mouse_state;
         let mut state = BUTTON_STATE_NONE;
         if ms.left_down {
@@ -7786,7 +7996,12 @@ impl WaylandPopup {
                 _ => {}
             }
         }
-        if let CursorPosition::InWindow(pos) = self.common.current_window_state().mouse_state.cursor_position {
+        if let CursorPosition::InWindow(pos) = self
+            .common
+            .current_window_state()
+            .mouse_state
+            .cursor_position
+        {
             self.update_hit_test_at(pos);
             let buttons = self.pressed_button_state();
             self.record_input_sample(pos, buttons, down, !down, None);
@@ -7849,12 +8064,24 @@ impl WaylandPopup {
 
 impl PlatformWindow for WaylandPopup {
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
-        let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
         crate::desktop::eyedropper::wayland::capture(scale)
     }
 
     fn apply_window_shape(&mut self, rects: &[azul_layout::cpurender::ShapeRect]) {
-        let scale = self.common.current_window_state().size.get_hidpi_factor().inner.get();
+        let scale = self
+            .common
+            .current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
         apply_input_region_from_shape(&self.wayland, self.compositor, self.surface, rects, scale);
     }
 
@@ -7882,7 +8109,8 @@ impl PlatformWindow for WaylandPopup {
         // The popup has no WebRender hit-tester; the CPU one answers clicks.
         if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
             if let Some(lw) = self.common.layout_window.as_ref() {
-                cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+                cpu_ht
+                    .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
             }
         }
         self.needs_repaint = true;
@@ -7917,7 +8145,8 @@ impl PlatformWindow for WaylandPopup {
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         if let Some(lw) = self.common.layout_window.as_mut() {
-            lw.timers.insert(azul_core::task::TimerId { id: timer_id }, timer);
+            lw.timers
+                .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
     }
 
@@ -7942,7 +8171,10 @@ impl PlatformWindow for WaylandPopup {
         }
     }
 
-    fn remove_threads(&mut self, thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>) {
+    fn remove_threads(
+        &mut self,
+        thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
+    ) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for id in thread_ids {
                 lw.threads.remove(id);
@@ -7962,7 +8194,8 @@ impl PlatformWindow for WaylandPopup {
         for wid in super::registry::get_all_window_ids() {
             if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                 if let super::LinuxWindow::Wayland(w) = unsafe { &mut *wptr } {
-                    w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    w.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     w.request_redraw();
                 }
             }
@@ -8066,7 +8299,10 @@ impl WaylandWindow {
                     type MarshalFn = unsafe extern "C" fn(
                         *mut defines::wl_proxy,
                         u32, // opcode
-                        i32, i32, i32, i32,
+                        i32,
+                        i32,
+                        i32,
+                        i32,
                     );
                     let marshal: MarshalFn =
                         unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
@@ -8113,7 +8349,10 @@ impl WaylandWindow {
     /// Check if a contenteditable is focused and enable/disable text-input v3 accordingly.
     /// Called after every layout pass.
     fn sync_text_input_v3_focus_state(&mut self) {
-        let has_contenteditable_focus = self.common.layout_window.as_ref()
+        let has_contenteditable_focus = self
+            .common
+            .layout_window
+            .as_ref()
             .map(|lw| lw.text_edit_manager.has_active_editing())
             .unwrap_or(false);
 
@@ -8151,22 +8390,33 @@ impl WaylandWindow {
                 // Compute global byte offset: sum prior runs + offset in current run
                 let (cursor_byte, anchor_byte) = match mc.get_primary() {
                     Some(identified) => {
-                        let calc_global_offset = |cursor: &azul_core::selection::TextCursor| -> i32 {
-                            let run_idx = cursor.cluster_id.source_run as usize;
-                            let byte_in_run = cursor.cluster_id.start_byte_in_run as usize;
-                            let mut global = 0usize;
-                            for (i, item) in content.iter().enumerate() {
-                                if i >= run_idx { break; }
-                                match item {
-                                    azul_layout::text3::cache::InlineContent::Text(r) => global += r.text.len(),
-                                    azul_layout::text3::cache::InlineContent::Space(_) => global += 1,
-                                    azul_layout::text3::cache::InlineContent::LineBreak(_) => global += 1,
-                                    azul_layout::text3::cache::InlineContent::Tab { .. } => global += 1,
-                                    _ => {}
+                        let calc_global_offset =
+                            |cursor: &azul_core::selection::TextCursor| -> i32 {
+                                let run_idx = cursor.cluster_id.source_run as usize;
+                                let byte_in_run = cursor.cluster_id.start_byte_in_run as usize;
+                                let mut global = 0usize;
+                                for (i, item) in content.iter().enumerate() {
+                                    if i >= run_idx {
+                                        break;
+                                    }
+                                    match item {
+                                        azul_layout::text3::cache::InlineContent::Text(r) => {
+                                            global += r.text.len()
+                                        }
+                                        azul_layout::text3::cache::InlineContent::Space(_) => {
+                                            global += 1
+                                        }
+                                        azul_layout::text3::cache::InlineContent::LineBreak(_) => {
+                                            global += 1
+                                        }
+                                        azul_layout::text3::cache::InlineContent::Tab {
+                                            ..
+                                        } => global += 1,
+                                        _ => {}
+                                    }
                                 }
-                            }
-                            (global + byte_in_run) as i32
-                        };
+                                (global + byte_in_run) as i32
+                            };
                         match &identified.selection {
                             azul_core::selection::Selection::Cursor(c) => {
                                 let off = calc_global_offset(c);
@@ -8197,10 +8447,8 @@ impl WaylandWindow {
         };
 
         // set_surrounding_text: opcode 3, args (text: string, cursor: int, anchor: int)
-        type SurroundingFn = unsafe extern "C" fn(
-            *mut defines::wl_proxy, u32,
-            *const std::ffi::c_char, i32, i32,
-        );
+        type SurroundingFn =
+            unsafe extern "C" fn(*mut defines::wl_proxy, u32, *const std::ffi::c_char, i32, i32);
         let set_surrounding: SurroundingFn =
             unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
         unsafe {
@@ -8222,8 +8470,7 @@ impl WaylandWindow {
                 return;
             }
             type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
-            let marshal: MarshalFn =
-                unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+            let marshal: MarshalFn = unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
             unsafe {
                 // enable (opcode 1)
                 marshal(
@@ -8231,8 +8478,7 @@ impl WaylandWindow {
                     defines::ZWP_TEXT_INPUT_V3_ENABLE,
                 );
                 // set_content_type (opcode 5): hint=COMPLETION|SPELLCHECK, purpose=NORMAL
-                type ContentTypeFn =
-                    unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32, u32);
+                type ContentTypeFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32, u32);
                 let content_type: ContentTypeFn =
                     std::mem::transmute(self.wayland.wl_proxy_marshal);
                 content_type(
@@ -8267,8 +8513,7 @@ impl WaylandWindow {
                 return;
             }
             type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
-            let marshal: MarshalFn =
-                unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+            let marshal: MarshalFn = unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
             unsafe {
                 // disable (opcode 2)
                 marshal(
@@ -8339,7 +8584,11 @@ impl WaylandWindow {
         );
         if let Some(tooltip) = self.tooltip.as_mut() {
             if let Err(e) = tooltip.show(text, position, dpi) {
-                log_error!(LogCategory::Platform, "[Wayland] Failed to show tooltip: {}", e);
+                log_error!(
+                    LogCategory::Platform,
+                    "[Wayland] Failed to show tooltip: {}",
+                    e
+                );
             }
         }
     }
@@ -8733,7 +8982,11 @@ mod trim_surrounding_text_tests {
         // The miniword crash case: a document paragraph far over the budget.
         let t = "x".repeat(60_000);
         let (r, c, a) = trim_surrounding_text(&t, 30_000, 29_990);
-        assert!(r.end - r.start <= BUDGET, "window {} exceeds the budget", r.end - r.start);
+        assert!(
+            r.end - r.start <= BUDGET,
+            "window {} exceeds the budget",
+            r.end - r.start
+        );
         assert!(c >= 0 && (c as usize) <= r.end - r.start);
         assert!(a >= 0 && (a as usize) <= r.end - r.start);
         // The cursor's absolute position must be preserved relative to the window.
@@ -8775,11 +9028,13 @@ mod trim_surrounding_text_tests {
         let t = "z".repeat(10_000);
         let (r, c, _a) = trim_surrounding_text(&t, 10_000, 10_000);
         assert!(r.end - r.start <= BUDGET);
-        assert_eq!(r.end, 10_000, "window must reach the end to contain the cursor");
+        assert_eq!(
+            r.end, 10_000,
+            "window must reach the end to contain the cursor"
+        );
         assert_eq!(r.start + c as usize, 10_000);
     }
 }
-
 
 #[cfg(test)]
 mod wayland_input_state_tests {
@@ -8800,11 +9055,21 @@ mod wayland_input_state_tests {
     const KEY_LEFTCTRL: u32 = 29;
     const KEY_Q: u32 = 16;
 
-    fn press(state: &mut KeyboardState, map: &mut PressedKeyVks, key: u32, vk: Option<VirtualKeyCode>) {
+    fn press(
+        state: &mut KeyboardState,
+        map: &mut PressedKeyVks,
+        key: u32,
+        vk: Option<VirtualKeyCode>,
+    ) {
         apply_key_state_change(state, map, key, vk, true);
     }
 
-    fn release(state: &mut KeyboardState, map: &mut PressedKeyVks, key: u32, vk: Option<VirtualKeyCode>) {
+    fn release(
+        state: &mut KeyboardState,
+        map: &mut PressedKeyVks,
+        key: u32,
+        vk: Option<VirtualKeyCode>,
+    ) {
         apply_key_state_change(state, map, key, vk, false);
     }
 
@@ -8820,13 +9085,23 @@ mod wayland_input_state_tests {
         let mut state = KeyboardState::default();
         let mut map = PressedKeyVks::new();
 
-        press(&mut state, &mut map, KEY_BACKSPACE, Some(VirtualKeyCode::Back));
+        press(
+            &mut state,
+            &mut map,
+            KEY_BACKSPACE,
+            Some(VirtualKeyCode::Back),
+        );
         assert_eq!(
             state.current_virtual_keycode.into_option(),
             Some(VirtualKeyCode::Back)
         );
 
-        release(&mut state, &mut map, KEY_BACKSPACE, Some(VirtualKeyCode::Back));
+        release(
+            &mut state,
+            &mut map,
+            KEY_BACKSPACE,
+            Some(VirtualKeyCode::Back),
+        );
         assert_eq!(
             state.current_virtual_keycode.into_option(),
             None,
@@ -8849,13 +9124,23 @@ mod wayland_input_state_tests {
         let mut map = PressedKeyVks::new();
 
         for tap in 0..2 {
-            press(&mut state, &mut map, KEY_BACKSPACE, Some(VirtualKeyCode::Back));
+            press(
+                &mut state,
+                &mut map,
+                KEY_BACKSPACE,
+                Some(VirtualKeyCode::Back),
+            );
             assert_eq!(
                 state.current_virtual_keycode.into_option(),
                 Some(VirtualKeyCode::Back),
                 "tap {tap}"
             );
-            release(&mut state, &mut map, KEY_BACKSPACE, Some(VirtualKeyCode::Back));
+            release(
+                &mut state,
+                &mut map,
+                KEY_BACKSPACE,
+                Some(VirtualKeyCode::Back),
+            );
             assert_eq!(
                 state.current_virtual_keycode.into_option(),
                 None,
@@ -8925,7 +9210,12 @@ mod wayland_input_state_tests {
         let mut state = KeyboardState::default();
         let mut map = PressedKeyVks::new();
 
-        press(&mut state, &mut map, KEY_LEFTCTRL, Some(VirtualKeyCode::LControl));
+        press(
+            &mut state,
+            &mut map,
+            KEY_LEFTCTRL,
+            Some(VirtualKeyCode::LControl),
+        );
         assert!(state.ctrl_down());
 
         release(&mut state, &mut map, KEY_LEFTCTRL, None);

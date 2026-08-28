@@ -55,9 +55,7 @@ impl PlatformCapability {
     /// elsewhere reports the backend (device presence confirmed at `open()`).
     pub fn camera() -> PlatformCapability {
         if cfg!(target_os = "linux") {
-            let have = (0..8).any(|i| {
-                std::path::Path::new(&format!("/dev/video{}", i)).exists()
-            });
+            let have = (0..8).any(|i| std::path::Path::new(&format!("/dev/video{}", i)).exists());
             if have {
                 cap(true, "v4l2 (libv4l2)", "")
             } else {
@@ -66,7 +64,11 @@ impl PlatformCapability {
         } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
             cap(true, "AVFoundation", "device presence confirmed at open()")
         } else if cfg!(target_os = "windows") {
-            cap(true, "Media Foundation (nokhwa)", "device presence confirmed at open()")
+            cap(
+                true,
+                "Media Foundation (nokhwa)",
+                "device presence confirmed at open()",
+            )
         } else if cfg!(target_os = "android") {
             cap(true, "Camera2 (NDK)", "needs runtime CAMERA permission")
         } else {
@@ -86,10 +88,9 @@ impl PlatformCapability {
                 "the portal permission dialog is shown at open()",
             )
         } else if cfg!(target_os = "macos") {
-            let have_sck = std::path::Path::new(
-                "/System/Library/Frameworks/ScreenCaptureKit.framework",
-            )
-            .exists();
+            let have_sck =
+                std::path::Path::new("/System/Library/Frameworks/ScreenCaptureKit.framework")
+                    .exists();
             if have_sck {
                 cap(
                     true,
@@ -97,12 +98,20 @@ impl PlatformCapability {
                     "needs the Screen-Recording TCC grant (System Settings → Privacy & Security)",
                 )
             } else {
-                cap(false, "ScreenCaptureKit", "needs macOS 12.3+ (framework not present)")
+                cap(
+                    false,
+                    "ScreenCaptureKit",
+                    "needs macOS 12.3+ (framework not present)",
+                )
             }
         } else if cfg!(target_os = "windows") {
             cap(false, "DXGI duplication", "not yet implemented (stub)")
         } else if cfg!(any(target_os = "ios", target_os = "android")) {
-            cap(false, "ReplayKit / MediaProjection", "not yet implemented (stub)")
+            cap(
+                false,
+                "ReplayKit / MediaProjection",
+                "not yet implemented (stub)",
+            )
         } else {
             cap(false, "none", "no screen-capture backend on this target")
         }
@@ -163,7 +172,11 @@ impl PlatformCapability {
         } else if cfg!(target_os = "ios") {
             cap(true, "CoreMotion", "")
         } else if cfg!(target_os = "android") {
-            cap(false, "SensorManager (JNI)", "Rust path ready; AzulSensors.java helper pending")
+            cap(
+                false,
+                "SensorManager (JNI)",
+                "Rust path ready; AzulSensors.java helper pending",
+            )
         } else if cfg!(target_os = "macos") {
             // MWA-C-sensors: REAL probe (was hardcoded false, hiding working
             // sensors on IMU-equipped hardware from AzCapability gates).
@@ -197,8 +210,16 @@ impl PlatformCapability {
     /// (whose libudev/evdev enumeration is the suspect for the Linux double-free
     /// C5); a connected pad is detected when `poll()` runs.
     pub fn gamepad() -> PlatformCapability {
-        if cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows")) {
-            cap(true, "gilrs", "a controller is detected when polled (none may be connected)")
+        if cfg!(any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows"
+        )) {
+            cap(
+                true,
+                "gilrs",
+                "a controller is detected when polled (none may be connected)",
+            )
         } else if cfg!(target_os = "ios") {
             // MWA-A1 honesty: the GCController backend is an empty stub —
             // reporting supported=true made apps show gamepad UI that could
@@ -217,13 +238,29 @@ impl PlatformCapability {
     /// `AzulGeolocation.java` helper hasn't shipped.
     pub fn geolocation() -> PlatformCapability {
         if cfg!(target_os = "linux") {
-            cap(true, "geoclue (D-Bus)", "needs the GeoClue2 service; fix delivered async")
+            cap(
+                true,
+                "geoclue (D-Bus)",
+                "needs the GeoClue2 service; fix delivered async",
+            )
         } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
-            cap(true, "CoreLocation", "needs location permission; fix delivered async")
+            cap(
+                true,
+                "CoreLocation",
+                "needs location permission; fix delivered async",
+            )
         } else if cfg!(target_os = "windows") {
-            cap(true, "Location API (COM)", "needs the location consent switch; fix delivered async")
+            cap(
+                true,
+                "Location API (COM)",
+                "needs the location consent switch; fix delivered async",
+            )
         } else if cfg!(target_os = "android") {
-            cap(false, "FusedLocationProvider (JNI)", "Rust path ready; AzulGeolocation.java helper pending")
+            cap(
+                false,
+                "FusedLocationProvider (JNI)",
+                "Rust path ready; AzulGeolocation.java helper pending",
+            )
         } else {
             cap(false, "none", "no geolocation backend on this target")
         }
@@ -233,9 +270,17 @@ impl PlatformCapability {
     /// locked/absent (delivered async as `KeyringResult::Unavailable`).
     pub fn keyring() -> PlatformCapability {
         if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
-            cap(true, "Keychain", "result delivered async via get_keyring_result")
+            cap(
+                true,
+                "Keychain",
+                "result delivered async via get_keyring_result",
+            )
         } else if cfg!(target_os = "linux") {
-            cap(true, "libsecret (Secret Service)", "needs a running secret service")
+            cap(
+                true,
+                "libsecret (Secret Service)",
+                "needs a running secret service",
+            )
         } else if cfg!(target_os = "windows") {
             cap(true, "Credential Manager", "")
         } else if cfg!(target_os = "android") {
@@ -250,9 +295,11 @@ impl PlatformCapability {
     pub fn biometric() -> PlatformCapability {
         use azul_core::biometric::BiometricKind;
         match super::biometric::probe_availability() {
-            BiometricKind::NotAvailable => {
-                cap(false, "platform", "no usable biometric sensor (absent/unenrolled)")
-            }
+            BiometricKind::NotAvailable => cap(
+                false,
+                "platform",
+                "no usable biometric sensor (absent/unenrolled)",
+            ),
             BiometricKind::Fingerprint => cap(true, "fingerprint", ""),
             BiometricKind::Face => cap(true, "face", ""),
             BiometricKind::Iris => cap(true, "iris", ""),

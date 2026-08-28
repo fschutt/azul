@@ -9,9 +9,7 @@
 use std::sync::Arc;
 
 use super::super::common::debug_server::LogCategory;
-use super::super::common::{
-    dlopen::DynamicLibrary as DynamicLibraryTrait, error::DlError,
-};
+use super::super::common::{dlopen::DynamicLibrary as DynamicLibraryTrait, error::DlError};
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // Re-export types that will be used by Win32 API
@@ -179,7 +177,11 @@ pub const CFS_CANDIDATEPOS: u32 = 0x0040;
 
 /// Helper to encode ASCII string for GetProcAddress
 pub fn encode_ascii(input: &str) -> Vec<i8> {
-    debug_assert!(input.is_ascii(), "encode_ascii called with non-ASCII input: {}", input);
+    debug_assert!(
+        input.is_ascii(),
+        "encode_ascii called with non-ASCII input: {}",
+        input
+    );
     input
         .chars()
         .filter(|c| c.is_ascii())
@@ -508,8 +510,9 @@ pub struct User32Functions {
     pub GetPointerType: Option<unsafe extern "system" fn(u32, *mut u32) -> BOOL>,
     pub GetPointerPenInfo:
         Option<unsafe extern "system" fn(u32, *mut winapi::um::winuser::POINTER_PEN_INFO) -> BOOL>,
-    pub GetPointerTouchInfo:
-        Option<unsafe extern "system" fn(u32, *mut winapi::um::winuser::POINTER_TOUCH_INFO) -> BOOL>,
+    pub GetPointerTouchInfo: Option<
+        unsafe extern "system" fn(u32, *mut winapi::um::winuser::POINTER_TOUCH_INFO) -> BOOL,
+    >,
 
     // Messages
     pub SendMessageW: unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT,
@@ -552,9 +555,13 @@ pub struct Gdi32Functions {
     /// (w, h, planes, bpp, bits) - used for an icon's 1bpp AND mask. With a
     /// 32bpp colour bitmap the mask is ignored for blending, but ICONINFO still
     /// requires one, so it is supplied all-zero.
-    pub CreateBitmap:
-        unsafe extern "system" fn(i32, i32, u32, u32, *const core::ffi::c_void)
-            -> *mut core::ffi::c_void,
+    pub CreateBitmap: unsafe extern "system" fn(
+        i32,
+        i32,
+        u32,
+        u32,
+        *const core::ffi::c_void,
+    ) -> *mut core::ffi::c_void,
     pub DeleteObject: unsafe extern "system" fn(*mut core::ffi::c_void) -> BOOL,
     /// Create a rectangular region - used for DwmEnableBlurBehindWindow
     /// CreateRectRgn(0, 0, -1, -1) creates a minimal region for transparent backgrounds
@@ -564,16 +571,31 @@ pub struct Gdi32Functions {
     /// StretchDIBits - blit pixel data from memory to device context (for CPU rendering)
     /// (hdc, xDest, yDest, wDest, hDest, xSrc, ySrc, wSrc, hSrc, lpBits, lpBmi, iUsage, dwRop)
     pub StretchDIBits: unsafe extern "system" fn(
-        HDC, i32, i32, i32, i32, i32, i32, i32, i32,
-        *const core::ffi::c_void, *const BitmapInfoHeader, u32, u32,
+        HDC,
+        i32,
+        i32,
+        i32,
+        i32,
+        i32,
+        i32,
+        i32,
+        i32,
+        *const core::ffi::c_void,
+        *const BitmapInfoHeader,
+        u32,
+        u32,
     ) -> i32,
     /// #27 native backbuffer: persistent DIB section the renderer draws into.
     /// (hdc, lpbmi, usage, ppvBits, hSection, offset) — lpbmi points at a
     /// `BitmapInfoBitfields` (BI_BITFIELDS + 3 masks) reinterpreted as the
     /// plain header, exactly how GDI reads it.
     pub CreateDIBSection: unsafe extern "system" fn(
-        HDC, *const BitmapInfoHeader, u32, *mut *mut core::ffi::c_void,
-        *mut core::ffi::c_void, u32,
+        HDC,
+        *const BitmapInfoHeader,
+        u32,
+        *mut *mut core::ffi::c_void,
+        *mut core::ffi::c_void,
+        u32,
     ) -> *mut core::ffi::c_void,
     pub CreateCompatibleDC: unsafe extern "system" fn(HDC) -> HDC,
     pub SelectObject:
@@ -607,10 +629,10 @@ pub struct BitmapInfoBitfields {
 pub struct BitmapInfoHeader {
     pub biSize: u32,
     pub biWidth: i32,
-    pub biHeight: i32,       // negative = top-down DIB
+    pub biHeight: i32, // negative = top-down DIB
     pub biPlanes: u16,
     pub biBitCount: u16,
-    pub biCompression: u32,  // BI_RGB = 0
+    pub biCompression: u32, // BI_RGB = 0
     pub biSizeImage: u32,
     pub biXPelsPerMeter: i32,
     pub biYPelsPerMeter: i32,

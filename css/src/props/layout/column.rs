@@ -34,7 +34,6 @@ pub enum ColumnCount {
     Integer(u32),
 }
 
-
 impl PrintAsCssValue for ColumnCount {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -45,7 +44,8 @@ impl PrintAsCssValue for ColumnCount {
 }
 
 // --- column-width ---
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS `column-width` property: specifies the optimal width of columns.
 ///
 /// Values: `auto` or a length value (e.g. `200px`, `15em`).
@@ -57,7 +57,6 @@ pub enum ColumnWidth {
     Auto,
     Length(PixelValue),
 }
-
 
 impl PrintAsCssValue for ColumnWidth {
     fn print_as_css_value(&self) -> String {
@@ -82,7 +81,6 @@ pub enum ColumnSpan {
     All,
 }
 
-
 impl PrintAsCssValue for ColumnSpan {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -105,7 +103,6 @@ pub enum ColumnFill {
     #[default]
     Balance,
 }
-
 
 impl PrintAsCssValue for ColumnFill {
     fn print_as_css_value(&self) -> String {
@@ -261,7 +258,8 @@ impl crate::codegen::format::FormatAsRustCode for ColumnRuleColor {
 
 #[cfg(feature = "parser")]
 pub mod parser {
-    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
+    #[allow(clippy::wildcard_imports)]
+    // parser submodule reuses the parent module's value types
     use super::*;
     use crate::corety::AzString;
 
@@ -287,16 +285,20 @@ pub mod parser {
     }
 
     impl ColumnCountParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> ColumnCountParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> ColumnCountParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => ColumnCountParseErrorOwned::InvalidValue((*s).to_string().into()),
+                Self::InvalidValue(s) => {
+                    ColumnCountParseErrorOwned::InvalidValue((*s).to_string().into())
+                }
                 Self::ParseInt(e) => ColumnCountParseErrorOwned::ParseInt(e.to_string().into()),
             }
         }
     }
 
     impl ColumnCountParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> ColumnCountParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> ColumnCountParseError<'_> {
             match self {
                 Self::InvalidValue(s) => ColumnCountParseError::InvalidValue(s),
                 // ParseIntError cannot be reconstructed from its Display string,
@@ -310,16 +312,12 @@ pub mod parser {
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `column-count` value.
-    pub fn parse_column_count(
-        input: &str,
-    ) -> Result<ColumnCount, ColumnCountParseError<'_>> {
+    pub fn parse_column_count(input: &str) -> Result<ColumnCount, ColumnCountParseError<'_>> {
         let trimmed = input.trim();
         if trimmed == "auto" {
             return Ok(ColumnCount::Auto);
         }
-        let val: u32 = trimmed
-            .parse()
-            .map_err(ColumnCountParseError::ParseInt)?;
+        let val: u32 = trimmed.parse().map_err(ColumnCountParseError::ParseInt)?;
         Ok(ColumnCount::Integer(val))
     }
 
@@ -346,16 +344,20 @@ pub mod parser {
     }
 
     impl ColumnWidthParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> ColumnWidthParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> ColumnWidthParseErrorOwned {
             match self {
-                Self::InvalidValue(s) => ColumnWidthParseErrorOwned::InvalidValue((*s).to_string().into()),
+                Self::InvalidValue(s) => {
+                    ColumnWidthParseErrorOwned::InvalidValue((*s).to_string().into())
+                }
                 Self::PixelValue(e) => ColumnWidthParseErrorOwned::PixelValue(e.to_contained()),
             }
         }
     }
 
     impl ColumnWidthParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> ColumnWidthParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> ColumnWidthParseError<'_> {
             match self {
                 Self::InvalidValue(s) => ColumnWidthParseError::InvalidValue(s),
                 Self::PixelValue(e) => ColumnWidthParseError::PixelValue(e.to_shared()),
@@ -366,9 +368,7 @@ pub mod parser {
     /// # Errors
     ///
     /// Returns an error if `input` is not a valid CSS `column-width` value.
-    pub fn parse_column_width(
-        input: &str,
-    ) -> Result<ColumnWidth, ColumnWidthParseError<'_>> {
+    pub fn parse_column_width(input: &str) -> Result<ColumnWidth, ColumnWidthParseError<'_>> {
         let trimmed = input.trim();
         if trimmed == "auto" {
             return Ok(ColumnWidth::Auto);
@@ -465,7 +465,8 @@ pub mod parser {
         Pixel(CssPixelValueParseErrorOwned),
     }
     impl ColumnRuleWidthParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> ColumnRuleWidthParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> ColumnRuleWidthParseErrorOwned {
             match self {
                 ColumnRuleWidthParseError::Pixel(e) => {
                     ColumnRuleWidthParseErrorOwned::Pixel(e.to_contained())
@@ -474,11 +475,10 @@ pub mod parser {
         }
     }
     impl ColumnRuleWidthParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> ColumnRuleWidthParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> ColumnRuleWidthParseError<'_> {
             match self {
-                Self::Pixel(e) => {
-                    ColumnRuleWidthParseError::Pixel(e.to_shared())
-                }
+                Self::Pixel(e) => ColumnRuleWidthParseError::Pixel(e.to_shared()),
             }
         }
     }
@@ -506,7 +506,8 @@ pub mod parser {
         Style(CssBorderStyleParseErrorOwned),
     }
     impl ColumnRuleStyleParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> ColumnRuleStyleParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> ColumnRuleStyleParseErrorOwned {
             match self {
                 ColumnRuleStyleParseError::Style(e) => {
                     ColumnRuleStyleParseErrorOwned::Style(e.to_contained())
@@ -515,11 +516,10 @@ pub mod parser {
         }
     }
     impl ColumnRuleStyleParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> ColumnRuleStyleParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> ColumnRuleStyleParseError<'_> {
             match self {
-                Self::Style(e) => {
-                    ColumnRuleStyleParseError::Style(e.to_shared())
-                }
+                Self::Style(e) => ColumnRuleStyleParseError::Style(e.to_shared()),
             }
         }
     }
@@ -547,7 +547,8 @@ pub mod parser {
         Color(CssColorParseErrorOwned),
     }
     impl ColumnRuleColorParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> ColumnRuleColorParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> ColumnRuleColorParseErrorOwned {
             match self {
                 ColumnRuleColorParseError::Color(e) => {
                     ColumnRuleColorParseErrorOwned::Color(e.to_contained())
@@ -556,11 +557,10 @@ pub mod parser {
         }
     }
     impl ColumnRuleColorParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> ColumnRuleColorParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> ColumnRuleColorParseError<'_> {
             match self {
-                Self::Color(e) => {
-                    ColumnRuleColorParseError::Color(e.to_shared())
-                }
+                Self::Color(e) => ColumnRuleColorParseError::Color(e.to_shared()),
             }
         }
     }
@@ -652,7 +652,10 @@ mod autotest_generated {
         assert_eq!(parse_column_count("1").unwrap(), ColumnCount::Integer(1));
         // The parser trims, so surrounding whitespace must not change the value.
         assert_eq!(parse_column_count("  auto\t\n").unwrap(), ColumnCount::Auto);
-        assert_eq!(parse_column_count(" \n 12 \t").unwrap(), ColumnCount::Integer(12));
+        assert_eq!(
+            parse_column_count(" \n 12 \t").unwrap(),
+            ColumnCount::Integer(12)
+        );
     }
 
     #[test]
@@ -665,8 +668,26 @@ mod autotest_generated {
     #[test]
     fn column_count_rejects_garbage_without_panicking() {
         for bad in [
-            "none", "auto auto", "3px", "3;garbage", "3 4", "2.5", "0x10", "1_000", "--3", "+-3",
-            "\0", "3\0", "١٢٣", "٣", "３", "NaN", "inf", "-inf", "e5", "1e3",
+            "none",
+            "auto auto",
+            "3px",
+            "3;garbage",
+            "3 4",
+            "2.5",
+            "0x10",
+            "1_000",
+            "--3",
+            "+-3",
+            "\0",
+            "3\0",
+            "١٢٣",
+            "٣",
+            "３",
+            "NaN",
+            "inf",
+            "-inf",
+            "e5",
+            "1e3",
         ] {
             assert!(
                 parse_column_count(bad).is_err(),
@@ -712,7 +733,10 @@ mod autotest_generated {
         assert!(parse_column_count(&huge_keyword).is_err());
         // Whitespace-padded huge input: trimming must not be quadratic or panic.
         let padded = format!("{}{}{}", " ".repeat(10_000), "7", " ".repeat(10_000));
-        assert_eq!(parse_column_count(&padded).unwrap(), ColumnCount::Integer(7));
+        assert_eq!(
+            parse_column_count(&padded).unwrap(),
+            ColumnCount::Integer(7)
+        );
     }
 
     #[test]
@@ -728,9 +752,9 @@ mod autotest_generated {
         for bad in [
             "\u{1F600}",
             "auto\u{1F600}",
-            "e\u{301}",       // combining acute accent
-            "\u{202E}3",      // RTL override
-            "\u{FEFF}auto",   // BOM (not whitespace -> not trimmed)
+            "e\u{301}",     // combining acute accent
+            "\u{202E}3",    // RTL override
+            "\u{FEFF}auto", // BOM (not whitespace -> not trimmed)
             "au\u{0000}to",
         ] {
             assert!(
@@ -766,7 +790,10 @@ mod autotest_generated {
         for s in ["", "x", "  padded  ", "\u{1F600}"] {
             let shared = ColumnCountParseError::InvalidValue(s);
             let owned = shared.to_contained();
-            assert_eq!(owned, ColumnCountParseErrorOwned::InvalidValue(AzString::from(s)));
+            assert_eq!(
+                owned,
+                ColumnCountParseErrorOwned::InvalidValue(AzString::from(s))
+            );
             assert_eq!(owned.to_shared(), shared);
         }
     }
@@ -827,8 +854,16 @@ mod autotest_generated {
         assert!(parse_column_width("   ").is_err());
         assert!(parse_column_width("\t\n").is_err());
         for bad in [
-            "px", "em", "%", "ten-px", "200px;garbage", "200 px extra", "#200px", "\u{1F600}",
-            "20\u{301}px", "AUTO",
+            "px",
+            "em",
+            "%",
+            "ten-px",
+            "200px;garbage",
+            "200 px extra",
+            "#200px",
+            "\u{1F600}",
+            "20\u{301}px",
+            "AUTO",
         ] {
             assert!(
                 parse_column_width(bad).is_err(),
@@ -944,7 +979,10 @@ mod autotest_generated {
         for s in ["", "bogus", "\u{1F600}"] {
             let shared = ColumnWidthParseError::InvalidValue(s);
             let owned = shared.to_contained();
-            assert_eq!(owned, ColumnWidthParseErrorOwned::InvalidValue(AzString::from(s)));
+            assert_eq!(
+                owned,
+                ColumnWidthParseErrorOwned::InvalidValue(AzString::from(s))
+            );
             assert_eq!(owned.to_shared(), shared);
         }
 
@@ -970,13 +1008,41 @@ mod autotest_generated {
         assert_eq!(parse_column_span("none").unwrap(), ColumnSpan::None);
         assert_eq!(parse_column_span(" all \t").unwrap(), ColumnSpan::All);
         assert_eq!(parse_column_fill("auto").unwrap(), ColumnFill::Auto);
-        assert_eq!(parse_column_fill("\n balance ").unwrap(), ColumnFill::Balance);
+        assert_eq!(
+            parse_column_fill("\n balance ").unwrap(),
+            ColumnFill::Balance
+        );
 
-        for bad in ["", "   ", "2", "ALL", "None", "all all", "all;", "\u{1F600}", "nonee", "\0"] {
-            assert!(parse_column_span(bad).is_err(), "column-span accepted {bad:?}");
+        for bad in [
+            "",
+            "   ",
+            "2",
+            "ALL",
+            "None",
+            "all all",
+            "all;",
+            "\u{1F600}",
+            "nonee",
+            "\0",
+        ] {
+            assert!(
+                parse_column_span(bad).is_err(),
+                "column-span accepted {bad:?}"
+            );
         }
-        for bad in ["", "   ", "none", "AUTO", "balanced", "auto balance", "\u{1F600}"] {
-            assert!(parse_column_fill(bad).is_err(), "column-fill accepted {bad:?}");
+        for bad in [
+            "",
+            "   ",
+            "none",
+            "AUTO",
+            "balanced",
+            "auto balance",
+            "\u{1F600}",
+        ] {
+            assert!(
+                parse_column_fill(bad).is_err(),
+                "column-fill accepted {bad:?}"
+            );
         }
         // The two properties must not accept each other's keywords.
         assert!(parse_column_span("balance").is_err());
@@ -1005,7 +1071,10 @@ mod autotest_generated {
         assert!(format!("{err}").contains("column-span"));
 
         let owned = err.to_contained();
-        assert_eq!(owned, ColumnSpanParseErrorOwned::InvalidValue(AzString::from("  bogus  ")));
+        assert_eq!(
+            owned,
+            ColumnSpanParseErrorOwned::InvalidValue(AzString::from("  bogus  "))
+        );
         assert_eq!(owned.to_shared(), err);
 
         let fill_err = parse_column_fill("\u{1F600}").unwrap_err();
@@ -1028,7 +1097,16 @@ mod autotest_generated {
             parse_column_rule_width("  0  ").unwrap().inner,
             PixelValue::px(0.0)
         );
-        for bad in ["", "   ", "auto", "solid", "px", "\u{1F600}", "5px;5px", "5 px extra"] {
+        for bad in [
+            "",
+            "   ",
+            "auto",
+            "solid",
+            "px",
+            "\u{1F600}",
+            "5px;5px",
+            "5 px extra",
+        ] {
             assert!(
                 parse_column_rule_width(bad).is_err(),
                 "column-rule-width accepted {bad:?}"
@@ -1045,7 +1123,12 @@ mod autotest_generated {
                 "{input:?} produced a non-finite column-rule-width"
             );
         }
-        assert!(parse_column_rule_width(&"9".repeat(LONG)).unwrap().inner.number.get().is_finite());
+        assert!(parse_column_rule_width(&"9".repeat(LONG))
+            .unwrap()
+            .inner
+            .number
+            .get()
+            .is_finite());
         assert!(parse_column_rule_width(&"(".repeat(10_000)).is_err());
     }
 
@@ -1058,9 +1141,15 @@ mod autotest_generated {
 
         for value in [
             ColumnRuleWidth::default(),
-            ColumnRuleWidth { inner: PixelValue::px(0.0) },
-            ColumnRuleWidth { inner: PixelValue::em(2.5) },
-            ColumnRuleWidth { inner: PixelValue::percent(-25.0) },
+            ColumnRuleWidth {
+                inner: PixelValue::px(0.0),
+            },
+            ColumnRuleWidth {
+                inner: PixelValue::em(2.5),
+            },
+            ColumnRuleWidth {
+                inner: PixelValue::percent(-25.0),
+            },
         ] {
             let printed = value.print_as_css_value();
             assert_eq!(parse_column_rule_width(&printed).unwrap(), value);
@@ -1109,7 +1198,15 @@ mod autotest_generated {
     #[test]
     fn column_rule_style_rejects_garbage_without_panicking() {
         for bad in [
-            "", "   ", "SOLID", "solidd", "solid solid", "3px", "\u{1F600}", "\0", "soli\u{0301}d",
+            "",
+            "   ",
+            "SOLID",
+            "solidd",
+            "solid solid",
+            "3px",
+            "\u{1F600}",
+            "\0",
+            "soli\u{0301}d",
         ] {
             assert!(
                 parse_column_rule_style(bad).is_err(),
@@ -1146,15 +1243,23 @@ mod autotest_generated {
     fn column_rule_color_accepts_names_hex_and_functions() {
         assert_eq!(parse_column_rule_color("blue").unwrap().inner, ColorU::BLUE);
         // Named colors *are* case-insensitive here (unlike column-span/fill/count).
-        assert_eq!(parse_column_rule_color("  BLUE \t").unwrap().inner, ColorU::BLUE);
-        assert_eq!(parse_column_rule_color("#000f").unwrap().inner, ColorU::BLACK);
+        assert_eq!(
+            parse_column_rule_color("  BLUE \t").unwrap().inner,
+            ColorU::BLUE
+        );
+        assert_eq!(
+            parse_column_rule_color("#000f").unwrap().inner,
+            ColorU::BLACK
+        );
         assert_eq!(
             parse_column_rule_color("#ff000080").unwrap().inner,
             ColorU::rgba(255, 0, 0, 128)
         );
         assert_eq!(parse_column_rule_color("transparent").unwrap().inner.a, 0);
         assert_eq!(
-            parse_column_rule_color("rgba(255, 0, 0, 1.0)").unwrap().inner,
+            parse_column_rule_color("rgba(255, 0, 0, 1.0)")
+                .unwrap()
+                .inner,
             ColorU::RED
         );
     }
@@ -1310,25 +1415,44 @@ mod autotest_generated {
 
     #[test]
     fn format_as_rust_code_emits_constructible_snippets() {
-        assert_eq!(ColumnCount::Auto.format_as_rust_code(0), "ColumnCount::Auto");
+        assert_eq!(
+            ColumnCount::Auto.format_as_rust_code(0),
+            "ColumnCount::Auto"
+        );
         assert_eq!(
             ColumnCount::Integer(u32::MAX).format_as_rust_code(0),
             "ColumnCount::Integer(4294967295)"
         );
-        assert_eq!(ColumnWidth::Auto.format_as_rust_code(0), "ColumnWidth::Auto");
+        assert_eq!(
+            ColumnWidth::Auto.format_as_rust_code(0),
+            "ColumnWidth::Auto"
+        );
         assert_eq!(ColumnSpan::All.format_as_rust_code(0), "ColumnSpan::All");
         assert_eq!(ColumnSpan::None.format_as_rust_code(0), "ColumnSpan::None");
         assert_eq!(ColumnFill::Auto.format_as_rust_code(0), "ColumnFill::Auto");
-        assert_eq!(ColumnFill::Balance.format_as_rust_code(0), "ColumnFill::Balance");
+        assert_eq!(
+            ColumnFill::Balance.format_as_rust_code(0),
+            "ColumnFill::Balance"
+        );
 
         // Extreme instances must format without panicking.
         let wide = ColumnWidth::Length(PixelValue::px(f32::MAX));
-        assert!(wide.format_as_rust_code(0).starts_with("ColumnWidth::Length("));
-        let rule = ColumnRuleWidth { inner: PixelValue::px(-0.5) };
+        assert!(wide
+            .format_as_rust_code(0)
+            .starts_with("ColumnWidth::Length("));
+        let rule = ColumnRuleWidth {
+            inner: PixelValue::px(-0.5),
+        };
         assert!(rule.format_as_rust_code(0).starts_with("ColumnRuleWidth {"));
-        let style = ColumnRuleStyle { inner: BorderStyle::Dotted };
+        let style = ColumnRuleStyle {
+            inner: BorderStyle::Dotted,
+        };
         assert!(style.format_as_rust_code(0).contains("Dotted"));
-        let color = ColumnRuleColor { inner: ColorU::TRANSPARENT };
-        assert!(color.format_as_rust_code(0).starts_with("ColumnRuleColor {"));
+        let color = ColumnRuleColor {
+            inner: ColorU::TRANSPARENT,
+        };
+        assert!(color
+            .format_as_rust_code(0)
+            .starts_with("ColumnRuleColor {"));
     }
 }

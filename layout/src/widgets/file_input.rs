@@ -7,7 +7,8 @@ use azul_core::{
     refany::RefAny,
     resources::OptionImageRef,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::CssPropertyWithConditionsVec,
     props::{
@@ -117,7 +118,8 @@ azul_core::impl_managed_callback! {
 }
 
 impl FileInput {
-    #[must_use] pub fn create(path: OptionString) -> Self {
+    #[must_use]
+    pub fn create(path: OptionString) -> Self {
         Self {
             file_input_state: FileInputStateWrapper {
                 inner: FileInputState { path },
@@ -141,7 +143,8 @@ impl FileInput {
     }
 
     #[inline]
-    #[must_use] pub fn with_default_text(mut self, default_text: AzString) -> Self {
+    #[must_use]
+    pub fn with_default_text(mut self, default_text: AzString) -> Self {
         self.set_default_text(default_text);
         self
     }
@@ -171,7 +174,8 @@ impl FileInput {
     }
 
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // either show the default text or the file name
         // including the extension as the button label
         let button_label = match self.file_input_state.inner.path.as_ref() {
@@ -297,19 +301,19 @@ mod autotest_generated {
         [
             ("/tmp/report.pdf", "report.pdf"),
             ("report.pdf", "report.pdf"),
-            ("/tmp/dir/", "dir"),         // a trailing separator is not a component
-            ("/tmp/dir///", "dir"),       // ...and neither are three of them
-            ("a/.", "a"),                 // a trailing `.` normalizes away
+            ("/tmp/dir/", "dir"),   // a trailing separator is not a component
+            ("/tmp/dir///", "dir"), // ...and neither are three of them
+            ("a/.", "a"),           // a trailing `.` normalizes away
             ("/a/b/c/d/e/f/g.txt", "g.txt"),
-            (".hidden", ".hidden"),       // a leading dot is part of the name
-            ("...", "..."),               // only `.` and `..` are special
+            (".hidden", ".hidden"), // a leading dot is part of the name
+            ("...", "..."),         // only `.` and `..` are special
             ("..a", "..a"),
             ("/tmp/archive.tar.gz", "archive.tar.gz"),
-            ("  ", "  "),                 // whitespace is a legal file name
+            ("  ", "  "), // whitespace is a legal file name
             ("/tmp/a b.txt", "a b.txt"),
             ("/tmp/a\nb.txt", "a\nb.txt"), // control chars survive verbatim
             ("/tmp/a\tb.txt", "a\tb.txt"),
-            ("a\0b", "a\0b"),             // OsStr allows interior NULs; must not truncate
+            ("a\0b", "a\0b"), // OsStr allows interior NULs; must not truncate
             ("/tmp/a\0b.txt", "a\0b.txt"),
             ("/tmp/日本語.txt", "日本語.txt"),
             ("/tmp/e\u{0301}.txt", "e\u{0301}.txt"), // decomposed é: no normalization
@@ -329,10 +333,12 @@ mod autotest_generated {
     /// Paths with *no* file-name component: `Path::file_name` returns `None` for each,
     /// so `dom()` must fall back to `default_text` rather than render an empty button.
     fn no_file_name_cases() -> Vec<String> {
-        ["", "/", ".", "..", "./", "/.", "/..", "a/..", "a/b/../", "../.."]
-            .iter()
-            .map(|s| (*s).to_string())
-            .collect()
+        [
+            "", "/", ".", "..", "./", "/.", "/..", "a/..", "a/b/../", "../..",
+        ]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect()
     }
 
     /// Adversarial strings for the free-form text fields (`default_text`,
@@ -739,13 +745,18 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_returns_the_original_and_resets_self() {
-        let mut fi = populated_with_image()
-            .with_on_path_change(log_refany(), record_path as FileInputOnPathChangeCallbackType);
+        let mut fi = populated_with_image().with_on_path_change(
+            log_refany(),
+            record_path as FileInputOnPathChangeCallbackType,
+        );
         let before = fi.clone();
 
         let taken = fi.swap_with_default();
 
-        assert_eq!(taken, before, "swap_with_default did not return the original");
+        assert_eq!(
+            taken, before,
+            "swap_with_default did not return the original"
+        );
         assert_eq!(
             fi,
             FileInput::default(),
@@ -785,9 +796,16 @@ mod autotest_generated {
         let first = fi.swap_with_default();
         let second = fi.swap_with_default();
 
-        assert_ne!(first, second, "the first swap did not actually take anything");
+        assert_ne!(
+            first, second,
+            "the first swap did not actually take anything"
+        );
         assert_eq!(second, FileInput::default());
-        assert_eq!(fi, FileInput::default(), "the second swap dirtied the widget");
+        assert_eq!(
+            fi,
+            FileInput::default(),
+            "the second swap dirtied the widget"
+        );
     }
 
     #[test]
@@ -829,7 +847,11 @@ mod autotest_generated {
         for s in adversarial_strings() {
             let mut fi = FileInput::default();
             fi.set_default_text(s.as_str().into());
-            assert_eq!(fi.default_text.as_str(), s, "set_default_text({s:?}) altered the text");
+            assert_eq!(
+                fi.default_text.as_str(),
+                s,
+                "set_default_text({s:?}) altered the text"
+            );
             assert_eq!(
                 fi.default_text.as_str().len(),
                 s.len(),
@@ -900,7 +922,10 @@ mod autotest_generated {
     fn set_on_path_change_stores_the_function_pointer_and_the_data() {
         let probe = log_refany();
         let mut fi = FileInput::default();
-        fi.set_on_path_change(probe.clone(), record_path as FileInputOnPathChangeCallbackType);
+        fi.set_on_path_change(
+            probe.clone(),
+            record_path as FileInputOnPathChangeCallbackType,
+        );
 
         let stored = fi
             .file_input_state
@@ -919,13 +944,20 @@ mod autotest_generated {
     fn set_on_path_change_overwrites_a_previous_callback() {
         // Two live callbacks would fire twice per click; the setter must replace.
         let mut fi = FileInput::default();
-        fi.set_on_path_change(log_refany(), record_path as FileInputOnPathChangeCallbackType);
+        fi.set_on_path_change(
+            log_refany(),
+            record_path as FileInputOnPathChangeCallbackType,
+        );
         fi.set_on_path_change(
             RefAny::new(7_u32),
             path_refresh_all as FileInputOnPathChangeCallbackType,
         );
 
-        let stored = fi.file_input_state.on_path_change.as_ref().expect("no callback");
+        let stored = fi
+            .file_input_state
+            .on_path_change
+            .as_ref()
+            .expect("no callback");
         assert_eq!(
             cb_addr(&stored.callback),
             path_refresh_all as *const () as usize,
@@ -942,7 +974,10 @@ mod autotest_generated {
     fn set_on_path_change_touches_nothing_else() {
         let mut fi = populated_with_image();
         let before = fi.clone();
-        fi.set_on_path_change(log_refany(), record_path as FileInputOnPathChangeCallbackType);
+        fi.set_on_path_change(
+            log_refany(),
+            record_path as FileInputOnPathChangeCallbackType,
+        );
 
         assert_eq!(fi.default_text, before.default_text);
         assert_eq!(fi.file_input_state.inner, before.file_input_state.inner);
@@ -983,7 +1018,11 @@ mod autotest_generated {
         };
         let fi = FileInput::default().with_on_path_change(log_refany(), generic);
 
-        let stored = fi.file_input_state.on_path_change.as_ref().expect("no callback");
+        let stored = fi
+            .file_input_state
+            .on_path_change
+            .as_ref()
+            .expect("no callback");
         assert_eq!(
             cb_addr(&stored.callback),
             generic_shaped as *const () as usize,
@@ -998,9 +1037,15 @@ mod autotest_generated {
 
     #[test]
     fn a_raw_function_pointer_gets_no_ffi_context() {
-        let fi = FileInput::default()
-            .with_on_path_change(log_refany(), record_path as FileInputOnPathChangeCallbackType);
-        let stored = fi.file_input_state.on_path_change.as_ref().expect("no callback");
+        let fi = FileInput::default().with_on_path_change(
+            log_refany(),
+            record_path as FileInputOnPathChangeCallbackType,
+        );
+        let stored = fi
+            .file_input_state
+            .on_path_change
+            .as_ref()
+            .expect("no callback");
         assert_eq!(
             stored.callback.ctx,
             OptionRefAny::None,
@@ -1048,7 +1093,11 @@ mod autotest_generated {
     fn dom_renders_a_custom_default_text_verbatim_when_there_is_no_file_name() {
         for s in adversarial_strings() {
             let fi = FileInput::create(None.into()).with_default_text(s.as_str().into());
-            assert_eq!(rendered_label(&fi.dom()), s, "custom default text {s:?} was altered");
+            assert_eq!(
+                rendered_label(&fi.dom()),
+                s,
+                "custom default text {s:?} was altered"
+            );
 
             // ...and the same for a path that has no file-name component.
             let fi = FileInput::create(opt("/")).with_default_text(s.as_str().into());
@@ -1116,10 +1165,12 @@ mod autotest_generated {
         let dom = FileInput::create(opt("/tmp/x.txt")).dom();
         let callbacks = dom.root.callbacks.as_ref();
         assert_eq!(callbacks.len(), 1, "a click must fire exactly one handler");
-        assert_eq!(callbacks[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
         assert_eq!(
-            callbacks[0].callback.cb,
-            fileinput_on_click as *const () as usize,
+            callbacks[0].event,
+            EventFilter::Hover(HoverEventFilter::MouseUp)
+        );
+        assert_eq!(
+            callbacks[0].callback.cb, fileinput_on_click as *const () as usize,
             "the DOM is wired to a different handler than fileinput_on_click",
         );
         assert_eq!(
@@ -1144,7 +1195,10 @@ mod autotest_generated {
         assert_eq!(state.inner, expected.inner);
         assert_eq!(state.file_dialog_title, expected.file_dialog_title);
         assert_eq!(state.default_dir, expected.default_dir);
-        let stored = state.on_path_change.as_ref().expect("the user callback was dropped");
+        let stored = state
+            .on_path_change
+            .as_ref()
+            .expect("the user callback was dropped");
         assert_eq!(cb_addr(&stored.callback), record_path as *const () as usize);
     }
 
@@ -1212,9 +1266,18 @@ mod autotest_generated {
     #[cfg(unix)]
     #[test]
     fn dom_handles_multiple_leading_slashes_on_unix() {
-        assert_eq!(rendered_label(&FileInput::create(opt("//")).dom()), DEFAULT_TEXT);
-        assert_eq!(rendered_label(&FileInput::create(opt("///")).dom()), DEFAULT_TEXT);
-        assert_eq!(rendered_label(&FileInput::create(opt("//a.txt")).dom()), "a.txt");
+        assert_eq!(
+            rendered_label(&FileInput::create(opt("//")).dom()),
+            DEFAULT_TEXT
+        );
+        assert_eq!(
+            rendered_label(&FileInput::create(opt("///")).dom()),
+            DEFAULT_TEXT
+        );
+        assert_eq!(
+            rendered_label(&FileInput::create(opt("//a.txt")).dom()),
+            "a.txt"
+        );
     }
 
     #[cfg(windows)]
@@ -1243,10 +1306,15 @@ mod autotest_generated {
             Update::DoNothing,
             "a foreign payload must not trigger a relayout",
         );
-        assert!(changes.is_empty(), "a foreign payload pushed changes: {changes:?}");
+        assert!(
+            changes.is_empty(),
+            "a foreign payload pushed changes: {changes:?}"
+        );
         let mut foreign = foreign;
         assert_eq!(
-            *foreign.downcast_ref::<u32>().expect("the payload was overwritten"),
+            *foreign
+                .downcast_ref::<u32>()
+                .expect("the payload was overwritten"),
             0xDEAD_BEEF,
         );
     }
@@ -1257,7 +1325,9 @@ mod autotest_generated {
         // the user callback receives — passing it back in is the most likely confusion,
         // and reinterpreting it would read an `OptionString` as a callback pointer.
         let styled = StyledDom::create_from_dom(FileInput::create(opt("/tmp/x.txt")).dom());
-        let inner = RefAny::new(FileInputState { path: opt("/tmp/x.txt") });
+        let inner = RefAny::new(FileInputState {
+            path: opt("/tmp/x.txt"),
+        });
 
         let (update, changes) = click(styled, &inner, node(0));
 
@@ -1281,11 +1351,7 @@ mod autotest_generated {
     /// desktop). Driving the handler with a well-typed payload would block the test run
     /// on a GUI prompt, so everything past the downcast is only exercised in builds
     /// where that block is compiled out. The type-rejection path above runs everywhere.
-    #[cfg(any(
-        not(feature = "extra"),
-        target_os = "android",
-        target_os = "ios"
-    ))]
+    #[cfg(any(not(feature = "extra"), target_os = "android", target_os = "ios"))]
     mod without_the_native_dialog {
         use super::*;
 
@@ -1299,9 +1365,16 @@ mod autotest_generated {
                 Update::RefreshDom,
                 "a click must relayout so the new label is drawn",
             );
-            assert!(changes.is_empty(), "the handler pushed unexpected changes: {changes:?}");
+            assert!(
+                changes.is_empty(),
+                "the handler pushed unexpected changes: {changes:?}"
+            );
             assert_eq!(
-                state_of(&state).inner.path.as_ref().map(|p| p.as_str().to_string()),
+                state_of(&state)
+                    .inner
+                    .path
+                    .as_ref()
+                    .map(|p| p.as_str().to_string()),
                 Some("/tmp/x.txt".to_string()),
                 "the handler mutated the path without a dialog",
             );
@@ -1377,9 +1450,17 @@ mod autotest_generated {
                 assert_eq!(update, Update::RefreshDom);
             }
 
-            assert_eq!(read_log(&probe).seen.len(), 3, "clicks were dropped or doubled");
             assert_eq!(
-                state_of(&state).inner.path.as_ref().map(|p| p.as_str().to_string()),
+                read_log(&probe).seen.len(),
+                3,
+                "clicks were dropped or doubled"
+            );
+            assert_eq!(
+                state_of(&state)
+                    .inner
+                    .path
+                    .as_ref()
+                    .map(|p| p.as_str().to_string()),
                 Some("/tmp/a.txt".to_string()),
             );
         }
@@ -1401,8 +1482,14 @@ mod autotest_generated {
                 return Update::DoNothing;
             };
             let probe = &mut *probe;
-            let saw_mut = probe.state.downcast_mut::<FileInputStateWrapper>().is_some();
-            let saw_ref = probe.state.downcast_ref::<FileInputStateWrapper>().is_some();
+            let saw_mut = probe
+                .state
+                .downcast_mut::<FileInputStateWrapper>()
+                .is_some();
+            let saw_ref = probe
+                .state
+                .downcast_ref::<FileInputStateWrapper>()
+                .is_some();
             probe.saw_mut = Some(saw_mut);
             probe.saw_ref = Some(saw_ref);
             Update::DoNothing
@@ -1439,13 +1526,25 @@ mod autotest_generated {
             let guard = handle
                 .downcast_mut::<ReentryProbe>()
                 .expect("the probe changed type");
-            assert_eq!(guard.saw_mut, Some(false), "a second &mut to the state was handed out");
-            assert_eq!(guard.saw_ref, Some(false), "a & alongside the live &mut was handed out");
+            assert_eq!(
+                guard.saw_mut,
+                Some(false),
+                "a second &mut to the state was handed out"
+            );
+            assert_eq!(
+                guard.saw_ref,
+                Some(false),
+                "a & alongside the live &mut was handed out"
+            );
             drop(guard);
 
             assert_eq!(update, Update::RefreshDom);
             assert_eq!(
-                state_of(&state).inner.path.as_ref().map(|p| p.as_str().to_string()),
+                state_of(&state)
+                    .inner
+                    .path
+                    .as_ref()
+                    .map(|p| p.as_str().to_string()),
                 Some("/tmp/a.txt".to_string()),
                 "the state was corrupted by the re-entrant attempt",
             );
