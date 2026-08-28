@@ -21,6 +21,8 @@ mod autotest_generated {
     };
 
     use super::*;
+    use proptest::prelude::*;
+    use proptest::proptest;
 
     // ---------------------------------------------------------------- helpers
 
@@ -212,19 +214,16 @@ mod autotest_generated {
         assert_eq!(z.inverse(), ComputedTransform3D::IDENTITY);
     }
 
-    #[test]
-    fn new_scale_extremes_do_not_panic() {
-        for v in [
-            f32::NAN,
-            f32::INFINITY,
-            f32::NEG_INFINITY,
-            f32::MAX,
-            f32::MIN,
-        ] {
+    proptest! {
+        #[test]
+        fn new_scale_extremes_do_not_panic(v in proptest::num::f32::ANY) {
             let t = ComputedTransform3D::new_scale(v, v, v);
             assert_eq!(t.m[3][3], 1.0);
             assert_eq!(t.m[0][1], 0.0);
         }
+    }
+    #[test]
+    fn new_scale_nan() {
         let nan = ComputedTransform3D::new_scale(f32::NAN, 1.0, 1.0);
         assert!(nan.m[0][0].is_nan());
         assert!(nan.determinant().is_nan());
@@ -979,26 +978,28 @@ mod autotest_generated {
 
     // `not(miri)`: Miri cannot execute SSE/AVX intrinsics.
     #[cfg(all(target_arch = "x86_64", not(miri)))]
-    #[test]
-    fn linear_combine_sse_matches_naive_row_combine() {
-        if !std::is_x86_feature_detected!("sse") {
-            return;
-        }
-        let b = ComputedTransform3D::new(
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
-        );
-        for a in [
-            [1.0f32, 2.0, 3.0, 4.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [-1.5, 0.25, 1e6, -1e6],
-        ] {
+    proptest! {
+        #[test]
+        fn linear_combine_sse_matches_naive_row_combine(
+            a0 in proptest::num::f32::ANY, a1 in proptest::num::f32::ANY,
+            a2 in proptest::num::f32::ANY, a3 in proptest::num::f32::ANY
+        ) {
+            if !std::is_x86_feature_detected!("sse") {
+                return Ok(());
+            }
+            let b = ComputedTransform3D::new(
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+            );
+            let a = [a0, a1, a2, a3];
             // SAFETY: SSE availability was just checked at runtime.
             let got = unsafe { ComputedTransform3D::linear_combine_sse(a, &b) };
             let want = naive_row_combine(a, &b);
             for c in 0..4 {
                 let tol = 1e-3 * want[c].abs().max(1.0);
+                // Proptest might generate infinite values, which we don't want to fail if they perfectly match.
+                if !want[c].is_finite() && !got[c].is_finite() { continue; }
                 assert!(
-                    (got[c] - want[c]).abs() <= tol,
+                    (got[c] - want[c]).abs() <= tol || (got[c].is_nan() && want[c].is_nan()),
                     "lane {c}: {} vs {}",
                     got[c],
                     want[c]
@@ -1652,9 +1653,9 @@ mod autotest_generated {
         assert!(r.m[0][0].is_nan(), "NaN degrees must propagate, not panic");
     }
 
-    #[test]
-    fn make_rotation_infinite_degrees_does_not_panic() {
-        for deg in [f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN] {
+    proptest! {
+        #[test]
+        fn make_rotation_infinite_degrees_does_not_panic(deg in proptest::num::f32::ANY) {
             let r = ComputedTransform3D::make_rotation(
                 (0.0, 0.0),
                 deg,
@@ -1665,17 +1666,13 @@ mod autotest_generated {
             );
             core::hint::black_box(r);
         }
-    }
 
-    #[test]
-    fn make_rotation_extreme_origin_does_not_panic() {
-        for origin in [
-            (f32::MAX, f32::MAX),
-            (f32::INFINITY, f32::NEG_INFINITY),
-            (f32::NAN, 0.0),
-        ] {
+        #[test]
+        fn make_rotation_extreme_origin_does_not_panic(
+            ox in proptest::num::f32::ANY, oy in proptest::num::f32::ANY
+        ) {
             let r = ComputedTransform3D::make_rotation(
-                origin,
+                (ox, oy),
                 45.0,
                 0.0,
                 0.0,

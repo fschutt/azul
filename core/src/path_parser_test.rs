@@ -6,6 +6,8 @@ mod autotest_generated {
     use alloc::format;
 
     use super::*;
+    use proptest::prelude::*;
+    use proptest::proptest;
 
     // ---------------------------------------------------------------- helpers
 
@@ -1077,6 +1079,14 @@ mod autotest_generated {
         }
     }
 
+    proptest! {
+        #[test]
+        fn parse_path_random_fragments_all_terminate(f in any::<String>()) {
+            let r = parse_svg_path_d(&f);
+            assert!(r.is_ok() || r.is_err(), "{f:?} must return, not panic");
+        }
+    }
+
     /// All 14 commands round-trip through the tokenizer into geometry of the
     /// expected kind.
     #[test]
@@ -1130,25 +1140,25 @@ mod autotest_generated {
 
     /// For every flag combination, the arc is 1..=4 cubics that start exactly at
     /// `start` and end exactly at `end` (the endpoint is snapped, not computed).
-    #[test]
-    fn arc_to_cubics_endpoints_are_exact_for_all_flag_combos() {
-        let start = SvgPoint { x: 0.0, y: 0.0 };
-        let end = SvgPoint { x: 10.0, y: 10.0 };
-        for large_arc in [false, true] {
-            for sweep in [false, true] {
-                let mut out = Vec::new();
-                arc_to_cubics(start, end, 8.0, 6.0, 30.0, large_arc, sweep, &mut out);
-                assert!(
-                    (1..=4).contains(&out.len()),
-                    "large_arc={large_arc} sweep={sweep}: got {} cubics",
-                    out.len()
-                );
-                assert_eq!(out[0].get_start(), start);
-                assert_eq!(out.last().unwrap().get_end(), end);
-                assert_contiguous(&out, "arc");
-                for p in out.iter().flat_map(|e| [e.get_start(), e.get_end()]) {
-                    assert!(p.x.is_finite() && p.y.is_finite(), "arc produced {p:?}");
-                }
+    proptest! {
+        #[test]
+        fn arc_to_cubics_endpoints_are_exact_for_all_flag_combos(
+            large_arc in proptest::bool::ANY, sweep in proptest::bool::ANY
+        ) {
+            let start = SvgPoint { x: 0.0, y: 0.0 };
+            let end = SvgPoint { x: 10.0, y: 10.0 };
+            let mut out = Vec::new();
+            arc_to_cubics(start, end, 8.0, 6.0, 30.0, large_arc, sweep, &mut out);
+            assert!(
+                (1..=4).contains(&out.len()),
+                "large_arc={large_arc} sweep={sweep}: got {} cubics",
+                out.len()
+            );
+            assert_eq!(out[0].get_start(), start);
+            assert_eq!(out.last().unwrap().get_end(), end);
+            assert_contiguous(&out, "arc");
+            for p in out.iter().flat_map(|e| [e.get_start(), e.get_end()]) {
+                assert!(p.x.is_finite() && p.y.is_finite(), "arc produced {p:?}");
             }
         }
     }
@@ -1256,21 +1266,17 @@ mod autotest_generated {
 
     /// Result is always within [-PI, PI] for finite inputs (the acos argument is
     /// clamped, so rounding can never push it out of the domain).
-    #[test]
-    fn angle_between_is_always_within_pi_for_finite_inputs() {
-        let vals = [-1e30_f32, -3.0, -1.0, -0.0, 0.0, 1.0, 3.0, 1e30];
-        for ux in vals {
-            for uy in vals {
-                for vx in vals {
-                    for vy in vals {
-                        let a = angle_between(ux, uy, vx, vy);
-                        assert!(
-                            a.is_nan() || a.abs() <= core::f32::consts::PI + 1e-5,
-                            "angle_between({ux},{uy},{vx},{vy}) = {a} is out of range"
-                        );
-                    }
-                }
-            }
+    proptest! {
+        #[test]
+        fn angle_between_is_always_within_pi_for_finite_inputs(
+            ux in proptest::num::f32::ANY, uy in proptest::num::f32::ANY,
+            vx in proptest::num::f32::ANY, vy in proptest::num::f32::ANY
+        ) {
+            let a = angle_between(ux, uy, vx, vy);
+            assert!(
+                a.is_nan() || a.abs() <= core::f32::consts::PI + 1e-5,
+                "angle_between({ux},{uy},{vx},{vy}) = {a} is out of range"
+            );
         }
     }
 
