@@ -8998,7 +8998,7 @@ impl LayoutWindow {
             azul_core::animation::seed_moves(
                 &mut self.animations,
                 correspondences,
-                azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
+                azul_core::animation::InterpolationMode::Spring(azul_core::animation::Spring::SMOOTH),
             );
         }
 
@@ -9104,7 +9104,9 @@ impl LayoutWindow {
                     self.animations.start_enter(
                         mount_key,
                         (0.0, 0.0),
-                        azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
+                        azul_core::animation::InterpolationMode::Spring(
+                            azul_core::animation::Spring::SMOOTH,
+                        ),
                     );
                 }
                 continue;
@@ -9209,7 +9211,7 @@ impl LayoutWindow {
             self.animations.start_enter(
                 key,
                 (0.0, 0.0),
-                azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
+                azul_core::animation::InterpolationMode::Spring(azul_core::animation::Spring::SMOOTH),
             );
         }
         if let Some(anim) = self.animations.get_mut(key) {
