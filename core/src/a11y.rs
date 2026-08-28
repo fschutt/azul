@@ -202,8 +202,6 @@ pub struct TextSelectionStartEnd {
     pub selection_start: usize,
     /// The ending index of the selection.
     pub selection_end: usize,
-    pub selection_start: usize,
-    pub selection_end: usize,
 }
 
 impl_vec!(
@@ -561,6 +559,7 @@ impl_option!(
 );
 
 impl SmallAriaInfo {
+    /// Creates a `SmallAriaInfo` with the given accessible label.
     pub fn label<S: Into<AzString>>(text: S) -> Self {
         Self {
             label: OptionString::Some(text.into()),
@@ -569,12 +568,14 @@ impl SmallAriaInfo {
         }
     }
 
+    /// Builder method for setting self.role
     #[must_use]
     pub const fn with_role(mut self, role: AccessibilityRole) -> Self {
         self.role = OptionAccessibilityRole::Some(role);
         self
     }
 
+    /// Builder method for setting self.description
     #[must_use]
     pub fn with_description<S: Into<AzString>>(mut self, desc: S) -> Self {
         self.description = OptionString::Some(desc.into());
