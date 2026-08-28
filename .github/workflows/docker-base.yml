@@ -1,14 +1,17 @@
 name: Docker base image (ghcr.io/fschutt/azul)
 
-# Builds and (optionally) pushes the azul web base image — libazul built with
-# the in-process remill/LLVM/LLD lifter (web-transpiler-static) — to the GitHub
-# Container Registry. Per-app example Dockerfiles `FROM ghcr.io/fschutt/azul`.
+# Builds and pushes the Azul web base image (libazul with the in-process
+# remill/LLVM/LLD lifter) to the GitHub Container Registry. Downstream apps
+# can use `FROM ghcr.io/fschutt/azul` in their Dockerfiles.
 #
-# This is a SEPARATE workflow, never part of the normal push/PR pipeline,
-# because the root Dockerfile builds remill + LLVM from source (~45 min, ~10 GB).
-# Buildx + GitHub Actions layer cache make repeat builds far cheaper. Triggers:
-#   - manual (workflow_dispatch): build always; push only if `push: true`.
-#   - release published: build + push, tagged with the release tag + latest.
+# This is a separate workflow because the Dockerfile builds remill + LLVM
+# from source, which requires ~45 minutes and ~10 GB of disk space.
+# It relies on Docker Buildx and GitHub Actions layer caching to keep repeat
+# builds fast.
+#
+# Triggers:
+#   - workflow_dispatch: Manual run. Builds always; pushes only if `push: true`.
+#   - release (published): Builds and pushes using the release tag + `latest`.
 
 on:
   workflow_dispatch:
@@ -43,7 +46,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
-      # The remill+LLVM build needs far more than the stock ~14 GB free disk.
+      # The remill+LLVM build requires significantly more than the stock ~14 GB
+      # of free disk space provided by GitHub-hosted runners.
       - name: Free disk space
         run: |
           echo "Before:"; df -h / | tail -1
@@ -59,7 +63,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Resolve the build ref + tag + whether to push, for both triggers.
+      # Resolve the build ref, tag, and push intention depending on the trigger event.
       - name: Resolve build parameters
         id: params
         shell: bash
@@ -78,7 +82,7 @@ jobs:
           echo "push=$push" >> "$GITHUB_OUTPUT"
           echo "::notice::docker base: ref=$ref tag=$tag push=$push"
 
-      # Log in only when we intend to push (build-only validation needs no creds).
+      # Only authenticate if we intend to push (build-only validation requires no credentials).
       - name: Log in to GHCR
         if: steps.params.outputs.push == 'true'
         uses: docker/login-action@v3
@@ -92,15 +96,15 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          # The Dockerfile git-clones azul at AZUL_REF (it is standalone-buildable),
-          # so build the requested ref. --branch needs a branch/tag name (not a SHA).
+          # The Dockerfile runs `git clone --branch $AZUL_REF`.
+          # Therefore, `AZUL_REF` must be a valid branch or tag name, not a commit SHA.
           build-args: |
             AZUL_REF=${{ steps.params.outputs.ref }}
           push: ${{ steps.params.outputs.push == 'true' }}
           tags: |
             ghcr.io/fschutt/azul:${{ steps.params.outputs.tag }}
             ghcr.io/fschutt/azul:latest
-          # GitHub Actions layer cache: the remill+LLVM stage is reused across
-          # runs until third_party/remill or the LLVM pin changes.
+          # Utilize GitHub Actions layer caching to reuse the expensive remill+LLVM
+          # build stages across runs unless third-party sources or LLVM pins change.
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,62 +1,29 @@
-# POST-RELEASE WATCHDOG.
+# Post-Release Watchdog Runner
 #
-# Everything in rust.yml verifies the WORKING TREE, or at best a STAGED tree just
-# before it is published. A user gets the PUBLISHED ARTIFACT, from the live host,
-# with their own resolution and their own toolchain. azul has shipped through that
-# gap more than once:
+# Verifies the published artifacts against the live host. A green CI build on a
+# working tree can still ship broken artifacts (e.g., missing classes.dex in APKs,
+# unresolved NuGet packages, missing dynamic libs).
 #
-#   * the demo APKs on the release page could never install — the manifest's
-#     launcher activity `com.azul.app.AzulActivity` is a Java class and CI built
-#     with AZ_ANDROID_NO_JAVA=1, so every published APK had no classes.dex. Five
-#     stacked cannot-fail layers hid it, and the build script's own `adb` path
-#     launches `android.app.NativeActivity` DIRECTLY, bypassing the launcher entry
-#     — the one code path a phone uses was the one nothing exercised.
-#   * `gem install azul --source https://azul.rs/ui/gems` returned 404 and
-#     `dotnet add package azul` rejected the nupkg (published under `Azul.Net`,
-#     requested as `azul`) — both behind a GREEN deploy, because every check
-#     asserted that files EXIST, never that the documented command WORKS.
+# This workflow runs after a deployment to confirm the live site and artifacts
+# actually work and reports failures without gating the release.
 #
-# This workflow closes that gap AFTER the fact. A green deploy that shipped a
-# broken artifact turns this run RED while the site stays up, which is the point:
-# it reports, it does not gate.
+# Triggers:
 #
-#   - after a successful "Deploy to GitHub Pages" (workflow_run on the build
-#     workflow): verifies THE DEPLOY THAT JUST HAPPENED. It used to run on
-#     `push`, i.e. ~80 minutes before that deploy, so every result described the
-#     PREVIOUS release — see the `on:` block for the measured timings.
-#   - daily (cron): verifies the LIVE site against today's ecosystem. A new pip,
-#     a new NuGet client, an expired index — none of those touch this repo, and
-#     this is the only job that would notice.
-#   - workflow_dispatch: optionally for an explicit version.
-#
-# Modelled on printpdf's post-release.yml, which exists for the same reason (its
-# 0.11.0 shipped uninstallable because CI resolved dependencies fresh while
-# consumers had lockfiles).
+#   - workflow_run: Verifies the exact deployment that just finished.
+#   - schedule: Daily check to catch upstream ecosystem breakages (pip, NuGet).
+#   - workflow_dispatch: Manual verification for a specific version.
+
 name: Post-release checks
 
 on:
-  # THIS USED TO BE `push: branches: [master]`, AND THAT MADE EVERY GREEN TICK
-  # BELOW A STATEMENT ABOUT THE *PREVIOUS* RELEASE.
-  #
-  # Measured, run 32388068257 vs 32388074182 on the same commit:
-  #   post-release checks    15:45:54 - 15:47:47
-  #   Deploy to GitHub Pages 17:05:09 - 17:12:28
-  # It fired on the push, ~78 minutes BEFORE the deploy it claims to verify.
-  # So `install: apt`, `install: pypi`, `android: install the published APK`
-  # and — worst — the job literally named "Release page lists the expected
-  # artifacts" all passed while the page that was about to be published carried
-  # 18 links that 404. A check that reports on a build other than the one you
-  # just made is not a weak check, it is a misleading one.
-  #
-  # Verify what was actually deployed: run when the build workflow FINISHES,
-  # and only when that run really deployed (`resolve` gates on the "Deploy to
-  # GitHub Pages" job's conclusion — rust.yml deploys only on a `deploy` or
-  # `website` workflow_dispatch, so most completions are correctly skipped).
+  # Runs only when the build workflow completes. This ensures we test the
+  # current release, rather than triggering on `push` which would test the
+  # previous release ~80 minutes before the actual deploy finishes.
   workflow_run:
     workflows: ["build"]
     types: [completed]
   schedule:
-    # Daily. Failures surface in the Actions tab and in GitHub's failure emails.
+    # Daily check against today's ecosystem clients. Failures show up in Actions.
     - cron: "17 6 * * *"
   workflow_dispatch:
     inputs:
@@ -69,13 +36,11 @@ on:
 
 permissions:
   contents: read
-  # `resolve` asks the triggering run whether its deploy job actually
-  # succeeded, which is a read of the Actions API, not of the repo contents.
+  # Required to query the Actions API to check if the triggering run deployed.
   actions: read
 
 concurrency:
-  # Deliberately NOT the same group as rust.yml. A release run must never cancel
-  # its own watchdog, and a watchdog must never cancel a release.
+  # Must run in a separate group from the build workflow so they never cancel each other.
   group: post-release-${{ github.ref }}
   cancel-in-progress: false
 
@@ -87,21 +52,13 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       base_url: ${{ steps.v.outputs.base_url }}
-      # "did a deploy actually happen, and did it succeed?" Every downstream
-      # job gates on this, so a plain CI run of the build workflow (which does
-      # not deploy) does not produce a green tick about a site it never touched.
+      # Ensure downstream jobs only run if a deploy actually occurred.
       deployed: ${{ steps.gate.outputs.deployed }}
-      # The URL the release listing actually lives at, after resolving the
-      # HTML redirect stub at /releases. Downstream jobs must use this rather
-      # than re-deriving /releases, which is how the artifacts check ended up
-      # grepping a redirect page for artifact names.
       releases_url: ${{ steps.v.outputs.releases_url }}
     steps:
       - uses: actions/checkout@v7
-      # Only a run that DEPLOYED is worth verifying. rust.yml's deploy_pages is
-      # `if: run_mode == 'deploy' || run_mode == 'website'`, so the overwhelming
-      # majority of build-workflow completions never touched the site; treating
-      # those as "the release is fine" is the same lie in a new shape.
+
+      # Filter out regular CI runs that did not deploy to GitHub Pages.
       - id: gate
         shell: bash
         env:
@@ -121,8 +78,9 @@ jobs:
             echo "::notice::build run $run_id deployed successfully — verifying what it published"
           else
             echo "deployed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::build run $run_id did not deploy (Deploy to GitHub Pages: ${concl:-absent}) — nothing new to verify, skipping"
+            echo "::notice::build run $run_id did not deploy — skipping verification"
           fi
+
       - id: v
         if: steps.gate.outputs.deployed == 'true'
         shell: bash
@@ -133,28 +91,16 @@ jobs:
 
           VERSION="${{ github.event.inputs.version }}"
           if [ -z "$VERSION" ]; then
-            # api.json is the source of truth: its single top-level key IS the
-            # version. Read it rather than duplicating the number in this file,
-            # so the watchdog cannot drift from what is actually published.
+            # api.json is the source of truth for the published version.
             VERSION=$(python3 -c 'import json;print(next(iter(json.load(open("api.json")))))')
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base_url=$BASE"   >> "$GITHUB_OUTPUT"
           echo "::notice::verifying azul $VERSION against $BASE"
 
-          # The release page must be LIVE. A 404 here means every job below would
-          # fail for the same uninteresting reason, so say it once, clearly.
-          #
-          # `$BASE/releases` is NOT the release page. It is a 416-byte stub that
-          # redirects to /ui/releases — and not with a 3xx, which `curl -L`
-          # would follow, but with an HTML `<meta http-equiv="refresh">` plus a
-          # `location.replace()`, which nothing on the curl side follows. This
-          # check asked for `/releases`, got HTTP 200 on the stub, and concluded
-          # the site was serving a release page. The artifacts job then grepped
-          # those 416 bytes for artifact names and reported all three missing.
-          #
-          # HTTP 200 is not "a page exists". Resolve the redirect, then require
-          # the result to actually look like a release page.
+          # $BASE/releases is an HTML redirect stub. We must resolve the actual
+          # `<meta http-equiv="refresh">` target rather than blindly checking
+          # HTTP 200 on the stub, which breaks artifact parsing later.
           page=$(mktemp)
           curl -sSL -o "$page" "$BASE/releases" \
             || { echo "::error::$BASE/releases is unreachable"; exit 1; }
@@ -167,7 +113,7 @@ jobs:
               /*)    target="${BASE}${target}" ;;
               *)     target="${BASE}/${target}" ;;
             esac
-            echo "::notice::$BASE/releases is a redirect stub -> $target"
+            echo "::notice::$BASE/releases redirects to $target"
             curl -sSL -o "$page" "$target" \
               || { echo "::error::redirect target $target is unreachable"; exit 1; }
           fi
@@ -175,14 +121,12 @@ jobs:
 
           bytes=$(wc -c < "$page")
           if ! grep -qi 'release' "$page" || [ "$bytes" -le 2048 ]; then
-            echo "::error::the resolved release page is $bytes bytes and does not mention releases — still a stub or an error page, not the release listing"
+            echo "::error::Resolved release page is $bytes bytes and invalid."
             exit 1
           fi
           echo "::notice::release page resolved, $bytes bytes"
 
-  # The documented install command for each channel, run against the LIVE host in
-  # a container whose only reason to exist is that ecosystem's client. A fresh
-  # container cannot pass by picking up an azul left behind by an earlier job.
+  # Verifies the documented install commands against fresh environments.
   channels:
     name: "install: ${{ matrix.channel }}"
     needs: resolve
@@ -202,18 +146,15 @@ jobs:
       image: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v7
-      # debian:bookworm ships without curl, and the verify script refuses to
-      # "pass" a check it cannot run. The documented apt instructions START
-      # with a curl command, so a user following them has curl by definition —
-      # installing it here reproduces the documented starting point rather
-      # than weakening the check.
-      - name: "Provide the tools the documented command assumes (apt)"
+
+      - name: "Provide tools assumed by documented commands (apt)"
         if: matrix.channel == 'apt'
         shell: bash
         run: |
           set -euo pipefail
           apt-get update -qq
           apt-get install -y -qq curl ca-certificates gnupg >/dev/null
+
       - name: "Run the documented command for ${{ matrix.channel }}"
         shell: bash
         run: |
@@ -223,9 +164,7 @@ jobs:
             "${{ needs.resolve.outputs.base_url }}" \
             "${{ needs.resolve.outputs.version }}"
 
-  # Python gets an extra step because installing is not importing: the historical
-  # failures here were SIGILL on import and a SIGSEGV on the first `del`, both of
-  # which a successful `pip install` reports as fine.
+  # A successful `pip install` does not guarantee successful import (e.g., SIGILL/SIGSEGV).
   python_import:
     name: "python: install, import, construct, teardown"
     needs: resolve
@@ -240,13 +179,10 @@ jobs:
         run: |
           set -euo pipefail
           BASE="${{ needs.resolve.outputs.base_url }}"
-          # `--target` rather than a venv: it is isolated, needs no python3-venv,
-          # and sidesteps Debian's externally-managed-environment refusal.
+
           python3 -m pip install --target /tmp/azul-site --no-cache-dir \
             azul --index-url "$BASE/ui"
 
-          # Written to a file rather than passed with -c: an inline script at
-          # column 0 would terminate this YAML block scalar.
           cat > /tmp/smoke.py <<'PYEOF'
           import azul
           n = len([x for x in dir(azul) if x[:1].isupper()])
@@ -257,24 +193,10 @@ jobs:
           PYEOF
           sed -i 's/^          //' /tmp/smoke.py
 
-          # `ulimit -v` is not caution for its own sake: an unguarded import of a
-          # broken build OOM'd hard enough to lock a developer machine once.
+          # Enforce ulimit to prevent unguarded imports from locking the runner via OOM.
           ( ulimit -v 4000000
             PYTHONPATH=/tmp/azul-site python3 /tmp/smoke.py )
 
-  # The release page must LIST what it claims to ship, AND EVERY LISTED
-  # DOWNLOAD MUST RESOLVE. An artifact that is deliberately absent (unsigned iOS
-  # builds when no Apple signing cert is configured) must be listed as
-  # UNAVAILABLE rather than silently missing — "not built" and "not shipped in
-  # this configuration" have to be distinguishable by looking.
-  #
-  # This job passed on 2026-08-20 while 18 of the release page's 71
-  # GitHub-Release download links returned 404, for two independent reasons,
-  # both now fixed:
-  #   1. it ran on `push`, ~80 minutes before the deploy — see the `on:` block;
-  #   2. it only grepped the page for five NAMES. "The page mentions
-  #      libazul.so" is not "a user who clicks Download gets a file". The
-  #      second step below fetches every advertised link and fails on a 404.
   artifacts:
     name: Release page lists the expected artifacts
     needs: resolve
@@ -289,28 +211,13 @@ jobs:
           set -euo pipefail
           BASE="${{ needs.resolve.outputs.base_url }}"
           VERSION="${{ needs.resolve.outputs.version }}"
-          # The resolved listing URL from `resolve`, NOT "$BASE/releases" —
-          # that one is an HTML redirect stub and grepping it for artifact
-          # names is why this job reported all three missing.
           RELEASES="${{ needs.resolve.outputs.releases_url }}"
           page=$(mktemp)
           curl -sSL --fail "$RELEASES" -o "$page"
           echo "checking $RELEASES ($(wc -c < "$page") bytes) for azul $VERSION"
 
-          # The listing is an index of versions; each links to a per-version
-          # page that carries the actual download names. Follow the link for
-          # VERSION if there is one, and append it to what we search, so this
-          # works whether the artifacts are listed inline or one level down.
-          # NOTE the singular/plural split, which is easy to get wrong and was:
-          # the INDEX is /ui/releases, the per-version page with the actual
-          # download names is /ui/release/<version>/. Match either spelling in a
-          # discovered link, and fall back to constructing the singular form
-          # directly, because the index's "Downloads & release notes" card
-          # currently links back to the index itself.
-          # `|| true`: under pipefail a no-match grep would kill the script
-          # HERE, before any verdict — the fallback below is the intended
-          # no-match path (this exact silent death shipped: exit 1 with zero
-          # error output right after the "checking" line).
+          # The index is `/ui/releases`, but downloads are on `/ui/release/<version>/`.
+          # We extract the version link if available, or fall back to constructing it.
           sub=$(grep -oE 'href="[^"]*releases?/'"$VERSION"'[^"]*"' "$page" \
                 | head -1 | sed 's/^href="//;s/"$//' || true)
           [ -n "$sub" ] || sub="$BASE/ui/release/$VERSION/"
@@ -326,18 +233,7 @@ jobs:
             echo "::notice::no per-version link for $VERSION; searching the index itself"
           fi
 
-          # THE NAMES BELOW MUST BE ONES THE RELEASE ACTUALLY PUBLISHES.
-          # They used to be azul-<V>-linux-x86_64 / -windows-x86_64 / -macos,
-          # and no such asset has ever existed — the check invented a naming
-          # convention, then reported the invention missing. Verified against
-          # `gh release view 0.2.0` and the live /ui/release/0.2.0/ page: the
-          # per-platform shared libraries ship as libazul.so / azul.dll /
-          # libazul.dylib, alongside the .deb and .rpm packages.
-          #
-          # One shared library per desktop OS is the right thing to assert here:
-          # it is what every non-package-manager consumer downloads, and if a
-          # platform's build silently stopped being published this is the check
-          # that would notice.
+          # Verify exact shared libraries / packages ship as expected.
           missing=0
           for artifact in \
             "libazul.so" \
@@ -353,32 +249,21 @@ jobs:
             fi
           done
 
-          # Distinguish "the page is wrong" from "the release is not published".
-          # Both used to produce the same three lines, and the first one wasted
-          # a day: the page was a redirect stub and nothing was wrong with the
-          # release at all.
           if [ "$missing" -ne 0 ]; then
             if grep -q "$VERSION" "$page"; then
-              echo "::error::the page names $VERSION but lists none of its download artifacts — the release page rendered without its downloads"
+              echo "::error::The page names $VERSION but is missing expected artifacts."
             else
-              echo "::error::the page does not mention $VERSION at all — either the deploy for this version has not run, or api.json is ahead of the site"
+              echo "::error::The page does not mention $VERSION at all."
             fi
           fi
 
-          # An artifact may legitimately not exist — but then it must SAY so.
-          # Silence is the failure mode this check exists for.
+          # Warn if iOS builds are missing but not labeled as 'unavailable'.
           if grep -qi 'ios' "$page"; then
             grep -qiE 'ios[^<]*(unavailable|not available)' "$page" \
               || echo "::notice::iOS artifacts are listed as present — verify they are actually signed"
           fi
           exit "$missing"
 
-      # THE CHECK THAT SHOULD HAVE EXISTED FROM THE START. The step above reads
-      # the page; this one uses it. Every advertised download is fetched and
-      # must resolve — a 404 fails the job, by name, with the URL.
-      #
-      # `if: always()` so a naming regression above does not hide the dead-link
-      # verdict; both failures are independently useful.
       - name: Every advertised download actually resolves
         if: always()
         shell: bash
@@ -389,9 +274,6 @@ jobs:
           bash scripts/verify_release_page_links.sh \
             "$BASE/ui/release/$VERSION/" "$BASE" "$VERSION"
 
-  # An APK that exists is not an APK that installs. This launches the LAUNCHER
-  # activity, NOT `android.app.NativeActivity` — launching the latter directly is
-  # exactly the bypass that let an APK with no classes.dex look healthy for months.
   apk_install:
     name: "android: install the published APK and launch it"
     needs: resolve
@@ -404,29 +286,18 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Download the published APK
         shell: bash
         env:
-          # `gh release download` needs both; the workflow's top-level
-          # `permissions: contents: read` already covers reading a release.
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          BASE="${{ needs.resolve.outputs.base_url }}"
           VERSION="${{ needs.resolve.outputs.version }}"
-          # The APKs are NOT on the site, by design. deploy_pages offloads every
-          # large asset to the GitHub Release and deletes it from the Pages
-          # artifact ("trimming LARGE assets from the Pages artifact") because
-          # GitHub caps a Pages artifact at 1 GB and four ~38 MB APKs plus the
-          # static libs blew through it. This check asked for
-          # $BASE/ui/mobile-apps/azul-self-test-android.apk, which the deploy
-          # had just deleted on purpose — so it could never pass, and reported
-          # "no published APK" about four APKs that were published.
-          #
-          # Ask the GitHub Release, which is where they are.
-          # Prefer the x86_64 emulator variant (shipped since the packaging
-          # fix); fall back to the arm64 phone APK for releases predating it.
+
+          # APKs are offloaded to GitHub Releases because they breach GitHub Pages'
+          # 1 GB artifact limit. Attempt x86_64 first (emulator native), fallback to arm64.
           if gh release download "$VERSION" --repo "$GH_REPO" \
                --pattern 'azul-self-test-android-x86_64.apk' --dir /tmp --clobber 2>/dev/null; then
             mv /tmp/azul-self-test-android-x86_64.apk /tmp/azul.apk
@@ -437,10 +308,11 @@ jobs:
             echo "abi=arm64-v8a" > /tmp/apk-abi.env
           else
             cat /tmp/dl.log >&2 || true
-            echo "::error::no azul-self-test-android*.apk on the $VERSION GitHub Release (deploy_pages offloads APKs there; they are deliberately absent from $BASE)"
+            echo "::error::no azul-self-test-android*.apk on the $VERSION GitHub Release"
             exit 1
           fi
           ls -l /tmp/azul.apk; cat /tmp/apk-abi.env
+
       - name: Static checks the phone performs before it will run anything
         shell: bash
         run: |
@@ -449,27 +321,24 @@ jobs:
           "$BT/apksigner" verify --verbose /tmp/azul.apk \
             || { echo "::error::published APK is not validly signed"; exit 1; }
           unzip -l /tmp/azul.apk | grep -q 'classes\.dex' \
-            || { echo "::error::published APK has no classes.dex — its launcher activity is a Java class, so it cannot start"; exit 1; }
+            || { echo "::error::published APK has no classes.dex"; exit 1; }
           "$BT/aapt2" dump badging /tmp/azul.apk | tee /tmp/badging.txt | grep -q launchable-activity \
             || { echo "::error::published APK declares no launchable activity"; exit 1; }
-      # Without KVM the x86_64 emulator cannot boot on GitHub's runners —
-      # observed as ~30 consecutive `adb` exit-1 retries until the action
-      # gives up. This udev rule is the emulator-runner action's own
-      # documented prerequisite for hardware acceleration.
+
       - name: Enable KVM group perms
+        # Required for the Android emulator runner to use hardware acceleration.
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+
       - name: Install on an emulator and start the launcher activity
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
           arch: x86_64
           disable-animations: true
-          # ONE line: the action executes every `script:` line as a separate
-          # `/usr/bin/sh -c`, so multi-line scripts lose their variables
-          # between lines (PKG/ACT came out empty → `am start -n "/"`).
-          # The real flow lives in scripts/verify_apk_launch.sh (bash).
+          # The action runs `script` line-by-line in separate shells. We pass a
+          # single script file to preserve state and variables between steps.
           script: bash "$GITHUB_WORKSPACE/scripts/verify_apk_launch.sh"

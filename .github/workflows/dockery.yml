@@ -1,30 +1,22 @@
-# .github/workflows/dockery.yml
-#
-# Build + publish the pre-lifted WASM base image for azul web apps to the
+# Build and publish the pre-lifted WASM base image for Azul web apps to the
 # GitHub Container Registry (ghcr.io/fschutt/azul-web-base).
 #
-# The image bakes a warm remill lift cache so apps under AZ_BACKEND=web only
-# lift their own callbacks on first request instead of the whole azul library.
-# See docker/README.md for the design and the library changes it depends on.
+# The image bakes a warm remill lift cache so apps using AZ_BACKEND=web
+# only lift their own callbacks on first request, rather than the entire library.
+# See docker/README.md for design details.
 #
-# EXPERIMENTAL. Publishes NATIVE amd64 + arm64 base images (a matrix over native
-# runners, no QEMU) and stitches them into one multi-arch tag. The framework
-# lift is baked per-arch by the Dockerfile's `prelift` stage (AZ_BACKEND=
-# web-prelift). arm64's aarch64 lift is the validated path; amd64's own x86
-# self-lift is still WIP, so the amd64 image is best-effort. remill itself is
-# cached independently of AZUL_REF (docker/Dockerfile), so app changes don't
-# rebuild it.
+# EXPERIMENTAL: Publishes native amd64 + arm64 base images and stitches them
+# into a multi-arch tag. The arm64 (aarch64) lift is the validated path; the
+# amd64 (x86) self-lift is WIP and best-effort.
 #
-# This is a SEPARATE workflow from rust.yml on purpose. It does not touch the
-# Pages deploy — rust.yml's deploy_pages dispatches it async + continue-on-error,
-# so website iteration is never blocked on (re)building remill.
+# This workflow is kept separate from `rust.yml`. Website iteration (Pages deploy)
+# triggers this asynchronously so it is never blocked by rebuilding `remill`.
 
 name: docker-web-base
 
 on:
-  # Publishes on: a release tag (:<version> + :latest); EVERY website publish
-  # (rust.yml's deploy_pages dispatches this via workflow_dispatch so the base
-  # image tracks the live site); and a manual dispatch (defaults to pushing).
+  # Triggers on release tags, manual dispatch, and website publishes
+  # (dispatched by rust.yml's deploy_pages job to track the live site).
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'
@@ -56,23 +48,18 @@ jobs:
   build:
     name: Build ${{ matrix.arch }} (experimental)
     runs-on: ${{ matrix.runner }}
-    # The whole web-base pipeline is experimental; a broken arch must never fail
-    # the run (and website iteration doesn't depend on it at all).
-    # NOT continue-on-error. docker/Dockerfile says in-repo that this build
-    # cannot currently succeed (remill's cmake needs find_package(XED CONFIG),
-    # and nothing here sets VCPKG_ROOT/CMAKE_TOOLCHAIN_FILE or installs
-    # cxx-common). That is a known, unfixed bug — so it should show as a red X,
-    # not as two green ticks over a build that never worked.
+    # Note: This build currently fails intentionally because remill's cmake
+    # requires find_package(XED CONFIG), and cxx-common/VCPKG are not set up.
+    # Deliberately omit `continue-on-error` so this known breakage is visible
     strategy:
       fail-fast: false
       matrix:
         include:
-          # arm64: NATIVE aarch64 runner → aarch64 lift (the validated path).
+          # arm64: Native aarch64 runner -> aarch64 lift (validated path).
           - arch: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
-          # amd64: native x86 runner. The x86 self-lift is still WIP, so this
-          # image's baked framework cache may be incomplete — best-effort.
+          # amd64: Native x86 runner -> x86 self-lift (WIP, best-effort).
           - arch: amd64
             runner: ubuntu-22.04
             platform: linux/amd64
@@ -113,8 +100,8 @@ jobs:
           tags: ${{ env.IMAGE }}:${{ steps.meta.outputs.ver }}-${{ matrix.arch }}
           build-args: |
             AZUL_REF=${{ steps.meta.outputs.azul_ref }}
-          # Per-arch gha cache scope so the two builds don't clobber each other;
-          # keeps the heavy remill/toolchain + builder layers warm between runs.
+          # Per-arch cache scope prevents matrix builds from clobbering each other,
+          # keeping the heavy remill/toolchain layers warm between runs.
           cache-from: type=gha,scope=web-base-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=web-base-${{ matrix.arch }}
 
@@ -123,11 +110,6 @@ jobs:
     needs: build
     if: github.event_name == 'push' || github.event.inputs.push_image == 'true'
     runs-on: ubuntu-22.04
-    # NOT continue-on-error. docker/Dockerfile says in-repo that this build
-    # cannot currently succeed (remill's cmake needs find_package(XED CONFIG),
-    # and nothing here sets VCPKG_ROOT/CMAKE_TOOLCHAIN_FILE or installs
-    # cxx-common). That is a known, unfixed bug — so it should show as a red X,
-    # not as two green ticks over a build that never worked.
     steps:
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -148,30 +130,23 @@ jobs:
               echo "::warning::${IMAGE}:${VER}-${a} not published (arch build failed?) — skipping"
             fi
           done
-          # NOT `exit 0`. Combined with job-level continue-on-error on both jobs,
-          # that made this workflow structurally incapable of failing: it reported
-          # two green checks over a build that docker/Dockerfile itself documents
-          # as unable to succeed ("remill's cmake does find_package(XED CONFIG) ...
-          # the image build fails at this step ... the web-base image is
-          # experimental and not yet green"), because no VCPKG_ROOT /
-          # CMAKE_TOOLCHAIN_FILE is ever set and no cxx-common is installed. The
-          # only way to learn it was broken was to read the Dockerfile comments.
-          #
-          # Publishing NOTHING is the actual outcome to surface. The jobs keep
-          # continue-on-error — this image is genuinely experimental and must not
-          # block anything — so this exits 1 to turn the check red-but-non-blocking
-          # rather than green-and-wrong. A workflow that cannot report its own
-          # failure is worse than one that is simply absent.
+
+          # Fail the workflow if no architectures were built, rather than silently skipping.
+          # See docker/Dockerfile for the missing `XED CONFIG` / `cxx-common` dependency
+          # that currently prevents the build from succeeding.
           if [ -z "$SRCS" ]; then
-            echo "::error::no arch images published, so there is nothing to stitch. The azul-web-base build is failing - see docker/Dockerfile:61-63: remill's cmake needs find_package(XED CONFIG) and this workflow sets no VCPKG_ROOT/CMAKE_TOOLCHAIN_FILE and installs no cxx-common."
+            echo "::error::No arch images published to stitch. The azul-web-base build is currently failing due to missing remill dependencies (XED CONFIG / cxx-common)."
             exit 1
           fi
+
           docker manifest create "${IMAGE}:${VER}" $SRCS
           docker manifest push   "${IMAGE}:${VER}"
+
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             docker manifest create "${IMAGE}:latest" $SRCS
             docker manifest push   "${IMAGE}:latest"
           fi
+
           {
             echo "## azul-web-base (experimental, multi-arch)"
             echo ""

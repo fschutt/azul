@@ -2,13 +2,13 @@
 #
 # Linux:   cargo zigbuild --release --target x86_64-unknown-linux-gnu
 # Windows: brew install mingw-w64 && cargo build --release --target x86_64-pc-windows-gnu
-# iOS:     cargo build --target aarch64-apple-ios-sim    (requires full Xcode + iOS SDK)
+# iOS:     cargo build --target aarch64-apple-ios-sim    (requires Xcode + iOS SDK)
 # Android: cargo ndk -t arm64-v8a build                  (requires ANDROID_NDK_HOME)
 #
-# The Android linker paths below assume Homebrew layout from
-# `brew install --cask android-commandlinetools` plus
-# `sdkmanager 'ndk;27.0.12077973'`. If your NDK lives elsewhere,
-# override via environment: CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=...
+# The Android linker paths below assume the Homebrew layout from
+# `brew install --cask android-commandlinetools` and `sdkmanager 'ndk;27.0.12077973'`.
+# If your NDK lives elsewhere, override via environment:
+# CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=...
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
@@ -22,23 +22,21 @@ ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolcha
 linker = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android24-clang"
 ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
 
-# Legacy Windows (rust9x, i686, WinXP+). getrandom 0.2.17 — pulled transitively
-# (rand/uuid/ahash etc.) — calls RtlGenRandom (SystemFunction036) from advapi32
-# but emits no link directive for it: it historically assumed std links advapi32.
-# Modern std links bcrypt instead, so on this target the import is unresolved
-# (LNK2019 __imp__SystemFunction036@8 -> LNK1120). RtlGenRandom exists on Windows
-# XP+ (this target's floor), so pulling advapi32.lib into every link makes
-# getrandom both link and work. (A genuine pre-XP/Win98 target would instead need
-# a dlopen fork of getrandom, since a static advapi32 import blocks image load.)
+# Legacy Windows (rust9x, i686, WinXP+)
+#
+# Dependencies like `getrandom` call `RtlGenRandom` from `advapi32.lib`. Older
+# Rust `std` implicitly linked this, but modern `std` links `bcrypt` instead.
+# This causes an unresolved symbol error (LNK2019) on this target. Manually
+# linking `advapi32.lib` fixes the build for XP+.
+#
+# (Note: Pre-XP/Win98 targets would instead require a custom dlopen approach
+# to avoid blocking image load).
 [target.i686-rust9x-windows-msvc]
 rustflags = ["-Clink-arg=advapi32.lib"]
 
-# NO profile override here. This block used to force `lto = "thin"` on the
-# whole workspace — config-toml profile settings silently OVERRIDE the
-# workspace Cargo.toml, so the deliberate `[profile.release] lto = false`
-# ("faster local builds") never actually applied: every one of the ~12 dll
-# integration-test binaries paid a full thin-LTO relink of the static
-# engine (~25 min per battery, measured 2026-08-08). Shipped artifacts get
-# their LTO from `--profile prod-release` (see workspace Cargo.toml), which
-# is the CI path; local release builds are for iteration. USER ruling:
-# "what we ship is the DLL. Just do no LTO [for tests]."
+# NOTE: Do not add `[profile]` overrides here.
+#
+# Profile settings in `.cargo/config.toml` silently override the workspace
+# `Cargo.toml`. Previously, an `lto = "thin"` setting here overrode the local
+# `lto = false` setting, forcing massive recompiles for tests and local builds.
+# Local release builds should remain fast; CI handles LTO via `--profile prod-release`.
